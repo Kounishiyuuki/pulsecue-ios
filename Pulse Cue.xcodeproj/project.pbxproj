@@ -29,22 +29,9 @@
 		3F77E6342F35A07F0081D154 /* Pulse CueUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Pulse CueUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		3F77E63C2F35A07F0081D154 /* Exceptions for "Pulse Cue" folder in "Pulse Cue" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 3F77E6182F35A07E0081D154 /* Pulse Cue */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3F77E61B2F35A07E0081D154 /* Pulse Cue */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				3F77E63C2F35A07F0081D154 /* Exceptions for "Pulse Cue" folder in "Pulse Cue" target */,
-			);
 			path = "Pulse Cue";
 			sourceTree = "<group>";
 		};
