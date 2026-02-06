@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 
 class AudioService: ObservableObject {
     static let shared = AudioService()
@@ -12,6 +13,10 @@ class AudioService: ObservableObject {
     private var audioPlayer: AVAudioPlayer?
     
     private init() {
+        // Set default value if not set
+        if UserDefaults.standard.object(forKey: "beepEnabled") == nil {
+            UserDefaults.standard.set(true, forKey: "beepEnabled")
+        }
         isBeepEnabled = UserDefaults.standard.bool(forKey: "beepEnabled")
     }
     

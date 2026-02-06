@@ -3,6 +3,13 @@ import SwiftData
 
 @main
 struct PulseCueApp: App {
+    init() {
+        // Request notification permissions on app launch
+        Task {
+            await NotificationService.shared.requestAuthorization()
+        }
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()

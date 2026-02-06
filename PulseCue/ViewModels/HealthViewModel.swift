@@ -12,10 +12,13 @@ class HealthViewModel: ObservableObject {
     func getTodayLog() -> DayLog? {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else {
+            return nil
+        }
         
         let descriptor = FetchDescriptor<DayLog>(
             predicate: #Predicate { log in
-                calendar.startOfDay(for: log.date) == today
+                log.date >= today && log.date < tomorrow
             }
         )
         
