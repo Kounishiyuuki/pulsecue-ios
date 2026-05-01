@@ -10,9 +10,16 @@ import SwiftData
 
 @main
 struct Pulse_CueApp: App {
+    @StateObject private var settings: SettingsStore
+    @StateObject private var runnerViewModel: RunnerViewModel
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Routine.self,
+            Step.self,
+            Session.self,
+            StepResult.self,
+            DayLog.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -23,9 +30,17 @@ struct Pulse_CueApp: App {
         }
     }()
 
+    init() {
+        let settings = SettingsStore()
+        _settings = StateObject(wrappedValue: settings)
+        _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: settings))
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(settings)
+                .environmentObject(runnerViewModel)
         }
         .modelContainer(sharedModelContainer)
     }
