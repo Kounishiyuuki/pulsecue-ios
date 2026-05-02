@@ -33,9 +33,9 @@ Pulse Cue/
 │   └── StepResult.swift
 ├── ViewModels/
 │   └── RunnerViewModel.swift
-├── Views/                # SwiftUI 画面とサブシート
-├── Services/             # 通知 / 永続化 / サンプル投入 / 音 / 触覚 / 設定
-├── Utilities/            # AppTab / AppTheme / DateUtils / ScreenWakeManager
+├── Views/                # SwiftUI 画面とサブシート（HealthSummaryView 等）
+├── Services/             # 通知 / 永続化 / サンプル投入 / 音 / 触覚 / 設定 / DayLogStore
+├── Utilities/            # AppTab / AppTheme / DateUtils / HealthSummary / ScreenWakeManager
 ├── Resources/Assets.xcassets
 └── Info.plist / Pulse_Cue.entitlements
 ```
@@ -70,12 +70,20 @@ Pulse Cue/
 - `title / sets(1–20) / repsTarget(1–50) / restSeconds(0–600) / note / isWarmup`
 - 各値は保存時にクランプ。タイトル空白時は「無題」に置換。
 
-### Today（DayLog）
-- 4 カード（ワークアウト / 栄養 / 睡眠 / 体重）+ バランスカード
-- 値が未入力ならカードをオレンジ枠でハイライト
-- 入力はクイックシートで 1 項目ずつ
-- バランス＝`intakeCalories - exerciseCalories`（P0 はシンプルに）
-- 当日の `DayLog` がなければ自動作成
+### Today（DayLog ダッシュボード）
+- 5 カード（ワークアウト / 栄養 / 運動消費 / 睡眠 / 体重）+ バランスカード
+- 値が未入力ならカードをオレンジ枠でハイライト、ボタンも「入力」表示に
+- 入力はクイックシートで 1 項目ずつ。保存後はカードが即時更新（`@Query` で SwiftData の変更を観測）
+- バランスカードは「摂取 − 消費」と直近 7 日平均を併記（データ不足時はその旨を表示）
+- 体重カードには 7 日移動平均と上昇 / 横ばい / 下降の傾向ラベルを表示
+- カード下部の「週間サマリー」リンクから `HealthSummaryView` に遷移
+- 当日の `DayLog` は `DayLogStore.fetchOrCreateToday(modelContext:)` で 1 日 1 レコードを保証
+
+### Health Summary（健康サマリー）
+- 過去 7 日の摂取 / 運動消費 / バランス / 睡眠の平均（3 日以上のデータが必要）
+- 体重の最新値・7 日移動平均・直近の傾向
+- 入力済みの日数を `n / 7 日` で表示
+- すべてオフラインで端末内のみ計算する **目安値**（HealthKit や同期は P0 範囲外）
 
 ### History（履歴）
 - セッション一覧（ルーティン名 / 日付 / 状態 / 合計時間）

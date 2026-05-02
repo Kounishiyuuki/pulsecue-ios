@@ -13,34 +13,56 @@ struct TodayView: View {
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @Binding var selectedTab: AppTab
 
-    @State private var dayLog: DayLog?
+    @Query private var recentLogs: [DayLog]
+
     @State private var activeField: DayLogField?
     @State private var showRoutinePicker = false
+
+    init(selectedTab: Binding<AppTab>) {
+        self._selectedTab = selectedTab
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let start = cal.date(byAdding: .day, value: -13, to: today) ?? today
+        self._recentLogs = Query(
+            filter: #Predicate<DayLog> { $0.date >= start },
+            sort: [SortDescriptor(\DayLog.date, order: .reverse)]
+        )
+    }
+
+    private var summary: HealthSummary {
+        HealthSummary(logs: recentLogs)
+    }
+
+    private var todayLog: DayLog? { summary.todayLog }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 workoutCard
                 nutritionCard
+                exerciseCard
                 sleepCard
                 weightCard
                 balanceCard
+                healthSummaryLink
             }
             .padding()
         }
         .navigationTitle("今日")
         .sheet(item: $activeField) { field in
-            if let dayLog {
+            if let dayLog = todayLog {
                 DayLogQuickInputSheet(field: field, dayLog: dayLog)
             }
         }
         .sheet(isPresented: $showRoutinePicker) {
             RoutinePickerSheet()
         }
-        .onAppear {
-            loadDayLog()
+        .task {
+            ensureTodayLogExists()
         }
     }
+
+    // MARK: Cards
 
     private var workoutCard: some View {
         InfoCard(
@@ -72,88 +94,149 @@ struct TodayView: View {
     }
 
     private var nutritionCard: some View {
-        InfoCard(
+        let intake = todayLog?.intakeCalories
+        return InfoCard(
             title: "栄養",
-            subtitle: dayLog?.intakeCalories == nil ? "未入力" : "\(dayLog?.intakeCalories ?? 0) kcal",
-            isMissing: dayLog?.intakeCalories == nil,
-            actionTitle: "入力"
+            subtitle: intake.map { "\($0) kcal" } ?? "未入力",
+            isMissing: intake == nil,
+            actionTitle: intake == nil ? "入力" : "編集"
         ) {
             activeField = .nutrition
         } content: {
-            Text("摂取カロリーをすばやく入力")
+            Text("今日の摂取カロリーをすばやく入力")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var exerciseCard: some View {
+        let exercise = todayLog?.exerciseCalories
+        return InfoCard(
+            title: "運動消費",
+            subtitle: exercise.map { "\($0) kcal" } ?? "未入力",
+            isMissing: exercise == nil,
+            actionTitle: exercise == nil ? "入力" : "編集"
+        ) {
+            activeField = .workout
+        } content: {
+            Text("ワークアウトや活動による消費カロリーの目安")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
     }
 
     private var sleepCard: some View {
-        InfoCard(
+        let sleep = todayLog?.sleepMinutes
+        return InfoCard(
             title: "睡眠",
-            subtitle: dayLog?.sleepMinutes == nil ? "未入力" : "\(dayLog?.sleepMinutes ?? 0) 分",
-            isMissing: dayLog?.sleepMinutes == nil,
-            actionTitle: "入力"
+            subtitle: sleep.map { formatSleep(minutes: $0) } ?? "未入力",
+            isMissing: sleep == nil,
+            actionTitle: sleep == nil ? "入力" : "編集"
         ) {
             activeField = .sleep
         } content: {
-            Text("睡眠時間を記録")
+            Text("昨夜の睡眠時間を記録")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
     }
 
     private var weightCard: some View {
-        InfoCard(
+        let weight = todayLog?.weightKg
+        return InfoCard(
             title: "体重",
-            subtitle: dayLog?.weightKg == nil ? "未入力" : "\(formattedWeight) kg",
-            isMissing: dayLog?.weightKg == nil,
-            actionTitle: "入力"
+            subtitle: weight.map { "\(formatWeight($0)) kg" } ?? "未入力",
+            isMissing: weight == nil,
+            actionTitle: weight == nil ? "入力" : "編集"
         ) {
             activeField = .weight
         } content: {
-            Text("今日の体重")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                if let avg = summary.weightMovingAverage {
+                    Text("7日平均: \(formatWeight(avg)) kg" + trendSuffix())
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("今日の体重")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
     private var balanceCard: some View {
-        let intake = dayLog?.intakeCalories ?? 0
-        let exercise = dayLog?.exerciseCalories ?? 0
+        let intake = todayLog?.intakeCalories ?? 0
+        let exercise = todayLog?.exerciseCalories ?? 0
         let balance = intake - exercise
+        let isMissing = todayLog?.intakeCalories == nil && todayLog?.exerciseCalories == nil
         return InfoCard(
-            title: "バランス",
-            subtitle: "\(balance) kcal",
-            isMissing: dayLog?.intakeCalories == nil && dayLog?.exerciseCalories == nil,
-            actionTitle: "入力"
+            title: "バランス（目安）",
+            subtitle: isMissing ? "未入力" : "\(balance) kcal",
+            isMissing: isMissing,
+            actionTitle: nil,
+            action: nil
         ) {
-            activeField = .workout
-        } content: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("摂取 \(intake) kcal")
-                Text("消費 \(exercise) kcal")
+                Text("摂取 \(intake) kcal − 消費 \(exercise) kcal")
+                if let weeklyAvg = summary.weeklyBalanceAverage {
+                    Text("7日平均: \(weeklyAvg) kcal/日")
+                } else {
+                    Text("7日平均: データ不足")
+                }
             }
             .font(.footnote)
             .foregroundStyle(.secondary)
         }
     }
 
-    private var formattedWeight: String {
-        guard let weight = dayLog?.weightKg else { return "0" }
+    private var healthSummaryLink: some View {
+        NavigationLink {
+            HealthSummaryView()
+        } label: {
+            HStack {
+                Label("週間サマリー", systemImage: "chart.bar.xaxis")
+                    .font(.subheadline)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Helpers
+
+    private func trendSuffix() -> String {
+        guard let trend = summary.weightTrend else { return "" }
+        return "（\(trend.label)）"
+    }
+
+    private func formatSleep(minutes: Int) -> String {
+        let h = minutes / 60
+        let m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)時間\(m)分" }
+        if h > 0 { return "\(h)時間" }
+        return "\(m)分"
+    }
+
+    private func formatWeight(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 1
-        return formatter.string(from: NSNumber(value: weight)) ?? String(format: "%.1f", weight)
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
     }
 
-    private func loadDayLog() {
-        let today = DateUtils.startOfDay(Date())
-        let descriptor = FetchDescriptor<DayLog>(predicate: #Predicate<DayLog> { $0.date == today })
-        if let existing = try? modelContext.fetch(descriptor).first {
-            dayLog = existing
-        } else {
-            let newLog = DayLog(date: today)
-            modelContext.insert(newLog)
-            dayLog = newLog
+    private func ensureTodayLogExists() {
+        if todayLog == nil {
+            _ = DayLogStore.fetchOrCreateToday(modelContext: modelContext)
         }
     }
 }

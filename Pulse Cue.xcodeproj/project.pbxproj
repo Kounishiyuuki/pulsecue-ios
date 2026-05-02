@@ -40,6 +40,9 @@
 		4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */; };
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
 		FC8288834D88458B95DF7E56 /* Pulse_CueUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FBA91F3E114F92BB31BF6D /* Pulse_CueUITestsLaunchTests.swift */; };
+		D17104DB1A8E4001B0DA1701 /* DayLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */; };
+		D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */; };
+		D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +101,9 @@
 		FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Pulse_CueTests.swift"; sourceTree = "<group>"; };
 		38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Pulse_CueUITests.swift"; sourceTree = "<group>"; };
 		81FBA91F3E114F92BB31BF6D /* Pulse_CueUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Pulse_CueUITestsLaunchTests.swift"; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DayLogStore.swift"; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSummary.swift"; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSummaryView.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -198,6 +204,7 @@
 			isa = PBXGroup;
 			children = (
 				9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */,
+				D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */,
 				2FD02E7540234858B9B7F496 /* HistoryView.swift */,
 				7F38FF5AE06247CA876EF7E0 /* InfoCard.swift */,
 				26F09FF63F2B40ED822DB5FB /* RoutineEditorView.swift */,
@@ -215,6 +222,7 @@
 		26F919F9BFF14BE9BB9C7FD7 = {
 			isa = PBXGroup;
 			children = (
+				D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */,
 				69F02898313644D4B49487AE /* NotificationManager.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
@@ -232,6 +240,7 @@
 				C42B362F210943269227ACCE /* AppTab.swift */,
 				006E74099FEC4FEA860FC867 /* AppTheme.swift */,
 				B6DCF85EFBDB4BDB932AE5F6 /* DateUtils.swift */,
+				D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */,
 				19B33DB07E7349E7996C58DB /* ScreenWakeManager.swift */,
 			);
 			name = "Utilities";
@@ -440,6 +449,9 @@
 				25BF5148D69C49A1946FF607 /* SettingsView.swift in Sources */,
 				5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */,
 				DA57885887FA409498252986 /* WorkoutView.swift in Sources */,
+				D17104DB1A8E4001B0DA1701 /* DayLogStore.swift in Sources */,
+				D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */,
+				D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
