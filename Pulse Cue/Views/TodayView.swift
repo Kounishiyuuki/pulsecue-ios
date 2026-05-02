@@ -101,7 +101,7 @@ struct TodayView: View {
             isMissing: intake == nil,
             actionTitle: intake == nil ? "入力" : "編集"
         ) {
-            activeField = .nutrition
+            openField(.nutrition)
         } content: {
             Text("今日の摂取カロリーをすばやく入力")
                 .font(.footnote)
@@ -117,7 +117,7 @@ struct TodayView: View {
             isMissing: exercise == nil,
             actionTitle: exercise == nil ? "入力" : "編集"
         ) {
-            activeField = .workout
+            openField(.workout)
         } content: {
             Text("ワークアウトや活動による消費カロリーの目安")
                 .font(.footnote)
@@ -133,7 +133,7 @@ struct TodayView: View {
             isMissing: sleep == nil,
             actionTitle: sleep == nil ? "入力" : "編集"
         ) {
-            activeField = .sleep
+            openField(.sleep)
         } content: {
             Text("昨夜の睡眠時間を記録")
                 .font(.footnote)
@@ -149,7 +149,7 @@ struct TodayView: View {
             isMissing: weight == nil,
             actionTitle: weight == nil ? "入力" : "編集"
         ) {
-            activeField = .weight
+            openField(.weight)
         } content: {
             VStack(alignment: .leading, spacing: 4) {
                 if let avg = summary.weightMovingAverage {
@@ -238,5 +238,10 @@ struct TodayView: View {
         if todayLog == nil {
             _ = DayLogStore.fetchOrCreateToday(modelContext: modelContext)
         }
+    }
+
+    private func openField(_ field: DayLogField) {
+        ensureTodayLogExists()
+        activeField = field
     }
 }
