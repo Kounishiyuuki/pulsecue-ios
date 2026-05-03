@@ -44,6 +44,7 @@
 		D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */; };
 		D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */; };
 		D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */; };
+		D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,6 +107,7 @@
 		D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSummary.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSummaryView.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerStateMachineTests.swift"; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthKitImporter.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -225,6 +227,7 @@
 			isa = PBXGroup;
 			children = (
 				D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */,
+				D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */,
 				69F02898313644D4B49487AE /* NotificationManager.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
@@ -455,6 +458,7 @@
 				D17104DB1A8E4001B0DA1701 /* DayLogStore.swift in Sources */,
 				D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */,
 				D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */,
+				D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
