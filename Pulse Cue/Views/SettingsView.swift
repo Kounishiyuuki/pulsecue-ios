@@ -16,20 +16,30 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("通知") {
-                Toggle("通知を有効にする", isOn: notificationBinding)
+            Section {
+                Toggle("休憩終了の通知を許可する", isOn: notificationBinding)
                 Text(notificationStatusText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            } header: {
+                Text("通知")
+            } footer: {
+                Text("休憩のカウントダウンが終わったタイミングでローカル通知を発火します。アプリが背景にある間も鳴ります。")
             }
 
-            Section("フィードバック") {
-                Toggle("ビープ音", isOn: $settings.soundEnabled)
-                Toggle("触覚", isOn: $settings.hapticsEnabled)
+            Section {
+                Toggle("休憩終了時にビープ音を鳴らす", isOn: $settings.soundEnabled)
+                Toggle("休憩終了時に触覚で知らせる", isOn: $settings.hapticsEnabled)
+            } header: {
+                Text("フィードバック")
+            } footer: {
+                Text("通知の許可がない／ミュート時のフォールバックとして使われます。")
             }
 
-            Section("表示") {
-                Toggle("画面を常時点灯", isOn: $settings.keepScreenOn)
+            Section {
+                Toggle("ランナー表示中は画面を常時点灯", isOn: $settings.keepScreenOn)
+            } header: {
+                Text("表示")
             }
 
             Section("アプリ情報") {
