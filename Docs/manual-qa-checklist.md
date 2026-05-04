@@ -1,4 +1,4 @@
-# 手動 QA チェックリスト（v2 / `goal/v3-prototype`）
+# 手動 QA チェックリスト（v2 / `main`）
 
 Xcode で Scheme `Pulse Cue` を選択して以下を順に確認します。所要時間 10 分程度。
 
@@ -60,8 +60,11 @@ Xcode で Scheme `Pulse Cue` を選択して以下を順に確認します。所
 
 ## 自動テスト（参考）
 
-- `RunnerStateMachineTests`（13 件）と `Pulse_CueUITests` / `Pulse_CueUITestsLaunchTests` がこのブランチで pass する
-- `DayLogHealthSummaryTests`（28 件）は `test/daylog-health-summary` PR にあり、本ブランチには未取り込み（マージ後 `goal/v3-prototype` を rebase で取り込む想定）
+- ⌘U で Swift Testing と XCTest を実行：
+  - `RunnerStateMachineTests`（13 件）
+  - `DayLogHealthSummaryTests`（28 件 = DayLogStore 6 + HealthSummary 22）
+  - `Pulse_CueUITests` / `Pulse_CueUITestsLaunchTests`（起動スモーク）
+- すべて `xcodebuild ... test` でも pass する
 
 ## 既知の制限（v2 時点）
 
