@@ -86,13 +86,20 @@ struct RunnerView: View {
         RunnerCard(title: "今") {
             if let step = runnerViewModel.currentStep {
                 Text(step.title)
-                    .font(.title3)
+                    .font(.title2)
                     .fontWeight(.semibold)
-                Text("セット \(runnerViewModel.currentSetIndex + 1) / \(step.sets)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text("セット \(runnerViewModel.currentSetIndex + 1) / \(step.sets)")
+                    if step.repsTarget > 0 {
+                        Text("·")
+                        Text("\(step.repsTarget) 回目標")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             } else {
-                Text("進行中の種目はありません")
+                Text("ルーティン未開始")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -103,10 +110,14 @@ struct RunnerView: View {
         RunnerCard(title: "休憩") {
             if runnerViewModel.phase == .rest {
                 Text(DateUtils.formatDuration(seconds: runnerViewModel.remainingSeconds))
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .font(.system(size: 56, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(countsDown: true))
+                    .accessibilityLabel("残り \(runnerViewModel.remainingSeconds) 秒")
             } else {
                 Text("--:--")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
         }
@@ -122,11 +133,16 @@ struct RunnerView: View {
                 Text(step.title)
                     .font(.title3)
                     .fontWeight(.semibold)
-                Text("セット数 \(step.sets)")
+                    .lineLimit(2)
+                Text("\(step.sets) セット × \(step.repsTarget) 回")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if runnerViewModel.isRunning {
+                Text("最後の種目です")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                Text("セッション終了")
+                Text("—")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -134,13 +150,15 @@ struct RunnerView: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button {
                 runnerViewModel.handle(action: .back)
             } label: {
                 Label("戻る", systemImage: "arrow.uturn.backward")
             }
             .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityLabel("1 セット戻る")
 
             Button {
                 runnerViewModel.handle(action: .skip)
@@ -148,6 +166,8 @@ struct RunnerView: View {
                 Label("スキップ", systemImage: "forward.fill")
             }
             .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityLabel("このステップをスキップ")
 
             Button {
                 runnerViewModel.handle(action: .extend)
@@ -155,18 +175,30 @@ struct RunnerView: View {
                 Label("+10秒", systemImage: "plus")
             }
             .buttonStyle(.bordered)
+            .controlSize(.large)
             .disabled(runnerViewModel.phase != .rest)
+            .accessibilityLabel("休憩を 10 秒延長")
 
             Button {
                 runnerViewModel.handle(action: .complete)
             } label: {
-                Label("完了", systemImage: "checkmark")
+                Label(completeButtonLabel, systemImage: "checkmark")
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityLabel(completeButtonAccessibilityLabel)
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial)
+    }
+
+    private var completeButtonLabel: String {
+        runnerViewModel.phase == .rest ? "休憩終了" : "完了"
+    }
+
+    private var completeButtonAccessibilityLabel: String {
+        runnerViewModel.phase == .rest ? "休憩を終了して次のセットへ" : "このセットを完了して休憩へ"
     }
 
     private var statusTitle: String {
