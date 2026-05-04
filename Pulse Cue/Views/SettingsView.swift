@@ -42,6 +42,15 @@ struct SettingsView: View {
                 Text("表示")
             }
 
+            Section {
+                LabeledContent("HealthKit", value: healthKitStateLabel)
+                Text("将来のフェーズで、体重・睡眠・運動消費を HealthKit から取り込み、DayLog に保存する前にユーザー確認を挟む予定です。現状は無効です。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("ヘルスデータ連携（プレビュー）")
+            }
+
             Section("アプリ情報") {
                 LabeledContent("名称", value: "PulseCue")
                 LabeledContent("バージョン", value: appVersion)
@@ -71,6 +80,10 @@ struct SettingsView: View {
         @unknown default:
             return ""
         }
+    }
+
+    private var healthKitStateLabel: String {
+        HealthKitImporterProvider.shared.isAvailable ? "利用可能" : "未対応（P0）"
     }
 
     private var appVersion: String {
