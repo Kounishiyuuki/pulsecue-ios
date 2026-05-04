@@ -114,22 +114,23 @@ Pulse Cue/
 
 ## 既知の制約 / 既知の問題
 
-- **HealthKit 未対応**：体重・睡眠・運動消費は手入力のみ
+- **HealthKit 連携は基盤のみ**：`HealthKitImporting` プロトコル + `NoopHealthKitImporter` で形は整っているが、HealthKit Capability / Info.plist 使用説明 / 実装は v3 で対応
 - **iCloud 同期なし**：すべてローカル `ModelContainer` 内
-- **AppIcon 画像なし**：Asset Catalog のスロットは存在するが画像が未投入のため、Xcode が「No app icon set」警告を出す可能性あり
+- **AppIcon はプレースホルダ**：3 バリアント（universal / dark / tinted）を 1024×1024 で自動生成して投入済み。デザイナーによる差し替えを想定
+- **Widget / Live Activity は未実装**：[Docs/widget-live-activity.md](Docs/widget-live-activity.md) に着手手順を記載
+- **AI コーチ / 食事カロリー推定はスタブ**：[Docs/ai-privacy-and-safety.md](Docs/ai-privacy-and-safety.md) のルールに従う `Disabled*` 実装のみ。本番実装は API キーを伴うので別フェーズ
 - **通知の繊細な再スケジュール**：休憩中にバックグラウンド遷移→復帰した際、まれに残り 1 秒以下のズレが残る場合あり
-- **エンタイトルメント**：`aps-environment = development` と CloudKit ID が含まれているが、P0 では使用しない（後段で利用予定）
+- **エンタイトルメント**：`aps-environment = development` と CloudKit ID が含まれているが、P0 では使用しない
 
 ---
 
-## ロードマップ（将来フェーズ）
+## ロードマップ（v1 / v2 / v3）
 
-詳細は [TODO.md](TODO.md) を参照。
+詳細は [TODO.md](TODO.md)、設計詳細は `Docs/` を参照。
 
-- HealthKit から体重 / 睡眠 / 運動消費を読み込む
-- Sign in with Apple
-- iCloud / CloudKit 同期
-- ホーム画面ウィジェット（次のセット / 残り休憩）
-- Live Activities（Dynamic Island に休憩タイマー）
-- AI コーチによるルーティン提案
-- 食事写真からの摂取カロリー推定
+| バージョン | テーマ | 主な内容 |
+| --- | --- | --- |
+| **v1（現在）** | ローカル P0 | Runner / DayLog / Today / 履歴 / 設定、SwiftData 永続化、Runner 復帰、サンプルデータ投入 |
+| **v2** | 信頼性 + テスト + プレビュー | Runner 状態機械テスト・DayLog/HealthSummary テスト・AppIcon・HealthKit/Widget/AI のプロトコル基盤 ←  **ここまで `goal/v3-prototype` 範囲** |
+| **v3** | ジムで便利な拡張 | HealthKit 取り込み（手入力との優先順位 UI 含む）、ホーム画面ウィジェット、Live Activity、AI コーチ（手動レビューを挟む）、食事カロリー推定（テキストから先行）、`UserConfirmed<Value>` 経由の保存フロー |
+| **v4 以降** | 同期・社会面 | Sign in with Apple、iCloud / CloudKit、Watch アプリ、共有ルーティン、コーチ（人間）連携 |
