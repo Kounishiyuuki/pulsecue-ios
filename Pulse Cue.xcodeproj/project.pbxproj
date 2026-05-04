@@ -44,6 +44,7 @@
 		D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */; };
 		D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */; };
 		D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */; };
+		D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */; };
 		D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */; };
 /* End PBXBuildFile section */
 
@@ -107,6 +108,7 @@
 		D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSummary.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSummaryView.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerStateMachineTests.swift"; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DayLogHealthSummaryTests.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthKitImporter.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -273,6 +275,7 @@
 		8B8BDF9909D442F68C9E8E09 = {
 			isa = PBXGroup;
 			children = (
+				D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */,
 				FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */,
 				D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */,
 			);
@@ -468,6 +471,7 @@
 			files = (
 				4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */,
+				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
