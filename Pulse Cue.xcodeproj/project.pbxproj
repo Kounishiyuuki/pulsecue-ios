@@ -46,6 +46,7 @@
 		D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */; };
 		D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */; };
 		D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */; };
+		D17104DB1A8E4001B0DA2101 /* AICoachStub.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -110,6 +111,7 @@
 		D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerStateMachineTests.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DayLogHealthSummaryTests.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthKitImporter.swift"; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AICoachStub.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -228,6 +230,7 @@
 		26F919F9BFF14BE9BB9C7FD7 = {
 			isa = PBXGroup;
 			children = (
+				D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */,
 				D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */,
 				D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */,
 				69F02898313644D4B49487AE /* NotificationManager.swift */,
@@ -462,6 +465,7 @@
 				D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */,
 				D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */,
 				D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */,
+				D17104DB1A8E4001B0DA2101 /* AICoachStub.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
