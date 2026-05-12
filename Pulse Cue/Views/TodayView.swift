@@ -28,6 +28,7 @@ struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var runnerViewModel: RunnerViewModel
+    @EnvironmentObject var settings: SettingsStore
     @Binding var selectedTab: AppTab
 
     @Query private var recentLogs: [DayLog]
@@ -495,6 +496,10 @@ struct TodayView: View {
                 }
             }
 
+            if let gap = goalGap(intake: todayLog?.intakeCalories) {
+                goalGapRow(gap: gap)
+            }
+
             balanceBar(intake: intake, exercise: exercise, sleep: sleep)
 
             HStack(spacing: 14) {
@@ -507,6 +512,51 @@ struct TodayView: View {
         .padding(20)
         .background(glassBackground)
         .overlay(glassStroke)
+    }
+
+    /// Today's intake-vs-target gap from SettingsStore profile, or nil
+    /// when the user hasn't entered an intake or we can't compute a
+    /// target yet (e.g. weight unknown).
+    private func goalGap(intake: Int?) -> Int? {
+        guard let intake else { return nil }
+        return settings.todayGoalGap(
+            todayIntake: intake,
+            currentWeightKg: summary.latestWeight
+        )
+    }
+
+    private func goalGapRow(gap: Int) -> some View {
+        let isOver = gap > 0
+        let withinBand = abs(gap) <= 100
+        let color: Color = withinBand
+            ? .green
+            : (isOver ? .orange : Color(red: 0.27, green: 0.62, blue: 0.95))
+        let label: String = withinBand
+            ? "目標 範囲内"
+            : (isOver ? "目標から +\(formatInt(gap)) kcal" : "目標まで \(formatInt(gap)) kcal")
+        let icon: String = withinBand
+            ? "checkmark.circle.fill"
+            : (isOver ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+
+        return HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+            Spacer(minLength: 0)
+            Text("目標は 設定 → 目標設定")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(color.opacity(0.10))
+        )
+        .accessibilityLabel("今日の目標差分 \(label)")
     }
 
     private func balanceBar(intake: Int, exercise: Int, sleep: Int) -> some View {
