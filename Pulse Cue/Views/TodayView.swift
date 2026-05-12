@@ -61,6 +61,7 @@ struct TodayView: View {
                     heroCard
                     startWorkoutButton
                     metricsGrid
+                    nutritionLogLink
                     balanceCard
                     Color.clear.frame(height: 12)
                 }
@@ -275,6 +276,48 @@ struct TodayView: View {
         } else {
             showRoutinePicker = true
         }
+    }
+
+    // MARK: - Nutrition log shortcut
+
+    /// Direct entry to the full Nutrition / meal-log screen.
+    /// Independent from the 摂取 metric card so the existing quick
+    /// calorie input (DayLogQuickInputSheet) is fully preserved.
+    private var nutritionLogLink: some View {
+        NavigationLink {
+            NutritionView()
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(accentGradient.opacity(0.16))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "fork.knife")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(accentGradient)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("食事ログ")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("朝昼夕・間食を記録 / AI 推定を確認")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity)
+            .background(glassBackground)
+            .overlay(glassStroke)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("食事ログを開く")
+        .accessibilityHint("朝昼夕食と間食の記録、AI 推定の確認待ち画面に移動")
     }
 
     // MARK: - Metrics grid
