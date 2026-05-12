@@ -5,6 +5,9 @@
 ## User settings
 xcuserdata/
 
+## Claude local config
+.claude/
+
 ## Obj-C/Swift specific
 *.hmap
 
