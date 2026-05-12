@@ -43,6 +43,10 @@
 		D17104DB1A8E4001B0DA2201 /* AICoachView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2202 /* AICoachView.swift */; };
 		D17104DB1A8E4001B0DA2301 /* MealEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2302 /* MealEntry.swift */; };
 		D17104DB1A8E4001B0DA2401 /* NutritionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */; };
+		D17104DB1A8E4001B0DA2801 /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2802 /* UserProfile.swift */; };
+		D17104DB1A8E4001B0DA2901 /* UserProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */; };
+		D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */; };
+		D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */; };
 		D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2502 /* NutritionView.swift */; };
 		D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */; };
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
@@ -113,6 +117,10 @@
 		D17104DB1A8E4001B0DA2202 /* AICoachView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICoachView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2302 /* MealEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntry.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLedger.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2802 /* UserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfile.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStore.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCalculator.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCalculatorTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2502 /* NutritionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntrySheet.swift; sourceTree = "<group>"; };
 		D179FE16B3D648C896CCC224 /* Pulse_Cue.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Pulse_Cue.entitlements; sourceTree = "<group>"; };
@@ -179,7 +187,9 @@
 				D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */,
 				D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */,
 				69F02898313644D4B49487AE /* NotificationManager.swift */,
+				D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */,
 				D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */,
+				D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -244,6 +254,7 @@
 				F931151BAB1D473A8625DFF3 /* DayLog.swift */,
 				20132618DA9D4059810757F4 /* Enums.swift */,
 				D17104DB1A8E4001B0DA2302 /* MealEntry.swift */,
+				D17104DB1A8E4001B0DA2802 /* UserProfile.swift */,
 				5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */,
 				F53D2167ACB84391A781A5F8 /* Session.swift */,
 				8FF7150E5F514C0E944597A5 /* Step.swift */,
@@ -282,6 +293,7 @@
 				FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */,
 				D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */,
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
+				D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -477,6 +489,9 @@
 				D17104DB1A8E4001B0DA2201 /* AICoachView.swift in Sources */,
 				D17104DB1A8E4001B0DA2301 /* MealEntry.swift in Sources */,
 				D17104DB1A8E4001B0DA2401 /* NutritionLedger.swift in Sources */,
+				D17104DB1A8E4001B0DA2801 /* UserProfile.swift in Sources */,
+				D17104DB1A8E4001B0DA2901 /* UserProfileStore.swift in Sources */,
+				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
 			);
@@ -490,6 +505,7 @@
 				D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,
+				D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

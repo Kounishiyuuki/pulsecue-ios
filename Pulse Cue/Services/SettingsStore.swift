@@ -199,34 +199,66 @@ final class SettingsStore: ObservableObject {
     }
 
     // MARK: Derived metrics
+    //
+    // All four accessors are thin pass-throughs to `GoalCalculator` so
+    // SettingsStore and `UserProfile` share the same math. The legacy
+    // signature is preserved so SettingsView keeps working without
+    // changes.
 
     /// Mifflin-St Jeor BMR using the supplied current weight (kg).
     /// Returns nil if `currentWeightKg` is nil and no goal weight is
     /// available either.
     func bmr(currentWeightKg: Double?) -> Int? {
-        guard let weight = currentWeightKg ?? (goalWeightKg > 0 ? goalWeightKg : nil) else {
-            return nil
-        }
-        let base = 10.0 * weight + 6.25 * Double(heightCm) - 5.0 * Double(ageYears)
-        return Int((base + biologicalSex.mifflinOffset).rounded())
+        guard let weight = effectiveWeight(currentWeightKg: currentWeightKg) else { return nil }
+        return GoalCalculator.bmr(
+            weightKg: weight,
+            heightCm: heightCm,
+            ageYears: ageYears,
+            biologicalSex: biologicalSex
+        )
     }
 
     /// TDEE = BMR × PAL.
     func tdee(currentWeightKg: Double?) -> Int? {
-        guard let bmrValue = bmr(currentWeightKg: currentWeightKg) else { return nil }
-        return Int((Double(bmrValue) * activityFactor.pal).rounded())
+        guard let weight = effectiveWeight(currentWeightKg: currentWeightKg) else { return nil }
+        return GoalCalculator.tdee(
+            weightKg: weight,
+            heightCm: heightCm,
+            ageYears: ageYears,
+            biologicalSex: biologicalSex,
+            activityFactor: activityFactor
+        )
     }
 
     /// Daily kcal adjustment implied by the weekly weight-change goal
     /// (1 kg of body fat ≈ 7700 kcal).
     var dailyKcalAdjustment: Int {
-        Int((weeklyChangeKg * 7700.0 / 7.0).rounded())
+        GoalCalculator.dailyKcalAdjustment(weeklyChangeKg: weeklyChangeKg)
     }
 
     /// Target daily intake = TDEE + daily adjustment (negative for cut).
     func targetIntake(currentWeightKg: Double?) -> Int? {
-        guard let value = tdee(currentWeightKg: currentWeightKg) else { return nil }
-        return value + dailyKcalAdjustment
+        guard let weight = effectiveWeight(currentWeightKg: currentWeightKg) else { return nil }
+        return GoalCalculator.targetIntake(
+            weightKg: weight,
+            heightCm: heightCm,
+            ageYears: ageYears,
+            biologicalSex: biologicalSex,
+            activityFactor: activityFactor,
+            weeklyChangeKg: weeklyChangeKg
+        )
+    }
+
+    /// Today's intake − target. Negative = under target.
+    /// Returns nil when target cannot be computed.
+    func todayGoalGap(todayIntake: Int, currentWeightKg: Double?) -> Int? {
+        guard let target = targetIntake(currentWeightKg: currentWeightKg) else { return nil }
+        return GoalCalculator.todayGoalGap(todayIntake: todayIntake, targetIntake: target)
+    }
+
+    private func effectiveWeight(currentWeightKg: Double?) -> Double? {
+        if let measured = currentWeightKg, measured > 0 { return measured }
+        return goalWeightKg > 0 ? goalWeightKg : nil
     }
 
     private enum Keys {
