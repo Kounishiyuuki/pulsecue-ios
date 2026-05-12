@@ -19,7 +19,8 @@ struct Pulse_CueApp: App {
             Step.self,
             Session.self,
             StepResult.self,
-            DayLog.self
+            DayLog.self,
+            MealEntry.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

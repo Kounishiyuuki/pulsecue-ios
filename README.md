@@ -183,10 +183,20 @@ Pulse Cue/
 ├── ViewModels/
 │   └── RunnerViewModel.swift
 ├── Views/                # SwiftUI 画面とサブシート（HealthSummaryView 等）
-├── Services/             # 通知 / 永続化 / サンプル投入 / 音 / 触覚 / 設定 / DayLogStore
+├── Services/             # 通知 / 永続化 / サンプル投入 / 音 / 触覚 / 設定 / DayLogStore / HealthKitImporter / AICoachStub
 ├── Utilities/            # AppTab / AppTheme / DateUtils / HealthSummary / ScreenWakeManager
 ├── Resources/Assets.xcassets
 └── Info.plist / Pulse_Cue.entitlements
+
+Pulse CueTests/           # Swift Testing
+├── DayLogHealthSummaryTests.swift
+├── Pulse_CueTests.swift
+└── RunnerStateMachineTests.swift
+
+Docs/                     # 設計・運用メモ（本実装の前段）
+├── ai-privacy-and-safety.md
+├── manual-qa-checklist.md
+└── widget-live-activity.md
 ```
 
 ---
@@ -241,8 +251,14 @@ Pulse Cue/
 ### Settings（設定）
 - 通知の許可状態を表示し、未決定ならリクエストを発行
 - iOS 設定で取り消された場合はトグルが自動オフ
-- ビープ音 / 触覚 / 画面常時点灯のトグル
+- 休憩終了時のビープ音 / 触覚 / ランナー表示中の画面常時点灯トグル
+- 「ヘルスデータ連携（プレビュー）」セクション：`HealthKitImporting` の現状（v2 では `Noop` 実装）と、v3 で実装予定の取り込み→ユーザー確認フローの説明
 - アプリ名・バージョン表示
+
+### テスト
+- `Pulse CueTests/RunnerStateMachineTests.swift`：Runner 状態機械の 13 ケース（Complete / Skip / +10 / Back / 復元）
+- `Pulse CueTests/DayLogHealthSummaryTests.swift`：DayLogStore（6）+ HealthSummary（22）の計 28 ケース（日付正規化、`fetchOrCreate` 冪等性、週平均、体重 7 日平均、トレンド、入力日数、欠損データ）
+- `Pulse_CueUITests` / `Pulse_CueUITestsLaunchTests`：起動スモーク
 
 ---
 
@@ -279,7 +295,7 @@ Pulse Cue/
 
 | バージョン | テーマ | 主な内容 |
 | --- | --- | --- |
-| **v1（現在）** | ローカル P0 | Runner / DayLog / Today / 履歴 / 設定、SwiftData 永続化、Runner 復帰、サンプルデータ投入 |
-| **v2** | 信頼性 + テスト + プレビュー | Runner 状態機械テスト・DayLog/HealthSummary テスト・AppIcon・HealthKit/Widget/AI のプロトコル基盤 ←  **ここまで `goal/v3-prototype` 範囲** |
+| **v1** | ローカル P0 | Runner / DayLog / Today / 履歴 / 設定、SwiftData 永続化、Runner 復帰、サンプルデータ投入 |
+| **v2（現在の `main`）** | 信頼性 + テスト + プレビュー | Runner 状態機械テスト・DayLog/HealthSummary テスト・AppIcon プレースホルダ・HealthKit/Widget/AI のプロトコル基盤と設計ドキュメント |
 | **v3** | ジムで便利な拡張 | HealthKit 取り込み（手入力との優先順位 UI 含む）、ホーム画面ウィジェット、Live Activity、AI コーチ（手動レビューを挟む）、食事カロリー推定（テキストから先行）、`UserConfirmed<Value>` 経由の保存フロー |
 | **v4 以降** | 同期・社会面 | Sign in with Apple、iCloud / CloudKit、Watch アプリ、共有ルーティン、コーチ（人間）連携 |

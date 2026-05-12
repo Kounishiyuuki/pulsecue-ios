@@ -30,6 +30,8 @@ struct HealthSummaryView: View {
             todaySection
             weeklySection
             weightSection
+            nutritionSection
+            aiCoachSection
             footerSection
         }
         .navigationTitle("健康サマリー")
@@ -80,6 +82,60 @@ struct HealthSummaryView: View {
             Text("体重（目安）")
         } footer: {
             Text("傾向は直近 7 日のうち 4 日以上の入力で計算されます。")
+        }
+    }
+
+    private var nutritionSection: some View {
+        Section {
+            NavigationLink {
+                NutritionView()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "fork.knife")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("食事ログを開く")
+                            .font(.subheadline.weight(.semibold))
+                        Text("朝昼夕間食の記録と AI 推定の確認待ち。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+            .accessibilityLabel("食事ログを開く")
+        } header: {
+            Text("栄養 / 食事ログ")
+        } footer: {
+            Text("確定した食事だけが今日の摂取カロリーに加算されます。")
+        }
+    }
+
+    private var aiCoachSection: some View {
+        Section {
+            NavigationLink {
+                AICoachView()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("AI コーチを開く")
+                            .font(.subheadline.weight(.semibold))
+                        Text("オンデバイスの目安提案。AI 機能は現在オフ。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+            .accessibilityLabel("AI コーチを開く")
+        } header: {
+            Text("AI コーチ（プレビュー）")
+        } footer: {
+            Text("ローカルで生成された提案目安です。医学的な助言ではありません。")
         }
     }
 
