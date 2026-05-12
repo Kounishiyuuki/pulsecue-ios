@@ -4,20 +4,8 @@
 //
 //  Created by Codex.
 //
-//  Premium liquid-glass routine browser. Layout:
-//    - Brand header (PulseCue + bell)
-//    - Inline glass search bar
-//    - 「ルーティン」title block
-//    - List of routine cards: name, pin indicator, 推定時間 chip,
-//      最終実行 chip. Pinned routines surface above the rest. Each
-//      card supports the existing swipe actions / context menu /
-//      tap-to-edit (NavigationLink) wiring.
-//    - Inline 「新規作成」outlined card at the bottom.
-//    - Floating gradient FAB at bottom-right.
-//
-//  Behavior preserved 1:1: search filter, pin/unpin, duplicate,
-//  delete, start (RunnerViewModel.start), edit (push), create new
-//  (modal sheet via $editorRoutine), drag-to-reorder via EditButton.
+//  Premium routine browser. Behavior preserved: search, pin/unpin,
+//  duplicate, delete, start, edit, create, and drag-to-reorder.
 //
 
 import SwiftUI
@@ -157,15 +145,34 @@ struct WorkoutView: View {
     }
 
     private var titleBlock: some View {
-        HStack(spacing: 6) {
-            Text("ルーティン")
-                .font(.system(size: 26, weight: .bold))
-            Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(accentGradient)
-            Spacer()
-            if !routines.isEmpty {
-                Text("\(routines.count) 件")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("ルーティン")
+                    .font(.system(size: 28, weight: .black))
+                Image(systemName: "bolt.heart.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(accentGradient)
+                Spacer()
+                if !routines.isEmpty {
+                    Text("\(filteredRoutines.count) / \(routines.count) 件")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.primary.opacity(0.06)))
+                }
+            }
+
+            if !pinnedRoutines.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("ピン留め \(pinnedRoutines.count) 件を優先表示中")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.orange)
+            } else if !routines.isEmpty {
+                Text("よく使うルーティンはピン留めすると上に固定されます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -178,6 +185,8 @@ struct WorkoutView: View {
         List {
             if routines.isEmpty {
                 emptyStateRow
+            } else if filteredRoutines.isEmpty {
+                noSearchResultsRow
             } else {
                 ForEach(pinnedRoutines, id: \.id) { routine in
                     routineCardRow(routine)
@@ -260,8 +269,8 @@ struct WorkoutView: View {
                 pinIcon(isPinned: routine.isPinned)
             }
             HStack(spacing: 8) {
-                metaChip(icon: "clock", text: durationText(for: routine))
-                metaChip(icon: "calendar", text: lastRunText(for: routine))
+                metaChip(icon: "clock.fill", text: durationText(for: routine), emphasized: estimatedMinutes(for: routine) != nil)
+                metaChip(icon: "calendar", text: lastRunText(for: routine), emphasized: false)
                 Spacer(minLength: 0)
             }
         }
@@ -269,14 +278,24 @@ struct WorkoutView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             ZStack {
-                glassBackground
+                cardBackground(isPinned: routine.isPinned)
                 if routine.isPinned {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(accentGradient.opacity(0.05))
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.orange.opacity(colorScheme == .dark ? 0.22 : 0.16),
+                                    Color(red: 0.95, green: 0.28, blue: 0.18).opacity(colorScheme == .dark ? 0.14 : 0.08),
+                                    Color.clear
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                 }
             }
         )
-        .overlay(glassStroke)
+        .overlay(cardStroke(isPinned: routine.isPinned))
         .accessibilityLabel("\(routine.name) \(routine.isPinned ? "ピン留め" : "")")
     }
 
@@ -292,38 +311,85 @@ struct WorkoutView: View {
         .frame(width: 28, height: 28)
     }
 
-    private func metaChip(icon: String, text: String) -> some View {
+    private func metaChip(icon: String, text: String, emphasized: Bool) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
             Text(text)
-                .font(.caption.weight(.medium))
+                .font(.caption.weight(.semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(emphasized ? .primary : .secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
-            Capsule().fill(Color.primary.opacity(0.06))
+            Capsule().fill(emphasized ? Color.orange.opacity(0.13) : Color.primary.opacity(0.06))
         )
     }
 
     // MARK: - Empty state / new-routine card / FAB
 
     private var emptyStateRow: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "list.bullet.rectangle")
-                .font(.system(size: 32))
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(accentGradient.opacity(0.14))
+                    .frame(width: 74, height: 74)
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(accentGradient)
+            }
+            VStack(spacing: 6) {
+                Text("最初のルーティンを作成")
+                    .font(.headline.weight(.bold))
+                Text("種目、セット、休憩をまとめておくと、次のトレーニングをすぐ開始できます。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button {
+                createRoutine()
+            } label: {
+                Label("ルーティンを作成", systemImage: "plus")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
+                    .background(Capsule().fill(accentGradient))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(28)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(glassStroke)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+    }
+
+    private var noSearchResultsRow: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(accentGradient)
-            Text("ルーティンがありません")
-                .font(.headline)
-            Text("下のカード、または右下の + から作成できます。")
+            Text("該当するルーティンがありません")
+                .font(.headline.weight(.bold))
+            Text("検索語を変えるか、新しいルーティンを作成してください。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(36)
+        .padding(28)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(glassStroke)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
@@ -405,6 +471,31 @@ struct WorkoutView: View {
                     endPoint: .bottomTrailing
                 ),
                 lineWidth: 0.6
+            )
+    }
+
+    private func cardBackground(isPinned: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(.regularMaterial)
+            .shadow(
+                color: isPinned ? Color.orange.opacity(0.18) : Color.black.opacity(0.05),
+                radius: isPinned ? 18 : 14,
+                x: 0,
+                y: isPinned ? 10 : 8
+            )
+    }
+
+    private func cardStroke(isPinned: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .strokeBorder(
+                LinearGradient(
+                    colors: isPinned
+                        ? [Color.orange.opacity(0.78), Color.white.opacity(0.26)]
+                        : [Color.white.opacity(0.7), Color.white.opacity(0.1)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: isPinned ? 1.2 : 0.6
             )
     }
 
