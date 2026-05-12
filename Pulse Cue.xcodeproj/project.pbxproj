@@ -37,9 +37,14 @@
 		D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */; };
 		D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */; };
 		D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */; };
+		D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */; };
 		D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */; };
 		D17104DB1A8E4001B0DA2101 /* AICoachStub.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */; };
 		D17104DB1A8E4001B0DA2201 /* AICoachView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2202 /* AICoachView.swift */; };
+		D17104DB1A8E4001B0DA2301 /* MealEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2302 /* MealEntry.swift */; };
+		D17104DB1A8E4001B0DA2401 /* NutritionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */; };
+		D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2502 /* NutritionView.swift */; };
+		D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */; };
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
 		DA57885887FA409498252986 /* WorkoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */; };
 		E28727782CB448ABBE5F84CE /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006E74099FEC4FEA860FC867 /* AppTheme.swift */; };
@@ -102,9 +107,14 @@
 		D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSummaryView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerStateMachineTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLogHealthSummaryTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLedgerTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitImporter.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICoachStub.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2202 /* AICoachView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICoachView.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2302 /* MealEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntry.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLedger.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2502 /* NutritionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionView.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntrySheet.swift; sourceTree = "<group>"; };
 		D179FE16B3D648C896CCC224 /* Pulse_Cue.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Pulse_Cue.entitlements; sourceTree = "<group>"; };
 		D6D3039B896D46E0888653BD /* RunnerPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPersistence.swift; sourceTree = "<group>"; };
 		E6B2555CCFB6446F98D0903E /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
@@ -149,6 +159,8 @@
 				D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */,
 				2FD02E7540234858B9B7F496 /* HistoryView.swift */,
 				7F38FF5AE06247CA876EF7E0 /* InfoCard.swift */,
+				D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */,
+				D17104DB1A8E4001B0DA2502 /* NutritionView.swift */,
 				26F09FF63F2B40ED822DB5FB /* RoutineEditorView.swift */,
 				161A24D02ABE4F458BF5B81D /* RoutinePickerSheet.swift */,
 				F7C6345AAB114B9B95FCCF6D /* RunnerView.swift */,
@@ -167,6 +179,7 @@
 				D17104DB1A8E4001B0DA1702 /* DayLogStore.swift */,
 				D17104DB1A8E4001B0DA2002 /* HealthKitImporter.swift */,
 				69F02898313644D4B49487AE /* NotificationManager.swift */,
+				D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -230,6 +243,7 @@
 			children = (
 				F931151BAB1D473A8625DFF3 /* DayLog.swift */,
 				20132618DA9D4059810757F4 /* Enums.swift */,
+				D17104DB1A8E4001B0DA2302 /* MealEntry.swift */,
 				5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */,
 				F53D2167ACB84391A781A5F8 /* Session.swift */,
 				8FF7150E5F514C0E944597A5 /* Step.swift */,
@@ -267,6 +281,7 @@
 				D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */,
 				FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */,
 				D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */,
+				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -460,6 +475,10 @@
 				D17104DB1A8E4001B0DA2001 /* HealthKitImporter.swift in Sources */,
 				D17104DB1A8E4001B0DA2101 /* AICoachStub.swift in Sources */,
 				D17104DB1A8E4001B0DA2201 /* AICoachView.swift in Sources */,
+				D17104DB1A8E4001B0DA2301 /* MealEntry.swift in Sources */,
+				D17104DB1A8E4001B0DA2401 /* NutritionLedger.swift in Sources */,
+				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
+				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -470,6 +489,7 @@
 				4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
+				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
