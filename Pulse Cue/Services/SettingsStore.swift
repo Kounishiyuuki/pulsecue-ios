@@ -131,29 +131,9 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    // Personal data (new)
-    @Published var heightCm: Int {
-        didSet { defaults.set(heightCm, forKey: Keys.heightCm) }
-    }
-    @Published var ageYears: Int {
-        didSet { defaults.set(ageYears, forKey: Keys.ageYears) }
-    }
-    @Published var biologicalSex: BiologicalSex {
-        didSet { defaults.set(biologicalSex.rawValue, forKey: Keys.biologicalSex) }
-    }
-    @Published var activityFactor: ActivityFactor {
-        didSet { defaults.set(activityFactor.rawValue, forKey: Keys.activityFactor) }
-    }
-
-    // Goals (new)
-    @Published var goalWeightKg: Double {
-        didSet { defaults.set(goalWeightKg, forKey: Keys.goalWeightKg) }
-    }
-    @Published var weeklyChangeKg: Double {
-        didSet { defaults.set(weeklyChangeKg, forKey: Keys.weeklyChangeKg) }
-    }
-
-    // Integrations / AI (new)
+    // Integrations / AI preference (kept as an app-side toggle even
+    // while AI is disabled, so the choice is ready when the feature
+    // ships).
     @Published var aiTransmissionScope: AITransmissionScope {
         didSet { defaults.set(aiTransmissionScope.rawValue, forKey: Keys.aiTransmissionScope) }
     }
@@ -168,26 +148,6 @@ final class SettingsStore: ObservableObject {
         self.hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         self.keepScreenOn = defaults.bool(forKey: Keys.keepScreenOn)
 
-        self.heightCm = (defaults.object(forKey: Keys.heightCm) as? Int) ?? 170
-        self.ageYears = (defaults.object(forKey: Keys.ageYears) as? Int) ?? 30
-
-        if let raw = defaults.string(forKey: Keys.biologicalSex),
-           let value = BiologicalSex(rawValue: raw) {
-            self.biologicalSex = value
-        } else {
-            self.biologicalSex = .unspecified
-        }
-
-        if let raw = defaults.string(forKey: Keys.activityFactor),
-           let value = ActivityFactor(rawValue: raw) {
-            self.activityFactor = value
-        } else {
-            self.activityFactor = .moderate
-        }
-
-        self.goalWeightKg = (defaults.object(forKey: Keys.goalWeightKg) as? Double) ?? 65.0
-        self.weeklyChangeKg = (defaults.object(forKey: Keys.weeklyChangeKg) as? Double) ?? -0.5
-
         if let raw = defaults.string(forKey: Keys.aiTransmissionScope),
            let value = AITransmissionScope(rawValue: raw) {
             self.aiTransmissionScope = value
@@ -198,84 +158,11 @@ final class SettingsStore: ObservableObject {
         ScreenWakeManager.apply(keepScreenOn)
     }
 
-    // MARK: Derived metrics
-    //
-    // All four accessors are thin pass-throughs to `GoalCalculator` so
-    // SettingsStore and `UserProfile` share the same math. The legacy
-    // signature is preserved so SettingsView keeps working without
-    // changes.
-
-    /// Mifflin-St Jeor BMR using the supplied current weight (kg).
-    /// Returns nil if `currentWeightKg` is nil and no goal weight is
-    /// available either.
-    func bmr(currentWeightKg: Double?) -> Int? {
-        guard let weight = effectiveWeight(currentWeightKg: currentWeightKg) else { return nil }
-        return GoalCalculator.bmr(
-            weightKg: weight,
-            heightCm: heightCm,
-            ageYears: ageYears,
-            biologicalSex: biologicalSex
-        )
-    }
-
-    /// TDEE = BMR × PAL.
-    func tdee(currentWeightKg: Double?) -> Int? {
-        guard let weight = effectiveWeight(currentWeightKg: currentWeightKg) else { return nil }
-        return GoalCalculator.tdee(
-            weightKg: weight,
-            heightCm: heightCm,
-            ageYears: ageYears,
-            biologicalSex: biologicalSex,
-            activityFactor: activityFactor
-        )
-    }
-
-    /// Daily kcal adjustment implied by the weekly weight-change goal
-    /// (1 kg of body fat ≈ 7700 kcal).
-    var dailyKcalAdjustment: Int {
-        GoalCalculator.dailyKcalAdjustment(weeklyChangeKg: weeklyChangeKg)
-    }
-
-    /// Target daily intake = TDEE + daily adjustment (negative for cut).
-    func targetIntake(currentWeightKg: Double?) -> Int? {
-        guard let weight = effectiveWeight(currentWeightKg: currentWeightKg) else { return nil }
-        return GoalCalculator.targetIntake(
-            weightKg: weight,
-            heightCm: heightCm,
-            ageYears: ageYears,
-            biologicalSex: biologicalSex,
-            activityFactor: activityFactor,
-            weeklyChangeKg: weeklyChangeKg
-        )
-    }
-
-    /// Today's intake − target. Negative = under target.
-    /// Returns nil when target cannot be computed.
-    func todayGoalGap(todayIntake: Int, currentWeightKg: Double?) -> Int? {
-        guard let target = targetIntake(currentWeightKg: currentWeightKg) else { return nil }
-        return GoalCalculator.todayGoalGap(todayIntake: todayIntake, targetIntake: target)
-    }
-
-    private func effectiveWeight(currentWeightKg: Double?) -> Double? {
-        if let measured = currentWeightKg, measured > 0 { return measured }
-        return goalWeightKg > 0 ? goalWeightKg : nil
-    }
-
     private enum Keys {
-        // Existing
         static let notificationsEnabled = "settings.notificationsEnabled"
         static let soundEnabled = "settings.soundEnabled"
         static let hapticsEnabled = "settings.hapticsEnabled"
         static let keepScreenOn = "settings.keepScreenOn"
-        // Profile
-        static let heightCm = "settings.heightCm"
-        static let ageYears = "settings.ageYears"
-        static let biologicalSex = "settings.biologicalSex"
-        static let activityFactor = "settings.activityFactor"
-        // Goals
-        static let goalWeightKg = "settings.goalWeightKg"
-        static let weeklyChangeKg = "settings.weeklyChangeKg"
-        // AI
         static let aiTransmissionScope = "settings.aiTransmissionScope"
     }
 }

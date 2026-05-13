@@ -32,6 +32,8 @@ struct TodayView: View {
     @Binding var selectedTab: AppTab
 
     @Query private var recentLogs: [DayLog]
+    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
+    private var profiles: [UserProfile]
 
     @State private var activeField: DayLogField?
     @State private var showRoutinePicker = false
@@ -82,6 +84,7 @@ struct TodayView: View {
         }
         .task {
             ensureTodayLogExists()
+            _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
         }
     }
 
@@ -514,12 +517,13 @@ struct TodayView: View {
         .overlay(glassStroke)
     }
 
-    /// Today's intake-vs-target gap from SettingsStore profile, or nil
-    /// when the user hasn't entered an intake or we can't compute a
-    /// target yet (e.g. weight unknown).
+    /// Today's intake-vs-target gap derived from the canonical
+    /// `UserProfile`, or nil when the user hasn't entered an intake
+    /// or we can't compute a target yet (e.g. weight unknown / profile
+    /// not yet created).
     private func goalGap(intake: Int?) -> Int? {
-        guard let intake else { return nil }
-        return settings.todayGoalGap(
+        guard let intake, let profile = profiles.first else { return nil }
+        return profile.todayGoalGap(
             todayIntake: intake,
             currentWeightKg: summary.latestWeight
         )

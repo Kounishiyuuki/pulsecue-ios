@@ -41,6 +41,8 @@ struct NutritionView: View {
 
     @Query(sort: [SortDescriptor(\MealEntry.createdAt, order: .forward)]) private var allMeals: [MealEntry]
     @Query private var allDayLogs: [DayLog]
+    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
+    private var profiles: [UserProfile]
 
     @State private var sheetMode: MealEntrySheet.Mode?
     @State private var pendingSlotForChoice: MealSlot?
@@ -75,7 +77,7 @@ struct NutritionView: View {
     }
 
     private var targetKcal: Int? {
-        settings.targetIntake(currentWeightKg: latestWeight)
+        profiles.first?.targetIntake(currentWeightKg: latestWeight)
     }
 
     private var latestWeight: Double? {

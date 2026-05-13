@@ -27,12 +27,17 @@ import SwiftData
 import UserNotifications
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var settings: SettingsStore
 
     // 14 days of DayLog so we can pull "current weight" + today's intake
     // for the goal-gap card without a second SwiftData read.
     @Query private var recentLogs: [DayLog]
+
+    // UserProfile is now the source of truth for profile / goal fields.
+    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
+    private var profiles: [UserProfile]
 
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var showNotificationAlert = false
@@ -50,32 +55,30 @@ struct SettingsView: View {
 
     private var summary: HealthSummary { HealthSummary(logs: recentLogs) }
     private var currentWeightKg: Double? { summary.latestWeight }
-    private var bmrValue: Int? { settings.bmr(currentWeightKg: currentWeightKg) }
-    private var tdeeValue: Int? { settings.tdee(currentWeightKg: currentWeightKg) }
-    private var targetIntakeValue: Int? { settings.targetIntake(currentWeightKg: currentWeightKg) }
+
+    private var resolvedProfile: UserProfile? { profiles.first }
+
+    private func bmrValue(for profile: UserProfile) -> Int? {
+        profile.bmr(currentWeightKg: currentWeightKg)
+    }
+    private func tdeeValue(for profile: UserProfile) -> Int? {
+        profile.tdee(currentWeightKg: currentWeightKg)
+    }
+    private func targetIntakeValue(for profile: UserProfile) -> Int? {
+        profile.targetIntake(currentWeightKg: currentWeightKg)
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             backgroundLayer.ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    brandHeader
-                    titleBlock
-                    personalDataCard
-                    HStack(spacing: 12) {
-                        bmrCard
-                        tdeeCard
+            if let profile = resolvedProfile {
+                content(profile: profile)
+            } else {
+                ProgressView("読み込み中…")
+                    .task {
+                        _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
                     }
-                    goalCard
-                    integrationsCard
-                    appSettingsCard
-                    appInfoCard
-                    saveButton
-                    Color.clear.frame(height: 24)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
             }
 
             if showSavedToast {
@@ -92,6 +95,30 @@ struct SettingsView: View {
             Text("iOS の設定アプリで通知を許可してください。")
         }
         .onAppear { refreshNotificationStatus() }
+    }
+
+    @ViewBuilder
+    private func content(profile profileObject: UserProfile) -> some View {
+        @Bindable var profile = profileObject
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                brandHeader
+                titleBlock
+                personalDataCard(profile: $profile)
+                HStack(spacing: 12) {
+                    bmrCard(profile: profile)
+                    tdeeCard(profile: profile)
+                }
+                goalCard(profile: $profile)
+                integrationsCard
+                appSettingsCard
+                appInfoCard
+                saveButton
+                Color.clear.frame(height: 24)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+        }
     }
 
     // MARK: - Background
@@ -174,31 +201,31 @@ struct SettingsView: View {
 
     // MARK: - Personal data card
 
-    private var personalDataCard: some View {
+    private func personalDataCard(profile: Bindable<UserProfile>) -> some View {
         glassCard {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader(icon: "person.fill", title: "パーソナルデータ")
 
                 inlineNumberCell(
                     label: "身長",
-                    value: settings.heightCm,
+                    value: profile.wrappedValue.heightCm,
                     range: 120...220,
                     step: 1,
                     unit: "cm",
-                    binding: $settings.heightCm
+                    binding: profile.heightCm
                 )
                 inlineNumberCell(
                     label: "年齢",
-                    value: settings.ageYears,
+                    value: profile.wrappedValue.ageYears,
                     range: 10...100,
                     step: 1,
                     unit: "歳",
-                    binding: $settings.ageYears
+                    binding: profile.ageYears
                 )
-                pickerCell(label: "性別", selection: $settings.biologicalSex) { sex in
+                pickerCell(label: "性別", selection: profile.biologicalSex) { sex in
                     Text(sex.label).tag(sex)
                 }
-                pickerCell(label: "活動係数", selection: $settings.activityFactor) { factor in
+                pickerCell(label: "活動係数", selection: profile.activityFactor) { factor in
                     Text(factor.label).tag(factor)
                 }
             }
@@ -207,19 +234,19 @@ struct SettingsView: View {
 
     // MARK: - BMR / TDEE summary cards
 
-    private var bmrCard: some View {
+    private func bmrCard(profile: UserProfile) -> some View {
         summaryCard(
             label: "基礎代謝 (BMR)",
-            value: bmrValue.map { formatInt($0) } ?? "—",
+            value: bmrValue(for: profile).map { formatInt($0) } ?? "—",
             unit: "kcal",
             gradient: accentGradient
         )
     }
 
-    private var tdeeCard: some View {
+    private func tdeeCard(profile: UserProfile) -> some View {
         summaryCard(
             label: "1日の総消費 (TDEE)",
-            value: tdeeValue.map { formatInt($0) } ?? "—",
+            value: tdeeValue(for: profile).map { formatInt($0) } ?? "—",
             unit: "kcal",
             gradient: tealGradient
         )
@@ -249,7 +276,7 @@ struct SettingsView: View {
 
     // MARK: - Goal card
 
-    private var goalCard: some View {
+    private func goalCard(profile: Bindable<UserProfile>) -> some View {
         glassCard {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader(icon: "flag.fill", title: "目標設定")
@@ -257,38 +284,38 @@ struct SettingsView: View {
                 inlineDoubleCell(
                     label: "目標体重",
                     helper: currentWeightKg.map { "現在の体重: \(formatWeight($0)) kg" } ?? "現在の体重: 未入力",
-                    value: settings.goalWeightKg,
+                    value: profile.wrappedValue.goalWeightKg,
                     range: 30...150,
                     step: 0.5,
                     unit: "kg",
-                    binding: $settings.goalWeightKg
+                    binding: profile.goalWeightKg
                 )
 
                 inlineDoubleCell(
                     label: "週あたりの変化量",
                     helper: "推奨: -0.5 〜 +0.5 kg/週",
-                    value: settings.weeklyChangeKg,
+                    value: profile.wrappedValue.weeklyChangeKg,
                     range: -1.5...1.5,
                     step: 0.1,
                     unit: "kg",
-                    binding: $settings.weeklyChangeKg
+                    binding: profile.weeklyChangeKg
                 )
 
                 derivedRow(
                     label: "目標摂取カロリー",
-                    value: targetIntakeValue.map { "\(formatInt($0)) kcal/日" } ?? "—"
+                    value: targetIntakeValue(for: profile.wrappedValue).map { "\(formatInt($0)) kcal/日" } ?? "—"
                 )
                 derivedRow(
                     label: "今日の目標差分",
-                    value: todayGoalGapText,
-                    valueStyle: todayGoalGapStyle
+                    value: todayGoalGapText(for: profile.wrappedValue),
+                    valueStyle: todayGoalGapStyle(for: profile.wrappedValue)
                 )
             }
         }
     }
 
-    private var todayGoalGapText: String {
-        guard let target = targetIntakeValue else { return "—" }
+    private func todayGoalGapText(for profile: UserProfile) -> String {
+        guard let target = targetIntakeValue(for: profile) else { return "—" }
         if summary.todayIntake == nil {
             return "未入力 (目標 \(formatInt(target)) kcal)"
         }
@@ -298,8 +325,8 @@ struct SettingsView: View {
         return "\(sign)\(formatInt(gap)) kcal"
     }
 
-    private var todayGoalGapStyle: Color {
-        guard let target = targetIntakeValue, let actual = summary.todayIntake else {
+    private func todayGoalGapStyle(for profile: UserProfile) -> Color {
+        guard let target = targetIntakeValue(for: profile), let actual = summary.todayIntake else {
             return .secondary
         }
         let gap = actual - target
