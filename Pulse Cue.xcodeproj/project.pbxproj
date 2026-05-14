@@ -47,6 +47,7 @@
 		D17104DB1A8E4001B0DA2901 /* UserProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */; };
 		D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */; };
 		D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */; };
+		D17104DB1A8E4001B0DA2C01 /* UserProfileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */; };
 		D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2502 /* NutritionView.swift */; };
 		D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */; };
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
@@ -121,6 +122,7 @@
 		D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStore.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCalculator.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCalculatorTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStoreTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2502 /* NutritionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntrySheet.swift; sourceTree = "<group>"; };
 		D179FE16B3D648C896CCC224 /* Pulse_Cue.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Pulse_Cue.entitlements; sourceTree = "<group>"; };
@@ -294,6 +296,7 @@
 				D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */,
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
 				D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */,
+				D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -506,6 +509,7 @@
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */,
+				D17104DB1A8E4001B0DA2C01 /* UserProfileStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
