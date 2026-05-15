@@ -43,7 +43,7 @@ struct MyGymHomeView: View {
         }
         .sheet(isPresented: $showRegistration, onDismiss: { viewModel.reload() }) {
             NavigationStack {
-                GymRegistrationView { _ in
+                GymCandidateSearchView { _ in
                     showRegistration = false
                 }
             }
