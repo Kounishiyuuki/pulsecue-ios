@@ -1,0 +1,9 @@
+# Copy this file to `.dev.vars` for local `wrangler dev` runs.
+# `.dev.vars` is git-ignored; this `.example` template is committed.
+# Never put a real production secret in either file — use
+# `wrangler secret put PULSECUE_IMPORT_API_KEY` for production.
+
+# Bearer token required for POST /api/gym-machines/import.
+# Any non-empty value works locally; it just has to match the token
+# you send in the `Authorization: Bearer` header while testing.
+PULSECUE_IMPORT_API_KEY=local-dev-dummy-key

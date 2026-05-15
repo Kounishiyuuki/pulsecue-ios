@@ -24,6 +24,21 @@ curl https://<your-worker-host>/health
 Takes a gym name and the URL of that gym's official page, fetches the
 page, and returns the machines the parser recognized.
 
+**Requires authentication.** Send the import API key as a bearer
+token:
+
+```
+Authorization: Bearer <PULSECUE_IMPORT_API_KEY>
+```
+
+Missing, malformed, or incorrect keys return `HTTP 401`:
+
+```json
+{ "error": { "code": "unauthorized", "message": "A valid API key is required" } }
+```
+
+`GET /health` stays public — no key required.
+
 Request body:
 
 ```json
@@ -56,6 +71,7 @@ Example call:
 ```bash
 curl -X POST https://<your-worker-host>/api/gym-machines/import \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <PULSECUE_IMPORT_API_KEY>' \
   -d '{
     "gymName": "Example Gym Shibuya",
     "officialUrl": "https://example.com/gyms/shibuya"
@@ -68,9 +84,15 @@ Error responses use a uniform envelope:
 { "error": { "code": "invalid_body", "message": "officialUrl: required" } }
 ```
 
-Possible `code` values: `invalid_body`, `missing`, `malformed`,
-`unsupported_scheme`, `private_host`, `fetch_failed`, `not_found`,
-`internal_error`.
+Possible `code` values: `unauthorized`, `invalid_body`, `missing`,
+`malformed`, `unsupported_scheme`, `private_host`, `fetch_failed`,
+`not_found`, `internal_error`.
+
+## Environment variables
+
+| Name | Required | Purpose |
+|------|----------|---------|
+| `PULSECUE_IMPORT_API_KEY` | Yes | Secret bearer token that gates `POST /api/gym-machines/import`. If unset, the endpoint rejects **every** request (fail-closed). |
 
 ## Setup
 
@@ -80,14 +102,55 @@ npm install
 ```
 
 `node_modules`, `.wrangler/`, `.env*`, and `.dev.vars*` are git-ignored.
-**Do not commit `node_modules`.**
+**Do not commit `node_modules` or any secret file (`.dev.vars`).**
 
 ## Local development
+
+For local runs, `wrangler dev` reads secrets from a `.dev.vars` file
+in `server/`. Copy the example and fill in any non-empty value — it
+only has to match the `Authorization: Bearer` token you send while
+testing:
+
+```bash
+cp .dev.vars.example .dev.vars
+# edit .dev.vars and set PULSECUE_IMPORT_API_KEY=<your-local-dummy-key>
+```
+
+`.dev.vars` is git-ignored; `.dev.vars.example` is the committed
+template and must never contain a real secret.
 
 ```bash
 npm run dev       # wrangler dev — http://localhost:8787
 npm run test      # vitest run
 npm run typecheck # tsc --noEmit
+```
+
+Smoke test against a local dev server:
+
+```bash
+# public — no auth needed
+curl http://localhost:8787/health
+
+# protected — fails without a key
+curl -X POST http://localhost:8787/api/gym-machines/import \
+  -H 'Content-Type: application/json' \
+  -d '{"gymName":"Test","officialUrl":"https://example.com/"}'
+# → 401 unauthorized
+
+# protected — succeeds with the key from .dev.vars
+curl -X POST http://localhost:8787/api/gym-machines/import \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <your-local-dummy-key>' \
+  -d '{"gymName":"Test","officialUrl":"https://example.com/"}'
+```
+
+## Production secret
+
+Do not put the production key in `wrangler.jsonc` or `.dev.vars`. Set
+it as an encrypted Worker secret:
+
+```bash
+wrangler secret put PULSECUE_IMPORT_API_KEY
 ```
 
 ## Deploy
@@ -155,9 +218,11 @@ so that `Smith Machine` is not lost to a generic `Machine`.
   Do not include it in commits, PR descriptions, or issues.
 - **No deploy is performed by automation.** Run `npm run deploy`
   yourself when you are ready to publish.
-- **Authentication is not yet enforced.** Before exposing this API
-  publicly, gate `/api/gym-machines/import` behind an API key (header
-  check or Cloudflare Access).
+- **API key required for imports.** `POST /api/gym-machines/import` is
+  gated by an `Authorization: Bearer` check against the
+  `PULSECUE_IMPORT_API_KEY` secret. The check is constant-time and
+  fails closed when the secret is unset. `GET /health` stays public.
+  Set the production key with `wrangler secret put` — never commit it.
 - **No web search.** The Worker never picks its own targets — it
   fetches exactly the `officialUrl` provided by the caller.
 - **JS-rendered pages may be empty.** Static HTML is the only source.
