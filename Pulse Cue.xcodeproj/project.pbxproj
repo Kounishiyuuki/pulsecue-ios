@@ -95,6 +95,7 @@
 		D17104DB1A8E4001B0DA4F01 /* NearbyGymCandidateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4F02 /* NearbyGymCandidateViewModel.swift */; };
 		D17104DB1A8E4001B0DA5001 /* NearbyGymCandidateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5002 /* NearbyGymCandidateView.swift */; };
 		D17104DB1A8E4001B0DA5101 /* NearbyGymCandidateViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */; };
+		D17104DB1A8E4001B0DA5201 /* MyGymStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5202 /* MyGymStyle.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -208,6 +209,7 @@
 		D17104DB1A8E4001B0DA4F02 /* NearbyGymCandidateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateViewModel.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5002 /* NearbyGymCandidateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateViewModelTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5202 /* MyGymStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymStyle.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -260,6 +262,7 @@
 				D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */,
 				D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */,
 				D17104DB1A8E4001B0DA5002 /* NearbyGymCandidateView.swift */,
+				D17104DB1A8E4001B0DA5202 /* MyGymStyle.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -639,6 +642,7 @@
 				D17104DB1A8E4001B0DA4E01 /* FakeNearbyGymCandidateSearchService.swift in Sources */,
 				D17104DB1A8E4001B0DA4F01 /* NearbyGymCandidateViewModel.swift in Sources */,
 				D17104DB1A8E4001B0DA5001 /* NearbyGymCandidateView.swift in Sources */,
+				D17104DB1A8E4001B0DA5201 /* MyGymStyle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

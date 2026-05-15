@@ -2,12 +2,11 @@
 //  GeneratedPlanPreviewView.swift
 //  Pulse Cue
 //
-//  Read-only preview of a generated workout plan. Surfaces any
-//  warnings from the generator (empty machines, not enough machines
-//  for the chosen body part) and offers a single「ルーティンとして
-//  保存」CTA that writes the plan into the existing Routine / Step
-//  store. After save, the user can launch the new routine from the
-//  standard Routines list / Runner entry point — no special UI here.
+//  Preview of a generated workout plan. Surfaces any generator
+//  warnings as a banner at the top, a compact stat row (ジム /
+//  ターゲット / 種目数), then one card per exercise, and a primary
+//  「ルーティンとして保存」CTA at the bottom that writes the plan
+//  into the existing Routine / Step store via `RoutineFactory`.
 //
 
 import SwiftUI
@@ -15,6 +14,7 @@ import SwiftData
 
 struct GeneratedPlanPreviewView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var viewModel: GeneratedPlanViewModel
@@ -24,37 +24,44 @@ struct GeneratedPlanPreviewView: View {
     }
 
     var body: some View {
-        List {
-            if let plan = viewModel.plan {
-                if !plan.warnings.isEmpty {
-                    warningsSection(warnings: plan.warnings)
+        ZStack(alignment: .bottom) {
+            MyGymStyle.backgroundLayer(for: colorScheme)
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let plan = viewModel.plan {
+                        if !plan.warnings.isEmpty {
+                            warningBanner(plan.warnings)
+                        }
+                        statRow(plan: plan)
+                        if !plan.isEmpty {
+                            exercisesCard(plan: plan)
+                        }
+                    } else {
+                        loadingCard
+                    }
+
+                    if case .error(let message) = viewModel.state {
+                        errorCard(message: message)
+                    }
+                    if case .saved = viewModel.state {
+                        successCard
+                    }
+                    Color.clear.frame(height: 96)
                 }
-                if !plan.isEmpty {
-                    exercisesSection(plan: plan)
-                    saveSection
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
             }
-            if case .error(let message) = viewModel.state {
-                Section {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                }
-            }
-            if case .saved = viewModel.state {
-                Section {
-                    Label("ルーティンとして保存しました。ルーティン一覧から開始できます。", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-            }
+
+            saveBar
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
         }
         .navigationTitle("\(viewModel.bodyPart.displayName)の日")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if case .saved = viewModel.state {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完了") { dismiss() }
-                }
-            } else {
+            if !isSaved {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         viewModel.regenerate()
@@ -67,42 +74,149 @@ struct GeneratedPlanPreviewView: View {
         .task { viewModel.configure(modelContext: modelContext) }
     }
 
-    private func warningsSection(warnings: [String]) -> some View {
-        Section("メモ") {
+    // MARK: - Sections
+
+    private func warningBanner(_ warnings: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(warnings, id: \.self) { warning in
-                Label(warning, systemImage: "info.circle")
-                    .foregroundStyle(.orange)
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(warning)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.30), lineWidth: 1)
+        )
+    }
+
+    private func statRow(plan: GeneratedPlan) -> some View {
+        HStack(spacing: 10) {
+            statTile(label: "ジム", value: plan.gymName, systemImage: "building.2.fill")
+            statTile(label: "ターゲット", value: plan.bodyPart.displayName, systemImage: "target")
+            statTile(label: "種目数", value: "\(plan.exercises.count)", systemImage: "list.bullet.rectangle")
         }
     }
 
-    private func exercisesSection(plan: GeneratedPlan) -> some View {
-        Section("種目") {
-            ForEach(Array(plan.exercises.enumerated()), id: \.offset) { _, exercise in
-                exerciseRow(exercise)
-            }
-        }
-    }
-
-    private func exerciseRow(_ exercise: GeneratedExercise) -> some View {
+    private func statTile(label: String, value: String, systemImage: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(exercise.exerciseName)
-                .font(.body.weight(.semibold))
-            Text("\(exercise.sets) セット × \(exercise.reps) 回 / 休憩 \(exercise.restSeconds) 秒")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(.semibold))
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .myGymCard(padding: 12)
+    }
+
+    private func exercisesCard(plan: GeneratedPlan) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MyGymStyle.sectionHeader(icon: "list.bullet.rectangle", title: "メニュー")
+            ForEach(Array(plan.exercises.enumerated()), id: \.offset) { index, exercise in
+                if index > 0 { Divider().opacity(0.35) }
+                exerciseRow(exercise, index: index + 1)
+            }
+        }
+        .myGymCard()
+    }
+
+    private func exerciseRow(_ exercise: GeneratedExercise, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(index).")
+                    .font(.subheadline.weight(.heavy))
+                    .foregroundStyle(MyGymStyle.accentGradient)
+                Text(exercise.exerciseName)
+                    .font(.body.weight(.semibold))
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                metricChip(label: "セット", value: "\(exercise.sets)")
+                metricChip(label: "回数", value: "\(exercise.reps)")
+                metricChip(label: "休憩", value: "\(exercise.restSeconds)秒")
+            }
             if !exercise.cue.isEmpty {
                 Text(exercise.cue)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
+    private func metricChip(label: String, value: String) -> some View {
+        VStack(spacing: 1) {
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.primary)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.secondary.opacity(0.10))
+        )
+    }
+
+    private var loadingCard: some View {
+        HStack {
+            ProgressView()
+            Text("メニューを組み立てています…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .myGymCard()
+    }
+
+    private func errorCard(message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(.red)
+            .myGymCard()
+    }
+
+    private var successCard: some View {
+        Label(
+            "ルーティンとして保存しました。ルーティン一覧から開始できます。",
+            systemImage: "checkmark.circle.fill"
+        )
+        .foregroundStyle(.green)
+        .myGymCard()
+    }
+
+    // MARK: - Sticky CTA
+
     @ViewBuilder
-    private var saveSection: some View {
-        Section {
+    private var saveBar: some View {
+        if isSaved {
+            Button {
+                dismiss()
+            } label: {
+                Label("完了", systemImage: "checkmark")
+            }
+            .buttonStyle(MyGymPrimaryButtonStyle())
+            .background(stickyBackground)
+        } else if let plan = viewModel.plan, !plan.isEmpty {
             Button {
                 viewModel.saveAsRoutine()
             } label: {
@@ -110,13 +224,20 @@ struct GeneratedPlanPreviewView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
-                    Label("ルーティンとして保存", systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
+                    Label("ルーティンとして保存", systemImage: "tray.and.arrow.down.fill")
                 }
             }
-            .disabled(viewModel.state == .saving || isSaved)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(MyGymPrimaryButtonStyle())
+            .disabled(viewModel.state == .saving)
+            .background(stickyBackground)
         }
+    }
+
+    private var stickyBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+            .padding(-6)
     }
 
     private var isSaved: Bool {
