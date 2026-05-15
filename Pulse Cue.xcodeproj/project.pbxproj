@@ -78,6 +78,14 @@
 		D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */; };
 		D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */; };
 		D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */; };
+		D17104DB1A8E4001B0DA4101 /* GymCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */; };
+		D17104DB1A8E4001B0DA4201 /* GymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */; };
+		D17104DB1A8E4001B0DA4301 /* MapKitGymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4302 /* MapKitGymCandidateSearchService.swift */; };
+		D17104DB1A8E4001B0DA4401 /* FakeGymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4402 /* FakeGymCandidateSearchService.swift */; };
+		D17104DB1A8E4001B0DA4501 /* GymCandidateSearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4502 /* GymCandidateSearchViewModel.swift */; };
+		D17104DB1A8E4001B0DA4601 /* GymCandidateSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */; };
+		D17104DB1A8E4001B0DA4701 /* GymCandidateRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */; };
+		D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +182,14 @@
 		D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPlanGeneratorTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepositoryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineFactoryTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidate.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchService.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4302 /* MapKitGymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitGymCandidateSearchService.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4402 /* FakeGymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeGymCandidateSearchService.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4502 /* GymCandidateSearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchViewModel.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchView.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateRow.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchViewModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -223,6 +239,8 @@
 				D17104DB1A8E4001B0DA3A02 /* ManualMachineSelectionView.swift */,
 				D17104DB1A8E4001B0DA3B02 /* TargetBodyPartSelectionView.swift */,
 				D17104DB1A8E4001B0DA3C02 /* GeneratedPlanPreviewView.swift */,
+				D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */,
+				D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -245,6 +263,9 @@
 				D17104DB1A8E4001B0DA3102 /* GymRepository.swift */,
 				D17104DB1A8E4001B0DA3202 /* WorkoutPlanGenerator.swift */,
 				D17104DB1A8E4001B0DA3302 /* RoutineFactory.swift */,
+				D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */,
+				D17104DB1A8E4001B0DA4302 /* MapKitGymCandidateSearchService.swift */,
+				D17104DB1A8E4001B0DA4402 /* FakeGymCandidateSearchService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -313,6 +334,7 @@
 				D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */,
 				D17104DB1A8E4001B0DA2F02 /* Gym.swift */,
 				D17104DB1A8E4001B0DA3002 /* GymMachine.swift */,
+				D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -340,6 +362,7 @@
 				D17104DB1A8E4001B0DA3502 /* GymRegistrationViewModel.swift */,
 				D17104DB1A8E4001B0DA3602 /* ManualMachineSelectionViewModel.swift */,
 				D17104DB1A8E4001B0DA3702 /* GeneratedPlanViewModel.swift */,
+				D17104DB1A8E4001B0DA4502 /* GymCandidateSearchViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -357,6 +380,7 @@
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
 				D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */,
+				D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -573,6 +597,13 @@
 				D17104DB1A8E4001B0DA3A01 /* ManualMachineSelectionView.swift in Sources */,
 				D17104DB1A8E4001B0DA3B01 /* TargetBodyPartSelectionView.swift in Sources */,
 				D17104DB1A8E4001B0DA3C01 /* GeneratedPlanPreviewView.swift in Sources */,
+				D17104DB1A8E4001B0DA4101 /* GymCandidate.swift in Sources */,
+				D17104DB1A8E4001B0DA4201 /* GymCandidateSearchService.swift in Sources */,
+				D17104DB1A8E4001B0DA4301 /* MapKitGymCandidateSearchService.swift in Sources */,
+				D17104DB1A8E4001B0DA4401 /* FakeGymCandidateSearchService.swift in Sources */,
+				D17104DB1A8E4001B0DA4501 /* GymCandidateSearchViewModel.swift in Sources */,
+				D17104DB1A8E4001B0DA4601 /* GymCandidateSearchView.swift in Sources */,
+				D17104DB1A8E4001B0DA4701 /* GymCandidateRow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -590,6 +621,7 @@
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */,
+				D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

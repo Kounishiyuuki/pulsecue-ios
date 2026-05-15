@@ -15,11 +15,28 @@ struct GymRegistrationView: View {
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var viewModel = GymRegistrationViewModel()
+    @State private var didApplyInitialValues = false
+
+    /// Optional pre-fill — populated when the user arrives from
+    /// `GymCandidateSearchView` after selecting a candidate. Empty
+    /// strings keep the manual-entry path identical to PR #20.
+    let initialName: String
+    let initialOfficialUrl: String
 
     /// Called with the newly created gym id after a successful save
     /// so the caller (the hub screen) can decide whether to dismiss
     /// itself or push deeper into the flow.
     let onSaved: (UUID) -> Void
+
+    init(
+        initialName: String = "",
+        initialOfficialUrl: String = "",
+        onSaved: @escaping (UUID) -> Void
+    ) {
+        self.initialName = initialName
+        self.initialOfficialUrl = initialOfficialUrl
+        self.onSaved = onSaved
+    }
 
     var body: some View {
         Form {
@@ -57,7 +74,17 @@ struct GymRegistrationView: View {
                     .disabled(!viewModel.canSave)
             }
         }
-        .task { viewModel.configure(modelContext: modelContext) }
+        .task {
+            viewModel.configure(modelContext: modelContext)
+            // Seed once: arriving from candidate search with pre-fill
+            // should populate the form, but a user who edits the
+            // fields and re-renders must not have their edits reset.
+            if !didApplyInitialValues {
+                if viewModel.name.isEmpty { viewModel.name = initialName }
+                if viewModel.officialUrl.isEmpty { viewModel.officialUrl = initialOfficialUrl }
+                didApplyInitialValues = true
+            }
+        }
         .onChange(of: viewModel.state) { _, newValue in
             if case .saved(let gymId) = newValue {
                 onSaved(gymId)
