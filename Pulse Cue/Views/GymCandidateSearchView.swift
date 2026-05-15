@@ -33,6 +33,7 @@ struct GymCandidateSearchView: View {
 
     var body: some View {
         Form {
+            nearbySection
             inputSection
             stateSection
             fallbackSection
@@ -48,6 +49,28 @@ struct GymCandidateSearchView: View {
     }
 
     // MARK: - Sections
+
+    private var nearbySection: some View {
+        Section {
+            NavigationLink {
+                NearbyGymCandidateView(onSaved: onSaved)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "location.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                        .imageScale(.large)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("現在地から近くのジムを探す")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text("位置情報を使って近くのジムを表示します")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
 
     private var inputSection: some View {
         Section("ジムを検索") {

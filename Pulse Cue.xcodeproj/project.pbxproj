@@ -86,6 +86,15 @@
 		D17104DB1A8E4001B0DA4601 /* GymCandidateSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */; };
 		D17104DB1A8E4001B0DA4701 /* GymCandidateRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */; };
 		D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */; };
+		D17104DB1A8E4001B0DA4901 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4902 /* LocationProvider.swift */; };
+		D17104DB1A8E4001B0DA4A01 /* CoreLocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4A02 /* CoreLocationProvider.swift */; };
+		D17104DB1A8E4001B0DA4B01 /* FakeLocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4B02 /* FakeLocationProvider.swift */; };
+		D17104DB1A8E4001B0DA4C01 /* NearbyGymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4C02 /* NearbyGymCandidateSearchService.swift */; };
+		D17104DB1A8E4001B0DA4D01 /* MapKitNearbyGymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4D02 /* MapKitNearbyGymCandidateSearchService.swift */; };
+		D17104DB1A8E4001B0DA4E01 /* FakeNearbyGymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4E02 /* FakeNearbyGymCandidateSearchService.swift */; };
+		D17104DB1A8E4001B0DA4F01 /* NearbyGymCandidateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4F02 /* NearbyGymCandidateViewModel.swift */; };
+		D17104DB1A8E4001B0DA5001 /* NearbyGymCandidateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5002 /* NearbyGymCandidateView.swift */; };
+		D17104DB1A8E4001B0DA5101 /* NearbyGymCandidateViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -190,6 +199,15 @@
 		D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateRow.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchViewModelTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4902 /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4A02 /* CoreLocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreLocationProvider.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4B02 /* FakeLocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeLocationProvider.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4C02 /* NearbyGymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateSearchService.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4D02 /* MapKitNearbyGymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitNearbyGymCandidateSearchService.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4E02 /* FakeNearbyGymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeNearbyGymCandidateSearchService.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA4F02 /* NearbyGymCandidateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateViewModel.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5002 /* NearbyGymCandidateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateView.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyGymCandidateViewModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -241,6 +259,7 @@
 				D17104DB1A8E4001B0DA3C02 /* GeneratedPlanPreviewView.swift */,
 				D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */,
 				D17104DB1A8E4001B0DA4702 /* GymCandidateRow.swift */,
+				D17104DB1A8E4001B0DA5002 /* NearbyGymCandidateView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -266,6 +285,12 @@
 				D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */,
 				D17104DB1A8E4001B0DA4302 /* MapKitGymCandidateSearchService.swift */,
 				D17104DB1A8E4001B0DA4402 /* FakeGymCandidateSearchService.swift */,
+				D17104DB1A8E4001B0DA4902 /* LocationProvider.swift */,
+				D17104DB1A8E4001B0DA4A02 /* CoreLocationProvider.swift */,
+				D17104DB1A8E4001B0DA4B02 /* FakeLocationProvider.swift */,
+				D17104DB1A8E4001B0DA4C02 /* NearbyGymCandidateSearchService.swift */,
+				D17104DB1A8E4001B0DA4D02 /* MapKitNearbyGymCandidateSearchService.swift */,
+				D17104DB1A8E4001B0DA4E02 /* FakeNearbyGymCandidateSearchService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -363,6 +388,7 @@
 				D17104DB1A8E4001B0DA3602 /* ManualMachineSelectionViewModel.swift */,
 				D17104DB1A8E4001B0DA3702 /* GeneratedPlanViewModel.swift */,
 				D17104DB1A8E4001B0DA4502 /* GymCandidateSearchViewModel.swift */,
+				D17104DB1A8E4001B0DA4F02 /* NearbyGymCandidateViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -381,6 +407,7 @@
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
 				D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */,
 				D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */,
+				D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -604,6 +631,14 @@
 				D17104DB1A8E4001B0DA4501 /* GymCandidateSearchViewModel.swift in Sources */,
 				D17104DB1A8E4001B0DA4601 /* GymCandidateSearchView.swift in Sources */,
 				D17104DB1A8E4001B0DA4701 /* GymCandidateRow.swift in Sources */,
+				D17104DB1A8E4001B0DA4901 /* LocationProvider.swift in Sources */,
+				D17104DB1A8E4001B0DA4A01 /* CoreLocationProvider.swift in Sources */,
+				D17104DB1A8E4001B0DA4B01 /* FakeLocationProvider.swift in Sources */,
+				D17104DB1A8E4001B0DA4C01 /* NearbyGymCandidateSearchService.swift in Sources */,
+				D17104DB1A8E4001B0DA4D01 /* MapKitNearbyGymCandidateSearchService.swift in Sources */,
+				D17104DB1A8E4001B0DA4E01 /* FakeNearbyGymCandidateSearchService.swift in Sources */,
+				D17104DB1A8E4001B0DA4F01 /* NearbyGymCandidateViewModel.swift in Sources */,
+				D17104DB1A8E4001B0DA5001 /* NearbyGymCandidateView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -622,6 +657,7 @@
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */,
+				D17104DB1A8E4001B0DA5101 /* NearbyGymCandidateViewModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

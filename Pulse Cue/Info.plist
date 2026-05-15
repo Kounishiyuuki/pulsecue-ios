@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ジム登録の際、近くのジムを検索するために位置情報を使います。現在地は近くのジム検索にのみ使用します。</string>
 	<key>UIBackgroundModes</key>
 	<array/>
 </dict>
