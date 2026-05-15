@@ -111,6 +111,7 @@ struct SettingsView: View {
                 }
                 goalCard(profile: $profile)
                 integrationsCard
+                myGymCard
                 appSettingsCard
                 appInfoCard
                 saveButton
@@ -416,6 +417,34 @@ struct SettingsView: View {
                     Toggle("休憩終了時に触覚で知らせる", isOn: $settings.hapticsEnabled)
                     Toggle("ランナー表示中は画面を常時点灯", isOn: $settings.keepScreenOn)
                 }
+            }
+        }
+    }
+
+    private var myGymCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "dumbbell.fill", title: "マイジム")
+                NavigationLink {
+                    MyGymHomeView()
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ジムを登録してメニューを生成")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("利用できるマシンを選ぶと、部位別のワークアウトを自動で組み立てます。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
     }
