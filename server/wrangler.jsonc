@@ -4,9 +4,14 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "server",
+	"name": "pulsecue-gym-machine-api",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-05-14",
+	// Deploy to https://<name>.<subdomain>.workers.dev. This is the
+	// default when no `routes` are declared, but it is set explicitly
+	// so the deploy target is obvious from config alone. Custom
+	// domains / routes are intentionally not configured here.
+	"workers_dev": true,
 	"observability": {
 		"enabled": true
 	},
