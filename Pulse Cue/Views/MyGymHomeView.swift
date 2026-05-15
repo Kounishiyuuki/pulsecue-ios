@@ -4,8 +4,9 @@
 //
 //  Entry point for the manual gym workout flow. Reached from
 //  Settings →「マイジム」. Shows the active gym hero with its
-//  machine count, the list of registered gyms, and CTAs into machine
-//  selection / plan generation. Offline-first — no server calls.
+//  machine count + primary "generate workout" CTA, the list of
+//  registered gyms, and entry points for adding more. Offline-first
+//  — no server calls.
 //
 
 import SwiftUI
@@ -23,7 +24,8 @@ struct MyGymHomeView: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 22) {
+                    titleBlock
                     if viewModel.gyms.isEmpty {
                         emptyStateCard
                     } else {
@@ -33,16 +35,18 @@ struct MyGymHomeView: View {
                         }
                         if viewModel.gyms.count > 1 {
                             otherGymsCard
+                        } else {
+                            registerAnotherCard
                         }
                     }
-                    infoCard
-                    Color.clear.frame(height: 24)
+                    Color.clear.frame(height: 28)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
             }
         }
         .navigationTitle("マイジム")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -63,13 +67,29 @@ struct MyGymHomeView: View {
         .onAppear { viewModel.reload() }
     }
 
-    // MARK: - Cards
+    // MARK: - Title
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("マイジム")
+                .font(.largeTitle.weight(.bold))
+            Text("ワークアウト場所とマシンのアクセスを管理します。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Empty state
 
     private var emptyStateCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MyGymStyle.sectionHeader(icon: "building.2.crop.circle", title: "マイジム")
-            Text("ジムを登録するとメニューを自動生成できます")
-                .font(.headline)
+            HStack(spacing: 8) {
+                Image(systemName: "building.2.crop.circle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(MyGymStyle.accentGradient)
+                Text("ジムを登録するとメニューを自動生成できます")
+                    .font(.headline)
+            }
             Text("普段トレーニングしているジムを登録すると、利用できるマシンに合わせてワークアウトを組み立てます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -79,93 +99,150 @@ struct MyGymHomeView: View {
                 Label("ジムを登録する", systemImage: "plus.circle.fill")
             }
             .buttonStyle(MyGymPrimaryButtonStyle())
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
         .myGymCard()
     }
 
-    private func activeGymCard(_ gym: Gym) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.seal.fill")
-                    .foregroundStyle(MyGymStyle.accentGradient)
-                Text("アクティブなジム")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
+    // MARK: - Active gym hero
 
-            VStack(alignment: .leading, spacing: 6) {
+    private func activeGymCard(_ gym: Gym) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            activeBadge
+            VStack(alignment: .leading, spacing: 8) {
                 Text(gym.name)
                     .font(.title2.weight(.bold))
-                if let url = gym.officialUrl, !url.isEmpty {
-                    HStack(spacing: 4) {
+                    .foregroundStyle(.primary)
+                if let host = displayHost(for: gym.officialUrl) {
+                    HStack(spacing: 6) {
                         Image(systemName: "link")
                             .font(.caption2)
-                        Text(displayHost(for: url))
+                        Text(host)
                             .font(.caption)
                             .lineLimit(1)
                     }
                     .foregroundStyle(.secondary)
                 }
             }
-
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(viewModel.machineCount(for: gym))")
-                        .font(.system(size: 34, weight: .heavy, design: .rounded))
-                        .foregroundStyle(MyGymStyle.accentGradient)
-                    Text("利用可能なマシン")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
+            machineStatRow(gym)
+            NavigationLink {
+                TargetBodyPartSelectionView(gym: gym)
+            } label: {
+                Label("選択中のマシンでメニューを生成", systemImage: "sparkles")
             }
+            .buttonStyle(MyGymPrimaryButtonStyle(isEnabled: viewModel.machineCount(for: gym) > 0))
+            .disabled(viewModel.machineCount(for: gym) == 0)
         }
         .myGymCard()
     }
 
+    private var activeBadge: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "star.fill")
+                .font(.caption2)
+            Text("アクティブ")
+                .font(.caption.weight(.bold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            Capsule().fill(MyGymStyle.accentGradient)
+        )
+    }
+
+    private func machineStatRow(_ gym: Gym) -> some View {
+        let count = viewModel.machineCount(for: gym)
+        return HStack(alignment: .firstTextBaseline, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(count)")
+                    .font(.system(size: 40, weight: .heavy, design: .rounded))
+                    .foregroundStyle(MyGymStyle.accentGradient)
+                Text("利用可能なマシン")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if count == 0 {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("まずはマシンを選択")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("「マシンを選択」 から登録")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.secondary.opacity(0.08))
+        )
+    }
+
+    // MARK: - Active gym secondary actions
+
     private func activeGymActionsCard(_ gym: Gym) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             NavigationLink {
                 ManualMachineSelectionView(gym: gym)
             } label: {
                 actionRow(
                     icon: "dumbbell.fill",
                     title: "マシンを選択",
-                    subtitle: "このジムで利用できるマシンを更新"
+                    subtitle: "このジムで使えるマシンを更新"
                 )
             }
             Divider().opacity(0.4)
-            NavigationLink {
-                TargetBodyPartSelectionView(gym: gym)
+            Button {
+                showRegistration = true
             } label: {
                 actionRow(
-                    icon: "sparkles",
-                    title: "ワークアウトを生成",
-                    subtitle: "部位を選んでメニューを自動作成"
+                    icon: "plus.circle",
+                    title: "別のジムを追加",
+                    subtitle: "出張先のジムや別店舗を登録"
                 )
             }
+            .buttonStyle(.plain)
         }
-        .myGymCard()
+        .myGymCard(padding: 14)
     }
 
+    // MARK: - Other gyms
+
     private var otherGymsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            MyGymStyle.sectionHeader(icon: "building.2", title: "登録済みのジム")
-            ForEach(Array(viewModel.gyms.filter { !$0.isActive }.enumerated()), id: \.element.id) { index, gym in
-                if index > 0 { Divider().opacity(0.4) }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                MyGymStyle.sectionHeader(icon: "building.2", title: "登録済みのジム")
                 Button {
-                    viewModel.setActive(gym)
+                    showRegistration = true
                 } label: {
-                    otherGymRow(gym)
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
+                        Text("ジムを登録する")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(MyGymStyle.accentSolid)
                 }
                 .buttonStyle(.plain)
-                .contextMenu {
-                    Button(role: .destructive) {
-                        viewModel.delete(gym)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.gyms.filter { !$0.isActive }.enumerated()), id: \.element.id) { index, gym in
+                    if index > 0 { Divider().opacity(0.4) }
+                    Button {
+                        viewModel.setActive(gym)
                     } label: {
-                        Label("削除", systemImage: "trash")
+                        otherGymRow(gym)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            viewModel.delete(gym)
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
                     }
                 }
             }
@@ -173,13 +250,32 @@ struct MyGymHomeView: View {
         .myGymCard()
     }
 
-    private var infoCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MyGymStyle.sectionHeader(icon: "info.circle", title: "ヒント")
-            Text("生成されたワークアウトはルーティン一覧に保存され、ランナーからそのまま開始できます。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+    /// Compact card shown when only the active gym exists, so the
+    /// 「ジムを登録する」 affordance is always visible.
+    private var registerAnotherCard: some View {
+        Button {
+            showRegistration = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(MyGymStyle.accentGradient)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("別のジムを追加")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("出張先のジムや家トレ用の設定もここで管理")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .myGymCard()
     }
 
@@ -205,41 +301,46 @@ struct MyGymHomeView: View {
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
+        .padding(.vertical, 6)
     }
 
     private func otherGymRow(_ gym: Gym) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "building.2")
-                .font(.system(size: 16))
-                .foregroundStyle(.secondary)
-                .frame(width: 26)
+        let count = viewModel.machineCount(for: gym)
+        return HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.secondary.opacity(0.12))
+                Image(systemName: "building.2.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 2) {
                 Text(gym.name)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text("\(viewModel.machineCount(for: gym)) 台のマシン")
+                    .lineLimit(1)
+                Text("\(count) 台のマシンが同期済み")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("切り替え")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule().fill(Color.secondary.opacity(0.12))
-                )
-                .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
+        .padding(.vertical, 8)
     }
 
     // MARK: - Helpers
 
-    private func displayHost(for urlString: String) -> String {
-        guard let url = URL(string: urlString), let host = url.host?.lowercased() else {
-            return urlString
-        }
+    private func displayHost(for urlString: String?) -> String? {
+        guard let urlString,
+              !urlString.isEmpty,
+              let url = URL(string: urlString),
+              let host = url.host?.lowercased()
+        else { return nil }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 }
