@@ -127,6 +127,7 @@ struct TodayGymPlanCard: View {
                 Label("部位を選んで作成", systemImage: "target")
             }
             .buttonStyle(MyGymPrimaryButtonStyle())
+            changeGymLink
         }
     }
 
@@ -161,7 +162,23 @@ struct TodayGymPlanCard: View {
                 Label("マシン情報を準備する", systemImage: "wrench.adjustable.fill")
             }
             .buttonStyle(MyGymPrimaryButtonStyle())
+            changeGymLink
         }
+    }
+
+    /// Secondary action shown beneath the primary CTA in both
+    /// active-gym states. Reuses the existing `MyGymHomeView`
+    /// destination, which (after the earlier PR #24 fixes) already
+    /// supports switching the active gym from the registered list.
+    private var changeGymLink: some View {
+        NavigationLink {
+            MyGymHomeView()
+        } label: {
+            Label("ジムを変更", systemImage: "arrow.left.arrow.right")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
     }
 
     // MARK: - Summary row
