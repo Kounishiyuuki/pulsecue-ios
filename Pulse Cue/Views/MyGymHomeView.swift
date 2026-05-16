@@ -17,6 +17,9 @@ struct MyGymHomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var viewModel = MyGymHomeViewModel()
     @State private var showRegistration = false
+    /// Holds the gym the user has asked to delete, while the
+    /// confirmation alert is on screen. `nil` when no alert is active.
+    @State private var pendingDeletion: Gym?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -71,6 +74,22 @@ struct MyGymHomeView: View {
         }
         .task { viewModel.configure(modelContext: modelContext) }
         .onAppear { viewModel.reload() }
+        .alert(
+            "ジムを削除しますか？",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            presenting: pendingDeletion
+        ) { gym in
+            Button("キャンセル", role: .cancel) { pendingDeletion = nil }
+            Button("削除", role: .destructive) {
+                viewModel.delete(gym)
+                pendingDeletion = nil
+            }
+        } message: { _ in
+            Text("このジムに登録したマシン情報も削除されます。")
+        }
     }
 
     // MARK: - Title
@@ -114,7 +133,22 @@ struct MyGymHomeView: View {
 
     private func activeGymCard(_ gym: Gym) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            activeBadge
+            HStack(alignment: .center) {
+                activeBadge
+                Spacer()
+                Menu {
+                    Button(role: .destructive) {
+                        pendingDeletion = gym
+                    } label: {
+                        Label("このジムを削除", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("ジムの操作")
+                }
+            }
             VStack(alignment: .leading, spacing: 8) {
                 Text(gym.name)
                     .font(.title2.weight(.bold))
@@ -245,7 +279,7 @@ struct MyGymHomeView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button(role: .destructive) {
-                            viewModel.delete(gym)
+                            pendingDeletion = gym
                         } label: {
                             Label("削除", systemImage: "trash")
                         }
@@ -277,7 +311,7 @@ struct MyGymHomeView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button(role: .destructive) {
-                            viewModel.delete(gym)
+                            pendingDeletion = gym
                         } label: {
                             Label("削除", systemImage: "trash")
                         }
