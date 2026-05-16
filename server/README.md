@@ -86,13 +86,71 @@ Error responses use a uniform envelope:
 
 Possible `code` values: `unauthorized`, `invalid_body`, `missing`,
 `malformed`, `unsupported_scheme`, `private_host`, `fetch_failed`,
-`not_found`, `internal_error`.
+`invalid_attestation`, `rate_limited`, `not_found`, `internal_error`.
+
+### `POST /api/auth/import-token`
+
+Mints a **short-lived** bearer token the future iOS client will use
+when calling `POST /api/gym-machines/import`. Designed so the
+long-lived `PULSECUE_IMPORT_API_KEY` never ships in the App Store
+binary. Spec: [`Docs/import-token-endpoint-spec.md`](../Docs/import-token-endpoint-spec.md).
+
+Request body:
+
+```json
+{
+  "deviceId": "<UUID for the calling device>",
+  "appVersion": "<CFBundleShortVersionString + build>",
+  "attestation": "<App Attest assertion (production) or any non-empty placeholder (dev)>"
+}
+```
+
+Response:
+
+```json
+{
+  "token": "<base64url payload>.<base64url HMAC-SHA256>",
+  "expiresAt": "2026-05-17T00:00:00.000Z",
+  "ttlSeconds": 86400
+}
+```
+
+Example call:
+
+```bash
+curl -X POST https://<your-worker-host>/api/auth/import-token \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "deviceId": "9F3C2F8E-1E1B-4C2D-9B8C-1F0E2D3A4B5C",
+    "appVersion": "1.0.0 (1)",
+    "attestation": "dev-placeholder-assertion"
+  }'
+```
+
+> **Production warning:** the `attestation` field is currently
+> validated only as a non-empty string. **Before exposing the Worker
+> publicly, replace this with real App Attest assertion verification.**
+> The placeholder posture is intentional for the MVP and is documented
+> in [`Docs/import-token-endpoint-spec.md`](../Docs/import-token-endpoint-spec.md) §5.
+> Today's import endpoint still enforces the long-lived
+> `PULSECUE_IMPORT_API_KEY` bearer — the mint endpoint does **not**
+> change that yet.
+
+Errors use the same envelope as the rest of the Worker:
+
+| `code` | HTTP | When |
+|---|---|---|
+| `invalid_body` | 400 | malformed JSON / missing or empty `deviceId` / `appVersion` / `attestation` |
+| `invalid_attestation` | 401 | reserved for the real App Attest gate; the placeholder validator covers empty input via `invalid_body` |
+| `rate_limited` | 429 | reserved for the future rate-limit pass (PR-δ) |
+| `internal_error` | 500 | `PULSECUE_IMPORT_TOKEN_SECRET` unset, or HMAC failure |
 
 ## Environment variables
 
 | Name | Required | Purpose |
 |------|----------|---------|
 | `PULSECUE_IMPORT_API_KEY` | Yes | Secret bearer token that gates `POST /api/gym-machines/import`. If unset, the endpoint rejects **every** request (fail-closed). |
+| `PULSECUE_IMPORT_TOKEN_SECRET` | Yes (for `/api/auth/import-token`) | HMAC-SHA256 signing secret used to mint short-lived bearer tokens. **Must be different from `PULSECUE_IMPORT_API_KEY`.** If unset, `POST /api/auth/import-token` returns `500 internal_error`. |
 
 ## Setup
 
@@ -107,14 +165,17 @@ npm install
 ## Local development
 
 For local runs, `wrangler dev` reads secrets from a `.dev.vars` file
-in `server/`. Copy the example and fill in any non-empty value — it
-only has to match the `Authorization: Bearer` token you send while
-testing:
+in `server/`. Copy the example and fill in any non-empty values —
+they only have to match what you send while testing:
 
 ```bash
 cp .dev.vars.example .dev.vars
-# edit .dev.vars and set PULSECUE_IMPORT_API_KEY=<your-local-dummy-key>
+# edit .dev.vars and set:
+#   PULSECUE_IMPORT_API_KEY=<your-local-dummy-key>
+#   PULSECUE_IMPORT_TOKEN_SECRET=<any non-empty random string>
 ```
+
+Both keys must be different from each other in practice.
 
 `.dev.vars` is git-ignored; `.dev.vars.example` is the committed
 template and must never contain a real secret.
@@ -142,16 +203,31 @@ curl -X POST http://localhost:8787/api/gym-machines/import \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <your-local-dummy-key>' \
   -d '{"gymName":"Test","officialUrl":"https://example.com/"}'
+
+# mint a short-lived token
+curl -X POST http://localhost:8787/api/auth/import-token \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "deviceId":"9F3C2F8E-1E1B-4C2D-9B8C-1F0E2D3A4B5C",
+    "appVersion":"1.0.0 (1)",
+    "attestation":"dev-placeholder-assertion"
+  }'
 ```
 
 ## Production secret
 
-Do not put the production key in `wrangler.jsonc` or `.dev.vars`. Set
-it as an encrypted Worker secret:
+Do not put either secret in `wrangler.jsonc` or `.dev.vars`. Set them
+as encrypted Worker secrets, with **independent random values**:
 
 ```bash
 wrangler secret put PULSECUE_IMPORT_API_KEY
+wrangler secret put PULSECUE_IMPORT_TOKEN_SECRET
 ```
+
+> The token signing secret is what lets the future iOS client mint
+> short-lived bearers without ever holding the long-lived
+> `PULSECUE_IMPORT_API_KEY`. Rotating it invalidates all outstanding
+> tokens, which is the intended emergency-rotation behavior.
 
 ## Deploy
 
@@ -170,12 +246,15 @@ src/
   routes/
     health.ts                    GET /health
     importGymMachines.ts         POST /api/gym-machines/import
+    authImportToken.ts           POST /api/auth/import-token
+  auth/
+    tokens.ts                    HMAC-signed short-lived bearer mint
   parser/
     url.ts                       URL validation (http/https only)
     extractText.ts               HTML → readable text
     machines.ts                  Canonical machine catalog + aliases
     matchMachines.ts             Alias matcher with dedupe + scoring
-tests/                           Vitest suites for the parser layer
+tests/                           Vitest suites for parser + token + route
 ```
 
 ## Machine catalog
@@ -223,6 +302,14 @@ so that `Smith Machine` is not lost to a generic `Machine`.
   `PULSECUE_IMPORT_API_KEY` secret. The check is constant-time and
   fails closed when the secret is unset. `GET /health` stays public.
   Set the production key with `wrangler secret put` — never commit it.
+- **Token mint is App-Attest-placeholder for now.**
+  `POST /api/auth/import-token` accepts any non-empty `attestation`
+  string today and is intended to be tightened to real App Attest
+  verification before public exposure. Tokens are HMAC-SHA256-signed
+  with `PULSECUE_IMPORT_TOKEN_SECRET` and never logged. The mint
+  endpoint **does not** weaken the import endpoint's `Authorization:
+  Bearer <PULSECUE_IMPORT_API_KEY>` requirement; that change will land
+  in a later PR once the App Attest path is in.
 - **No web search.** The Worker never picks its own targets — it
   fetches exactly the `officialUrl` provided by the caller.
 - **JS-rendered pages may be empty.** Static HTML is the only source.
