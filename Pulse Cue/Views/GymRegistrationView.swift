@@ -4,7 +4,8 @@
 //
 //  Form for registering a new gym. Two fields (name + optional
 //  public URL). Saving makes the new gym the active one so the
-//  caller can immediately push into machine selection.
+//  caller can immediately push into machine selection. Accepts
+//  optional pre-fill values from the candidate search flow.
 //
 
 import SwiftUI
@@ -12,20 +13,14 @@ import SwiftData
 
 struct GymRegistrationView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var viewModel = GymRegistrationViewModel()
     @State private var didApplyInitialValues = false
 
-    /// Optional pre-fill — populated when the user arrives from
-    /// `GymCandidateSearchView` after selecting a candidate. Empty
-    /// strings keep the manual-entry path identical to PR #20.
     let initialName: String
     let initialOfficialUrl: String
-
-    /// Called with the newly created gym id after a successful save
-    /// so the caller (the hub screen) can decide whether to dismiss
-    /// itself or push deeper into the flow.
     let onSaved: (UUID) -> Void
 
     init(
@@ -39,29 +34,26 @@ struct GymRegistrationView: View {
     }
 
     var body: some View {
-        Form {
-            Section("ジム情報") {
-                TextField("ジム名", text: $viewModel.name)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("公式URL(任意)", text: $viewModel.officialUrl)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-            }
+        ZStack(alignment: .bottom) {
+            MyGymStyle.backgroundLayer(for: colorScheme)
+                .ignoresSafeArea()
 
-            if case .error(let message) = viewModel.state {
-                Section {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    inputCard
+                    if case .error(let message) = viewModel.state {
+                        errorCard(message: message)
+                    }
+                    hintCard
+                    Color.clear.frame(height: 96)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
             }
 
-            Section {
-                Text("公式URLは後でジムごとの機械リスト取り込みに使う予定です。今は任意で構いません。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            saveBar
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
         }
         .navigationTitle("ジムを登録")
         .navigationBarTitleDisplayMode(.inline)
@@ -69,16 +61,9 @@ struct GymRegistrationView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Button("キャンセル") { dismiss() }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("保存") { viewModel.save() }
-                    .disabled(!viewModel.canSave)
-            }
         }
         .task {
             viewModel.configure(modelContext: modelContext)
-            // Seed once: arriving from candidate search with pre-fill
-            // should populate the form, but a user who edits the
-            // fields and re-renders must not have their edits reset.
             if !didApplyInitialValues {
                 if viewModel.name.isEmpty { viewModel.name = initialName }
                 if viewModel.officialUrl.isEmpty { viewModel.officialUrl = initialOfficialUrl }
@@ -91,5 +76,89 @@ struct GymRegistrationView: View {
                 dismiss()
             }
         }
+    }
+
+    private var inputCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            MyGymStyle.sectionHeader(icon: "building.2.fill", title: "ジム情報")
+
+            fieldLabel("ジム名", required: true)
+            TextField("例: フィットネスジム パルス", text: $viewModel.name)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .textFieldStyle(.roundedBorder)
+
+            fieldLabel("公式URL", required: false)
+            TextField("https://", text: $viewModel.officialUrl)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.caption2)
+                Text("公式URLは後でマシン情報の確認に使える項目です。空欄で保存できます。")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.top, 2)
+        }
+        .myGymCard()
+    }
+
+    private func fieldLabel(_ text: String, required: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+            if required {
+                Text("*")
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(.red)
+            } else {
+                Text("(任意)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private var hintCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MyGymStyle.sectionHeader(icon: "lightbulb", title: "ヒント")
+            Text("登録後、このジムにあるマシンを選んでワークアウトを生成できます。あとから内容はいつでも編集できます。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .myGymCard()
+    }
+
+    private func errorCard(message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(.red)
+            .myGymCard()
+    }
+
+    private var saveBar: some View {
+        Button {
+            viewModel.save()
+        } label: {
+            if viewModel.state == .saving {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            } else {
+                Label("保存する", systemImage: "tray.and.arrow.down.fill")
+            }
+        }
+        .buttonStyle(MyGymPrimaryButtonStyle(isEnabled: viewModel.canSave))
+        .disabled(!viewModel.canSave)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+                .padding(-6)
+        )
     }
 }
