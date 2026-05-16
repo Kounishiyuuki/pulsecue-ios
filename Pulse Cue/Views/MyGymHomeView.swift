@@ -17,6 +17,9 @@ struct MyGymHomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var viewModel = MyGymHomeViewModel()
     @State private var showRegistration = false
+    /// Holds the gym the user has asked to delete, while the
+    /// confirmation alert is on screen. `nil` when no alert is active.
+    @State private var pendingDeletion: Gym?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -28,16 +31,22 @@ struct MyGymHomeView: View {
                     titleBlock
                     if viewModel.gyms.isEmpty {
                         emptyStateCard
-                    } else {
-                        if let active = viewModel.activeGym {
-                            activeGymCard(active)
-                            activeGymActionsCard(active)
-                        }
+                    } else if let active = viewModel.activeGym {
+                        activeGymCard(active)
+                        activeGymActionsCard(active)
                         if viewModel.gyms.count > 1 {
                             otherGymsCard
                         } else {
                             registerAnotherCard
                         }
+                    } else {
+                        // Gyms exist but none is active (e.g. the
+                        // user deleted the previously-active gym).
+                        // Surface every registered gym as a tappable
+                        // row so the active invariant can be repaired
+                        // without forcing a re-register.
+                        selectActiveGymCard
+                        registerAnotherCard
                     }
                     Color.clear.frame(height: 28)
                 }
@@ -65,6 +74,22 @@ struct MyGymHomeView: View {
         }
         .task { viewModel.configure(modelContext: modelContext) }
         .onAppear { viewModel.reload() }
+        .alert(
+            "ジムを削除しますか？",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            presenting: pendingDeletion
+        ) { gym in
+            Button("キャンセル", role: .cancel) { pendingDeletion = nil }
+            Button("削除", role: .destructive) {
+                viewModel.delete(gym)
+                pendingDeletion = nil
+            }
+        } message: { _ in
+            Text("このジムに登録したマシン情報も削除されます。")
+        }
     }
 
     // MARK: - Title
@@ -108,7 +133,22 @@ struct MyGymHomeView: View {
 
     private func activeGymCard(_ gym: Gym) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            activeBadge
+            HStack(alignment: .center) {
+                activeBadge
+                Spacer()
+                Menu {
+                    Button(role: .destructive) {
+                        pendingDeletion = gym
+                    } label: {
+                        Label("このジムを削除", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("ジムの操作")
+                }
+            }
             VStack(alignment: .leading, spacing: 8) {
                 Text(gym.name)
                     .font(.title2.weight(.bold))
@@ -239,7 +279,39 @@ struct MyGymHomeView: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         Button(role: .destructive) {
-                            viewModel.delete(gym)
+                            pendingDeletion = gym
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+        .myGymCard()
+    }
+
+    /// Tappable list of every registered gym, used when no gym is
+    /// currently active. Tapping a row promotes that gym to active
+    /// via `GymRepository.setActive`, which automatically demotes
+    /// any other rows — the single-active invariant is preserved.
+    private var selectActiveGymCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            MyGymStyle.sectionHeader(icon: "checkmark.circle", title: "ジムを選択")
+            Text("今日使うジムをタップしてアクティブにしてください。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.gyms.enumerated()), id: \.element.id) { index, gym in
+                    if index > 0 { Divider().opacity(0.4) }
+                    Button {
+                        viewModel.setActive(gym)
+                    } label: {
+                        otherGymRow(gym)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            pendingDeletion = gym
                         } label: {
                             Label("削除", systemImage: "trash")
                         }

@@ -63,6 +63,7 @@ struct TodayView: View {
                 VStack(spacing: 18) {
                     heroCard
                     startWorkoutButton
+                    TodayGymPlanCard()
                     metricsGrid
                     nutritionLogLink
                     balanceCard
