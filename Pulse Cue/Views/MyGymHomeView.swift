@@ -28,16 +28,22 @@ struct MyGymHomeView: View {
                     titleBlock
                     if viewModel.gyms.isEmpty {
                         emptyStateCard
-                    } else {
-                        if let active = viewModel.activeGym {
-                            activeGymCard(active)
-                            activeGymActionsCard(active)
-                        }
+                    } else if let active = viewModel.activeGym {
+                        activeGymCard(active)
+                        activeGymActionsCard(active)
                         if viewModel.gyms.count > 1 {
                             otherGymsCard
                         } else {
                             registerAnotherCard
                         }
+                    } else {
+                        // Gyms exist but none is active (e.g. the
+                        // user deleted the previously-active gym).
+                        // Surface every registered gym as a tappable
+                        // row so the active invariant can be repaired
+                        // without forcing a re-register.
+                        selectActiveGymCard
+                        registerAnotherCard
                     }
                     Color.clear.frame(height: 28)
                 }
@@ -230,6 +236,38 @@ struct MyGymHomeView: View {
             }
             VStack(spacing: 0) {
                 ForEach(Array(viewModel.gyms.filter { !$0.isActive }.enumerated()), id: \.element.id) { index, gym in
+                    if index > 0 { Divider().opacity(0.4) }
+                    Button {
+                        viewModel.setActive(gym)
+                    } label: {
+                        otherGymRow(gym)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            viewModel.delete(gym)
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+        .myGymCard()
+    }
+
+    /// Tappable list of every registered gym, used when no gym is
+    /// currently active. Tapping a row promotes that gym to active
+    /// via `GymRepository.setActive`, which automatically demotes
+    /// any other rows — the single-active invariant is preserved.
+    private var selectActiveGymCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            MyGymStyle.sectionHeader(icon: "checkmark.circle", title: "ジムを選択")
+            Text("今日使うジムをタップしてアクティブにしてください。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.gyms.enumerated()), id: \.element.id) { index, gym in
                     if index > 0 { Divider().opacity(0.4) }
                     Button {
                         viewModel.setActive(gym)
