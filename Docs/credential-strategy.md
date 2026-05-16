@@ -118,3 +118,7 @@
 > および自動取り込み機能をどの位優先するかで変わる。
 > 採用案を確定したらこのファイルの「推奨」セクションに採用日付を追記し、
 > 後続 PR で参照する。
+
+### 関連ドキュメント
+
+- [`import-token-endpoint-spec.md`](import-token-endpoint-spec.md) — 案 B (短期デバイススコープトークン) を採るときに新設するサーバーエンドポイント `POST /api/auth/import-token` の仕様。
