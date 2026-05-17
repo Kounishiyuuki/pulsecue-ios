@@ -24,20 +24,34 @@ curl https://<your-worker-host>/health
 Takes a gym name and the URL of that gym's official page, fetches the
 page, and returns the machines the parser recognized.
 
-**Requires authentication.** Send the import API key as a bearer
-token:
+**Requires authentication.** The endpoint accepts **either** of two
+bearer formats, evaluated in this order:
 
-```
-Authorization: Bearer <PULSECUE_IMPORT_API_KEY>
-```
+1. **Long-lived API key** — for server/admin/dev callers.
+   ```
+   Authorization: Bearer <PULSECUE_IMPORT_API_KEY>
+   ```
+2. **Short-lived import token** — for the future iOS client.
+   ```
+   Authorization: Bearer <token from POST /api/auth/import-token>
+   ```
+   The token is HMAC-SHA256-signed with `PULSECUE_IMPORT_TOKEN_SECRET`
+   and carries a payload binding `deviceId`, expiry, and the fixed
+   scope `gym-machines:import`. The middleware verifies the signature
+   in constant time, refuses expired tokens, and refuses tokens whose
+   scope is anything else.
 
-Missing, malformed, or incorrect keys return `HTTP 401`:
+Missing, malformed, expired, wrong-signed, or wrong-scoped credentials
+all return the same `HTTP 401` envelope:
 
 ```json
 { "error": { "code": "unauthorized", "message": "A valid API key is required" } }
 ```
 
 `GET /health` stays public — no key required.
+
+> If `PULSECUE_IMPORT_TOKEN_SECRET` is unset, only the long-lived API
+> key path works; short-lived tokens are rejected.
 
 Request body:
 
@@ -204,15 +218,27 @@ curl -X POST http://localhost:8787/api/gym-machines/import \
   -H 'Authorization: Bearer <your-local-dummy-key>' \
   -d '{"gymName":"Test","officialUrl":"https://example.com/"}'
 
-# mint a short-lived token
-curl -X POST http://localhost:8787/api/auth/import-token \
+# mint a short-lived token, then use it against the import endpoint
+TOKEN=$(curl -sS -X POST http://localhost:8787/api/auth/import-token \
   -H 'Content-Type: application/json' \
   -d '{
     "deviceId":"9F3C2F8E-1E1B-4C2D-9B8C-1F0E2D3A4B5C",
     "appVersion":"1.0.0 (1)",
     "attestation":"dev-placeholder-assertion"
-  }'
+  }' | jq -r .token)
+
+curl -X POST http://localhost:8787/api/gym-machines/import \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"gymName":"Test","officialUrl":"https://example.com/"}'
 ```
+
+> The import endpoint accepts either credential interchangeably (it
+> tries the long-lived API key first, then short-lived token). The
+> long-lived path is unchanged from PR #18; short-lived tokens are the
+> new path added in this PR for future iOS clients.
+> **App Attest validation on the mint endpoint is still a placeholder
+> (any non-empty `attestation` is accepted) until a future PR.**
 
 ## Production secret
 
@@ -297,11 +323,17 @@ so that `Smith Machine` is not lost to a generic `Machine`.
   Do not include it in commits, PR descriptions, or issues.
 - **No deploy is performed by automation.** Run `npm run deploy`
   yourself when you are ready to publish.
-- **API key required for imports.** `POST /api/gym-machines/import` is
-  gated by an `Authorization: Bearer` check against the
-  `PULSECUE_IMPORT_API_KEY` secret. The check is constant-time and
-  fails closed when the secret is unset. `GET /health` stays public.
-  Set the production key with `wrangler secret put` — never commit it.
+- **Auth required for imports.** `POST /api/gym-machines/import` is
+  gated by an `Authorization: Bearer` check. The middleware accepts
+  **either** the long-lived `PULSECUE_IMPORT_API_KEY` (constant-time
+  compare) or a short-lived HMAC-SHA256-signed token whose payload
+  carries the fixed scope `gym-machines:import` and an expiry that is
+  re-checked against current time on every request. Signature
+  verification uses `crypto.subtle.verify` (constant-time at the
+  runtime layer). Either path failing falls through to the same `401
+  unauthorized` envelope; the response body never echoes the supplied
+  bearer back (asserted in tests). `GET /health` stays public. Set
+  both secrets in production with `wrangler secret put`.
 - **Token mint is App-Attest-placeholder for now.**
   `POST /api/auth/import-token` accepts any non-empty `attestation`
   string today and is intended to be tightened to real App Attest

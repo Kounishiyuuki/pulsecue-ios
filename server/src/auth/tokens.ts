@@ -102,3 +102,112 @@ export function base64urlEncode(bytes: Uint8Array): string {
 	const standard = btoa(binary);
 	return standard.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+
+export function base64urlDecode(input: string): Uint8Array | null {
+	if (input.length === 0) return null;
+	const standard = input.replace(/-/g, "+").replace(/_/g, "/");
+	// btoa/atob require padding to a multiple of 4.
+	const padded = standard.padEnd(Math.ceil(standard.length / 4) * 4, "=");
+	let binary: string;
+	try {
+		binary = atob(padded);
+	} catch {
+		return null;
+	}
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i += 1) {
+		bytes[i] = binary.charCodeAt(i) & 0xff;
+	}
+	return bytes;
+}
+
+/// Parsed payload returned by `verifyImportToken` on success.
+/// Callers receive only safe, structured fields; the raw signature
+/// is never re-exposed.
+export interface ImportTokenPayload {
+	deviceId: string;
+	expiresAtUnixSeconds: number;
+	scope: typeof IMPORT_TOKEN_SCOPE;
+}
+
+/// Verifies a `<base64url-payload>.<base64url-signature>` import
+/// token minted by `mintToken`. Returns the parsed payload on
+/// success, `null` on **any** failure (malformed, bad signature,
+/// wrong scope, expired, missing secret, etc.).
+///
+/// Failure-mode rationale: callers are expected to treat `null` as
+/// "401 unauthorized" without surfacing why. Encoding distinct error
+/// reasons would leak how the token validator scores partial matches
+/// (signature vs scope vs expiry), making targeted forgery easier.
+export async function verifyImportToken(
+	token: string,
+	secret: string,
+	now: Date = new Date(),
+): Promise<ImportTokenPayload | null> {
+	if (typeof token !== "string" || token.length === 0) return null;
+	if (typeof secret !== "string" || secret.length === 0) return null;
+
+	const parts = token.split(".");
+	if (parts.length !== 2) return null;
+	const payloadB64 = parts[0];
+	const signatureB64 = parts[1];
+	if (!payloadB64 || !signatureB64) return null;
+
+	const signatureBytes = base64urlDecode(signatureB64);
+	if (signatureBytes === null) return null;
+
+	const encoder = new TextEncoder();
+	let key: CryptoKey;
+	try {
+		key = await crypto.subtle.importKey(
+			"raw",
+			encoder.encode(secret),
+			{ name: "HMAC", hash: "SHA-256" },
+			false,
+			["verify"],
+		);
+	} catch {
+		return null;
+	}
+
+	let signatureValid: boolean;
+	try {
+		// `crypto.subtle.verify` is constant-time inside the runtime;
+		// returns `false` for both length mismatch and content mismatch
+		// without leaking which.
+		signatureValid = await crypto.subtle.verify(
+			"HMAC",
+			key,
+			signatureBytes,
+			encoder.encode(payloadB64),
+		);
+	} catch {
+		return null;
+	}
+	if (!signatureValid) return null;
+
+	const payloadBytes = base64urlDecode(payloadB64);
+	if (payloadBytes === null) return null;
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(new TextDecoder().decode(payloadBytes));
+	} catch {
+		return null;
+	}
+	if (typeof parsed !== "object" || parsed === null) return null;
+	const obj = parsed as { d?: unknown; e?: unknown; s?: unknown };
+
+	if (typeof obj.d !== "string" || obj.d.length === 0) return null;
+	if (typeof obj.e !== "number" || !Number.isFinite(obj.e)) return null;
+	if (obj.s !== IMPORT_TOKEN_SCOPE) return null;
+
+	const nowSeconds = Math.floor(now.getTime() / 1000);
+	if (obj.e <= nowSeconds) return null;
+
+	return {
+		deviceId: obj.d,
+		expiresAtUnixSeconds: obj.e,
+		scope: IMPORT_TOKEN_SCOPE,
+	};
+}
