@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireImportApiKey } from "./auth";
+import { requireImportAuthorization } from "./auth";
 import { authImportTokenHandler } from "./routes/authImportToken";
 import { healthHandler } from "./routes/health";
 import { importGymMachinesHandler } from "./routes/importGymMachines";
@@ -7,9 +7,13 @@ import { importGymMachinesHandler } from "./routes/importGymMachines";
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/health", healthHandler);
+// Accepts either the long-lived PULSECUE_IMPORT_API_KEY (server/admin
+// callers) or a short-lived token minted via /api/auth/import-token
+// (future iOS clients). See server/src/auth.ts and
+// Docs/import-token-endpoint-spec.md.
 app.post(
 	"/api/gym-machines/import",
-	requireImportApiKey,
+	requireImportAuthorization,
 	importGymMachinesHandler,
 );
 // Mint endpoint for short-lived bearer tokens used by the future
