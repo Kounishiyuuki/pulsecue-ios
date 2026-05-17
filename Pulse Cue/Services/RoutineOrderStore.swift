@@ -9,7 +9,15 @@ import Foundation
 import SwiftUI
 
 struct RoutineOrderStore {
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    /// Accepts a UserDefaults instance so tests can inject an isolated
+    /// suite (`UserDefaults(suiteName:)`) and not collide with the
+    /// live app's stored pin/order. Production call sites pass
+    /// nothing and get `.standard`.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     func ordered(routines: [Routine], pinned: Bool) -> [Routine] {
         let order = pinned ? pinnedOrder : regularOrder
