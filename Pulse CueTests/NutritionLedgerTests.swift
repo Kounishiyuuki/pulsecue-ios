@@ -340,6 +340,109 @@ struct NutritionLedgerTests {
         #expect(logs.isEmpty)
     }
 
+    // MARK: - Date boundary handling
+
+    /// A meal entered late at night (23:59) and a meal entered just
+    /// after midnight (00:01) must land on different local days.
+    /// `MealEntry.init` normalizes `dayDate` via `DateUtils.startOfDay`,
+    /// so the ledger sees them in different buckets.
+    @Test
+    func mealsAt2359And0001AreCountedAsDifferentLocalDays() throws {
+        let context = try Self.makeContext()
+        let cal = Calendar.current
+
+        // Anchor: 2026-04-10 23:59 local.
+        var lateComponents = DateComponents()
+        lateComponents.year = 2026
+        lateComponents.month = 4
+        lateComponents.day = 10
+        lateComponents.hour = 23
+        lateComponents.minute = 59
+        let late = cal.date(from: lateComponents)!
+
+        // 2026-04-11 00:01 local — same wall-clock minute group but
+        // crosses midnight.
+        var earlyComponents = lateComponents
+        earlyComponents.day = 11
+        earlyComponents.hour = 0
+        earlyComponents.minute = 1
+        let early = cal.date(from: earlyComponents)!
+
+        _ = insertMeal(in: context, date: late, kcal: 500, status: .confirmed)
+        _ = insertMeal(in: context, date: early, kcal: 700, status: .confirmed)
+
+        NutritionLedger.syncDayLogIntake(for: late, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: early, modelContext: context)
+
+        let day10 = cal.startOfDay(for: late)
+        let day11 = cal.startOfDay(for: early)
+        #expect(day10 != day11)
+        #expect(DayLogStore.fetch(date: day10, modelContext: context)?.intakeCalories == 500)
+        #expect(DayLogStore.fetch(date: day11, modelContext: context)?.intakeCalories == 700)
+        #expect(NutritionLedger.confirmedTotal(for: late, modelContext: context) == 500)
+        #expect(NutritionLedger.confirmedTotal(for: early, modelContext: context) == 700)
+    }
+
+    @Test
+    func mealEntryNormalizesDayDateToStartOfDay() throws {
+        let context = try Self.makeContext()
+        let cal = Calendar.current
+        var comps = DateComponents()
+        comps.year = 2026
+        comps.month = 4
+        comps.day = 15
+        comps.hour = 14
+        comps.minute = 30
+        let afternoon = cal.date(from: comps)!
+
+        let meal = insertMeal(in: context, date: afternoon, kcal: 320, status: .confirmed)
+
+        // `MealEntry.init` should have collapsed 14:30 → start-of-day.
+        #expect(meal.dayDate == cal.startOfDay(for: afternoon))
+        #expect(meal.dayDate.timeIntervalSince(cal.startOfDay(for: afternoon)) == 0)
+    }
+
+    /// The half-open day filter (`dayDate >= day && dayDate < nextDay`)
+    /// must keep three consecutive days separate when synced
+    /// individually.
+    @Test
+    func threeConsecutiveDaysDoNotBleedIntoEachOther() throws {
+        let context = try Self.makeContext()
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today)!
+        let twoDaysAgo = cal.date(byAdding: .day, value: -2, to: today)!
+
+        _ = insertMeal(in: context, date: today, kcal: 800, status: .confirmed)
+        _ = insertMeal(in: context, date: yesterday, kcal: 600, status: .confirmed)
+        _ = insertMeal(in: context, date: twoDaysAgo, kcal: 1100, status: .confirmed)
+
+        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: yesterday, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: twoDaysAgo, modelContext: context)
+
+        #expect(DayLogStore.fetch(date: today, modelContext: context)?.intakeCalories == 800)
+        #expect(DayLogStore.fetch(date: yesterday, modelContext: context)?.intakeCalories == 600)
+        #expect(DayLogStore.fetch(date: twoDaysAgo, modelContext: context)?.intakeCalories == 1100)
+
+        #expect(NutritionLedger.confirmedTotal(for: today, modelContext: context) == 800)
+        #expect(NutritionLedger.confirmedTotal(for: yesterday, modelContext: context) == 600)
+        #expect(NutritionLedger.confirmedTotal(for: twoDaysAgo, modelContext: context) == 1100)
+    }
+
+    @Test
+    func hasAnyMealUsesLocalDayBoundary() throws {
+        let context = try Self.makeContext()
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today)!
+
+        _ = insertMeal(in: context, date: yesterday, kcal: 400, status: .confirmed)
+
+        #expect(NutritionLedger.hasAnyMeal(for: yesterday, modelContext: context) == true)
+        #expect(NutritionLedger.hasAnyMeal(for: today, modelContext: context) == false)
+    }
+
     @Test
     func mealEntryClampsNegativeValuesAndKeepsNameFallback() throws {
         let context = try Self.makeContext()
