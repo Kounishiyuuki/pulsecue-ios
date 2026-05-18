@@ -351,8 +351,13 @@ struct NutritionView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(meal.slot.label) \(meal.name) \(meal.kcal) kcal \(meal.status.label)")
         .swipeDelete {
+            let day = meal.dayDate
             modelContext.delete(meal)
-            NutritionLedger.syncDayLogIntake(for: meal.dayDate, modelContext: modelContext)
+            // Use the delete-aware ledger entry point so that
+            // removing the last confirmed meal clears DayLog
+            // (the plain `syncDayLogIntake` returns early when no
+            // meals remain, which would leave a stale total).
+            NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
         }
     }
 
