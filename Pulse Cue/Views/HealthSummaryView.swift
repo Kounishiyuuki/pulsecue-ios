@@ -10,6 +10,7 @@ import SwiftData
 
 struct HealthSummaryView: View {
     @Query private var recentLogs: [DayLog]
+    @StateObject private var targetStore = HealthTargetStore()
 
     init() {
         let cal = Calendar.current
@@ -23,6 +24,19 @@ struct HealthSummaryView: View {
 
     private var summary: HealthSummary {
         HealthSummary(logs: recentLogs)
+    }
+
+    /// Average resolved target for each metric over the same 7-day
+    /// window HealthSummary uses for its weekly averages. Nil entries
+    /// mean the user has no configured target for the metric anywhere
+    /// in the window — the UI then preserves the prior "no target"
+    /// display for that row.
+    private func weeklyAverageTarget(for metric: HealthTargetMetric) -> Int? {
+        HealthTargetWeeklyAverage.averageTarget(
+            metric: metric,
+            endingAt: Date(),
+            settings: targetStore.settings
+        )
     }
 
     var body: some View {
@@ -52,14 +66,108 @@ struct HealthSummaryView: View {
 
     private var weeklySection: some View {
         Section {
-            row(label: "摂取カロリー", value: summary.weeklyIntakeAverage.map { "\($0) kcal/日" })
-            row(label: "運動消費", value: summary.weeklyExerciseAverage.map { "\($0) kcal/日" })
-            row(label: "バランス", value: summary.weeklyBalanceAverage.map { "\($0) kcal/日" })
-            row(label: "睡眠", value: summary.weeklySleepAverage.map { formatSleep(minutes: $0) })
+            weeklyRow(
+                label: "摂取カロリー",
+                actual: summary.weeklyIntakeAverage,
+                target: weeklyAverageTarget(for: .intakeCalories),
+                style: .kcal
+            )
+            weeklyRow(
+                label: "運動消費",
+                actual: summary.weeklyExerciseAverage,
+                target: weeklyAverageTarget(for: .exerciseCalories),
+                style: .kcal
+            )
+            weeklyRow(
+                label: "バランス",
+                actual: summary.weeklyBalanceAverage,
+                target: weeklyAverageTarget(for: .balanceCalories),
+                style: .kcal
+            )
+            weeklyRow(
+                label: "睡眠",
+                actual: summary.weeklySleepAverage,
+                target: weeklyAverageTarget(for: .sleepMinutes),
+                style: .sleep
+            )
         } header: {
             Text("過去 7 日の平均（目安）")
         } footer: {
-            Text("入力日数が少ないと表示されません。3 日以上のデータが必要です。")
+            Text("目標は曜日・日付の上書きを含む 7 日間の平均と比較しています。3 日以上の入力が必要です。")
+        }
+    }
+
+    private enum WeeklyRowStyle { case kcal, sleep }
+
+    private func weeklyDifference(actual: Int?, target: Int?, style: WeeklyRowStyle) -> HealthTargetDifference.Result? {
+        switch style {
+        case .kcal: return HealthTargetDifference.formatKcal(current: actual, target: target)
+        case .sleep: return HealthTargetDifference.formatSleepMinutes(current: actual, target: target)
+        }
+    }
+
+    /// Single row in the weekly section. When both an actual average
+    /// and a target average are available, surfaces a second line
+    /// with target + signed difference. Falls back to the legacy
+    /// "average value only" row when targets aren't configured for the
+    /// metric anywhere in the 7-day window.
+    private func weeklyRow(
+        label: String,
+        actual: Int?,
+        target: Int?,
+        style: WeeklyRowStyle
+    ) -> some View {
+        let actualText = actual.map { formatActual($0, style: style) }
+        let diff = weeklyDifference(actual: actual, target: target, style: style)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                Spacer()
+                Text(actualText ?? "—")
+                    .foregroundStyle(actualText == nil ? Color.secondary.opacity(0.6) : .secondary)
+            }
+            if let target, let diff {
+                HStack(spacing: 6) {
+                    Image(systemName: targetIcon(diff.direction))
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(targetColor(diff.direction))
+                    Text("目標 \(formatActual(target, style: style))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("·")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(diff.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(targetColor(diff.direction))
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(label) 目標 \(formatActual(target, style: style))、\(diff.label)")
+            }
+        }
+    }
+
+    private func formatActual(_ value: Int, style: WeeklyRowStyle) -> String {
+        switch style {
+        case .kcal: return "\(value) kcal/日"
+        case .sleep: return formatSleep(minutes: value)
+        }
+    }
+
+    private func targetColor(_ direction: HealthTargetDifference.Direction) -> Color {
+        switch direction {
+        case .onTarget: return .green
+        case .over: return .orange
+        case .under: return Color(red: 0.27, green: 0.62, blue: 0.95)
+        }
+    }
+
+    private func targetIcon(_ direction: HealthTargetDifference.Direction) -> String {
+        switch direction {
+        case .onTarget: return "checkmark.circle.fill"
+        case .over: return "arrow.up.circle.fill"
+        case .under: return "arrow.down.circle.fill"
         }
     }
 
