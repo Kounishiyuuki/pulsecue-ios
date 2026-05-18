@@ -35,6 +35,8 @@ struct TodayView: View {
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
     private var profiles: [UserProfile]
 
+    @StateObject private var targetStore = HealthTargetStore()
+
     @State private var activeField: DayLogField?
     @State private var showRoutinePicker = false
 
@@ -54,6 +56,15 @@ struct TodayView: View {
     }
 
     private var todayLog: DayLog? { summary.todayLog }
+
+    /// Today's resolved targets via HealthTargetResolver. Each metric
+    /// independently walks the priority chain (date override → weekday
+    /// override → default). Nil entries mean the user hasn't set a
+    /// target for that metric — the UI preserves the prior display in
+    /// that case.
+    private var resolvedTargets: HealthTargets {
+        HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings)
+    }
 
     var body: some View {
         ZStack {
@@ -332,6 +343,7 @@ struct TodayView: View {
             GridItem(.flexible(), spacing: 12),
             GridItem(.flexible(), spacing: 12)
         ]
+        let targets = resolvedTargets
         return LazyVGrid(columns: columns, spacing: 12) {
             metricCard(
                 icon: "fork.knife",
@@ -339,7 +351,11 @@ struct TodayView: View {
                 value: todayLog?.intakeCalories.map { formatInt($0) },
                 unit: "kcal",
                 accent: Color(red: 0.32, green: 0.66, blue: 0.97),
-                field: .nutrition
+                field: .nutrition,
+                targetSubtitle: kcalSubtitle(
+                    current: todayLog?.intakeCalories,
+                    target: targets.intakeCalories
+                )
             )
             metricCard(
                 icon: "flame.fill",
@@ -347,7 +363,11 @@ struct TodayView: View {
                 value: todayLog?.exerciseCalories.map { formatInt($0) },
                 unit: "kcal",
                 accent: Color(red: 0.41, green: 0.56, blue: 0.96),
-                field: .workout
+                field: .workout,
+                targetSubtitle: kcalSubtitle(
+                    current: todayLog?.exerciseCalories,
+                    target: targets.exerciseCalories
+                )
             )
             metricCard(
                 icon: "moon.fill",
@@ -355,7 +375,11 @@ struct TodayView: View {
                 value: todayLog?.sleepMinutes.map { formatSleep(minutes: $0) },
                 unit: nil,
                 accent: Color(red: 0.49, green: 0.45, blue: 0.97),
-                field: .sleep
+                field: .sleep,
+                targetSubtitle: sleepSubtitle(
+                    current: todayLog?.sleepMinutes,
+                    target: targets.sleepMinutes
+                )
             )
             metricCard(
                 icon: "scalemass.fill",
@@ -363,9 +387,45 @@ struct TodayView: View {
                 value: todayLog?.weightKg.map { formatWeight($0) },
                 unit: "kg",
                 accent: Color(red: 0.67, green: 0.45, blue: 0.96),
-                field: .weight
+                field: .weight,
+                targetSubtitle: nil
             )
         }
+    }
+
+    /// "目標 X kcal · あと Y kcal" subtitle for kcal-based metrics.
+    /// Returns nil when no target is configured or the user hasn't
+    /// logged a value yet — caller preserves the existing display.
+    private func kcalSubtitle(current: Int?, target: Int?) -> TargetSubtitle? {
+        guard let target,
+              let diff = HealthTargetDifference.formatKcal(current: current, target: target) else {
+            return nil
+        }
+        return TargetSubtitle(
+            targetText: "目標 \(formatInt(target)) kcal",
+            differenceText: diff.label,
+            direction: diff.direction
+        )
+    }
+
+    private func sleepSubtitle(current: Int?, target: Int?) -> TargetSubtitle? {
+        guard let target,
+              let diff = HealthTargetDifference.formatSleepMinutes(current: current, target: target) else {
+            return nil
+        }
+        return TargetSubtitle(
+            targetText: "目標 \(formatSleep(minutes: target))",
+            differenceText: diff.label,
+            direction: diff.direction
+        )
+    }
+
+    /// Compact value object passed into metric cards to avoid sprinkling
+    /// optional-handling at each call site.
+    private struct TargetSubtitle {
+        let targetText: String
+        let differenceText: String
+        let direction: HealthTargetDifference.Direction
     }
 
     private func metricCard(
@@ -374,7 +434,8 @@ struct TodayView: View {
         value: String?,
         unit: String?,
         accent: Color,
-        field: DayLogField
+        field: DayLogField,
+        targetSubtitle: TargetSubtitle?
     ) -> some View {
         let isMissing = (value == nil)
         return Button {
@@ -428,22 +489,74 @@ struct TodayView: View {
                             .foregroundStyle(accent)
                     }
                 }
+
+                if let subtitle = targetSubtitle {
+                    targetSubtitleRow(subtitle)
+                        .padding(.top, 4)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 110)
+            .frame(minHeight: 110)
             .padding(14)
             .background(glassBackground)
             .overlay(glassStroke)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(metricAccessibilityLabel(title: title, value: value, unit: unit))
+        .accessibilityLabel(metricAccessibilityLabel(title: title, value: value, unit: unit, subtitle: targetSubtitle))
     }
 
-    private func metricAccessibilityLabel(title: String, value: String?, unit: String?) -> String {
-        if let value {
-            return "\(title) \(value)\(unit ?? "")"
+    @ViewBuilder
+    private func targetSubtitleRow(_ subtitle: TargetSubtitle) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(subtitle.targetText)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            HStack(spacing: 3) {
+                Image(systemName: targetIcon(subtitle.direction))
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(targetColor(subtitle.direction))
+                Text(subtitle.differenceText)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(targetColor(subtitle.direction))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
-        return "\(title) 未入力"
+    }
+
+    private func targetColor(_ direction: HealthTargetDifference.Direction) -> Color {
+        switch direction {
+        case .onTarget: return .green
+        case .over: return .orange
+        case .under: return Color(red: 0.27, green: 0.62, blue: 0.95)
+        }
+    }
+
+    private func targetIcon(_ direction: HealthTargetDifference.Direction) -> String {
+        switch direction {
+        case .onTarget: return "checkmark.circle.fill"
+        case .over: return "arrow.up.circle.fill"
+        case .under: return "arrow.down.circle.fill"
+        }
+    }
+
+    private func metricAccessibilityLabel(
+        title: String,
+        value: String?,
+        unit: String?,
+        subtitle: TargetSubtitle?
+    ) -> String {
+        let base: String
+        if let value {
+            base = "\(title) \(value)\(unit ?? "")"
+        } else {
+            base = "\(title) 未入力"
+        }
+        if let subtitle {
+            return "\(base)、\(subtitle.targetText)、\(subtitle.differenceText)"
+        }
+        return base
     }
 
     // MARK: - Balance card
@@ -500,7 +613,9 @@ struct TodayView: View {
                 }
             }
 
-            if let gap = goalGap(intake: todayLog?.intakeCalories) {
+            if let row = balanceTargetRow(currentBalance: balance, intakeLogged: todayLog?.intakeCalories != nil || todayLog?.exerciseCalories != nil) {
+                row
+            } else if let gap = goalGap(intake: todayLog?.intakeCalories) {
                 goalGapRow(gap: gap)
             }
 
@@ -528,6 +643,39 @@ struct TodayView: View {
             todayIntake: intake,
             currentWeightKg: summary.latestWeight
         )
+    }
+
+    /// Renders the resolver-driven balance row when the user has set a
+    /// `balanceCalories` target. Returns nil when no balance target
+    /// exists so the caller can fall back to the legacy intake gap row.
+    private func balanceTargetRow(currentBalance: Int, intakeLogged: Bool) -> AnyView? {
+        guard intakeLogged,
+              let target = resolvedTargets.balanceCalories,
+              let diff = HealthTargetDifference.formatBalance(current: currentBalance, target: target) else {
+            return nil
+        }
+        let color = targetColor(diff.direction)
+        let icon = targetIcon(diff.direction)
+        let view = HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(color)
+            Text("収支 目標 \(formatInt(target)) kcal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Text(diff.label)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(color.opacity(0.10))
+        )
+        .accessibilityLabel("収支 目標 \(formatInt(target)) kcal、\(diff.label)")
+        return AnyView(view)
     }
 
     private func goalGapRow(gap: Int) -> some View {
