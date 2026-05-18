@@ -2,17 +2,16 @@
 //  HealthTargetSettingsView.swift
 //  Pulse Cue
 //
-//  Minimal entry point for the health-target settings foundation.
-//
-//  Surfaces two layers of the resolver chain:
+//  Entry point for health target configuration. Surfaces all three
+//  layers of the resolver chain:
 //    - defaults (always editable)
 //    - weekday overrides (collapsible per-weekday section)
+//    - date-specific overrides (one-off plans: trips, holidays, races)
 //
-//  Date-specific overrides are supported by the underlying
-//  `HealthTargetSettings` + `HealthTargetResolver` but not yet exposed
-//  in the UI — those land in a follow-up PR that wires resolver output
-//  into Today / HealthSummary cards. This view exists to give the user
-//  a stable place to seed defaults / weekday targets ahead of that.
+//  Resolution priority remains date > weekday > default, locked by
+//  HealthTargetResolverTests. Storage continues to use the existing
+//  `health.targetSettings.v1` UserDefaults JSON — this PR adds UI
+//  only, no persistence format changes.
 //
 
 import SwiftUI
@@ -21,12 +20,16 @@ struct HealthTargetSettingsView: View {
     @StateObject private var store = HealthTargetStore()
     @Environment(\.colorScheme) private var colorScheme
 
+    @State private var showAddDateSheet = false
+    @State private var pendingNewDate: Date = Date()
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 introBlock
                 defaultsCard
                 weekdayCard
+                dateOverridesCard
                 Color.clear.frame(height: 24)
             }
             .padding(.horizontal, 16)
@@ -35,13 +38,16 @@ struct HealthTargetSettingsView: View {
         .background(backgroundLayer.ignoresSafeArea())
         .navigationTitle("健康目標")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showAddDateSheet) {
+            addDateSheet
+        }
     }
 
     // MARK: - Sections
 
     private var introBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("デフォルトと曜日別の目標を設定できます。")
+            Text("デフォルト・曜日・日付ごとに目標を設定できます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Text("優先順位: 日付指定 > 曜日 > デフォルト")
@@ -114,6 +120,161 @@ struct HealthTargetSettingsView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
         )
+    }
+
+    // MARK: - Date overrides
+
+    private var dateOverridesCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "calendar.badge.plus", title: "日付ごとの上書き")
+                Text("旅行・外食・休日など、特定の日だけ目標を変えたい場合に使います。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                let sortedDates = store.settings.dateOverrides.keys.sorted()
+                if sortedDates.isEmpty {
+                    Text("まだ日付指定の上書きはありません。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                } else {
+                    ForEach(sortedDates, id: \.self) { day in
+                        dateOverrideRow(day)
+                    }
+                }
+
+                Button {
+                    pendingNewDate = Calendar.current.startOfDay(for: Date())
+                    showAddDateSheet = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("日付を追加")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(accentColor.opacity(0.12))
+                    )
+                    .foregroundStyle(accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func dateOverrideRow(_ day: Date) -> some View {
+        let current = store.settings.dateOverrides[day] ?? HealthTargets()
+        let hasAny = !current.isEmpty
+        return DisclosureGroup {
+            VStack(spacing: 10) {
+                targetEditor(
+                    targets: current,
+                    apply: { store.updateDateOverride(day, targets: $0) },
+                )
+                Button(role: .destructive) {
+                    store.clearDateOverride(day)
+                } label: {
+                    Label("この日の上書きを削除", systemImage: "trash")
+                        .font(.caption.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack {
+                Text(Self.dateLabel(day))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(hasAny ? "上書きあり" : "未設定")
+                    .font(.caption2)
+                    .foregroundStyle(hasAny ? accentColor : .secondary)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+    }
+
+    private var addDateSheet: some View {
+        let alreadyConfigured = store.settings.dateOverrides[Calendar.current.startOfDay(for: pendingNewDate)] != nil
+        return NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("対象日")
+                    .font(.subheadline.weight(.semibold))
+                DatePicker(
+                    "対象日",
+                    selection: $pendingNewDate,
+                    displayedComponents: [.date]
+                )
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+
+                if alreadyConfigured {
+                    Text("この日は既に上書きが設定されています。リストから編集してください。")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .navigationTitle("日付を追加")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { showAddDateSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("追加") {
+                        addPendingDate()
+                    }
+                    .disabled(alreadyConfigured)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func addPendingDate() {
+        let day = Calendar.current.startOfDay(for: pendingNewDate)
+        // Seed with an empty HealthTargets so the row appears in the
+        // list; the store auto-cleans rows that stay empty across
+        // edits, but we want the user to immediately see the new row
+        // so they can fill in values. Inserting via `updateDateOverride`
+        // with a non-empty seed would force a value, so write directly
+        // through a one-field default copied from the defaults — this
+        // gives the user a visible starting point they can clear.
+        let seed = HealthTargets(
+            intakeCalories: store.settings.defaults.intakeCalories,
+            sleepMinutes: store.settings.defaults.sleepMinutes,
+            exerciseCalories: store.settings.defaults.exerciseCalories,
+            balanceCalories: store.settings.defaults.balanceCalories
+        )
+        if seed.isEmpty {
+            // No defaults configured — fall back to intake = 2000 so
+            // the row isn't empty (the store would otherwise drop it).
+            store.updateDateOverride(day, targets: HealthTargets(intakeCalories: 2000))
+        } else {
+            store.updateDateOverride(day, targets: seed)
+        }
+        showAddDateSheet = false
+    }
+
+    /// Long-form Japanese date label like "2026年5月19日 (火)" used in
+    /// the date override list rows.
+    static func dateLabel(_ date: Date, calendar: Calendar = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.dateFormat = "yyyy年M月d日 (E)"
+        return formatter.string(from: date)
     }
 
     private func targetEditor(

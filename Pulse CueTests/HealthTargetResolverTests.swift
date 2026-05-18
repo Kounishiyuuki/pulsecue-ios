@@ -238,4 +238,123 @@ struct HealthTargetResolverTests {
         store.updateWeekdayOverride(.monday, targets: HealthTargets())
         #expect(store.settings.weekdayOverrides[.monday] == nil)
     }
+
+    // MARK: - Date override store API (PR #37)
+
+    /// Writing then clearing a date override updates the resolver
+    /// view of the world: after clear, the metric falls back to the
+    /// weekday/default layer.
+    @Test func storeDateOverrideFallsBackAfterClear() {
+        let suiteName = "health-target-store-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        store.updateDefaults(HealthTargets(intakeCalories: 2000))
+        store.updateWeekdayOverride(.monday, targets: HealthTargets(intakeCalories: 2200))
+
+        let monday = Self.mondayDate()
+        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500))
+
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings, calendar: Self.calendar) == 2500)
+
+        store.clearDateOverride(monday)
+        // Now weekday override should drive the value.
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings, calendar: Self.calendar) == 2200)
+        // And the dictionary entry is gone.
+        let dayKey = Self.calendar.startOfDay(for: monday)
+        #expect(store.settings.dateOverrides[dayKey] == nil)
+    }
+
+    /// Writing an empty `HealthTargets` for a date entry removes it
+    /// automatically. This is the same auto-cleanup behavior used for
+    /// weekday overrides and is the contract the Date UI relies on
+    /// when the user clears every field in an override row.
+    @Test func storeAutoRemovesEmptyDateOverride() {
+        let suiteName = "health-target-store-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let monday = Self.mondayDate()
+        store.updateDateOverride(monday, targets: HealthTargets(sleepMinutes: 510))
+        let dayKey = Self.calendar.startOfDay(for: monday)
+        #expect(store.settings.dateOverrides[dayKey] != nil)
+
+        store.updateDateOverride(monday, targets: HealthTargets())
+        #expect(store.settings.dateOverrides[dayKey] == nil)
+    }
+
+    /// Different times within the same local day must collapse to the
+    /// same dictionary key — otherwise an override saved at 09:00
+    /// would not be returned for the same day at 23:00.
+    @Test func storeDateOverrideUsesLocalDayBoundary() {
+        let suiteName = "health-target-store-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let morning = Self.mondayDate()       // 09:30
+        let lateNight = Self.mondayLateDate() // 23:59 — same local day
+
+        store.updateDateOverride(morning, targets: HealthTargets(intakeCalories: 2500))
+
+        // The late-night Date should resolve through the same key.
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: lateNight, settings: store.settings, calendar: Self.calendar) == 2500)
+        // Exactly one dictionary entry — no duplicate at 23:59.
+        #expect(store.settings.dateOverrides.count == 1)
+    }
+
+    /// Two distinct local days must each get their own dictionary
+    /// entry. Locks the per-day isolation when the user adds back-to-
+    /// back overrides for, e.g., a weekend trip.
+    @Test func storeKeepsSeparateEntriesForDifferentDates() {
+        let suiteName = "health-target-store-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let monday = Self.mondayDate()
+        let tuesday = Self.tuesdayDate()
+
+        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500))
+        store.updateDateOverride(tuesday, targets: HealthTargets(intakeCalories: 1800))
+
+        #expect(store.settings.dateOverrides.count == 2)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings, calendar: Self.calendar) == 2500)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: tuesday, settings: store.settings, calendar: Self.calendar) == 1800)
+
+        // Clearing one date does not affect the other.
+        store.clearDateOverride(monday)
+        let mondayKey = Self.calendar.startOfDay(for: monday)
+        let tuesdayKey = Self.calendar.startOfDay(for: tuesday)
+        #expect(store.settings.dateOverrides[mondayKey] == nil)
+        #expect(store.settings.dateOverrides[tuesdayKey] != nil)
+    }
+
+    /// Date-override round-trip across a re-loaded store: the date
+    /// keys must survive the `yyyy-MM-dd` encoding used in
+    /// `health.targetSettings.v1`, and the resolver must still pick
+    /// them up after re-hydration.
+    @Test func storeDateOverridePersistsAcrossRehydration() {
+        let suiteName = "health-target-store-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let monday = Self.mondayDate()
+        store.updateDateOverride(monday, targets: HealthTargets(
+            intakeCalories: 2500,
+            sleepMinutes: 510,
+            exerciseCalories: 600,
+            balanceCalories: 1800,
+        ))
+
+        let reloaded = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let resolved = HealthTargetResolver.resolveAll(date: monday, settings: reloaded.settings, calendar: Self.calendar)
+        #expect(resolved.intakeCalories == 2500)
+        #expect(resolved.sleepMinutes == 510)
+        #expect(resolved.exerciseCalories == 600)
+        #expect(resolved.balanceCalories == 1800)
+    }
 }
