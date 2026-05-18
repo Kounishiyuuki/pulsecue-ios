@@ -1,0 +1,231 @@
+//
+//  HealthTargetSettingsView.swift
+//  Pulse Cue
+//
+//  Minimal entry point for the health-target settings foundation.
+//
+//  Surfaces two layers of the resolver chain:
+//    - defaults (always editable)
+//    - weekday overrides (collapsible per-weekday section)
+//
+//  Date-specific overrides are supported by the underlying
+//  `HealthTargetSettings` + `HealthTargetResolver` but not yet exposed
+//  in the UI — those land in a follow-up PR that wires resolver output
+//  into Today / HealthSummary cards. This view exists to give the user
+//  a stable place to seed defaults / weekday targets ahead of that.
+//
+
+import SwiftUI
+
+struct HealthTargetSettingsView: View {
+    @StateObject private var store = HealthTargetStore()
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                introBlock
+                defaultsCard
+                weekdayCard
+                Color.clear.frame(height: 24)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+        .background(backgroundLayer.ignoresSafeArea())
+        .navigationTitle("健康目標")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Sections
+
+    private var introBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("デフォルトと曜日別の目標を設定できます。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("優先順位: 日付指定 > 曜日 > デフォルト")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var defaultsCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader(icon: "flag.fill", title: "デフォルト目標")
+                Text("毎日の基準。曜日や日付の上書きがない日に使われます。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                targetEditor(
+                    targets: store.settings.defaults,
+                    apply: { store.updateDefaults($0) },
+                )
+            }
+        }
+    }
+
+    private var weekdayCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "calendar", title: "曜日別の上書き")
+                Text("曜日ごとに違う目標を設定できます。未設定の項目はデフォルトを使います。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                ForEach(HealthTargetWeekday.allCases) { weekday in
+                    weekdayRow(weekday)
+                }
+            }
+        }
+    }
+
+    private func weekdayRow(_ weekday: HealthTargetWeekday) -> some View {
+        let current = store.settings.weekdayOverrides[weekday] ?? HealthTargets()
+        let hasAny = !current.isEmpty
+        return DisclosureGroup {
+            VStack(spacing: 10) {
+                targetEditor(
+                    targets: current,
+                    apply: { store.updateWeekdayOverride(weekday, targets: $0) },
+                )
+                if hasAny {
+                    Button(role: .destructive) {
+                        store.clearWeekdayOverride(weekday)
+                    } label: {
+                        Label("この曜日の上書きを削除", systemImage: "trash")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack {
+                Text("\(weekday.shortLabel)曜日")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(hasAny ? "上書きあり" : "デフォルト")
+                    .font(.caption2)
+                    .foregroundStyle(hasAny ? accentColor : .secondary)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+    }
+
+    private func targetEditor(
+        targets: HealthTargets,
+        apply: @escaping (HealthTargets) -> Void,
+    ) -> some View {
+        VStack(spacing: 8) {
+            ForEach(HealthTargetMetric.allCases) { metric in
+                targetFieldRow(metric: metric, targets: targets, apply: apply)
+            }
+        }
+    }
+
+    private func targetFieldRow(
+        metric: HealthTargetMetric,
+        targets: HealthTargets,
+        apply: @escaping (HealthTargets) -> Void,
+    ) -> some View {
+        let current = targets.value(for: metric)
+        let bindingText = Binding<String>(
+            get: { current.map(String.init) ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                let parsed = trimmed.isEmpty ? nil : Int(trimmed)
+                apply(targets.setting(parsed, for: metric))
+            }
+        )
+        return HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(metric.label)
+                    .font(.subheadline.weight(.semibold))
+                Text("未入力 = 未設定")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            TextField("—", text: bindingText)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 80)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                )
+            Text(metric.unit)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 32, alignment: .leading)
+        }
+    }
+
+    // MARK: - Style helpers (light copy of SettingsView for visual parity)
+
+    private var backgroundLayer: some View {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [
+                    Color(red: 0.05, green: 0.07, blue: 0.12),
+                    Color(red: 0.07, green: 0.06, blue: 0.13)
+                ]
+                : [
+                    Color(red: 0.93, green: 0.96, blue: 1.00),
+                    Color(red: 0.99, green: 0.96, blue: 1.00)
+                ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var accentColor: Color {
+        Color(red: 0.49, green: 0.51, blue: 0.97)
+    }
+
+    private func sectionHeader(icon: String, title: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(accentColor)
+            Text(title)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(accentColor)
+        }
+    }
+
+    private func glassCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.7), .white.opacity(0.1)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.6
+                    )
+            )
+    }
+}
+
+#Preview {
+    NavigationStack {
+        HealthTargetSettingsView()
+    }
+}

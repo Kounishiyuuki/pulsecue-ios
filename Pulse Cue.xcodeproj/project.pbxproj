@@ -99,6 +99,11 @@
 		D17104DB1A8E4001B0DA5301 /* TodayGymPlanCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5302 /* TodayGymPlanCard.swift */; };
 		D17104DB1A8E4001B0DA5401 /* RoutineOrderStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5402 /* RoutineOrderStoreTests.swift */; };
 		D17104DB1A8E4001B0DA5501 /* RunnerRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5502 /* RunnerRestorationTests.swift */; };
+		CDCD08BBA10F45D481D93FCB /* HealthTargets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F5A9876A2D4595A55AB0B7 /* HealthTargets.swift */; };
+		726DBE5C035348F7882C9682 /* HealthTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEDEC929F59498E9CB3F240 /* HealthTargetResolver.swift */; };
+		1538B53023014DCD9A04358D /* HealthTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915E3336D125423996987EF7 /* HealthTargetStore.swift */; };
+		80A050FE49EF4AF5B290D2A8 /* HealthTargetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */; };
+		91E24A763C894718BA258814 /* HealthTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE1723552AB4F81AC7BF16C /* HealthTargetResolverTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -216,6 +221,11 @@
 		D17104DB1A8E4001B0DA5302 /* TodayGymPlanCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayGymPlanCard.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5402 /* RoutineOrderStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineOrderStoreTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5502 /* RunnerRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerRestorationTests.swift; sourceTree = "<group>"; };
+		A2F5A9876A2D4595A55AB0B7 /* HealthTargets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargets.swift; sourceTree = "<group>"; };
+		8EEDEC929F59498E9CB3F240 /* HealthTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetResolver.swift; sourceTree = "<group>"; };
+		915E3336D125423996987EF7 /* HealthTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetStore.swift; sourceTree = "<group>"; };
+		16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetSettingsView.swift; sourceTree = "<group>"; };
+		BDE1723552AB4F81AC7BF16C /* HealthTargetResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetResolverTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -258,6 +268,7 @@
 				F7C6345AAB114B9B95FCCF6D /* RunnerView.swift */,
 				E6B2555CCFB6446F98D0903E /* SessionDetailView.swift */,
 				25A8C7265A2048DABE767678 /* SettingsView.swift */,
+				16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */,
 				910B6185D8234DA3924900CF /* TodayView.swift */,
 				2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */,
 				D17104DB1A8E4001B0DA3802 /* MyGymHomeView.swift */,
@@ -284,6 +295,8 @@
 				D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */,
 				D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */,
 				D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */,
+				915E3336D125423996987EF7 /* HealthTargetStore.swift */,
+				8EEDEC929F59498E9CB3F240 /* HealthTargetResolver.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -361,6 +374,7 @@
 				20132618DA9D4059810757F4 /* Enums.swift */,
 				D17104DB1A8E4001B0DA2302 /* MealEntry.swift */,
 				D17104DB1A8E4001B0DA2802 /* UserProfile.swift */,
+				A2F5A9876A2D4595A55AB0B7 /* HealthTargets.swift */,
 				5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */,
 				F53D2167ACB84391A781A5F8 /* Session.swift */,
 				8FF7150E5F514C0E944597A5 /* Step.swift */,
@@ -412,6 +426,7 @@
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
 				D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */,
 				D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */,
+				BDE1723552AB4F81AC7BF16C /* HealthTargetResolverTests.swift */,
 				D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
@@ -605,6 +620,7 @@
 				638FB5A70CDD43FB9BA7E758 /* RunnerView.swift in Sources */,
 				85C95AE57DCF4B3F89561F4A /* SessionDetailView.swift in Sources */,
 				25BF5148D69C49A1946FF607 /* SettingsView.swift in Sources */,
+				80A050FE49EF4AF5B290D2A8 /* HealthTargetSettingsView.swift in Sources */,
 				5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */,
 				DA57885887FA409498252986 /* WorkoutView.swift in Sources */,
 				D17104DB1A8E4001B0DA1701 /* DayLogStore.swift in Sources */,
@@ -616,7 +632,10 @@
 				D17104DB1A8E4001B0DA2301 /* MealEntry.swift in Sources */,
 				D17104DB1A8E4001B0DA2401 /* NutritionLedger.swift in Sources */,
 				D17104DB1A8E4001B0DA2801 /* UserProfile.swift in Sources */,
+				CDCD08BBA10F45D481D93FCB /* HealthTargets.swift in Sources */,
 				D17104DB1A8E4001B0DA2901 /* UserProfileStore.swift in Sources */,
+				1538B53023014DCD9A04358D /* HealthTargetStore.swift in Sources */,
+				726DBE5C035348F7882C9682 /* HealthTargetResolver.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
@@ -666,6 +685,7 @@
 				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2C01 /* UserProfileStoreTests.swift in Sources */,
+				91E24A763C894718BA258814 /* HealthTargetResolverTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,

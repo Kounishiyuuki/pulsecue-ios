@@ -311,8 +311,39 @@ struct SettingsView: View {
                     value: todayGoalGapText(for: profile.wrappedValue),
                     valueStyle: todayGoalGapStyle(for: profile.wrappedValue)
                 )
+                healthTargetLink
             }
         }
+    }
+
+    private var healthTargetLink: some View {
+        NavigationLink {
+            HealthTargetSettingsView()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(accentGradient)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("曜日・日付ごとの目標")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("睡眠・摂取・運動・バランスをカスタマイズ")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func todayGoalGapText(for profile: UserProfile) -> String {
