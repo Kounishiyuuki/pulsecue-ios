@@ -98,6 +98,7 @@
 		D17104DB1A8E4001B0DA5201 /* MyGymStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5202 /* MyGymStyle.swift */; };
 		D17104DB1A8E4001B0DA5301 /* TodayGymPlanCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5302 /* TodayGymPlanCard.swift */; };
 		D17104DB1A8E4001B0DA5401 /* RoutineOrderStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5402 /* RoutineOrderStoreTests.swift */; };
+		D17104DB1A8E4001B0DA5501 /* RunnerRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5502 /* RunnerRestorationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -214,6 +215,7 @@
 		D17104DB1A8E4001B0DA5202 /* MyGymStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymStyle.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5302 /* TodayGymPlanCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayGymPlanCard.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5402 /* RoutineOrderStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineOrderStoreTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5502 /* RunnerRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerRestorationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -417,6 +419,7 @@
 				D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */,
 				D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */,
 				D17104DB1A8E4001B0DA5402 /* RoutineOrderStoreTests.swift */,
+				D17104DB1A8E4001B0DA5502 /* RunnerRestorationTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -670,6 +673,7 @@
 				D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5101 /* NearbyGymCandidateViewModelTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5401 /* RoutineOrderStoreTests.swift in Sources */,
+				D17104DB1A8E4001B0DA5501 /* RunnerRestorationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
