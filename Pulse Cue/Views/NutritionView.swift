@@ -92,7 +92,7 @@ struct NutritionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     summaryCard
-                    sectionTitle("食事履歴")
+                    mealHistoryHeader
                     mealsByslot
                     if !pendingAIMeals.isEmpty {
                         sectionTitle("AI 解析結果")
@@ -100,6 +100,7 @@ struct NutritionView: View {
                             aiEstimateCard(meal)
                         }
                     }
+                    weeklyTrendCard
                     Color.clear.frame(height: 24)
                 }
                 .padding(.horizontal, 16)
@@ -218,6 +219,96 @@ struct NutritionView: View {
         Text(text)
             .font(.headline)
             .padding(.top, 4)
+    }
+
+    /// Header row for the "食事履歴" section. Carries an inline AI
+    /// entry button next to the section title so the manual empty-
+    /// slot tap (the primary path) is no longer gated by a chooser
+    /// dialog. AI entry is one extra tap away — discoverable but
+    /// not in the way.
+    private var mealHistoryHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            sectionTitle("今日の食事一覧")
+            Spacer()
+            Button {
+                // The dialog still picks the slot via the
+                // confirmationDialog, so we seed with .breakfast as
+                // a sensible default that the user changes on the
+                // sheet's slot picker.
+                pendingSlotForChoice = .breakfast
+                showAddDialog = true
+            } label: {
+                Label("AI で記録", systemImage: "sparkles")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule().fill(accentGradient.opacity(0.15))
+                    )
+                    .foregroundStyle(accentGradient)
+            }
+            .accessibilityLabel("AI で食事を記録")
+        }
+    }
+
+    /// Compact 7-day intake summary at the bottom of the screen.
+    /// Today's meals + totals live above; this is the "habit /
+    /// weekly trend" layer, intentionally visually separated so the
+    /// user can't confuse a weekly average with today's intake.
+    /// Tap → `HealthSummaryView` for the full multi-metric weekly
+    /// breakdown.
+    private var weeklyTrendCard: some View {
+        let summary = HealthSummary(logs: recentLogs)
+        let weekly = summary.weeklyIntakeAverage
+        return NavigationLink {
+            HealthSummaryView()
+        } label: {
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(accentGradient.opacity(0.15))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(accentGradient)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("7日間の傾向")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                    if let avg = weekly {
+                        Text("摂取の週平均: \(formatInt(avg)) kcal / 日")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("7日間の記録が3日未満のため計算できません")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .background(glassBackground)
+            .overlay(glassStroke)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("7日間の傾向。週間サマリーを開く")
+    }
+
+    /// Last 7 days of DayLog rows, used by `HealthSummary` for the
+    /// weekly card. Computed lazily off the existing `allDayLogs`
+    /// `@Query` rather than running a second fetch.
+    private var recentLogs: [DayLog] {
+        let cal = Calendar.current
+        let end = today
+        let start = cal.date(byAdding: .day, value: -6, to: end) ?? end
+        return allDayLogs
+            .filter { $0.date >= start && $0.date <= end }
+            .sorted { $0.date > $1.date }
     }
 
     // MARK: - Summary card
@@ -388,23 +479,28 @@ struct NutritionView: View {
     }
 
     private func emptySlotCard(_ slot: MealSlot) -> some View {
+        // Primary path: empty slot → manual entry directly. The
+        // previous flow opened a Manual/AI confirmation dialog before
+        // the user could type a food name + kcal; that extra step
+        // (combined with a `camera.fill` icon) hid the most common
+        // case. AI entry is reachable from `aiEntryRow` near the
+        // section header.
         Button {
-            pendingSlotForChoice = slot
-            showAddDialog = true
+            sheetMode = .add(source: .manual, slot: slot)
         } label: {
             VStack(spacing: 8) {
                 ZStack {
                     Circle()
                         .fill(accentGradient.opacity(0.12))
                         .frame(width: 44, height: 44)
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 16, weight: .bold))
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(accentGradient)
                 }
-                Text(slot.label.replacingOccurrences(of: "食", with: ""))
+                Text(slot.label)
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.primary)
-                Text(slot.emptyPrompt)
+                Text("食事名とカロリーを追加")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -415,6 +511,14 @@ struct NutritionView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(slot.label)を追加")
+        .contextMenu {
+            Button {
+                pendingSlotForChoice = slot
+                showAddDialog = true
+            } label: {
+                Label("AI で記録（推定）", systemImage: "sparkles")
+            }
+        }
     }
 
     // MARK: - AI estimate card
