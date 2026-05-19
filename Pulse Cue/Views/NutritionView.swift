@@ -414,11 +414,14 @@ struct NutritionView: View {
     // MARK: - Summary card
 
     private var summaryCard: some View {
-        let proteinSum = confirmedMeals.compactMap { $0.proteinGrams }.reduce(0, +)
+        // Protein flows through the ProteinTotals helper so the
+        // confirmed-only rule (and floor / share heuristic) lives in
+        // one tested place. Carbs and fat keep the inline formulas
+        // until they get the same foundation treatment.
+        let protein = ProteinTotals.daily(meals: confirmedMeals, kcalTarget: targetKcal)
         let carbSum = confirmedMeals.compactMap { $0.carbGrams }.reduce(0, +)
         let fatSum = confirmedMeals.compactMap { $0.fatGrams }.reduce(0, +)
 
-        let proteinTarget = max(60, Int(Double(targetKcal ?? 2000) * 0.20 / 4))
         let carbTarget = max(150, Int(Double(targetKcal ?? 2000) * 0.50 / 4))
         let fatTarget = max(40, Int(Double(targetKcal ?? 2000) * 0.30 / 9))
 
@@ -443,8 +446,8 @@ struct NutritionView: View {
             HStack(alignment: .top, spacing: 10) {
                 macroPanel(
                     label: "PROTEIN",
-                    grams: proteinSum,
-                    target: proteinTarget,
+                    grams: protein.confirmedGrams,
+                    target: protein.targetGrams,
                     gradient: proteinGradient
                 )
                 macroPanel(
@@ -529,9 +532,14 @@ struct NutritionView: View {
                         .font(.headline.weight(.bold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
-                    Text("\(formatInt(meal.kcal)) kcal")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(accentGradient)
+                    HStack(spacing: 8) {
+                        Text("\(formatInt(meal.kcal)) kcal")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(accentGradient)
+                        if let protein = meal.proteinGrams, protein > 0 {
+                            proteinChip(grams: protein)
+                        }
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -540,7 +548,7 @@ struct NutritionView: View {
             .overlay(glassStroke)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(meal.slot.label) \(meal.name) \(meal.kcal) kcal \(meal.status.label)")
+        .accessibilityLabel(mealRowAccessibilityLabel(meal))
         .swipeDelete {
             let day = meal.dayDate
             modelContext.delete(meal)
@@ -550,6 +558,30 @@ struct NutritionView: View {
             // meals remain, which would leave a stale total).
             NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
         }
+    }
+
+    private func proteinChip(grams: Int) -> some View {
+        HStack(spacing: 2) {
+            Text("P")
+                .font(.caption2.weight(.bold))
+            Text("\(grams)g")
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(proteinGradient)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule().fill(Color.primary.opacity(0.05))
+        )
+    }
+
+    private func mealRowAccessibilityLabel(_ meal: MealEntry) -> String {
+        var parts = ["\(meal.slot.label) \(meal.name) \(meal.kcal) kcal"]
+        if let protein = meal.proteinGrams, protein > 0 {
+            parts.append("タンパク質 \(protein) g")
+        }
+        parts.append(meal.status.label)
+        return parts.joined(separator: " ")
     }
 
     private func slotThumb(_ slot: MealSlot) -> some View {
