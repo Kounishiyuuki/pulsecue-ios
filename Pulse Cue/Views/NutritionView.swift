@@ -44,6 +44,8 @@ struct NutritionView: View {
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
     private var profiles: [UserProfile]
 
+    @StateObject private var favoriteTemplates = FavoriteMealTemplateStore()
+
     @State private var sheetMode: MealEntrySheet.Mode?
     @State private var pendingSlotForChoice: MealSlot?
     @State private var showAddDialog = false
@@ -101,6 +103,7 @@ struct NutritionView: View {
                         }
                     }
                     recentMealsCard
+                    favoriteTemplatesCard
                     weeklyTrendCard
                     Color.clear.frame(height: 24)
                 }
@@ -399,6 +402,132 @@ struct NutritionView: View {
         NutritionLedger.syncDayLogIntake(for: now, modelContext: modelContext)
     }
 
+    // MARK: - Favorite meal templates
+
+    /// 「よく使う食事」 card. Hidden when no templates exist so the
+    /// Nutrition screen does not gain a permanent empty placeholder.
+    /// Visually distinct from 「最近の食事」 (star icon, separate card)
+    /// so the user does not confuse "what I happened to eat" with
+    /// "what I pinned".
+    @ViewBuilder
+    private var favoriteTemplatesCard: some View {
+        if !favoriteTemplates.templates.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label("よく使う食事", systemImage: "star.fill")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .labelStyle(.titleAndIcon)
+                    Spacer()
+                    Text("タップで今日に追加")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(favoriteTemplates.templates) { template in
+                            favoriteTemplateChip(template)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(16)
+            .background(glassBackground)
+            .overlay(glassStroke)
+        }
+    }
+
+    private func favoriteTemplateChip(_ template: FavoriteMealTemplate) -> some View {
+        Button {
+            addFavoriteTemplate(template)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(accentGradient)
+                    Text(template.slot.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Text(template.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                HStack(alignment: .lastTextBaseline, spacing: 2) {
+                    Text("\(formatInt(template.kcal))")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(accentGradient)
+                    Text("kcal")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if let protein = template.proteinGrams, protein > 0 {
+                        Spacer(minLength: 4)
+                        Text("P \(protein)g")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(proteinGradient)
+                    }
+                }
+            }
+            .padding(12)
+            .frame(width: 150, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(accentGradient.opacity(0.25), lineWidth: 0.6)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("よく使う食事 \(template.name) \(template.kcal) kcal、タップで今日に追加")
+        .contextMenu {
+            Button("削除", role: .destructive) {
+                favoriteTemplates.remove(template)
+            }
+        }
+    }
+
+    /// Pin a confirmed manual meal as a reusable template. Stored via
+    /// `FavoriteMealTemplateStore` (UserDefaults JSON) so it does not
+    /// require a SwiftData migration. Idempotent: re-saving a meal
+    /// with the same name + kcal is a no-op.
+    private func saveMealAsFavorite(_ meal: MealEntry) {
+        let template = FavoriteMealTemplate(
+            name: meal.name,
+            kcal: meal.kcal,
+            proteinGrams: meal.proteinGrams,
+            slot: meal.slot
+        )
+        favoriteTemplates.add(template)
+        if settings.hapticsEnabled {
+            SoundHapticManager.playHaptic()
+        }
+    }
+
+    /// Tap-to-add a favorite template onto today. Mirrors the
+    /// `addRecentMeal` path: new entry is always `.confirmed` +
+    /// `.manual`, anchored to today's local startOfDay, and runs
+    /// through `NutritionLedger.syncDayLogIntake` so DayLog tracks
+    /// the new kcal immediately.
+    private func addFavoriteTemplate(_ template: FavoriteMealTemplate) {
+        let now = Date()
+        let meal = MealEntry(
+            dayDate: now,
+            slot: template.slot,
+            name: template.name,
+            kcal: template.kcal,
+            proteinGrams: template.proteinGrams,
+            status: .confirmed,
+            source: .manual
+        )
+        modelContext.insert(meal)
+        NutritionLedger.syncDayLogIntake(for: now, modelContext: modelContext)
+    }
+
     /// Last 7 days of DayLog rows, used by `HealthSummary` for the
     /// weekly card. Computed lazily off the existing `allDayLogs`
     /// `@Query` rather than running a second fetch.
@@ -549,14 +678,21 @@ struct NutritionView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(mealRowAccessibilityLabel(meal))
-        .swipeDelete {
-            let day = meal.dayDate
-            modelContext.delete(meal)
-            // Use the delete-aware ledger entry point so that
-            // removing the last confirmed meal clears DayLog
-            // (the plain `syncDayLogIntake` returns early when no
-            // meals remain, which would leave a stale total).
-            NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
+        .contextMenu {
+            if meal.status == .confirmed
+                && meal.source == .manual
+                && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal) {
+                Button {
+                    saveMealAsFavorite(meal)
+                } label: {
+                    Label("よく使う食事に保存", systemImage: "star")
+                }
+            }
+            Button("削除", role: .destructive) {
+                let day = meal.dayDate
+                modelContext.delete(meal)
+                NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
+            }
         }
     }
 
@@ -905,12 +1041,3 @@ private struct ProgressBar: View {
     }
 }
 
-// MARK: - Swipe-to-delete helper
-
-private extension View {
-    func swipeDelete(_ action: @escaping () -> Void) -> some View {
-        self.contextMenu {
-            Button("削除", role: .destructive, action: action)
-        }
-    }
-}
