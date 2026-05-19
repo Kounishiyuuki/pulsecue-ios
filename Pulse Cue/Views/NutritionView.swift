@@ -100,6 +100,7 @@ struct NutritionView: View {
                             aiEstimateCard(meal)
                         }
                     }
+                    recentMealsCard
                     weeklyTrendCard
                     Color.clear.frame(height: 24)
                 }
@@ -297,6 +298,105 @@ struct NutritionView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("7日間の傾向。週間サマリーを開く")
+    }
+
+    // MARK: - Recent meals (quick re-entry)
+
+    /// Up to 8 deduped recent confirmed manual meals from prior days.
+    /// Empty when no qualifying history exists — caller hides the
+    /// section in that case.
+    private var recentMealSuggestions: [RecentMealSuggestions.Suggestion] {
+        RecentMealSuggestions.suggest(from: allMeals, today: Date())
+    }
+
+    @ViewBuilder
+    private var recentMealsCard: some View {
+        let suggestions = recentMealSuggestions
+        if !suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("最近の食事")
+                        .font(.subheadline.weight(.bold))
+                    Spacer()
+                    Text("タップで今日に追加")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(suggestions) { suggestion in
+                            recentMealChip(suggestion)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(16)
+            .background(glassBackground)
+            .overlay(glassStroke)
+        }
+    }
+
+    private func recentMealChip(_ suggestion: RecentMealSuggestions.Suggestion) -> some View {
+        Button {
+            addRecentMeal(suggestion)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: suggestion.slot.systemImage)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(accentGradient)
+                    Text(suggestion.slot.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Text(suggestion.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                HStack(alignment: .lastTextBaseline, spacing: 2) {
+                    Text("\(formatInt(suggestion.kcal))")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(accentGradient)
+                    Text("kcal")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(width: 150, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(accentGradient.opacity(0.25), lineWidth: 0.6)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("最近の食事 \(suggestion.name) \(suggestion.kcal) kcal、タップで今日に追加")
+    }
+
+    /// Resurrect a past confirmed manual meal as a fresh entry on
+    /// today. Goes through `NutritionLedger.syncDayLogIntake` so the
+    /// DayLog intake total reflects the new row immediately.
+    private func addRecentMeal(_ suggestion: RecentMealSuggestions.Suggestion) {
+        let now = Date()
+        let meal = MealEntry(
+            dayDate: now,
+            slot: suggestion.slot,
+            name: suggestion.name,
+            kcal: suggestion.kcal,
+            proteinGrams: suggestion.proteinGrams,
+            carbGrams: suggestion.carbGrams,
+            fatGrams: suggestion.fatGrams,
+            status: .confirmed,
+            source: .manual
+        )
+        modelContext.insert(meal)
+        NutritionLedger.syncDayLogIntake(for: now, modelContext: modelContext)
     }
 
     /// Last 7 days of DayLog rows, used by `HealthSummary` for the
