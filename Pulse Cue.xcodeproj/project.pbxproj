@@ -112,6 +112,8 @@
 		14613118A03945DCBFBC9CA5 /* WeightTargetDifferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C92142AE79149A38B1E7F6A /* WeightTargetDifferenceTests.swift */; };
 		60D421512EF948E294CA1206 /* RecentMealSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */; };
 		C3960979DDE14A1FB59387D8 /* RecentMealSuggestionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */; };
+		56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */; };
+		C5CEC54C66AC4334A1BAD50E /* ProteinTotalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -242,6 +244,8 @@
 		3C92142AE79149A38B1E7F6A /* WeightTargetDifferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightTargetDifferenceTests.swift; sourceTree = "<group>"; };
 		B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentMealSuggestions.swift; sourceTree = "<group>"; };
 		478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentMealSuggestionsTests.swift; sourceTree = "<group>"; };
+		A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotals.swift; sourceTree = "<group>"; };
+		B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotalsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -317,6 +321,7 @@
 				76DF9CD621CA4C5E8A53A2BF /* HealthTargetWeeklyAverage.swift */,
 				466B3215914D4CD191816CE2 /* WeightTargetDifference.swift */,
 				B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */,
+				A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -451,6 +456,7 @@
 				210DCEA119D942809D7CBA57 /* HealthTargetWeeklyAverageTests.swift */,
 				3C92142AE79149A38B1E7F6A /* WeightTargetDifferenceTests.swift */,
 				478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */,
+				B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */,
 				D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
@@ -664,6 +670,7 @@
 				72976D476DD544E2A4988A4A /* HealthTargetWeeklyAverage.swift in Sources */,
 				D9424D3F33D3438E93F026E4 /* WeightTargetDifference.swift in Sources */,
 				60D421512EF948E294CA1206 /* RecentMealSuggestions.swift in Sources */,
+				56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
@@ -718,6 +725,7 @@
 				99B3CBB44FE2436788262853 /* HealthTargetWeeklyAverageTests.swift in Sources */,
 				14613118A03945DCBFBC9CA5 /* WeightTargetDifferenceTests.swift in Sources */,
 				C3960979DDE14A1FB59387D8 /* RecentMealSuggestionsTests.swift in Sources */,
+				C5CEC54C66AC4334A1BAD50E /* ProteinTotalsTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
