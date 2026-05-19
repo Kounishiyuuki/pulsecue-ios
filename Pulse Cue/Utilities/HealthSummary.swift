@@ -81,6 +81,16 @@ struct HealthSummary {
         logs.first(where: { $0.weightKg != nil })?.weightKg
     }
 
+    /// Weight from the second-most-recent weighed log. Used by the
+    /// "前回比" row on HealthSummary so the user sees session-to-
+    /// session change without scrolling through the full history.
+    /// Skips logs that have no `weightKg` so a day with only
+    /// nutrition / sleep entries doesn't shadow the prior weigh-in.
+    var previousLoggedWeight: Double? {
+        let weights = logs.compactMap { $0.weightKg }
+        return weights.dropFirst().first
+    }
+
     /// 7-day moving average of weight, requires `minCount` weighed days inside the window.
     var weightMovingAverage: Double? {
         let weights = windowLogs.compactMap { $0.weightKg }

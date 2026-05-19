@@ -388,7 +388,7 @@ struct TodayView: View {
                 unit: "kg",
                 accent: Color(red: 0.67, green: 0.45, blue: 0.96),
                 field: .weight,
-                targetSubtitle: nil
+                targetSubtitle: weightGoalSubtitle()
             )
         }
     }
@@ -415,6 +415,26 @@ struct TodayView: View {
         }
         return TargetSubtitle(
             targetText: "目標 \(formatSleep(minutes: target))",
+            differenceText: diff.label,
+            direction: diff.direction
+        )
+    }
+
+    /// Subtitle for the 体重 card. Sources its target from
+    /// `UserProfile.goalWeightKg` rather than `HealthTargets` because
+    /// weight has a single long-running goal (not a daily one) and is
+    /// already managed by the existing profile flow.
+    private func weightGoalSubtitle() -> TargetSubtitle? {
+        guard let current = todayLog?.weightKg,
+              let profile = profiles.first,
+              let diff = WeightTargetDifference.goalDifference(
+                current: current,
+                goal: profile.goalWeightKg
+              ) else {
+            return nil
+        }
+        return TargetSubtitle(
+            targetText: "目標 \(formatWeight(profile.goalWeightKg)) kg",
             differenceText: diff.label,
             direction: diff.direction
         )
