@@ -110,6 +110,8 @@
 		99B3CBB44FE2436788262853 /* HealthTargetWeeklyAverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210DCEA119D942809D7CBA57 /* HealthTargetWeeklyAverageTests.swift */; };
 		D9424D3F33D3438E93F026E4 /* WeightTargetDifference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466B3215914D4CD191816CE2 /* WeightTargetDifference.swift */; };
 		14613118A03945DCBFBC9CA5 /* WeightTargetDifferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C92142AE79149A38B1E7F6A /* WeightTargetDifferenceTests.swift */; };
+		60D421512EF948E294CA1206 /* RecentMealSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */; };
+		C3960979DDE14A1FB59387D8 /* RecentMealSuggestionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -238,6 +240,8 @@
 		210DCEA119D942809D7CBA57 /* HealthTargetWeeklyAverageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetWeeklyAverageTests.swift; sourceTree = "<group>"; };
 		466B3215914D4CD191816CE2 /* WeightTargetDifference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightTargetDifference.swift; sourceTree = "<group>"; };
 		3C92142AE79149A38B1E7F6A /* WeightTargetDifferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightTargetDifferenceTests.swift; sourceTree = "<group>"; };
+		B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentMealSuggestions.swift; sourceTree = "<group>"; };
+		478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentMealSuggestionsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -312,6 +316,7 @@
 				8FCEE6E0F2044E58A81758CE /* HealthTargetDifference.swift */,
 				76DF9CD621CA4C5E8A53A2BF /* HealthTargetWeeklyAverage.swift */,
 				466B3215914D4CD191816CE2 /* WeightTargetDifference.swift */,
+				B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -445,6 +450,7 @@
 				383FE2766DA844EDA5013578 /* HealthTargetDifferenceTests.swift */,
 				210DCEA119D942809D7CBA57 /* HealthTargetWeeklyAverageTests.swift */,
 				3C92142AE79149A38B1E7F6A /* WeightTargetDifferenceTests.swift */,
+				478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */,
 				D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
@@ -657,6 +663,7 @@
 				F608AEE7DB5045D6A4B0F3FB /* HealthTargetDifference.swift in Sources */,
 				72976D476DD544E2A4988A4A /* HealthTargetWeeklyAverage.swift in Sources */,
 				D9424D3F33D3438E93F026E4 /* WeightTargetDifference.swift in Sources */,
+				60D421512EF948E294CA1206 /* RecentMealSuggestions.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
@@ -710,6 +717,7 @@
 				443834CF9A2C427189536769 /* HealthTargetDifferenceTests.swift in Sources */,
 				99B3CBB44FE2436788262853 /* HealthTargetWeeklyAverageTests.swift in Sources */,
 				14613118A03945DCBFBC9CA5 /* WeightTargetDifferenceTests.swift in Sources */,
+				C3960979DDE14A1FB59387D8 /* RecentMealSuggestionsTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
