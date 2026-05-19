@@ -10,6 +10,8 @@ import SwiftData
 
 struct HealthSummaryView: View {
     @Query private var recentLogs: [DayLog]
+    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
+    private var profiles: [UserProfile]
     @StateObject private var targetStore = HealthTargetStore()
 
     init() {
@@ -186,10 +188,86 @@ struct HealthSummaryView: View {
             } else {
                 row(label: "トレンド", value: nil)
             }
+
+            if let goalRow = weightGoalRow() {
+                goalRow
+            }
+            if let changeRow = weightPreviousChangeRow() {
+                changeRow
+            }
         } header: {
             Text("体重（目安）")
         } footer: {
-            Text("傾向は直近 7 日のうち 4 日以上の入力で計算されます。")
+            Text("傾向は直近 7 日のうち 4 日以上の入力で計算されます。前回比は直近 2 回の体重入力から算出します。")
+        }
+    }
+
+    /// "目標 65.0 kg" + 「目標まで あと X kg」 row. Hidden when no
+    /// latest weight or no goal weight is set, preserving the prior
+    /// "no target" display rule.
+    private func weightGoalRow() -> AnyView? {
+        guard let current = summary.latestWeight,
+              let profile = profiles.first,
+              let diff = WeightTargetDifference.goalDifference(
+                current: current,
+                goal: profile.goalWeightKg
+              ) else {
+            return nil
+        }
+        let view = HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("目標体重")
+                Text("目標 \(formatWeight(profile.goalWeightKg)) kg")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Label(diff.label, systemImage: trendIcon(diff.direction))
+                .labelStyle(.titleAndIcon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(trendColor(diff.direction))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("目標体重 \(formatWeight(profile.goalWeightKg)) kg、\(diff.label)")
+        return AnyView(view)
+    }
+
+    /// "前回比 ±X kg" row. Hidden when fewer than 2 weight entries
+    /// are available, so the trend doesn't surface for a brand-new
+    /// user with a single weigh-in.
+    private func weightPreviousChangeRow() -> AnyView? {
+        guard let diff = WeightTargetDifference.previousChange(
+            latest: summary.latestWeight,
+            previous: summary.previousLoggedWeight
+        ) else { return nil }
+        let view = HStack {
+            Text("前回比")
+            Spacer()
+            Label(diff.label, systemImage: trendIcon(diff.direction))
+                .labelStyle(.titleAndIcon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(trendColor(diff.direction))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(diff.label)
+        return AnyView(view)
+    }
+
+    private func trendIcon(_ direction: HealthTargetDifference.Direction) -> String {
+        // Weight wording is neutral (cut vs bulk both legitimate), so
+        // we reuse the same arrow icons as the rest of the app but
+        // never tint "down = good".
+        switch direction {
+        case .onTarget: return "equal.circle.fill"
+        case .over: return "arrow.up.circle.fill"
+        case .under: return "arrow.down.circle.fill"
+        }
+    }
+
+    private func trendColor(_ direction: HealthTargetDifference.Direction) -> Color {
+        switch direction {
+        case .onTarget: return .green
+        case .over, .under: return .secondary
         }
     }
 
