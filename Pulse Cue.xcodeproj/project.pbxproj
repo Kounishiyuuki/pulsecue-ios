@@ -116,6 +116,9 @@
 		C5CEC54C66AC4334A1BAD50E /* ProteinTotalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */; };
 		7B1F2A0142F84A0D9C58E001 /* FavoriteMealTemplateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */; };
 		7B1F2A0142F84A0D9C58E002 /* FavoriteMealTemplateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F002 /* FavoriteMealTemplateStoreTests.swift */; };
+		7B1F2A0142F84A0D9C58E003 /* BarcodeSymbology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F003 /* BarcodeSymbology.swift */; };
+		7B1F2A0142F84A0D9C58E004 /* BarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F004 /* BarcodeScannerView.swift */; };
+		7B1F2A0142F84A0D9C58E005 /* BarcodeSymbologyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F005 /* BarcodeSymbologyTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -250,6 +253,9 @@
 		B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotalsTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteMealTemplateStore.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F002 /* FavoriteMealTemplateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteMealTemplateStoreTests.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F003 /* BarcodeSymbology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeSymbology.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F004 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F005 /* BarcodeSymbologyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeSymbologyTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -285,6 +291,7 @@
 				D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */,
 				2FD02E7540234858B9B7F496 /* HistoryView.swift */,
 				7F38FF5AE06247CA876EF7E0 /* InfoCard.swift */,
+				7B1F2A0142F84A0D9C58F004 /* BarcodeScannerView.swift */,
 				D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */,
 				D17104DB1A8E4001B0DA2502 /* NutritionView.swift */,
 				26F09FF63F2B40ED822DB5FB /* RoutineEditorView.swift */,
@@ -327,6 +334,7 @@
 				B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */,
 				A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */,
 				7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */,
+				7B1F2A0142F84A0D9C58F003 /* BarcodeSymbology.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -463,6 +471,7 @@
 				478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */,
 				B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */,
 				7B1F2A0142F84A0D9C58F002 /* FavoriteMealTemplateStoreTests.swift */,
+				7B1F2A0142F84A0D9C58F005 /* BarcodeSymbologyTests.swift */,
 				D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
@@ -678,6 +687,8 @@
 				60D421512EF948E294CA1206 /* RecentMealSuggestions.swift in Sources */,
 				56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */,
 				7B1F2A0142F84A0D9C58E001 /* FavoriteMealTemplateStore.swift in Sources */,
+				7B1F2A0142F84A0D9C58E003 /* BarcodeSymbology.swift in Sources */,
+				7B1F2A0142F84A0D9C58E004 /* BarcodeScannerView.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
@@ -734,6 +745,7 @@
 				C3960979DDE14A1FB59387D8 /* RecentMealSuggestionsTests.swift in Sources */,
 				C5CEC54C66AC4334A1BAD50E /* ProteinTotalsTests.swift in Sources */,
 				7B1F2A0142F84A0D9C58E002 /* FavoriteMealTemplateStoreTests.swift in Sources */,
+				7B1F2A0142F84A0D9C58E005 /* BarcodeSymbologyTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,

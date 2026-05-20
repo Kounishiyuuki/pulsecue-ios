@@ -50,6 +50,7 @@ struct NutritionView: View {
     @State private var pendingSlotForChoice: MealSlot?
     @State private var showAddDialog = false
     @State private var pendingDiscard: MealEntry?
+    @State private var showBarcodeScanner = false
 
     private var today: Date { DateUtils.startOfDay(Date()) }
 
@@ -115,6 +116,9 @@ struct NutritionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $sheetMode) { mode in
             MealEntrySheet(mode: mode)
+        }
+        .sheet(isPresented: $showBarcodeScanner) {
+            BarcodeScannerView()
         }
         .confirmationDialog(
             confirmationTitle,
@@ -231,9 +235,21 @@ struct NutritionView: View {
     /// dialog. AI entry is one extra tap away — discoverable but
     /// not in the way.
     private var mealHistoryHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             sectionTitle("今日の食事一覧")
             Spacer()
+            Button {
+                showBarcodeScanner = true
+            } label: {
+                Image(systemName: "barcode.viewfinder")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(8)
+                    .background(
+                        Circle().fill(accentGradient.opacity(0.15))
+                    )
+                    .foregroundStyle(accentGradient)
+            }
+            .accessibilityLabel("バーコードを読み取る")
             Button {
                 // The dialog still picks the slot via the
                 // confirmationDialog, so we seed with .breakfast as
