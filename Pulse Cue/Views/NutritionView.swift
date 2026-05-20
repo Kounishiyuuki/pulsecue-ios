@@ -51,6 +51,7 @@ struct NutritionView: View {
     @State private var showAddDialog = false
     @State private var pendingDiscard: MealEntry?
     @State private var showBarcodeScanner = false
+    @State private var showNutritionLabelOCR = false
 
     private var today: Date { DateUtils.startOfDay(Date()) }
 
@@ -119,6 +120,9 @@ struct NutritionView: View {
         }
         .sheet(isPresented: $showBarcodeScanner) {
             BarcodeScannerView()
+        }
+        .sheet(isPresented: $showNutritionLabelOCR) {
+            NutritionLabelOCRView()
         }
         .confirmationDialog(
             confirmationTitle,
@@ -238,6 +242,18 @@ struct NutritionView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             sectionTitle("今日の食事一覧")
             Spacer()
+            Button {
+                showNutritionLabelOCR = true
+            } label: {
+                Image(systemName: "doc.text.viewfinder")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(8)
+                    .background(
+                        Circle().fill(accentGradient.opacity(0.15))
+                    )
+                    .foregroundStyle(accentGradient)
+            }
+            .accessibilityLabel("栄養表示を読み取る")
             Button {
                 showBarcodeScanner = true
             } label: {
