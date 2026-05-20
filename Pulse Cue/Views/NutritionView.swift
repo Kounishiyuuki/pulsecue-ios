@@ -318,8 +318,10 @@ struct NutritionView: View {
         if !suggestions.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("最近の食事")
+                    Label("最近の食事", systemImage: "clock.arrow.circlepath")
                         .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .labelStyle(.titleAndIcon)
                     Spacer()
                     Text("タップで今日に追加")
                         .font(.caption2)
