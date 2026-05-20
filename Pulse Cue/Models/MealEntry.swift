@@ -147,11 +147,19 @@ enum MealStatus: String, CaseIterable, Codable {
 enum MealSource: String, CaseIterable, Codable {
     case manual
     case ai
+    /// Saved from a scanned product barcode after the user reviewed
+    /// the looked-up nutrition values. Adding this case is *not* a
+    /// SwiftData schema change: `MealEntry` persists `sourceRaw` as a
+    /// plain `String`, so the enum only widens the set of values the
+    /// computed `source` property recognizes. Unknown raw values
+    /// still fall back to `.manual` via `MealEntry.source`.
+    case barcode
 
     var label: String {
         switch self {
         case .manual: return "手動"
         case .ai: return "AI 推定"
+        case .barcode: return "バーコード"
         }
     }
 }

@@ -2,20 +2,24 @@
 //  BarcodeScannerView.swift
 //  Pulse Cue
 //
-//  Barcode scanner prototype. Reads packaged-food product barcodes
-//  (EAN-13 / EAN-8 / UPC-E) with AVFoundation and shows the scanned
-//  value for review.
+//  Barcode scanner for packaged-food products. Reads EAN-13 / EAN-8 /
+//  UPC-E codes with AVFoundation, then offers an Open Food Facts
+//  lookup whose result the user reviews before anything is saved.
 //
-//  Prototype boundaries (locked for this PR):
-//   - Scan-and-display only. No product lookup, no Open Food Facts,
-//     no network call of any kind.
-//   - No MealEntry is created from a scan; NutritionLedger /
-//     ProteinTotals and the day's totals are never touched here.
-//   - Camera is used in the foreground only, while this screen is
-//     visible. The session stops on disappear.
+//  Flow boundaries (locked for this PR):
+//   - Scanning never saves anything. Tapping 「栄養情報を調べる」
+//     performs one Open Food Facts lookup and produces a *candidate*
+//     `ProductLookupResult`.
+//   - The candidate is shown on `BarcodeProductReviewView`. A
+//     MealEntry is created and DayLog is updated only when the user
+//     confirms there — never directly from a scan or a lookup.
+//   - Camera is used in the foreground only, while the scanner is
+//     visible. The session stops on disappear (including when the
+//     review screen is pushed on top).
 //
-//  The symbology mapping lives in `BarcodeSymbology` so the supported
-//  type set stays unit-testable without a capture session.
+//  The symbology mapping lives in `BarcodeSymbology` and the lookup
+//  contract in `ProductLookup.swift`, so both stay unit-testable
+//  without a capture session or a network call.
 //
 
 import SwiftUI
@@ -25,9 +29,28 @@ import UIKit
 struct BarcodeScannerView: View {
     @Environment(\.dismiss) private var dismiss
 
+    /// Product lookup backend. Defaults to the public Open Food Facts
+    /// service; injectable so previews / tests can supply a stub.
+    var lookupService: any ProductLookupService = OpenFoodFactsProductLookupService()
+
     @State private var permission: AVAuthorizationStatus =
         AVCaptureDevice.authorizationStatus(for: .video)
     @State private var lastScanned: ScannedBarcode?
+    @State private var lookupPhase: LookupPhase = .idle
+
+    /// Candidate to review. Set just before navigating; the review
+    /// screen treats it as a draft until the user confirms.
+    @State private var reviewCandidate: ProductLookupResult?
+    /// Whether `reviewCandidate` came from a real product match.
+    @State private var reviewProductFound = false
+    @State private var showReview = false
+
+    /// Lifecycle of the (single) Open Food Facts request.
+    private enum LookupPhase: Equatable {
+        case idle
+        case loading
+        case failed(ProductLookupError)
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,6 +61,9 @@ struct BarcodeScannerView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("閉じる") { dismiss() }
                     }
+                }
+                .navigationDestination(isPresented: $showReview) {
+                    reviewDestination
                 }
         }
         .task { await requestPermissionIfNeeded() }
@@ -66,10 +92,12 @@ struct BarcodeScannerView: View {
             ZStack(alignment: .bottom) {
                 BarcodeCameraController { scanned in
                     // Continuous scanning fires many times per second;
-                    // only publish a genuinely new value so SwiftUI
-                    // does not re-render every frame.
+                    // only react to a genuinely new value so SwiftUI
+                    // does not re-render every frame, and reset any
+                    // stale lookup state from the previous code.
                     if scanned != lastScanned {
                         lastScanned = scanned
+                        lookupPhase = .idle
                     }
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -80,19 +108,13 @@ struct BarcodeScannerView: View {
         }
     }
 
+    // MARK: - Result panel
+
     private var resultPanel: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             if let scanned = lastScanned {
-                Text(scanned.symbology.displayLabel)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Text(scanned.value)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.primary)
-                Text("読み取り専用のプロトタイプです。商品情報の検索や記録は行いません。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                scannedHeader(scanned)
+                lookupControls(for: scanned)
             } else {
                 Image(systemName: "viewfinder")
                     .font(.system(size: 28, weight: .semibold))
@@ -105,6 +127,86 @@ struct BarcodeScannerView: View {
         .padding(20)
         .frame(maxWidth: .infinity)
         .background(.ultraThinMaterial)
+    }
+
+    private func scannedHeader(_ scanned: ScannedBarcode) -> some View {
+        VStack(spacing: 4) {
+            Text(scanned.symbology.displayLabel)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+            Text(scanned.value)
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
+        }
+    }
+
+    @ViewBuilder
+    private func lookupControls(for scanned: ScannedBarcode) -> some View {
+        switch lookupPhase {
+        case .idle:
+            Button {
+                startLookup(for: scanned.value)
+            } label: {
+                Label("栄養情報を調べる", systemImage: "magnifyingglass")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+        case .loading:
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("商品情報を取得中…")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+
+        case .failed(let error):
+            VStack(spacing: 10) {
+                Text(error.userMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                if error == .network {
+                    Button {
+                        startLookup(for: scanned.value)
+                    } label: {
+                        Label("再試行", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                Button("手動で入力する") {
+                    presentReview(
+                        candidate: ProductLookupResult(
+                            barcode: scanned.value,
+                            name: nil,
+                            kcal: nil,
+                            proteinGrams: nil,
+                            servingDescription: nil
+                        ),
+                        productFound: false
+                    )
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reviewDestination: some View {
+        if let candidate = reviewCandidate {
+            BarcodeProductReviewView(
+                candidate: candidate,
+                productFound: reviewProductFound,
+                // A saved meal closes the whole scanner sheet so the
+                // user lands back on the nutrition screen.
+                onSaved: { dismiss() }
+            )
+        }
     }
 
     private var permissionDeniedBody: some View {
@@ -145,6 +247,32 @@ struct BarcodeScannerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: - Lookup
+
+    /// Runs one Open Food Facts lookup. On success the candidate is
+    /// routed to the review screen; on failure the panel shows the
+    /// error and offers retry / manual entry.
+    private func startLookup(for barcode: String) {
+        lookupPhase = .loading
+        Task {
+            do {
+                let result = try await lookupService.lookup(barcode: barcode)
+                presentReview(candidate: result, productFound: true)
+            } catch let error as ProductLookupError {
+                lookupPhase = .failed(error)
+            } catch {
+                lookupPhase = .failed(.network)
+            }
+        }
+    }
+
+    private func presentReview(candidate: ProductLookupResult, productFound: Bool) {
+        reviewCandidate = candidate
+        reviewProductFound = productFound
+        lookupPhase = .idle
+        showReview = true
+    }
+
     // MARK: - Permission
 
     private func requestPermissionIfNeeded() async {
@@ -158,7 +286,7 @@ struct BarcodeScannerView: View {
 
 /// SwiftUI wrapper around the AVFoundation capture session. Kept
 /// file-private: the camera plumbing has no callers outside this
-/// prototype screen.
+/// screen.
 private struct BarcodeCameraController: UIViewControllerRepresentable {
     let onScan: (ScannedBarcode) -> Void
 
