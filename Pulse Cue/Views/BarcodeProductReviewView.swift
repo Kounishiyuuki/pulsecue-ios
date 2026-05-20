@@ -173,10 +173,51 @@ struct BarcodeProductReviewView: View {
     /// This is the single point where the barcode flow writes to the
     /// store and syncs DayLog — nothing before this touched either.
     private func save() {
+        let entry = Self.makeConfirmedEntry(
+            day: Date(),
+            slot: slot,
+            name: name,
+            kcalText: kcalText,
+            proteinText: proteinText,
+            carbText: carbText,
+            fatText: fatText,
+            note: note
+        )
+        modelContext.insert(entry)
+        // Mirrors the manual-entry path in MealEntrySheet: a confirmed
+        // meal is reflected in the day's intake immediately.
+        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: modelContext)
+        onSaved()
+    }
+
+    /// Builds the confirmed `MealEntry` a barcode review produces from
+    /// the form's (string-typed) fields. Pure — it touches no SwiftUI
+    /// or SwiftData state — so the confirm logic stays unit-testable
+    /// without a view host; `save()` is its only production caller and
+    /// owns the insert + DayLog sync that follow.
+    ///
+    /// Behavior locked for PR #45:
+    ///  - `status` is always `.confirmed` and `source` always
+    ///    `.barcode`: a reviewed barcode meal is never a draft.
+    ///  - a blank name falls back to the slot label and a blank note
+    ///    to `nil`, matching the manual-entry path in `MealEntrySheet`.
+    ///  - a non-numeric calorie field counts as 0; the 「記録する」
+    ///    button is gated by `isFormValid`, so a real value is always
+    ///    present before this is reached in the UI.
+    static func makeConfirmedEntry(
+        day: Date,
+        slot: MealSlot,
+        name: String,
+        kcalText: String,
+        proteinText: String,
+        carbText: String,
+        fatText: String,
+        note: String
+    ) -> MealEntry {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let entry = MealEntry(
-            dayDate: Date(),
+        return MealEntry(
+            dayDate: day,
             slot: slot,
             name: trimmedName.isEmpty ? slot.label : trimmedName,
             kcal: max(0, Int(kcalText) ?? 0),
@@ -187,10 +228,5 @@ struct BarcodeProductReviewView: View {
             source: .barcode,
             note: trimmedNote.isEmpty ? nil : trimmedNote
         )
-        modelContext.insert(entry)
-        // Mirrors the manual-entry path in MealEntrySheet: a confirmed
-        // meal is reflected in the day's intake immediately.
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: modelContext)
-        onSaved()
     }
 }
