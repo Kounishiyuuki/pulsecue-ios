@@ -281,10 +281,14 @@ struct HealthTargetSettingsView: View {
         targets: HealthTargets,
         apply: @escaping (HealthTargets) -> Void,
     ) -> some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(HealthTargetMetric.allCases) { metric in
                 targetFieldRow(metric: metric, targets: targets, apply: apply)
             }
+            Text("数値を空欄にすると、その項目は未設定になります。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
         }
     }
 
@@ -303,21 +307,16 @@ struct HealthTargetSettingsView: View {
             }
         )
         return HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(metric.label)
-                    .font(.subheadline.weight(.semibold))
-                Text("未入力 = 未設定")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            Text(metric.label)
+                .font(.subheadline.weight(.semibold))
             Spacer()
             TextField("—", text: bindingText)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 80)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .frame(width: 88)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.primary.opacity(0.06))

@@ -90,7 +90,12 @@ struct RoutinePickerSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
             }
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .accessibilityLabel("\(routine.name)\(routine.isPinned ? "、ピン留め済み" : "")")
@@ -128,11 +133,19 @@ struct RoutinePickerSheet: View {
     @ViewBuilder
     private var reorderHintFooter: some View {
         Section {
-            HStack(spacing: 6) {
-                Image(systemName: "info.circle")
-                    .font(.caption2)
-                Text("並び替えはワークアウト タブから行えます。")
-                    .font(.footnote)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "pin")
+                        .font(.caption2)
+                    Text("行を右にスワイプするとピン留め / 解除できます。")
+                        .font(.footnote)
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption2)
+                    Text("並び替えはワークアウト タブから行えます。")
+                        .font(.footnote)
+                }
             }
             .foregroundStyle(.secondary)
             .listRowBackground(AppTheme.background)
