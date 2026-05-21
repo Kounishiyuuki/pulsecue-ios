@@ -130,6 +130,7 @@
 		7B1F2A0142F84A0D9C58E00E /* NutritionLabelOCRView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F00E /* NutritionLabelOCRView.swift */; };
 		7B1F2A0142F84A0D9C58E00F /* NutritionLabelTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F00F /* NutritionLabelTextTests.swift */; };
 		7B1F2A0142F84A0D9C58E010 /* NutritionLabelReviewSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F010 /* NutritionLabelReviewSaveTests.swift */; };
+		7B1F2A0142F84A0D9C58E011 /* PhotoFoodCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F011 /* PhotoFoodCaptureView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -278,6 +279,7 @@
 		7B1F2A0142F84A0D9C58F00E /* NutritionLabelOCRView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLabelOCRView.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F00F /* NutritionLabelTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLabelTextTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F010 /* NutritionLabelReviewSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLabelReviewSaveTests.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F011 /* PhotoFoodCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFoodCaptureView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -317,6 +319,7 @@
 				7B1F2A0142F84A0D9C58F008 /* BarcodeProductReviewView.swift */,
 				7B1F2A0142F84A0D9C58F00D /* NutritionLabelReviewView.swift */,
 				7B1F2A0142F84A0D9C58F00E /* NutritionLabelOCRView.swift */,
+				7B1F2A0142F84A0D9C58F011 /* PhotoFoodCaptureView.swift */,
 				D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */,
 				D17104DB1A8E4001B0DA2502 /* NutritionView.swift */,
 				26F09FF63F2B40ED822DB5FB /* RoutineEditorView.swift */,
@@ -729,6 +732,7 @@
 				7B1F2A0142F84A0D9C58E00C /* NutritionLabelScanner.swift in Sources */,
 				7B1F2A0142F84A0D9C58E00D /* NutritionLabelReviewView.swift in Sources */,
 				7B1F2A0142F84A0D9C58E00E /* NutritionLabelOCRView.swift in Sources */,
+				7B1F2A0142F84A0D9C58E011 /* PhotoFoodCaptureView.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,

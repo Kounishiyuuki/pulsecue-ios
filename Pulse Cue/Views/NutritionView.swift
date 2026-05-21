@@ -52,6 +52,7 @@ struct NutritionView: View {
     @State private var pendingDiscard: MealEntry?
     @State private var showBarcodeScanner = false
     @State private var showNutritionLabelOCR = false
+    @State private var showPhotoFoodCapture = false
 
     private var today: Date { DateUtils.startOfDay(Date()) }
 
@@ -123,6 +124,9 @@ struct NutritionView: View {
         }
         .sheet(isPresented: $showNutritionLabelOCR) {
             NutritionLabelOCRView()
+        }
+        .sheet(isPresented: $showPhotoFoodCapture) {
+            PhotoFoodCaptureView()
         }
         .confirmationDialog(
             confirmationTitle,
@@ -266,6 +270,18 @@ struct NutritionView: View {
                     .foregroundStyle(accentGradient)
             }
             .accessibilityLabel("バーコードを読み取る")
+            Button {
+                showPhotoFoodCapture = true
+            } label: {
+                Image(systemName: "photo")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(8)
+                    .background(
+                        Circle().fill(accentGradient.opacity(0.15))
+                    )
+                    .foregroundStyle(accentGradient)
+            }
+            .accessibilityLabel("写真から推定")
             Button {
                 // The dialog still picks the slot via the
                 // confirmationDialog, so we seed with .breakfast as
