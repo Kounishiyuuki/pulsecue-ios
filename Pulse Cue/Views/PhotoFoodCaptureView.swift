@@ -29,6 +29,12 @@ struct PhotoFoodCaptureView: View {
     @State private var selectedImage: UIImage?
     @State private var showCamera = false
 
+    /// The mock estimation candidate to review. Set just before
+    /// navigating; the review screen treats it as a draft until the
+    /// user confirms.
+    @State private var reviewEstimate: PhotoFoodEstimate?
+    @State private var showReview = false
+
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
     }
@@ -40,7 +46,7 @@ struct PhotoFoodCaptureView: View {
                     helperText
                     if let image = selectedImage {
                         previewSection(image)
-                        futureFlowCard
+                        mockEstimateSection
                     } else {
                         emptyState
                     }
@@ -55,6 +61,9 @@ struct PhotoFoodCaptureView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { dismiss() }
                 }
+            }
+            .navigationDestination(isPresented: $showReview) {
+                reviewDestination
             }
         }
         .sheet(isPresented: $showCamera) {
@@ -73,7 +82,7 @@ struct PhotoFoodCaptureView: View {
     // MARK: - Sections
 
     private var helperText: some View {
-        Text("写真からの推定は確認画面を通して保存する予定です。現在は写真選択とプレビューのみ対応しています。")
+        Text("写真を選び「モック推定を試す」を押すと、確認画面で内容を編集して保存できます。実 AI による推定は今後対応予定です。")
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -112,27 +121,39 @@ struct PhotoFoodCaptureView: View {
         }
     }
 
-    /// Non-destructive placeholder: states that estimation is future
-    /// work. No action — this PR adds the capture shell only.
-    private var futureFlowCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("推定は今後対応予定です")
-                    .font(.subheadline.weight(.semibold))
-                Text("写真 → 栄養の推定 → 確認画面 → 保存 の流れに今後対応します。現在は写真の保存も食事の記録も行いません。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    /// Runs the mock estimation and routes the candidate to the
+    /// review screen. The estimate is mock-only — no real AI, no
+    /// network, no photo upload — and the copy here says so.
+    private var mockEstimateSection: some View {
+        VStack(spacing: 10) {
+            Button {
+                reviewEstimate = MockPhotoFoodEstimator.estimate()
+                showReview = true
+            } label: {
+                Label("モック推定を試す", systemImage: "wand.and.stars")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Text("これは実 AI ではありません。今後の推定フローを確認するためのモック候補を表示します。写真は保存・送信されません。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+    }
+
+    @ViewBuilder
+    private var reviewDestination: some View {
+        if let estimate = reviewEstimate {
+            PhotoEstimateReviewView(
+                estimate: estimate,
+                // A saved meal closes the whole capture sheet so the
+                // user lands back on the nutrition screen.
+                onSaved: { dismiss() }
+            )
+        }
     }
 
     private var pickerControls: some View {
