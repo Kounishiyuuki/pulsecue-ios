@@ -151,12 +151,12 @@ struct PhotoEstimateReviewSaveTests {
         #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 480)
     }
 
-    @Test func mockEstimateCandidateDoesNotPersistAnything() throws {
+    @Test func mockEstimateCandidateDoesNotPersistAnything() async throws {
         let context = try Self.makeContext()
 
         // Running the mock estimator yields only a PhotoFoodEstimate
         // value. Holding one must never create a MealEntry on its own.
-        _ = MockPhotoFoodEstimator.estimate()
+        _ = try await MockPhotoFoodEstimator().estimate()
         #expect(try context.fetch(FetchDescriptor<MealEntry>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<DayLog>()).isEmpty)
     }

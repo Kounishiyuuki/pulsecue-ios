@@ -23,6 +23,11 @@ import UIKit
 struct PhotoFoodCaptureView: View {
     @Environment(\.dismiss) private var dismiss
 
+    /// Photo estimation provider. Defaults to the offline mock;
+    /// injectable so a real provider (or a test stub) can replace it
+    /// without changing this screen.
+    var estimator: any PhotoFoodEstimating = MockPhotoFoodEstimator()
+
     @State private var photoItem: PhotosPickerItem?
     /// The picked / captured image, held in memory only — discarded
     /// when the sheet closes. Never persisted.
@@ -127,8 +132,7 @@ struct PhotoFoodCaptureView: View {
     private var mockEstimateSection: some View {
         VStack(spacing: 10) {
             Button {
-                reviewEstimate = MockPhotoFoodEstimator.estimate()
-                showReview = true
+                Task { await runEstimation() }
             } label: {
                 Label("モック推定を試す", systemImage: "wand.and.stars")
                     .font(.headline)
@@ -154,6 +158,17 @@ struct PhotoFoodCaptureView: View {
                 onSaved: { dismiss() }
             )
         }
+    }
+
+    /// Runs the photo estimation provider and routes the resulting
+    /// candidate to the review screen. The default provider is the
+    /// offline, deterministic mock — no network or photo upload
+    /// occurs. A failed estimate simply does not navigate.
+    @MainActor
+    private func runEstimation() async {
+        guard let estimate = try? await estimator.estimate() else { return }
+        reviewEstimate = estimate
+        showReview = true
     }
 
     private var pickerControls: some View {
