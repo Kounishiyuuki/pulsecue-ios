@@ -108,6 +108,7 @@ struct PhotoFoodCaptureView: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(.white.opacity(0.4), lineWidth: 0.6)
                 )
+                .accessibilityLabel("選択中の食事写真")
         }
     }
 

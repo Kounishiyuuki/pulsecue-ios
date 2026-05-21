@@ -281,7 +281,7 @@ struct NutritionView: View {
                     )
                     .foregroundStyle(accentGradient)
             }
-            .accessibilityLabel("写真から推定")
+            .accessibilityLabel("食事写真をプレビュー")
             Button {
                 // The dialog still picks the slot via the
                 // confirmationDialog, so we seed with .breakfast as
