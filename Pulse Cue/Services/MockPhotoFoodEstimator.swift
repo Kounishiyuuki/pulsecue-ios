@@ -2,53 +2,39 @@
 //  MockPhotoFoodEstimator.swift
 //  Pulse Cue
 //
-//  Mock-only photo food estimation. Produces a reviewable candidate
-//  so the photo → candidate → review → confirm → save flow and its
-//  safety boundary can be locked in *before* any real AI integration.
+//  Mock-only `PhotoFoodEstimating` provider. Produces a reviewable
+//  candidate so the photo → candidate → review → confirm → save flow
+//  and its safety boundary stay exercised *before* any real AI
+//  integration.
 //
 //  Boundaries (locked for this PR):
 //   - No real AI, no OpenAI, no network, no photo upload. The mock
 //     does not even take the image — a mock has nothing to infer,
 //     and not passing the photo makes "no upload" structural.
-//   - The result is a *candidate* only. It creates no MealEntry and
-//     never touches DayLog / NutritionLedger / ProteinTotals; the
-//     save happens only after the user confirms on the review screen.
+//   - The result is a *candidate* only (see `PhotoFoodEstimating`).
+//     It creates no MealEntry and never touches DayLog.
 //   - Deterministic: every call returns the same candidate, so the
 //     flow and its tests are stable.
 //
-//  A later PR replaces this with an async, image-aware provider
-//  behind an abstraction (see Docs/photo-food-estimation-flow.md).
-//  The candidate type and the review/confirm flow it feeds are
-//  designed to stay the same.
+//  A later PR adds a real, image-aware provider conforming to the
+//  same `PhotoFoodEstimating` protocol; the candidate type and the
+//  review/confirm flow it feeds are designed to stay the same.
 //
 
 import Foundation
 
-/// A reviewable photo-food-estimation candidate. Plain value type —
-/// it creates no MealEntry and touches no store; the review screen
-/// turns it into a confirmed meal only after the user confirms.
-struct PhotoFoodEstimate: Equatable {
-    /// Suggested food name. Editable on the review screen.
-    var name: String
-    /// Estimated calories. Editable on the review screen.
-    var kcal: Int
-    /// Estimated protein grams, if the estimator produced one.
-    var proteinGrams: Int?
-    /// Suggested meal slot. Editable on the review screen.
-    var slot: MealSlot
-    /// Optional free-text note carried into the review screen.
-    var note: String?
-}
+/// The only `PhotoFoodEstimating` implementation today: a fully
+/// offline, deterministic placeholder.
+struct MockPhotoFoodEstimator: PhotoFoodEstimating {
 
-enum MockPhotoFoodEstimator {
-
-    /// The fixed candidate every mock estimation returns.
+    /// Returns the fixed candidate every mock estimation produces.
     ///
     /// The values are a plausible placeholder meal — they are *not*
-    /// inferred from any image. The review screen makes the mock
-    /// nature explicit and lets the user correct every field before
-    /// saving.
-    static func estimate() -> PhotoFoodEstimate {
+    /// inferred from any image. The method is `async throws` only to
+    /// satisfy `PhotoFoodEstimating`; the mock does no async work and
+    /// never throws. The review screen makes the mock nature explicit
+    /// and lets the user correct every field before saving.
+    func estimate() async throws -> PhotoFoodEstimate {
         PhotoFoodEstimate(
             name: "推定された食事（モック）",
             kcal: 480,
