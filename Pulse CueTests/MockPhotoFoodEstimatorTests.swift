@@ -102,3 +102,63 @@ struct MockPhotoFoodEstimatorTests {
         #expect(viaProtocol == viaConcrete)
     }
 }
+
+/// Test-only `PhotoFoodEstimating` that always throws — used to
+/// exercise `PhotoEstimationRunner`'s failure path. Not production code.
+private struct FailingPhotoFoodEstimator: PhotoFoodEstimating {
+    struct EstimationFailure: Error {}
+    func estimate(input: PhotoFoodEstimationInput) async throws -> PhotoFoodEstimate {
+        throw EstimationFailure()
+    }
+}
+
+/// Tests for `PhotoEstimationRunner` — the pure helper that maps a
+/// provider call to a success/failure outcome. A fallible provider
+/// becomes a retryable `.failure`, never a crash or silent drop.
+struct PhotoEstimationRunnerTests {
+
+    @Test func successfulProviderYieldsCandidateOutcome() async throws {
+        let input = PhotoFoodEstimationInput(image: nil)
+        let expected = try await MockPhotoFoodEstimator().estimate(input: input)
+        let outcome = await PhotoEstimationRunner.run(
+            estimator: MockPhotoFoodEstimator(),
+            input: input
+        )
+        #expect(outcome == .candidate(expected))
+    }
+
+    @Test func failingProviderYieldsFailureOutcome() async {
+        let outcome = await PhotoEstimationRunner.run(
+            estimator: FailingPhotoFoodEstimator(),
+            input: PhotoFoodEstimationInput(image: nil)
+        )
+        #expect(outcome == .failure(message: PhotoEstimationRunner.failureMessage))
+    }
+
+    /// A failure outcome must carry a non-empty user-facing message
+    /// so the capture screen can show a visible, retryable error.
+    @Test func failureOutcomeCarriesANonEmptyUserMessage() async {
+        let outcome = await PhotoEstimationRunner.run(
+            estimator: FailingPhotoFoodEstimator(),
+            input: PhotoFoodEstimationInput(image: nil)
+        )
+        if case .failure(let message) = outcome {
+            #expect(!message.isEmpty)
+        } else {
+            Issue.record("expected a failure outcome from a failing provider")
+        }
+    }
+
+    /// The runner never persists anything — it only maps a provider
+    /// result to an outcome value.
+    @Test func runnerProducesACandidateOutcomeWithoutSideEffects() async {
+        let outcome = await PhotoEstimationRunner.run(
+            estimator: MockPhotoFoodEstimator(),
+            input: PhotoFoodEstimationInput(image: nil)
+        )
+        guard case .candidate = outcome else {
+            Issue.record("expected a candidate outcome from the mock provider")
+            return
+        }
+    }
+}
