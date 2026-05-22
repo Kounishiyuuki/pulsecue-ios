@@ -136,6 +136,7 @@
 		7B1F2A0142F84A0D9C58E014 /* MockPhotoFoodEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F014 /* MockPhotoFoodEstimatorTests.swift */; };
 		7B1F2A0142F84A0D9C58E015 /* PhotoEstimateReviewSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F015 /* PhotoEstimateReviewSaveTests.swift */; };
 		7B1F2A0142F84A0D9C58E016 /* PhotoFoodEstimating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F016 /* PhotoFoodEstimating.swift */; };
+		7B1F2A0142F84A0D9C58E017 /* ConfirmedMealEntryFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F017 /* ConfirmedMealEntryFactory.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -290,6 +291,7 @@
 		7B1F2A0142F84A0D9C58F014 /* MockPhotoFoodEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockPhotoFoodEstimatorTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F015 /* PhotoEstimateReviewSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoEstimateReviewSaveTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F016 /* PhotoFoodEstimating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFoodEstimating.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F017 /* ConfirmedMealEntryFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmedMealEntryFactory.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -380,6 +382,7 @@
 				7B1F2A0142F84A0D9C58F00C /* NutritionLabelScanner.swift */,
 				7B1F2A0142F84A0D9C58F012 /* MockPhotoFoodEstimator.swift */,
 				7B1F2A0142F84A0D9C58F016 /* PhotoFoodEstimating.swift */,
+				7B1F2A0142F84A0D9C58F017 /* ConfirmedMealEntryFactory.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -750,6 +753,7 @@
 				7B1F2A0142F84A0D9C58E011 /* PhotoFoodCaptureView.swift in Sources */,
 				7B1F2A0142F84A0D9C58E012 /* MockPhotoFoodEstimator.swift in Sources */,
 				7B1F2A0142F84A0D9C58E016 /* PhotoFoodEstimating.swift in Sources */,
+				7B1F2A0142F84A0D9C58E017 /* ConfirmedMealEntryFactory.swift in Sources */,
 				7B1F2A0142F84A0D9C58E013 /* PhotoEstimateReviewView.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,

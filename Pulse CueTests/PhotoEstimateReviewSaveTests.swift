@@ -3,11 +3,10 @@
 //  Pulse CueTests
 //
 //  Confirm/save-flow tests for the mock photo estimation review
-//  screen. They exercise `PhotoEstimateReviewView.makeConfirmedEntry`
-//  — the pure meal-construction step extracted from the screen's
-//  `save()` so the confirm logic is testable without a SwiftUI host —
-//  and the insert + `NutritionLedger` sync that `save()` performs
-//  around it.
+//  screen. They exercise `ConfirmedMealEntryFactory.make` with
+//  `source: .ai` — the shared pure meal-construction step the
+//  screen's `save()` uses — and the insert + `NutritionLedger` sync
+//  that `save()` performs around it.
 //
 //  Boundary under test:
 //   - confirm produces a `.confirmed`, `.ai` MealEntry on today's
@@ -57,7 +56,7 @@ struct PhotoEstimateReviewSaveTests {
         fatText: String = "",
         note: String = ""
     ) -> MealEntry {
-        PhotoEstimateReviewView.makeConfirmedEntry(
+        ConfirmedMealEntryFactory.make(
             day: day,
             slot: slot,
             name: name,
@@ -65,7 +64,8 @@ struct PhotoEstimateReviewSaveTests {
             proteinText: proteinText,
             carbText: carbText,
             fatText: fatText,
-            note: note
+            note: note,
+            source: .ai
         )
     }
 

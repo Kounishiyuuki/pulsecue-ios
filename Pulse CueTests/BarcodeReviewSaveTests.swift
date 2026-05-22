@@ -3,11 +3,10 @@
 //  Pulse CueTests
 //
 //  Confirm/save-flow tests for the barcode product review screen
-//  (PR #45). They exercise `BarcodeProductReviewView.makeConfirmedEntry`
-//  — the pure meal-construction step extracted from the screen's
-//  `save()` so the confirm logic is testable without a SwiftUI host —
-//  and the insert + `NutritionLedger` sync that `save()` performs
-//  around it.
+//  (PR #45). They exercise `ConfirmedMealEntryFactory.make` with
+//  `source: .barcode` — the shared pure meal-construction step the
+//  screen's `save()` uses — and the insert + `NutritionLedger` sync
+//  that `save()` performs around it.
 //
 //  Boundary under test (PR #45):
 //   - confirm produces a `.confirmed`, `.barcode` MealEntry on today's
@@ -56,7 +55,7 @@ struct BarcodeReviewSaveTests {
         fatText: String = "",
         note: String = ""
     ) -> MealEntry {
-        BarcodeProductReviewView.makeConfirmedEntry(
+        ConfirmedMealEntryFactory.make(
             day: day,
             slot: slot,
             name: name,
@@ -64,7 +63,8 @@ struct BarcodeReviewSaveTests {
             proteinText: proteinText,
             carbText: carbText,
             fatText: fatText,
-            note: note
+            note: note,
+            source: .barcode
         )
     }
 
