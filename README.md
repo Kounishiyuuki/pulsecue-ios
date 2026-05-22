@@ -1,322 +1,118 @@
-# PulseCue iOS
-
-PulseCue is a comprehensive workout and health tracking app for iOS 17+, built entirely with SwiftUI and SwiftData. No external dependencies required—completely offline-first.
-
-## Features
-
-### ✅ Implemented
-
-#### Workout Management
-- **Four Main Tabs**: Today, Workout, History, Settings
-- **Routine & Step CRUD**: Full create, read, update, delete functionality
-- **Routine Operations**:
-  - Reorder steps with drag & drop
-  - Duplicate routines
-  - Pin/unpin favorite routines
-  - Search routines by name
-- **Runner (Workout Execution)**:
-  - Clean Now/Rest/Next UI display
-  - Actions: Complete, Skip, +10 seconds, Back
-  - Rest timer using deadline-based countdown
-  - State persistence in UserDefaults for app kill/relaunch recovery
-- **Cues & Feedback**:
-  - Local notifications (scheduled for step completion)
-  - In-app highlight during active step
-  - Haptic feedback for all actions
-  - Beep sound toggle in Settings
-
-#### Health Tracking
-- **DayLog System**:
-  - Track daily calories intake
-  - Track calories burned through exercise
-  - Log sleep hours
-  - Record weight (optional)
-  - Automatic calorie balance calculation (intake - exercise)
-- **History View**: Review past 30 days of health logs
-- **Today View**: Quick summary of today's health metrics and active workout
-
-#### Architecture
-- **MVVM Pattern**: Clean separation between Views, ViewModels, and Models
-- **SwiftData**: Native iOS persistence layer (iOS 17+)
-- **Service Layer**: Modular services for notifications, haptics, audio, and persistence
-
-### 🚧 Roadmap (Future Features)
-
-#### Authentication & Sync
-- [ ] Sign in with Apple integration
-- [ ] iCloud sync for routines and health data across devices
-- [ ] Multi-device state synchronization
-
-#### HealthKit Integration
-- [ ] Import exercise data from Apple Health
-- [ ] Export workout sessions to HealthKit
-- [ ] Sync weight and sleep data bidirectionally
-- [ ] Heart rate monitoring during workouts
-
-#### AI Coach & Nutrition
-- [ ] AI-powered workout recommendations
-- [ ] Meal photo recognition with calorie estimation
-- [ ] Nutrition tracking and meal planning
-- [ ] Progress analysis and insights
-
-#### Widgets & Live Activities
-- [ ] Home screen widgets for today's summary
-- [ ] Lock screen widgets for quick glance
-- [ ] Live Activities for ongoing workouts (Dynamic Island support)
-- [ ] Complications for Apple Watch
-
-#### Analytics & Insights
-- [ ] Weekly/monthly workout statistics
-- [ ] Progress charts and trends
-- [ ] Achievement system and milestones
-- [ ] Export data to CSV
-
-#### Enhanced Features
-- [ ] Apple Watch companion app
-- [ ] Custom rest timer sounds
-- [ ] Workout history and session logs
-- [ ] Social sharing of achievements
-- [ ] Dark mode optimizations
-
-## Requirements
-
-- iOS 17.0+
-- Xcode 15.0+
-- Swift 5.9+
-
-## Architecture
-
-```
-PulseCue/
-├── Models/              # SwiftData models
-│   ├── Routine.swift
-│   ├── Step.swift
-│   └── DayLog.swift
-├── ViewModels/          # Business logic
-│   ├── RoutineViewModel.swift
-│   ├── RunnerViewModel.swift
-│   └── HealthViewModel.swift
-├── Views/               # SwiftUI views
-│   ├── TodayView.swift
-│   ├── WorkoutView.swift
-│   ├── HistoryView.swift
-│   ├── SettingsView.swift
-│   ├── RunnerView.swift
-│   ├── RoutineListView.swift
-│   ├── RoutineEditView.swift
-│   └── DayLogView.swift
-└── Services/            # Support services
-    ├── NotificationService.swift
-    ├── HapticService.swift
-    ├── AudioService.swift
-    └── PersistenceService.swift
-```
-
-## Building
-
-1. Open `PulseCue.xcodeproj` in Xcode 15+
-2. Select your target device or simulator (iOS 17+)
-3. Build and run (⌘R)
-
-## Usage
-
-### Creating a Workout Routine
-1. Go to the **Workout** tab
-2. Tap the **+** button
-3. Add a routine name and steps with durations
-4. Save and start your workout
-
-### Running a Workout
-1. Select a routine from the **Workout** tab
-2. Tap to start, or use the context menu
-3. The runner shows: NOW (current step), REST (countdown), NEXT (upcoming step)
-4. Use Complete/Skip/+10s/Back buttons to control progression
-5. App preserves state if killed—relaunch continues where you left off
-
-### Tracking Health
-1. Go to the **Today** tab
-2. Tap **Update Log**
-3. Enter calories (intake/exercise), sleep hours, and weight
-4. Balance is calculated automatically
-5. View history in the **History** tab
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Contributing
-
-Contributions welcome! Please feel free to submit a Pull Request.
 # PulseCue
 
-ジムの **ワークアウト進行（Runner）** と日々の **健康ログ（DayLog）** を、SwiftUI + SwiftData だけで完結させる iOS アプリ（P0 = ローカルファースト・オフライン専用）。
+ワークアウトと栄養を記録する **ローカルファーストの iOS アプリ**。トレーニング、食事、
+体組成、毎日の健康目標を、端末内だけで記録・可視化します。SwiftUI + SwiftData 製で、
+外部ライブラリ・バックエンド・アカウント登録はありません。
 
-「次に何をやるか」を考えなくて済む状態を作るのが目的です。Runner は `Now / Rest / Next` の固定 UI と 4 つの操作（Complete / Skip / +10 / Back）でテンポを刻みます。
+> 個人開発中の iOS ポートフォリオプロジェクトです。
+
+---
+
+## 主な機能
+
+- **ワークアウト** — ルーティン / ステップの作成・編集・複製・並び替え・ピン留め・検索
+- **ランナー（実行画面）** — `Now / Rest / Next` の固定 UI と Complete / Skip / +10 / Back
+  の操作。休憩タイマーは締切時刻ベースで、バックグラウンド復帰やアプリ再起動後も継続
+- **今日（ダッシュボード）** — 摂取 / 消費 / 睡眠 / 体重とカロリー収支を 1 画面に集約
+- **カロリー・タンパク質トラッキング** — 確定済みの食事だけを当日の合計に反映
+- **最近の食事 / よく使う食事テンプレート** — 過去の記録をワンタップで今日に再追加
+- **バーコード商品照会** — 商品バーコードから栄養情報を取得し、確認画面を経て保存
+- **栄養表示ラベル OCR** — パッケージの栄養成分表示を端末内で読み取り、確認画面を経て保存
+- **食事写真キャプチャ（プロトタイプ）** — 写真の選択 / 撮影とプレビュー
+- **写真推定フロー（モック）** — 写真 → 候補 → 確認画面 → 保存 のフローを、モック推定で先行実装
+- **健康目標との差分表示** — 摂取 / 睡眠 / 運動消費 / 収支 / 体重について、目標との差を表示
+- **健康サマリー** — 直近 7 日の平均と体重トレンド（端末内計算の目安値）
+
+---
+
+## 設計方針・安全性
+
+- **ローカルファースト** — データは端末内の SwiftData に保存。ネットワーク通信・アカウント登録なし
+- **レビューしてから保存** — バーコード / OCR / 写真の推定結果は「候補」にすぎず、
+  ユーザーが確認画面で明示的に確定したときだけ食事記録になる
+- **確定済みのみ合計に加算** — 確認待ちの候補や推定値が、当日のカロリー / タンパク質合計に
+  混ざることはない
+- **写真の暗黙アップロードなし** — 写真は端末内のメモリ上でのみ扱い、保存・送信しない
+- **AI プロバイダの API キーを iOS アプリに埋め込まない** — 将来クラウド AI を導入する場合も、
+  秘密情報はクライアントに置かない方針（設計のみ。`Docs/` 参照）
+- **AI による写真カロリー推定はまだ「本物」ではない** — 現状は決定論的なモック実装で、
+  フローと安全境界を先に固めるためのプロトタイプ
 
 ---
 
 ## 技術スタック
 
-- iOS 17+ / Xcode 26
-- SwiftUI
-- SwiftData
-- Swift 5（`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`）
-- 外部ライブラリは未使用
-- ローカルファースト（バックエンド・サインインなし）
+- **SwiftUI** — 全画面の UI
+- **SwiftData** — 端末内永続化（iOS 17+）
+- **Apple Vision** — 栄養表示ラベルの文字認識（端末内 OCR）
+- **AVFoundation** — バーコード読み取りのカメラセッション
+- **PhotosUI / PhotosPicker・UIImagePickerController** — 写真の選択 / カメラ撮影
+- **UserDefaults** — テンプレート・並び順・健康目標・ランナー復帰状態などの軽量データ
+- **Swift Testing / XCTest** — 単体テスト（350 件超）と起動スモークテスト
+- 外部ライブラリ不使用 / iOS 17+
 
 ---
 
-## ディレクトリ構成
+## アーキテクチャの要点
 
-```
-Pulse Cue/
-├── App/                  # @main エントリポイントと TabView ルート
-│   ├── ContentView.swift
-│   └── Pulse_CueApp.swift
-├── Models/               # SwiftData @Model（永続化）と enum
-│   ├── DayLog.swift
-│   ├── Enums.swift       # SessionStatus / RunnerPhase / DayLogField / RunnerAction
-│   ├── MealEntry.swift   # MealSlot / MealStatus / MealSource
-│   ├── Routine.swift
-│   ├── Session.swift
-│   ├── Step.swift
-│   └── StepResult.swift
-├── ViewModels/
-│   └── RunnerViewModel.swift
-├── Views/                # SwiftUI 画面とサブシート（HealthSummaryView 等）
-├── Services/             # 通知 / 永続化 / サンプル投入 / 音 / 触覚 / 設定 / DayLogStore / NutritionLedger / HealthKitImporter / AICoachStub
-├── Utilities/            # AppTab / AppTheme / DateUtils / HealthSummary / ScreenWakeManager
-├── Resources/Assets.xcassets
-└── Info.plist / Pulse_Cue.entitlements
+- **`MealEntry` の status / source モデル** — 状態（`pending` / `confirmed`）と発生源
+  （`manual` / `ai` / `barcode` / `ocr`）を raw 文字列で保持し、列挙体の追加で
+  スキーマ移行が不要になるよう設計
+- **`NutritionLedger`** — `DayLog` の摂取カロリーを「確定済み `MealEntry` の合計」で
+  再計算する単一の経路（確認待ちは加算しない）
+- **`ProteinTotals`** — タンパク質合計も確定済みのみを読み取り時に集計
+- **`PhotoFoodEstimating` 抽象化** — 写真推定プロバイダのプロトコル境界。実装は
+  決定論的・オフラインのモックのみで、将来の実プロバイダを差し込めるようにしてある
+- **レビュー → 確定 → 保存 の境界** — 候補は確認画面でユーザーが確定したときだけ
+  `MealEntry` になり、その時点で `NutritionLedger` 同期まで行う
 
-Pulse CueTests/           # Swift Testing
-├── DayLogHealthSummaryTests.swift
-├── NutritionLedgerTests.swift
-├── Pulse_CueTests.swift
-└── RunnerStateMachineTests.swift
-
-Docs/                     # 設計・運用メモ（本実装の前段）
-├── ai-privacy-and-safety.md
-├── manual-qa-checklist.md
-└── widget-live-activity.md
-```
+設計・運用メモは `Docs/` に置いています。
 
 ---
 
-## P0 で実装済みの機能
+## 画面構成
 
-### TabView 構成
-- 今日 / ワークアウト / ランナー / 履歴 / 設定 の 5 タブ
-
-### Runner（最重要）
-- `Now / Rest / Next` の固定 3 カード UI
-- 4 つの主要アクション：**Complete / Skip / +10 / Back**
-- 状態機械：`exercise → rest → exercise → ... → done`
-  - **Complete**：1 セット完了 → 休憩へ。休憩中なら休憩を即終了。
-  - **Skip**：現在の **ステップ** をスキップして次のステップへ。
-  - **+10**：休憩中のみ、`deadlineDate` を 10 秒延長。
-  - **Back**：1 セット戻る（ステップ境界をまたぐ）。休憩中ならエクササイズ中に戻る。
-- 休憩タイマーは `deadlineDate` を保持し、現時刻との差分で残り秒を計算
-  → バックグラウンド復帰やアプリ再起動後も同じ締切に向かって減算継続
-- Runner 状態は `UserDefaults` に保存され、再起動時に SwiftData から復元
-- 通知許可がある場合：休憩終了の `UNCalendarNotificationTrigger` を予約
-- 通知が利用できない場合：画面ハイライト + 触覚 + ビープ音（フォールバック）
-
-### Workout（ルーティン管理）
-- 作成 / 編集 / 削除 / 複製 / 並び替え / ピン留め / 検索
-- ピン留めセクションと通常セクションに分割
-- スワイプで「開始」「複製」「ピン留め」「削除」、ロングプレスでも同じ操作
-
-### Step（種目）の編集
-- `title / sets(1–20) / repsTarget(1–50) / restSeconds(0–600) / note / isWarmup`
-- 各値は保存時にクランプ。タイトル空白時は「無題」に置換。
-
-### Today（DayLog ダッシュボード）
-- ヒーローカード（今日の状態 + コンディション `n / 4`）と大きな「ワークアウトを開始 / 再開」CTA
-- 2×2 メトリクスグリッド（摂取 / 消費 / 睡眠 / 体重）+ バランスカード
-- 値が未入力ならカードに赤ドット + 「入力 +」アクセントを表示
-- カードタップでクイック入力シート（既存）。保存後はカードが即時更新（`@Query` で SwiftData の変更を観測）
-- メトリクスグリッド直下に **食事ログショートカット**（`NutritionView` への NavigationLink）
-- バランスカードは「摂取 − 消費」と直近 7 日平均を併記（データ不足時はその旨を表示）
-- バランスカードの「週間サマリーを見る →」から `HealthSummaryView` に遷移
-- 当日の `DayLog` は `DayLogStore.fetchOrCreateToday(modelContext:)` で 1 日 1 レコードを保証
-
-### Health Summary（健康サマリー）
-- 過去 7 日の摂取 / 運動消費 / バランス / 睡眠の平均（3 日以上のデータが必要）
-- 体重の最新値・7 日移動平均・直近の傾向
-- 入力済みの日数を `n / 7 日` で表示
-- 「栄養 / 食事ログ」「AI コーチ（プレビュー）」の入口セクションを内包
-- すべてオフラインで端末内のみ計算する **目安値**（HealthKit や同期は P0 範囲外）
-
-### Nutrition（食事ログ / AI 推定の確認）
-- `MealEntry`（SwiftData @Model）で朝食 / 昼食 / 夕食 / 間食を 1 件ずつ記録
-- `MealStatus`：**推定（`pending` / `source: .ai`）** → **確認待ち（`pending`）** → **確定済み（`confirmed`）**
-- 手動入力は最初から `confirmed`、AI 推定は常に `pending` で保存
-- `NutritionLedger.syncDayLogIntake(for:modelContext:)` が `DayLog.intakeCalories` を **確定済み合計** で再計算（`pending` は加算されない）
-- AI 推定の **確定** は `UserConfirmed<MealEstimate>` ラッパー経由でのみ DayLog に反映（プライバシー境界を保持）
-- AI 推定の **編集 / 破棄** も提供。破棄は確定済み合計に影響なし
-- 外部 AI API 呼び出しなし。`AICoachStub` の `Disabled*` 実装の上で UI フローのみを提供
-
-### AI コーチ（プレビュー）
-- `AICoachView` がオンデバイスで観察ベースの提案を合成（Session / StepResult / DayLog から）
-- 提案 / 理由 / 選択肢 / 次の一手 の 4 セクション構成
-- HRV など未サポートの医療指標は使用しない
-- 「提案をメモに保存」は `UserConfirmed<AICoachSuggestion>` 経由で今日の `DayLog.note` に追記
-- `AIServicesProvider.coach.isEnabled` は常に `false`（オフ表示）
-
-### History（履歴）
-- セッション一覧（ルーティン名 / 日付 / 状態 / 合計時間）
-- 詳細画面でステップ結果（完了 / 未完了）を表示
-
-### Settings（設定）
-- 通知の許可状態を表示し、未決定ならリクエストを発行
-- iOS 設定で取り消された場合はトグルが自動オフ
-- 休憩終了時のビープ音 / 触覚 / ランナー表示中の画面常時点灯トグル
-- 「ヘルスデータ連携（プレビュー）」セクション：`HealthKitImporting` の現状（v2 では `Noop` 実装）と、v3 で実装予定の取り込み→ユーザー確認フローの説明
-- アプリ名・バージョン表示
-
-### テスト
-- `Pulse CueTests/RunnerStateMachineTests.swift`：Runner 状態機械の 13 ケース（Complete / Skip / +10 / Back / 復元）
-- `Pulse CueTests/DayLogHealthSummaryTests.swift`：DayLogStore（6）+ HealthSummary（22）の計 28 ケース（日付正規化、`fetchOrCreate` 冪等性、週平均、体重 7 日平均、トレンド、入力日数、欠損データ）
-- `Pulse CueTests/NutritionLedgerTests.swift`：MealEntry / NutritionLedger / DayLog 境界の 10 ケース（推定は加算しない / 確定の累計 / 推定破棄の安全性 / pending と confirmed 混在 / 別日のリーク回避 / 値クランプ）
-- `Pulse_CueUITests` / `Pulse_CueUITestsLaunchTests`：起動スモーク
+- **今日** — 当日の健康メトリクスとワークアウト開始導線
+- **栄養** — 食事ログ、カロリー / タンパク質サマリー、最近の食事 / よく使う食事、
+  バーコード・OCR・写真の各入力フロー
+- **ワークアウト / ランナー** — ルーティン管理とトレーニング実行
+- **履歴** — 過去セッションとステップ結果
+- **設定** — 通知 / 触覚 / ビープ音、健康目標（曜日・日付ごとの上書き）
+- **健康サマリー** — 直近 7 日の平均と体重トレンド
 
 ---
 
-## 開き方・実行方法
+## 現在の制約
+
+- 写真からの **実 AI カロリー推定は未実装**（現在はモック候補のみ）
+- 実 AI プロバイダ連携は、クレデンシャル戦略を固めるまで **意図的に保留**
+- **HealthKit 連携・アカウント同期は未実装**
+- AI コーチ機能は端末内のスタブのみで、外部 AI 呼び出しは行わない
+
+---
+
+## 今後の予定
+
+- セキュアなバックエンド / 短期トークン方式による実 AI プロバイダ連携
+- バーコード / OCR / 写真で重複しているレビュー・保存ロジックの共通化
+- ナビゲーション・UI の磨き込み
+- HealthKit 連携（手入力との優先順位 UI を含む）
+- ウィジェット / Live Activity（計画段階）
+
+---
+
+## 開発ステータス
+
+進行中の個人 iOS プロジェクトです。実装済みの機能は上記のとおりで、AI 連携は安全な
+設計が固まるまで段階的に進めています（現状はモック / プロトタイプ）。
+
+---
+
+## ビルドと実行
 
 1. リポジトリのルートで `Pulse Cue.xcodeproj` を Xcode で開く
-2. **Scheme を必ず `Pulse Cue` に設定**（左上のスキーム選択）
-3. 任意の iPhone Simulator（iOS 17 以降）を選んで `Run` (⌘R)
+2. Scheme を `Pulse Cue` に設定する
+3. iOS 17 以降の iPhone シミュレータを選び、`Run`（⌘R）
 
-> ⚠️ **注意**：Scheme が `Pulse CueTests` や `Pulse CueUITests` のままだと、Run / Preview が想定外の挙動をします。
-
-### 初回起動時
-- SwiftData のスキーマ初期化のため、初回ビルドはやや時間がかかります
-- 初回起動時にサンプルルーティン 2 件（プッシュ・プル）が自動投入されます
-- 投入は `UserDefaults` で 1 度だけ行われます（`SampleDataSeeder`）
-
----
-
-## 既知の制約 / 既知の問題
-
-- **HealthKit 連携は基盤のみ**：`HealthKitImporting` プロトコル + `NoopHealthKitImporter` で形は整っているが、HealthKit Capability / Info.plist 使用説明 / 実装は v3 で対応
-- **iCloud 同期なし**：すべてローカル `ModelContainer` 内
-- **AppIcon はプレースホルダ**：3 バリアント（universal / dark / tinted）を 1024×1024 で自動生成して投入済み。デザイナーによる差し替えを想定
-- **Widget / Live Activity は未実装**：[Docs/widget-live-activity.md](Docs/widget-live-activity.md) に着手手順を記載
-- **AI コーチ / 食事カロリー推定はスタブ**：[Docs/ai-privacy-and-safety.md](Docs/ai-privacy-and-safety.md) のルールに従う `Disabled*` 実装のみ。`NutritionView` の AI 推定は **ローカル入力で確認待ちエントリを作る** UI フローに限定。本番 AI 実装は API キーを伴うので別フェーズ
-- **通知の繊細な再スケジュール**：休憩中にバックグラウンド遷移→復帰した際、まれに残り 1 秒以下のズレが残る場合あり
-- **エンタイトルメント**：Personal Team で署名できるよう、Push Notifications / iCloud / CloudKit / `remote-notification` BackgroundMode は削除済み（ローカル通知は引き続き機能）
-
----
-
-## ロードマップ（v1 / v2 / v3）
-
-詳細は [TODO.md](TODO.md)、設計詳細は `Docs/` を参照。
-
-| バージョン | テーマ | 主な内容 |
-| --- | --- | --- |
-| **v1** | ローカル P0 | Runner / DayLog / Today / 履歴 / 設定、SwiftData 永続化、Runner 復帰、サンプルデータ投入 |
-| **v2（現在の `main`）** | プレミアム UI + Nutrition + AI Coach プレビュー | プレミアム liquid-glass UI 全画面・AI コーチプレビュー・Nutrition / 食事ログ画面（推定 / 確認待ち / 確定済み）・`UserConfirmed` 経由の DayLog 反映・Runner / DayLog/HealthSummary / NutritionLedger テスト（計 51 ケース）・Personal Team 署名対応 |
-| **v3** | ジムで便利な拡張 | HealthKit 取り込み（手入力との優先順位 UI 含む）、ホーム画面ウィジェット、Live Activity、AI コーチ（手動レビューを挟む）、食事カロリー推定（テキストから先行）、`UserConfirmed<Value>` 経由の保存フロー |
-| **v4 以降** | 同期・社会面 | Sign in with Apple、iCloud / CloudKit、Watch アプリ、共有ルーティン、コーチ（人間）連携 |
+初回起動時にサンプルルーティンが自動投入されます。バーコード読み取りとカメラ撮影は
+実機で確認でき、写真ライブラリからの選択はシミュレータでも動作します。
