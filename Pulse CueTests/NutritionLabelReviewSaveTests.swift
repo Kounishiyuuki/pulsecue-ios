@@ -3,10 +3,10 @@
 //  Pulse CueTests
 //
 //  Confirm/save-flow tests for the nutrition-label OCR review screen.
-//  They exercise `NutritionLabelReviewView.makeConfirmedEntry` — the
-//  pure meal-construction step extracted from the screen's `save()`
-//  so the confirm logic is testable without a SwiftUI host — and the
-//  insert + `NutritionLedger` sync that `save()` performs around it.
+//  They exercise `ConfirmedMealEntryFactory.make` with `source: .ocr`
+//  — the shared pure meal-construction step the screen's `save()`
+//  uses — and the insert + `NutritionLedger` sync that `save()`
+//  performs around it.
 //
 //  Boundary under test:
 //   - confirm produces a `.confirmed`, `.ocr` MealEntry on today's
@@ -54,7 +54,7 @@ struct NutritionLabelReviewSaveTests {
         fatText: String = "",
         note: String = ""
     ) -> MealEntry {
-        NutritionLabelReviewView.makeConfirmedEntry(
+        ConfirmedMealEntryFactory.make(
             day: day,
             slot: slot,
             name: name,
@@ -62,7 +62,8 @@ struct NutritionLabelReviewSaveTests {
             proteinText: proteinText,
             carbText: carbText,
             fatText: fatText,
-            note: note
+            note: note,
+            source: .ocr
         )
     }
 

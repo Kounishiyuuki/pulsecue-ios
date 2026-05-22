@@ -158,7 +158,7 @@ struct PhotoEstimateReviewView: View {
     /// writes to the store and syncs DayLog — nothing before this
     /// touched either.
     private func save() {
-        let entry = Self.makeConfirmedEntry(
+        let entry = ConfirmedMealEntryFactory.make(
             day: Date(),
             slot: slot,
             name: name,
@@ -166,7 +166,8 @@ struct PhotoEstimateReviewView: View {
             proteinText: proteinText,
             carbText: carbText,
             fatText: fatText,
-            note: note
+            note: note,
+            source: .ai
         )
         modelContext.insert(entry)
         // Mirrors the manual / barcode / OCR paths: a confirmed meal
@@ -174,44 +175,5 @@ struct PhotoEstimateReviewView: View {
         // canonical ledger.
         NutritionLedger.syncDayLogIntake(for: Date(), modelContext: modelContext)
         onSaved()
-    }
-
-    /// Builds the confirmed `MealEntry` a photo-estimate review
-    /// produces from the form's (string-typed) fields. Pure — it
-    /// touches no SwiftUI or SwiftData state — so the confirm logic
-    /// stays unit-testable without a view host; `save()` is its only
-    /// production caller and owns the insert + DayLog sync that follow.
-    ///
-    /// Behavior locked for this PR:
-    ///  - `status` is always `.confirmed` and `source` always `.ai`:
-    ///    a reviewed photo estimate is never a draft.
-    ///  - a blank name falls back to the slot label and a blank note
-    ///    to `nil`, matching the manual-entry path in `MealEntrySheet`.
-    ///  - a non-numeric calorie field counts as 0; `isFormValid`
-    ///    gates the UI so a real value is always present in practice.
-    static func makeConfirmedEntry(
-        day: Date,
-        slot: MealSlot,
-        name: String,
-        kcalText: String,
-        proteinText: String,
-        carbText: String,
-        fatText: String,
-        note: String
-    ) -> MealEntry {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        return MealEntry(
-            dayDate: day,
-            slot: slot,
-            name: trimmedName.isEmpty ? slot.label : trimmedName,
-            kcal: max(0, Int(kcalText) ?? 0),
-            proteinGrams: Int(proteinText),
-            carbGrams: Int(carbText),
-            fatGrams: Int(fatText),
-            status: .confirmed,
-            source: .ai,
-            note: trimmedNote.isEmpty ? nil : trimmedNote
-        )
     }
 }
