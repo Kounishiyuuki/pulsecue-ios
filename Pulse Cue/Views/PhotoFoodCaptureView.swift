@@ -166,7 +166,11 @@ struct PhotoFoodCaptureView: View {
     /// occurs. A failed estimate simply does not navigate.
     @MainActor
     private func runEstimation() async {
-        guard let estimate = try? await estimator.estimate() else { return }
+        // The selected/captured image is wrapped in a local input
+        // value and handed to the provider. It is never uploaded or
+        // persisted; the current mock provider ignores it entirely.
+        let input = PhotoFoodEstimationInput(image: selectedImage)
+        guard let estimate = try? await estimator.estimate(input: input) else { return }
         reviewEstimate = estimate
         showReview = true
     }

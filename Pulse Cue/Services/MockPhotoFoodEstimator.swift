@@ -29,12 +29,16 @@ struct MockPhotoFoodEstimator: PhotoFoodEstimating {
 
     /// Returns the fixed candidate every mock estimation produces.
     ///
-    /// The values are a plausible placeholder meal — they are *not*
-    /// inferred from any image. The method is `async throws` only to
-    /// satisfy `PhotoFoodEstimating`; the mock does no async work and
-    /// never throws. The review screen makes the mock nature explicit
-    /// and lets the user correct every field before saving.
-    func estimate() async throws -> PhotoFoodEstimate {
+    /// `input` is **deliberately ignored**: the mock has nothing to
+    /// infer from the image, and never reading it keeps the mock
+    /// offline and upload-free. A real provider conforming to
+    /// `PhotoFoodEstimating` will use `input.image`. The values are a
+    /// plausible placeholder meal — they are *not* inferred from any
+    /// image. The method is `async throws` only to satisfy the
+    /// protocol; the mock does no async work and never throws. The
+    /// review screen makes the mock nature explicit and lets the user
+    /// correct every field before saving.
+    func estimate(input: PhotoFoodEstimationInput) async throws -> PhotoFoodEstimate {
         PhotoFoodEstimate(
             name: "推定された食事（モック）",
             kcal: 480,

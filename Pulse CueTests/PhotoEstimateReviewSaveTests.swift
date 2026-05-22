@@ -25,6 +25,7 @@
 import Foundation
 import SwiftData
 import Testing
+import UIKit
 @testable import Pulse_Cue
 
 @MainActor
@@ -156,7 +157,8 @@ struct PhotoEstimateReviewSaveTests {
 
         // Running the mock estimator yields only a PhotoFoodEstimate
         // value. Holding one must never create a MealEntry on its own.
-        _ = try await MockPhotoFoodEstimator().estimate()
+        _ = try await MockPhotoFoodEstimator()
+            .estimate(input: PhotoFoodEstimationInput(image: nil))
         #expect(try context.fetch(FetchDescriptor<MealEntry>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<DayLog>()).isEmpty)
     }
