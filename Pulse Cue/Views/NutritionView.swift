@@ -246,42 +246,21 @@ struct NutritionView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             sectionTitle("今日の食事一覧")
             Spacer()
-            Button {
-                showNutritionLabelOCR = true
-            } label: {
-                Image(systemName: "doc.text.viewfinder")
-                    .font(.system(size: 16, weight: .semibold))
-                    .padding(8)
-                    .background(
-                        Circle().fill(accentGradient.opacity(0.15))
-                    )
-                    .foregroundStyle(accentGradient)
-            }
-            .accessibilityLabel("栄養表示を読み取る")
-            Button {
-                showBarcodeScanner = true
-            } label: {
-                Image(systemName: "barcode.viewfinder")
-                    .font(.system(size: 16, weight: .semibold))
-                    .padding(8)
-                    .background(
-                        Circle().fill(accentGradient.opacity(0.15))
-                    )
-                    .foregroundStyle(accentGradient)
-            }
-            .accessibilityLabel("バーコードを読み取る")
-            Button {
-                showPhotoFoodCapture = true
-            } label: {
-                Image(systemName: "photo")
-                    .font(.system(size: 16, weight: .semibold))
-                    .padding(8)
-                    .background(
-                        Circle().fill(accentGradient.opacity(0.15))
-                    )
-                    .foregroundStyle(accentGradient)
-            }
-            .accessibilityLabel("食事写真をプレビュー")
+            NutritionQuickActionButton(
+                systemImage: "doc.text.viewfinder",
+                accessibilityLabel: "栄養表示を読み取る",
+                gradient: accentGradient
+            ) { showNutritionLabelOCR = true }
+            NutritionQuickActionButton(
+                systemImage: "barcode.viewfinder",
+                accessibilityLabel: "バーコードを読み取る",
+                gradient: accentGradient
+            ) { showBarcodeScanner = true }
+            NutritionQuickActionButton(
+                systemImage: "photo",
+                accessibilityLabel: "食事写真をプレビュー",
+                gradient: accentGradient
+            ) { showPhotoFoodCapture = true }
             Button {
                 // The dialog still picks the slot via the
                 // confirmationDialog, so we seed with .breakfast as
@@ -1088,6 +1067,34 @@ private struct ProgressBar: View {
                     .frame(width: geo.size.width * max(0, min(1, progress)))
             }
         }
+    }
+}
+
+// MARK: - Quick action button
+
+/// Circular icon button used in the meal-log header for the nutrition
+/// label OCR, barcode, and photo entry points. Extracted so the three
+/// buttons share one styling definition instead of repeating the same
+/// icon / padding / circle-background / foreground style inline. The
+/// rendering and accessibility label are unchanged from the previous
+/// inline buttons.
+private struct NutritionQuickActionButton: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    let gradient: LinearGradient
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .padding(8)
+                .background(
+                    Circle().fill(gradient.opacity(0.15))
+                )
+                .foregroundStyle(gradient)
+        }
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
