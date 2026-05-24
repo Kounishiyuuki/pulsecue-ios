@@ -237,48 +237,67 @@ struct NutritionView: View {
             .padding(.top, 4)
     }
 
-    /// Header row for the "食事履歴" section. Carries an inline AI
-    /// entry button next to the section title so the manual empty-
-    /// slot tap (the primary path) is no longer gated by a chooser
-    /// dialog. AI entry is one extra tap away — discoverable but
-    /// not in the way.
+    /// Header for the "食事履歴" section. The top row carries the
+    /// section title plus the AI-record pill (still one extra tap
+    /// from the primary empty-slot manual path). The input-assist
+    /// row directly below offers the OCR / barcode / photo entry
+    /// points as labeled chips, so each is readable at a glance
+    /// instead of three similar viewfinder icons.
     private var mealHistoryHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            sectionTitle("今日の食事一覧")
-            Spacer()
-            NutritionQuickActionButton(
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                sectionTitle("今日の食事一覧")
+                Spacer()
+                Button {
+                    // The dialog still picks the slot via the
+                    // confirmationDialog, so we seed with .breakfast
+                    // as a sensible default that the user changes on
+                    // the sheet's slot picker.
+                    pendingSlotForChoice = .breakfast
+                    showAddDialog = true
+                } label: {
+                    Label("AI で記録", systemImage: "sparkles")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule().fill(accentGradient.opacity(0.15))
+                        )
+                        .foregroundStyle(accentGradient)
+                }
+                .accessibilityLabel("AI で食事を記録")
+            }
+            entrySupportRow
+        }
+    }
+
+    /// Compact "input assist" row directly under the meal-log header.
+    /// Each chip pairs an icon with a short label so the OCR /
+    /// barcode / photo entries are visually distinct — previously
+    /// each was an icon-only circle that read as the same generic
+    /// viewfinder shape. Behaviour, accessibility labels, and the
+    /// sheets they open are unchanged.
+    private var entrySupportRow: some View {
+        HStack(spacing: 8) {
+            NutritionEntryActionChip(
                 systemImage: "doc.text.viewfinder",
+                label: "栄養表示",
                 accessibilityLabel: "栄養表示を読み取る",
                 gradient: accentGradient
             ) { showNutritionLabelOCR = true }
-            NutritionQuickActionButton(
+            NutritionEntryActionChip(
                 systemImage: "barcode.viewfinder",
+                label: "バーコード",
                 accessibilityLabel: "バーコードを読み取る",
                 gradient: accentGradient
             ) { showBarcodeScanner = true }
-            NutritionQuickActionButton(
+            NutritionEntryActionChip(
                 systemImage: "photo",
+                label: "写真",
                 accessibilityLabel: "食事写真をプレビュー",
                 gradient: accentGradient
             ) { showPhotoFoodCapture = true }
-            Button {
-                // The dialog still picks the slot via the
-                // confirmationDialog, so we seed with .breakfast as
-                // a sensible default that the user changes on the
-                // sheet's slot picker.
-                pendingSlotForChoice = .breakfast
-                showAddDialog = true
-            } label: {
-                Label("AI で記録", systemImage: "sparkles")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule().fill(accentGradient.opacity(0.15))
-                    )
-                    .foregroundStyle(accentGradient)
-            }
-            .accessibilityLabel("AI で食事を記録")
+            Spacer(minLength: 0)
         }
     }
 
@@ -1070,27 +1089,30 @@ private struct ProgressBar: View {
     }
 }
 
-// MARK: - Quick action button
+// MARK: - Entry action chip
 
-/// Circular icon button used in the meal-log header for the nutrition
-/// label OCR, barcode, and photo entry points. Extracted so the three
-/// buttons share one styling definition instead of repeating the same
-/// icon / padding / circle-background / foreground style inline. The
-/// rendering and accessibility label are unchanged from the previous
-/// inline buttons.
-private struct NutritionQuickActionButton: View {
+/// Compact chip used in the meal-log "入力サポート" row. Pairs an
+/// icon with a short label inside a capsule so the OCR / barcode /
+/// photo entry points are visually distinct — previously each was an
+/// icon-only circle that read as the same generic viewfinder shape.
+/// Styling matches the existing "AI で記録" pill for visual
+/// consistency; the accessibility label is preserved from the
+/// previous inline buttons so VoiceOver output is unchanged.
+private struct NutritionEntryActionChip: View {
     let systemImage: String
+    let label: String
     let accessibilityLabel: String
     let gradient: LinearGradient
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .padding(8)
+            Label(label, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
                 .background(
-                    Circle().fill(gradient.opacity(0.15))
+                    Capsule().fill(gradient.opacity(0.15))
                 )
                 .foregroundStyle(gradient)
         }
