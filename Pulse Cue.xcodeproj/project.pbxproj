@@ -137,6 +137,8 @@
 		7B1F2A0142F84A0D9C58E015 /* PhotoEstimateReviewSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F015 /* PhotoEstimateReviewSaveTests.swift */; };
 		7B1F2A0142F84A0D9C58E016 /* PhotoFoodEstimating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F016 /* PhotoFoodEstimating.swift */; };
 		7B1F2A0142F84A0D9C58E017 /* ConfirmedMealEntryFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F017 /* ConfirmedMealEntryFactory.swift */; };
+		7B1F2A0142F84A0D9C58E018 /* PhotoFoodImagePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F018 /* PhotoFoodImagePayload.swift */; };
+		7B1F2A0142F84A0D9C58E019 /* PhotoFoodImagePayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F019 /* PhotoFoodImagePayloadTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -292,6 +294,8 @@
 		7B1F2A0142F84A0D9C58F015 /* PhotoEstimateReviewSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoEstimateReviewSaveTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F016 /* PhotoFoodEstimating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFoodEstimating.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F017 /* ConfirmedMealEntryFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmedMealEntryFactory.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F018 /* PhotoFoodImagePayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFoodImagePayload.swift; sourceTree = "<group>"; };
+		7B1F2A0142F84A0D9C58F019 /* PhotoFoodImagePayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFoodImagePayloadTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -383,6 +387,7 @@
 				7B1F2A0142F84A0D9C58F012 /* MockPhotoFoodEstimator.swift */,
 				7B1F2A0142F84A0D9C58F016 /* PhotoFoodEstimating.swift */,
 				7B1F2A0142F84A0D9C58F017 /* ConfirmedMealEntryFactory.swift */,
+				7B1F2A0142F84A0D9C58F018 /* PhotoFoodImagePayload.swift */,
 				EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */,
 				D6D3039B896D46E0888653BD /* RunnerPersistence.swift */,
 				92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */,
@@ -526,6 +531,7 @@
 				7B1F2A0142F84A0D9C58F010 /* NutritionLabelReviewSaveTests.swift */,
 				7B1F2A0142F84A0D9C58F014 /* MockPhotoFoodEstimatorTests.swift */,
 				7B1F2A0142F84A0D9C58F015 /* PhotoEstimateReviewSaveTests.swift */,
+				7B1F2A0142F84A0D9C58F019 /* PhotoFoodImagePayloadTests.swift */,
 				D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
@@ -754,6 +760,7 @@
 				7B1F2A0142F84A0D9C58E012 /* MockPhotoFoodEstimator.swift in Sources */,
 				7B1F2A0142F84A0D9C58E016 /* PhotoFoodEstimating.swift in Sources */,
 				7B1F2A0142F84A0D9C58E017 /* ConfirmedMealEntryFactory.swift in Sources */,
+				7B1F2A0142F84A0D9C58E018 /* PhotoFoodImagePayload.swift in Sources */,
 				7B1F2A0142F84A0D9C58E013 /* PhotoEstimateReviewView.swift in Sources */,
 				D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */,
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
@@ -818,6 +825,7 @@
 				7B1F2A0142F84A0D9C58E010 /* NutritionLabelReviewSaveTests.swift in Sources */,
 				7B1F2A0142F84A0D9C58E014 /* MockPhotoFoodEstimatorTests.swift in Sources */,
 				7B1F2A0142F84A0D9C58E015 /* PhotoEstimateReviewSaveTests.swift in Sources */,
+				7B1F2A0142F84A0D9C58E019 /* PhotoFoodImagePayloadTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
