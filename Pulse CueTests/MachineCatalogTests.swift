@@ -129,6 +129,177 @@ struct MachineCatalogTests {
         #expect(entry.tags == ["compound", "barbell"])
     }
 
+    // MARK: - MachineCatalogQuery / filteredEntries
+
+    @Test
+    func emptyQueryReturnsEveryEntryInCatalogOrder() {
+        let results = MachineCatalog.filteredEntries(matching: MachineCatalogQuery())
+        #expect(results.map(\.id) == MachineCatalog.all.map(\.id))
+    }
+
+    @Test
+    func whitespaceOnlyQueryStillMatchesEverything() {
+        let query = MachineCatalogQuery(searchText: "   ", tags: ["  "])
+        let results = MachineCatalog.filteredEntries(matching: query)
+        #expect(results.count == MachineCatalog.all.count)
+    }
+
+    @Test
+    func searchTextMatchesDisplayNameCaseInsensitively() {
+        // "ラットプルダウン" should be findable by a substring of the
+        // Japanese display name; "BENCH" should also match by id.
+        let byDisplay = MachineCatalog.filteredEntries(
+            matching: MachineCatalogQuery(searchText: "ラットプル")
+        )
+        #expect(byDisplay.map(\.id) == ["lat_pulldown"])
+
+        let byIdUppercased = MachineCatalog.filteredEntries(
+            matching: MachineCatalogQuery(searchText: "BENCH")
+        )
+        #expect(byIdUppercased.map(\.id) == ["bench_press"])
+    }
+
+    @Test
+    func searchTextMatchesTagsCaseInsensitively() {
+        // Existing catalog entries don't ship tags yet, so verify against
+        // a hand-built entry through the same `matches(_:)` helper.
+        let entry = MachineCatalogEntry(
+            id: "test_bb",
+            displayName: "Test BB",
+            bodyParts: [.chest],
+            tags: ["Compound", "Barbell"]
+        )
+        #expect(entry.matches(MachineCatalogQuery(searchText: "compound")))
+        #expect(entry.matches(MachineCatalogQuery(searchText: "BAR")))
+        #expect(!entry.matches(MachineCatalogQuery(searchText: "cardio")))
+    }
+
+    @Test
+    func bodyPartsFilterMatchesPrimaryBodyParts() {
+        let results = MachineCatalog.filteredEntries(
+            matching: MachineCatalogQuery(bodyParts: [.legs])
+        )
+        #expect(results.allSatisfy { $0.bodyParts.contains(.legs) })
+        #expect(results.contains(where: { $0.id == "leg_press" }))
+        #expect(!results.contains(where: { $0.id == "pec_deck" }))
+    }
+
+    @Test
+    func bodyPartsFilterAlsoMatchesSecondaryMuscles() {
+        let entry = MachineCatalogEntry(
+            id: "bp_secondary",
+            displayName: "Secondary muscle entry",
+            bodyParts: [.chest],
+            secondaryMuscles: [.shoulders]
+        )
+        #expect(entry.matches(MachineCatalogQuery(bodyParts: [.shoulders])))
+        #expect(!entry.matches(MachineCatalogQuery(bodyParts: [.legs])))
+    }
+
+    @Test
+    func scalarMetadataFiltersRequireMatchingNonNilValue() {
+        let populated = MachineCatalogEntry(
+            id: "bp_full",
+            displayName: "Full meta",
+            bodyParts: [.chest],
+            category: .chest,
+            equipmentType: .freeWeight,
+            movementPattern: .push,
+            difficulty: .intermediate,
+            beginnerFriendly: true
+        )
+        let bare = MachineCatalogEntry(
+            id: "bp_bare",
+            displayName: "Bare meta",
+            bodyParts: [.chest]
+        )
+
+        #expect(populated.matches(MachineCatalogQuery(category: .chest)))
+        #expect(!populated.matches(MachineCatalogQuery(category: .legs)))
+        #expect(!bare.matches(MachineCatalogQuery(category: .chest)),
+                "Entries with no category must not satisfy a category filter")
+
+        #expect(populated.matches(MachineCatalogQuery(equipmentType: .freeWeight)))
+        #expect(populated.matches(MachineCatalogQuery(movementPattern: .push)))
+        #expect(populated.matches(MachineCatalogQuery(difficulty: .intermediate)))
+        #expect(!populated.matches(MachineCatalogQuery(difficulty: .advanced)))
+    }
+
+    @Test
+    func beginnerFriendlyOnlyFilter() {
+        let yes = MachineCatalogEntry(
+            id: "bf_yes", displayName: "yes", bodyParts: [.chest], beginnerFriendly: true
+        )
+        let no = MachineCatalogEntry(
+            id: "bf_no", displayName: "no", bodyParts: [.chest], beginnerFriendly: false
+        )
+        let unset = MachineCatalogEntry(
+            id: "bf_unset", displayName: "unset", bodyParts: [.chest]
+        )
+
+        let query = MachineCatalogQuery(beginnerFriendlyOnly: true)
+        #expect(yes.matches(query))
+        #expect(!no.matches(query))
+        #expect(!unset.matches(query))
+    }
+
+    @Test
+    func tagsFilterRequiresAllRequestedTagsCaseInsensitive() {
+        let entry = MachineCatalogEntry(
+            id: "tagged",
+            displayName: "Tagged",
+            bodyParts: [.chest],
+            tags: ["Compound", "Barbell", "PushDay"]
+        )
+        #expect(entry.matches(MachineCatalogQuery(tags: ["compound", "BARBELL"])))
+        #expect(!entry.matches(MachineCatalogQuery(tags: ["compound", "cable"])))
+        // Whitespace-only tags are ignored — treated as no filter.
+        #expect(entry.matches(MachineCatalogQuery(tags: ["   "])))
+    }
+
+    @Test
+    func multipleFiltersCombineWithAndSemantics() {
+        let entry = MachineCatalogEntry(
+            id: "combo",
+            displayName: "ベンチプレス カスタム",
+            bodyParts: [.chest, .arms],
+            category: .chest,
+            equipmentType: .freeWeight,
+            movementPattern: .push,
+            difficulty: .intermediate,
+            beginnerFriendly: true,
+            tags: ["compound"]
+        )
+
+        let allMatch = MachineCatalogQuery(
+            searchText: "ベンチ",
+            bodyParts: [.chest],
+            category: .chest,
+            equipmentType: .freeWeight,
+            movementPattern: .push,
+            difficulty: .intermediate,
+            beginnerFriendlyOnly: true,
+            tags: ["compound"]
+        )
+        #expect(entry.matches(allMatch))
+
+        // Flip one clause; AND semantics should reject the entry.
+        var oneFails = allMatch
+        oneFails.difficulty = .advanced
+        #expect(!entry.matches(oneFails))
+    }
+
+    @Test
+    func filteredEntriesPreservesCatalogOrder() {
+        let results = MachineCatalog.filteredEntries(
+            matching: MachineCatalogQuery(bodyParts: [.chest, .legs])
+        )
+        let expectedOrder = MachineCatalog.all
+            .filter { !$0.bodyParts.isDisjoint(with: Set<BodyPart>([.chest, .legs])) }
+            .map(\.id)
+        #expect(results.map(\.id) == expectedOrder)
+    }
+
     @Test
     func entryLookupReturnsKnownIds() {
         #expect(MachineCatalog.entry(for: "lat_pulldown")?.displayName == "ラットプルダウン")
