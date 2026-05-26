@@ -18,6 +18,30 @@
 
 import Foundation
 
+/// Coarse grouping used by future UI filters and the rule-based plan
+/// generator. Mirrors `BodyPart` but kept as its own type so we can
+/// evolve filtering (e.g. add `mobility`) without touching the persisted
+/// `BodyPart` enum that already ships in saved data.
+enum MachineCategory: String, Hashable, CaseIterable, Sendable {
+    case chest, back, shoulders, arms, legs, core, cardio, fullBody
+}
+
+/// How the user interacts with the equipment. Useful for filtering when
+/// a gym lacks certain gear, or when building beginner-friendly plans.
+enum EquipmentType: String, Hashable, CaseIterable, Sendable {
+    case machine, cable, freeWeight, bodyweight, cardioMachine
+}
+
+/// Primary movement pattern. Used by the future weekly plan generator
+/// to balance push/pull and avoid stacking redundant patterns.
+enum MovementPattern: String, Hashable, CaseIterable, Sendable {
+    case push, pull, squat, hinge, lunge, carry, core, cardio
+}
+
+enum MachineDifficulty: String, Hashable, CaseIterable, Sendable {
+    case beginner, intermediate, advanced
+}
+
 struct MachineCatalogEntry: Identifiable, Hashable {
     /// Canonical id matching the server catalog (e.g. `lat_pulldown`).
     let id: String
@@ -26,6 +50,68 @@ struct MachineCatalogEntry: Identifiable, Hashable {
     /// Body parts this machine primarily trains. Used by the plan
     /// generator to filter candidate machines.
     let bodyParts: Set<BodyPart>
+
+    // MARK: - Optional metadata (see Docs/gym-machine-catalog-and-plan-foundation.md §4)
+    //
+    // All fields below are optional / defaulted so existing catalog
+    // entries compile unchanged and can be enriched gradually in later
+    // PRs without breaking call sites.
+
+    /// Primary category, typically the representative member of `bodyParts`.
+    let category: MachineCategory?
+    let equipmentType: EquipmentType?
+    let movementPattern: MovementPattern?
+    let difficulty: MachineDifficulty?
+    let beginnerFriendly: Bool?
+    /// Stable-ordered list of secondary muscle groups. Array (not Set)
+    /// because catalog data is hand-written and we want diff-friendly
+    /// ordering.
+    let secondaryMuscles: [BodyPart]
+    let setupNotes: String?
+    let safetyNotes: String?
+    let defaultSets: Int?
+    /// Inclusive rep range the generator can sample from when it has no
+    /// stronger signal. `nil` means "fall back to the generator's own
+    /// template table".
+    let defaultReps: ClosedRange<Int>?
+    let defaultRestSeconds: Int?
+    /// Free-form tags (e.g. "compound", "barbell"). Kept as an array so
+    /// authoring order survives in PR diffs.
+    let tags: [String]
+
+    init(
+        id: String,
+        displayName: String,
+        bodyParts: Set<BodyPart>,
+        category: MachineCategory? = nil,
+        equipmentType: EquipmentType? = nil,
+        movementPattern: MovementPattern? = nil,
+        difficulty: MachineDifficulty? = nil,
+        beginnerFriendly: Bool? = nil,
+        secondaryMuscles: [BodyPart] = [],
+        setupNotes: String? = nil,
+        safetyNotes: String? = nil,
+        defaultSets: Int? = nil,
+        defaultReps: ClosedRange<Int>? = nil,
+        defaultRestSeconds: Int? = nil,
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.bodyParts = bodyParts
+        self.category = category
+        self.equipmentType = equipmentType
+        self.movementPattern = movementPattern
+        self.difficulty = difficulty
+        self.beginnerFriendly = beginnerFriendly
+        self.secondaryMuscles = secondaryMuscles
+        self.setupNotes = setupNotes
+        self.safetyNotes = safetyNotes
+        self.defaultSets = defaultSets
+        self.defaultReps = defaultReps
+        self.defaultRestSeconds = defaultRestSeconds
+        self.tags = tags
+    }
 }
 
 enum MachineCatalog {

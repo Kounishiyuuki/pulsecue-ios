@@ -71,6 +71,65 @@ struct MachineCatalogTests {
     }
 
     @Test
+    func existingEntriesHaveSafeDefaultsForNewFields() {
+        // The PR that introduced the optional metadata fields deliberately
+        // did not populate them on existing entries — they should all
+        // come back as nil / empty so callers can rely on safe defaults.
+        for entry in MachineCatalog.all {
+            #expect(entry.category == nil, "Entry \(entry.id) unexpectedly has a category set")
+            #expect(entry.equipmentType == nil, "Entry \(entry.id) unexpectedly has an equipmentType set")
+            #expect(entry.movementPattern == nil, "Entry \(entry.id) unexpectedly has a movementPattern set")
+            #expect(entry.difficulty == nil, "Entry \(entry.id) unexpectedly has a difficulty set")
+            #expect(entry.beginnerFriendly == nil)
+            #expect(entry.secondaryMuscles.isEmpty)
+            #expect(entry.setupNotes == nil)
+            #expect(entry.safetyNotes == nil)
+            #expect(entry.defaultSets == nil)
+            #expect(entry.defaultReps == nil)
+            #expect(entry.defaultRestSeconds == nil)
+            #expect(entry.tags.isEmpty)
+        }
+    }
+
+    @Test
+    func entryCanCarryFullMetadata() {
+        // Smoke-test that the extended init wires every field through and
+        // that consumers can roundtrip the new values. We construct a
+        // local entry rather than mutating the shipped catalog so this
+        // test does not depend on data-population PRs that come later.
+        let entry = MachineCatalogEntry(
+            id: "test_bench",
+            displayName: "テストベンチ",
+            bodyParts: [.chest, .arms],
+            category: .chest,
+            equipmentType: .freeWeight,
+            movementPattern: .push,
+            difficulty: .intermediate,
+            beginnerFriendly: false,
+            secondaryMuscles: [.shoulders, .core],
+            setupNotes: "ベンチを水平に",
+            safetyNotes: "セーフティバーを必ず使用",
+            defaultSets: 3,
+            defaultReps: 8...12,
+            defaultRestSeconds: 90,
+            tags: ["compound", "barbell"]
+        )
+
+        #expect(entry.category == .chest)
+        #expect(entry.equipmentType == .freeWeight)
+        #expect(entry.movementPattern == .push)
+        #expect(entry.difficulty == .intermediate)
+        #expect(entry.beginnerFriendly == false)
+        #expect(entry.secondaryMuscles == [.shoulders, .core])
+        #expect(entry.setupNotes == "ベンチを水平に")
+        #expect(entry.safetyNotes == "セーフティバーを必ず使用")
+        #expect(entry.defaultSets == 3)
+        #expect(entry.defaultReps == 8...12)
+        #expect(entry.defaultRestSeconds == 90)
+        #expect(entry.tags == ["compound", "barbell"])
+    }
+
+    @Test
     func entryLookupReturnsKnownIds() {
         #expect(MachineCatalog.entry(for: "lat_pulldown")?.displayName == "ラットプルダウン")
         #expect(MachineCatalog.entry(for: "smith_machine")?.bodyParts.contains(.legs) == true)
