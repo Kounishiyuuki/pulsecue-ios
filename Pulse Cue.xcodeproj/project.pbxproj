@@ -60,6 +60,7 @@
 		FD61BFE41E6A466BA9E043D0 /* SampleDataSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */; };
 		D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */; };
 		D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */; };
+		D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */; };
 		D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2F02 /* Gym.swift */; };
 		D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3002 /* GymMachine.swift */; };
 		D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3102 /* GymRepository.swift */; };
@@ -220,6 +221,7 @@
 		FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pulse_CueTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyPart.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalog.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogQuery.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2F02 /* Gym.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gym.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3002 /* GymMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymMachine.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3102 /* GymRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepository.swift; sourceTree = "<group>"; };
@@ -480,6 +482,7 @@
 				21A1C70A4F4C4790A97F5998 /* StepResult.swift */,
 				D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */,
 				D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */,
+				D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */,
 				D17104DB1A8E4001B0DA2F02 /* Gym.swift */,
 				D17104DB1A8E4001B0DA3002 /* GymMachine.swift */,
 				D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */,
@@ -778,6 +781,7 @@
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
 				D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */,
 				D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */,
+				D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */,
 				D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */,
 				D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */,
 				D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */,
