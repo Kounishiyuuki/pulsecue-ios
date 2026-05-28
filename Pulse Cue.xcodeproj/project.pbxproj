@@ -61,6 +61,7 @@
 		D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */; };
 		D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */; };
 		D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */; };
+		D17104DB1A8E4001B0DA2E21 /* MachineCatalogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */; };
 		D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2F02 /* Gym.swift */; };
 		D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3002 /* GymMachine.swift */; };
 		D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3102 /* GymRepository.swift */; };
@@ -222,6 +223,7 @@
 		D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyPart.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalog.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogQuery.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogListView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2F02 /* Gym.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gym.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3002 /* GymMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymMachine.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3102 /* GymRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepository.swift; sourceTree = "<group>"; };
@@ -355,6 +357,7 @@
 				16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */,
 				910B6185D8234DA3924900CF /* TodayView.swift */,
 				2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */,
+				D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */,
 				D17104DB1A8E4001B0DA3802 /* MyGymHomeView.swift */,
 				D17104DB1A8E4001B0DA3902 /* GymRegistrationView.swift */,
 				D17104DB1A8E4001B0DA3A02 /* ManualMachineSelectionView.swift */,
@@ -782,6 +785,7 @@
 				D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */,
 				D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */,
 				D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */,
+				D17104DB1A8E4001B0DA2E21 /* MachineCatalogListView.swift in Sources */,
 				D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */,
 				D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */,
 				D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */,
