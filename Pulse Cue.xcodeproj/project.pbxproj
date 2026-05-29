@@ -62,6 +62,9 @@
 		D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */; };
 		D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */; };
 		D17104DB1A8E4001B0DA2E21 /* MachineCatalogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */; };
+		D17104DB1A8E4001B0DA5601 /* MachineCatalogDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5602 /* MachineCatalogDetailView.swift */; };
+		D17104DB1A8E4001B0DA5611 /* MachineExerciseTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5612 /* MachineExerciseTemplate.swift */; };
+		D17104DB1A8E4001B0DA5621 /* MachineExerciseTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5622 /* MachineExerciseTemplateTests.swift */; };
 		D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2F02 /* Gym.swift */; };
 		D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3002 /* GymMachine.swift */; };
 		D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3102 /* GymRepository.swift */; };
@@ -224,6 +227,9 @@
 		D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalog.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogQuery.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogListView.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5602 /* MachineCatalogDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogDetailView.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5612 /* MachineExerciseTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineExerciseTemplate.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5622 /* MachineExerciseTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineExerciseTemplateTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2F02 /* Gym.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gym.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3002 /* GymMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymMachine.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3102 /* GymRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepository.swift; sourceTree = "<group>"; };
@@ -358,6 +364,7 @@
 				910B6185D8234DA3924900CF /* TodayView.swift */,
 				2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */,
 				D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */,
+				D17104DB1A8E4001B0DA5602 /* MachineCatalogDetailView.swift */,
 				D17104DB1A8E4001B0DA3802 /* MyGymHomeView.swift */,
 				D17104DB1A8E4001B0DA3902 /* GymRegistrationView.swift */,
 				D17104DB1A8E4001B0DA3A02 /* ManualMachineSelectionView.swift */,
@@ -486,6 +493,7 @@
 				D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */,
 				D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */,
 				D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */,
+				D17104DB1A8E4001B0DA5612 /* MachineExerciseTemplate.swift */,
 				D17104DB1A8E4001B0DA2F02 /* Gym.swift */,
 				D17104DB1A8E4001B0DA3002 /* GymMachine.swift */,
 				D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */,
@@ -548,6 +556,7 @@
 				7B1F2A0142F84A0D9C58F019 /* PhotoFoodImagePayloadTests.swift */,
 				7B1F2A0142F84A0D9C58F01C /* PhotoFoodEstimationEndpointClientTests.swift */,
 				D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */,
+				D17104DB1A8E4001B0DA5622 /* MachineExerciseTemplateTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
 				D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */,
@@ -786,6 +795,8 @@
 				D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */,
 				D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */,
 				D17104DB1A8E4001B0DA2E21 /* MachineCatalogListView.swift in Sources */,
+				D17104DB1A8E4001B0DA5601 /* MachineCatalogDetailView.swift in Sources */,
+				D17104DB1A8E4001B0DA5611 /* MachineExerciseTemplate.swift in Sources */,
 				D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */,
 				D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */,
 				D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */,
@@ -847,6 +858,7 @@
 				7B1F2A0142F84A0D9C58E019 /* PhotoFoodImagePayloadTests.swift in Sources */,
 				7B1F2A0142F84A0D9C58E01C /* PhotoFoodEstimationEndpointClientTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */,
+				D17104DB1A8E4001B0DA5621 /* MachineExerciseTemplateTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */,
