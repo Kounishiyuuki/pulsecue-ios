@@ -17,8 +17,14 @@ struct MachineCatalogDetailView: View {
 
     let entry: MachineCatalogEntry
 
+    @State private var showingCandidatePreview = false
+
     private var template: MachineExerciseTemplate {
         MachineExerciseTemplate(entry: entry)
+    }
+
+    private var candidate: RoutineStepCandidate {
+        RoutineStepCandidate(entry: entry)
     }
 
     var body: some View {
@@ -40,6 +46,9 @@ struct MachineCatalogDetailView: View {
         }
         .navigationTitle("マシン詳細")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingCandidatePreview) {
+            MachineRoutineStepCandidatePreviewView(candidate: candidate)
+        }
     }
 
     // MARK: - Header
@@ -130,6 +139,26 @@ struct MachineCatalogDetailView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                Button {
+                    showingCandidatePreview = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.pencil")
+                        Text("種目候補を見る")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.14))
+                    )
+                    .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+                .accessibilityHint("種目候補のプレビューを開きます")
             }
         }
     }
