@@ -183,7 +183,13 @@ struct MachineCatalogListView: View {
         } else {
             LazyVStack(spacing: 10) {
                 ForEach(results) { entry in
-                    MachineCatalogRow(entry: entry)
+                    NavigationLink {
+                        MachineCatalogDetailView(entry: entry)
+                    } label: {
+                        MachineCatalogRow(entry: entry)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("詳細を表示")
                 }
             }
         }
@@ -280,41 +286,10 @@ private struct MachineCatalogRow: View {
 
     private func metadataLabels() -> [String] {
         var out: [String] = []
-        if let c = entry.category { out.append(categoryLabel(c)) }
-        if let e = entry.equipmentType { out.append(equipmentLabel(e)) }
-        if let d = entry.difficulty { out.append(difficultyLabel(d)) }
+        if let c = entry.category { out.append(c.displayName) }
+        if let e = entry.equipmentType { out.append(e.displayName) }
+        if let d = entry.difficulty { out.append(d.displayName) }
         return out
-    }
-
-    private func categoryLabel(_ c: MachineCategory) -> String {
-        switch c {
-        case .chest: return "胸"
-        case .back: return "背中"
-        case .shoulders: return "肩"
-        case .arms: return "腕"
-        case .legs: return "脚"
-        case .core: return "体幹"
-        case .cardio: return "有酸素"
-        case .fullBody: return "全身"
-        }
-    }
-
-    private func equipmentLabel(_ e: EquipmentType) -> String {
-        switch e {
-        case .machine: return "マシン"
-        case .cable: return "ケーブル"
-        case .freeWeight: return "フリーウェイト"
-        case .bodyweight: return "自重"
-        case .cardioMachine: return "有酸素マシン"
-        }
-    }
-
-    private func difficultyLabel(_ d: MachineDifficulty) -> String {
-        switch d {
-        case .beginner: return "初級"
-        case .intermediate: return "中級"
-        case .advanced: return "上級"
-        }
     }
 
     private func badge(text: String, color: Color) -> some View {
