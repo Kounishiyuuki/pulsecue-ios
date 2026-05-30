@@ -184,7 +184,7 @@ struct MachineCatalogDetailView: View {
     // MARK: - Footer
 
     private var footerNote: some View {
-        Text("この画面はローカルカタログの確認用です。ルーティンへの追加は今後対応予定です。")
+        Text("この画面はローカルカタログの確認用です。「種目候補を見る」から、このマシンを1種目のルーティンとして保存できます。")
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)

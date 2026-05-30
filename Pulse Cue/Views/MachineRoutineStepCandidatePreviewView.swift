@@ -2,21 +2,41 @@
 //  MachineRoutineStepCandidatePreviewView.swift
 //  Pulse Cue
 //
-//  Read-only sheet that previews a `RoutineStepCandidate` built from a
-//  machine catalog entry. This is the "candidate" step of the eventual
-//  candidate → review → confirm → save flow, so it is intentionally
-//  inert: there is NO save button, it never creates a `Routine`/`Step`,
-//  never touches a `ModelContext`, and does no networking/AI. The copy
-//  makes the not-yet-saved status explicit.
+//  Review-and-save sheet for a `RoutineStepCandidate` built from a
+//  machine catalog entry. This is the "review → confirm → save" step of
+//  the candidate flow: the candidate stays inert until the user taps
+//  「ルーティンとして保存」. On confirm it builds a normal one-step
+//  `Routine` via `RoutineFactory` and inserts it into the SwiftData
+//  context — the same pure-build-then-insert boundary used by the
+//  generated-plan preview. No networking, no AI, no schema change, and
+//  the existing generated-plan save path is left untouched.
 //
 
 import SwiftUI
+import SwiftData
 
 struct MachineRoutineStepCandidatePreviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
 
     let candidate: RoutineStepCandidate
+
+    @State private var routineTitle: String
+    @State private var saveState: SaveState = .idle
+
+    private enum SaveState: Equatable {
+        case idle
+        case saved
+        case error(String)
+    }
+
+    init(candidate: RoutineStepCandidate) {
+        self.candidate = candidate
+        _routineTitle = State(initialValue: candidate.exerciseName)
+    }
+
+    private var isSaved: Bool { saveState == .saved }
 
     var body: some View {
         NavigationStack {
@@ -29,7 +49,14 @@ struct MachineRoutineStepCandidatePreviewView: View {
                         if let notes = candidate.notes {
                             notesCard(notes)
                         }
-                        deferredNotice
+                        if isSaved {
+                            successCard
+                        } else {
+                            saveCard
+                            if case .error(let message) = saveState {
+                                errorCard(message)
+                            }
+                        }
                         Color.clear.frame(height: 8)
                     }
                     .padding(.horizontal, 16)
@@ -40,7 +67,7 @@ struct MachineRoutineStepCandidatePreviewView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("閉じる") { dismiss() }
+                    Button(isSaved ? "完了" : "閉じる") { dismiss() }
                 }
             }
         }
@@ -63,7 +90,7 @@ struct MachineRoutineStepCandidatePreviewView: View {
         }
     }
 
-    // MARK: - Sets / reps / rest
+    // MARK: - Sets / reps / rest (catalog guidance)
 
     private var menuCard: some View {
         cardSection(title: "セット・回数の目安") {
@@ -99,26 +126,116 @@ struct MachineRoutineStepCandidatePreviewView: View {
         }
     }
 
-    // MARK: - Deferred notice
+    // MARK: - Save (review → confirm)
 
-    private var deferredNotice: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
-            Text("この候補はまだ保存されません。ルーティンへの追加は今後対応予定です。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    private var saveCard: some View {
+        cardSection(title: "ルーティンとして保存") {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ルーティン名")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("ルーティン名", text: $routineTitle)
+                        .textFieldStyle(.roundedBorder)
+                        .submitLabel(.done)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("保存される内容")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    savedRow(
+                        icon: "repeat",
+                        text: "\(candidate.resolvedSets)セット × 目標\(candidate.resolvedRepsTarget)レップ"
+                    )
+                    savedRow(
+                        icon: "timer",
+                        text: "セット間 \(MachineExerciseTemplate.humanizedDuration(seconds: candidate.resolvedRestSeconds))"
+                    )
+                    if let notes = candidate.notes {
+                        savedRow(icon: "note.text", text: notes)
+                    }
+                }
+
+                Text("確定するとルーティン一覧に1種目のルーティンが追加されます。保存後はルーティン編集から自由に調整できます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    save()
+                } label: {
+                    Label("ルーティンとして保存", systemImage: "tray.and.arrow.down.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+    }
+
+    private var successCard: some View {
+        cardSection(title: "保存しました") {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    "「\(savedRoutineName)」をルーティンとして保存しました。",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.green)
+                Text("ルーティン一覧から開始したり、内容を編集できます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func errorCard(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.subheadline)
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.red.opacity(0.12))
+            )
+    }
+
+    // MARK: - Save action
+
+    private var savedRoutineName: String {
+        let trimmed = routineTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? candidate.exerciseName : trimmed
+    }
+
+    /// Builds the routine purely, then inserts it on explicit user
+    /// action. SwiftUI's `modelContext` autosaves, matching the existing
+    /// generated-plan save path. Guarded against double-saves by the
+    /// `isSaved` UI swap.
+    private func save() {
+        let output = RoutineFactory.makeRoutine(from: candidate, title: routineTitle)
+        modelContext.insert(output.routine)
+        for step in output.steps {
+            modelContext.insert(step)
+        }
+        saveState = .saved
     }
 
     // MARK: - Reusable building blocks
+
+    private func savedRow(icon: String, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 18)
+            Text(text)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
     private func cardSection<Content: View>(
         title: String,
@@ -202,6 +319,7 @@ struct MachineRoutineStepCandidatePreviewView: View {
             )
         )
     )
+    .modelContainer(for: [Routine.self, Step.self], inMemory: true)
 }
 
 #Preview("No defaults") {
@@ -214,4 +332,5 @@ struct MachineRoutineStepCandidatePreviewView: View {
             )
         )
     )
+    .modelContainer(for: [Routine.self, Step.self], inMemory: true)
 }
