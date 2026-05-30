@@ -42,4 +42,34 @@ enum RoutineFactory {
         }
         return Output(routine: routine, steps: steps)
     }
+
+    /// Builds a single-step `Routine` from a machine-derived
+    /// `RoutineStepCandidate`. Like `makeRoutine(from:)` above this is
+    /// pure — it does NOT insert into a `ModelContext`; the caller
+    /// inserts only after the user explicitly confirms the save. The
+    /// concrete sets / reps / rest come from the candidate's resolved
+    /// values and are clamped by `Step.init`. A blank `title` falls back
+    /// to the candidate's exercise name so the routine is never unnamed.
+    static func makeRoutine(
+        from candidate: RoutineStepCandidate,
+        title: String,
+        now: Date = Date()
+    ) -> Output {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let routine = Routine(
+            name: trimmedTitle.isEmpty ? candidate.exerciseName : trimmedTitle,
+            createdAt: now,
+            updatedAt: now
+        )
+        let step = Step(
+            routineId: routine.id,
+            order: 0,
+            title: candidate.exerciseName,
+            sets: candidate.resolvedSets,
+            repsTarget: candidate.resolvedRepsTarget,
+            restSeconds: candidate.resolvedRestSeconds,
+            note: candidate.notes ?? ""
+        )
+        return Output(routine: routine, steps: [step])
+    }
 }

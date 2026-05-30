@@ -79,4 +79,30 @@ struct RoutineStepCandidate: Equatable {
 
     /// e.g. "セット間 1分30秒" — `nil` when no rest default exists.
     var restText: String? { template.restText }
+
+    // MARK: - Save resolution
+    //
+    // The catalog template's sets / reps / rest are optional, but saving
+    // as a `Step` needs concrete `Int`s. These accessors apply sensible
+    // fallbacks so a routine can always be built from any candidate, and
+    // `Step.init` clamps the results further. They produce plain values
+    // only — no `Step`/`Routine` is created here.
+
+    /// Set count used when no catalog default exists.
+    static let fallbackSets = 3
+    /// Target reps used when no catalog rep range exists.
+    static let fallbackRepsTarget = 10
+    /// Rest (seconds) used when no catalog default exists.
+    static let fallbackRestSeconds = 60
+
+    /// Concrete set count to save.
+    var resolvedSets: Int { template.sets ?? Self.fallbackSets }
+
+    /// Concrete target reps to save. Uses the *lower bound* of the
+    /// catalog rep range — a conservative, reliably hittable target —
+    /// or a generic fallback when no range is defined.
+    var resolvedRepsTarget: Int { template.reps?.lowerBound ?? Self.fallbackRepsTarget }
+
+    /// Concrete rest (seconds) to save.
+    var resolvedRestSeconds: Int { template.restSeconds ?? Self.fallbackRestSeconds }
 }
