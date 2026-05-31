@@ -67,6 +67,7 @@
 		D17104DB1A8E4001B0DA5621 /* MachineExerciseTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5622 /* MachineExerciseTemplateTests.swift */; };
 		D17104DB1A8E4001B0DA5701 /* MachineRoutineStepCandidatePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5702 /* MachineRoutineStepCandidatePreviewView.swift */; };
 		D17104DB1A8E4001B0DA5761 /* WeeklyTrainingPlanCandidateReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5762 /* WeeklyTrainingPlanCandidateReviewView.swift */; };
+		D17104DB1A8E4001B0DA57A1 /* MockAITrainingPlanChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA57A2 /* MockAITrainingPlanChatView.swift */; };
 		D17104DB1A8E4001B0DA5711 /* RoutineStepCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */; };
 		D17104DB1A8E4001B0DA5721 /* RoutineStepCandidateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5722 /* RoutineStepCandidateTests.swift */; };
 		D17104DB1A8E4001B0DA5731 /* RoutineStepCandidateSaveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5732 /* RoutineStepCandidateSaveTests.swift */; };
@@ -242,6 +243,7 @@
 		D17104DB1A8E4001B0DA5622 /* MachineExerciseTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineExerciseTemplateTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5702 /* MachineRoutineStepCandidatePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineRoutineStepCandidatePreviewView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5762 /* WeeklyTrainingPlanCandidateReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WeeklyTrainingPlanCandidateReviewView.swift; path = "Pulse Cue/Views/WeeklyTrainingPlanCandidateReviewView.swift"; sourceTree = SOURCE_ROOT; };
+		D17104DB1A8E4001B0DA57A2 /* MockAITrainingPlanChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockAITrainingPlanChatView.swift; path = "Pulse Cue/Views/MockAITrainingPlanChatView.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStepCandidate.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5722 /* RoutineStepCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStepCandidateTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5732 /* RoutineStepCandidateSaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStepCandidateSaveTests.swift; sourceTree = "<group>"; };
@@ -825,6 +827,7 @@
 				D17104DB1A8E4001B0DA5611 /* MachineExerciseTemplate.swift in Sources */,
 				D17104DB1A8E4001B0DA5701 /* MachineRoutineStepCandidatePreviewView.swift in Sources */,
 				D17104DB1A8E4001B0DA5761 /* WeeklyTrainingPlanCandidateReviewView.swift in Sources */,
+				D17104DB1A8E4001B0DA57A1 /* MockAITrainingPlanChatView.swift in Sources */,
 				D17104DB1A8E4001B0DA5711 /* RoutineStepCandidate.swift in Sources */,
 				D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */,
 				D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */,
