@@ -114,6 +114,7 @@ struct SettingsView: View {
                 myGymCard
                 machineCatalogCard
                 weeklyPlanCandidateCard
+                aiPlanChatCard
                 appSettingsCard
                 appInfoCard
                 saveButton
@@ -523,6 +524,34 @@ struct SettingsView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Text("ルールベースで週次プラン候補を作成し、確認後に通常のルーティンとして保存できます。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var aiPlanChatCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "sparkles", title: "AIプラン相談")
+                NavigationLink {
+                    MockAITrainingPlanChatView()
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("AIにトレーニングプランを相談")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("ローカルのモックプロバイダーでプラン候補を作成します。実際のAI通信・保存は行いません。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
