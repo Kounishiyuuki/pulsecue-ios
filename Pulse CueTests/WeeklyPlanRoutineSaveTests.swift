@@ -238,4 +238,31 @@ struct WeeklyPlanRoutineSaveTests {
         #expect(step.repsTarget == 8)
         #expect(step.restSeconds == 90)
     }
+
+    // MARK: - Save state (pure; duplicate-save prevention & completion copy)
+
+    @Test
+    func idleStateAllowsSaving() {
+        #expect(WeeklyPlanSaveState.idle.canSave)
+    }
+
+    @Test
+    func savedStateBlocksAdditionalSaves() {
+        // Once saved, the same candidate cannot be saved again — this is
+        // how the UI prevents accidental duplicate saves.
+        #expect(!WeeklyPlanSaveState.saved(routineCount: 3).canSave)
+    }
+
+    @Test
+    func savedStateCarriesRoutineCount() {
+        #expect(WeeklyPlanSaveState.saved(routineCount: 5) == .saved(routineCount: 5))
+        #expect(WeeklyPlanSaveState.saved(routineCount: 5) != .saved(routineCount: 2))
+    }
+
+    @Test
+    func savedSummaryIncludesRoutineCount() {
+        let summary = WeeklyPlanSaveState.savedSummary(routineCount: 4)
+        #expect(summary.contains("4"))
+        #expect(!summary.isEmpty)
+    }
 }
