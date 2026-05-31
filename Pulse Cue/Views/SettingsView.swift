@@ -522,7 +522,7 @@ struct SettingsView: View {
                             Text("週次トレーニングプラン候補を作成")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text("ローカルのマシンカタログをもとに、ルールベースで週次プラン候補を作成します。保存はまだ行われません。")
+                            Text("ルールベースで週次プラン候補を作成し、確認後に通常のルーティンとして保存できます。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)

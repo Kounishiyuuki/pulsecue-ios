@@ -59,8 +59,10 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     }
 
     /// Number of routines a save would create — one per non-empty session.
+    /// Derived purely from the candidate; it does NOT build any
+    /// `Routine`/`Step` before the user explicitly saves.
     private var savableSessionCount: Int {
-        candidate.map { RoutineFactory.makeRoutines(from: $0).count } ?? 0
+        candidate?.savableSessionCount ?? 0
     }
 
     private var isSaved: Bool {

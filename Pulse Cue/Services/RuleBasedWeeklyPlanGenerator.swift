@@ -120,6 +120,18 @@ struct WeeklyTrainingPlanCandidate: Equatable {
     /// True when no session managed to include any exercise (e.g. an
     /// empty catalog).
     var isEmpty: Bool { sessions.allSatisfy { $0.exercises.isEmpty } }
+
+    /// Sessions that would become a `Routine` on save — those with at
+    /// least one exercise. Pure derivation over `sessions`; constructs no
+    /// `Routine`/`Step`. Mirrors the filter in
+    /// `RoutineFactory.makeRoutines(from:)` so the review UI can show an
+    /// accurate count without building transient model objects.
+    var savableSessions: [TrainingSessionCandidate] {
+        sessions.filter { !$0.exercises.isEmpty }
+    }
+
+    /// Number of routines a save would create.
+    var savableSessionCount: Int { savableSessions.count }
 }
 
 // MARK: - Generator
