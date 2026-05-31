@@ -6,20 +6,25 @@
 //  free-form training request; the screen runs the offline
 //  `MockAITrainingPlanProvider` through the `AITrainingPlanProviding`
 //  boundary, normalizes the raw response with `AITrainingPlanNormalizer`,
-//  and shows the resulting read-only `WeeklyTrainingPlanCandidate`.
+//  and shows the resulting `WeeklyTrainingPlanCandidate`. The candidate
+//  can then be saved as normal `Routine` data — but only on an explicit
+//  tap, reusing the same boundary as the weekly-plan review screen.
 //
-//  Deliberately inert, matching the AI planning contract (PR #74):
+//  Deliberately constrained, matching the AI planning contract (PR #74):
 //   - no real AI / OpenAI, no networking, no URLSession/URLRequest,
 //     no API keys — the only provider is the deterministic mock,
-//   - no persistence — the result is a candidate value only; it never
-//     creates/saves `Routine`/`Step` and never touches a `ModelContext`.
-//     Saving from this screen is intentionally out of scope.
+//   - the candidate stays inert until the user confirms: nothing is
+//     persisted on open, typing, generate, or display,
+//   - saving builds normal records via `RoutineFactory` and inserts them
+//     into the SwiftData context. No schema change.
 //
 
 import SwiftUI
+import SwiftData
 
 struct MockAITrainingPlanChatView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
 
     // The provider is referenced through the protocol so a real one can
     // be swapped in later without touching this view. Today it is always
@@ -31,6 +36,13 @@ struct MockAITrainingPlanChatView: View {
     @State private var daysPerWeek: Int = 3
     @State private var candidate: WeeklyTrainingPlanCandidate?
     @State private var isGenerating: Bool = false
+    @State private var saveState: WeeklyPlanSaveState = .idle
+
+    /// Number of routines a save would create — one per non-empty session.
+    /// Derived purely from the candidate; builds no `Routine`/`Step`.
+    private var savableSessionCount: Int {
+        candidate?.savableSessionCount ?? 0
+    }
 
     var body: some View {
         ZStack {
@@ -49,6 +61,7 @@ struct MockAITrainingPlanChatView: View {
                         ForEach(Array(candidate.sessions.enumerated()), id: \.offset) { _, session in
                             sessionCard(session)
                         }
+                        saveSection(candidate)
                     }
                     footerNote
                     Color.clear.frame(height: 24)
@@ -172,6 +185,9 @@ struct MockAITrainingPlanChatView: View {
                 )
             }
             candidate = AITrainingPlanNormalizer.normalize(response: response, request: request)
+            // A freshly generated candidate is inert again until the user
+            // explicitly confirms the save.
+            saveState = .idle
             isGenerating = false
         }
     }
@@ -276,17 +292,92 @@ struct MockAITrainingPlanChatView: View {
         )
     }
 
+    // MARK: - Save (review → confirm → save)
+
+    @ViewBuilder
+    private func saveSection(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
+        if case .saved(let count) = saveState {
+            successCard(count: count)
+        } else {
+            saveCard(candidate)
+        }
+    }
+
+    private func saveCard(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
+        let count = savableSessionCount
+        return card {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ルーティンとして保存")
+                    .font(.headline)
+                Text("保存すると、各セッションが通常のルーティンとして追加されます。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if count == 0 {
+                    Text("保存できるセッションがありません。相談内容や日数を変えて再生成してください。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button {
+                    save(candidate)
+                } label: {
+                    Label("この候補を保存", systemImage: "tray.and.arrow.down.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(count == 0)
+            }
+        }
+    }
+
+    private func successCard(count: Int) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("保存しました", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+                Text("\(count) 件のルーティンを追加しました")
+                    .font(.headline)
+                Text("AIプラン相談で作成した候補を通常のルーティンとして保存しました。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("新しい相談内容で再生成すると、別の候補として保存できます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Builds routines purely via `RoutineFactory`, then inserts them on
+    /// this explicit user action only — the sole persistence path in this
+    /// screen. Mirrors `WeeklyTrainingPlanCandidateReviewView.save(_:)`.
+    private func save(_ candidate: WeeklyTrainingPlanCandidate) {
+        let outputs = RoutineFactory.makeRoutines(from: candidate)
+        guard !outputs.isEmpty else { return }
+        for output in outputs {
+            modelContext.insert(output.routine)
+            for step in output.steps {
+                modelContext.insert(step)
+            }
+        }
+        saveState = .saved(routineCount: outputs.count)
+    }
+
     // MARK: - Footer
 
     private var footerNote: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("この候補はまだ保存されません。")
-            Text("実AI・通信・保存はまだ行われません。")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
+        Text("保存すると各セッションが通常のルーティンとして追加されます。実際のAI通信は行わず、ローカルのモックで動作します。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
     }
 
     // MARK: - Reusable building blocks
@@ -357,4 +448,5 @@ struct MockAITrainingPlanChatView: View {
     NavigationStack {
         MockAITrainingPlanChatView()
     }
+    .modelContainer(for: [Routine.self, Step.self], inMemory: true)
 }
