@@ -34,14 +34,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var selectedBodyParts: Set<BodyPart> = []
 
     @State private var candidate: WeeklyTrainingPlanCandidate?
-    @State private var saveState: SaveState = .idle
-
-    /// Tracks the save lifecycle so the candidate stays inert until the
-    /// user confirms, and so regenerating clears any prior result.
-    private enum SaveState: Equatable {
-        case idle
-        case saved(Int)
-    }
+    @State private var saveState: WeeklyPlanSaveState = .idle
 
     // Body-part filter order matches the catalog screen (胸/背中/肩/腕/脚/体幹/有酸素).
     private let bodyPartChoices: [BodyPart] = [
@@ -63,11 +56,6 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     /// `Routine`/`Step` before the user explicitly saves.
     private var savableSessionCount: Int {
         candidate?.savableSessionCount ?? 0
-    }
-
-    private var isSaved: Bool {
-        if case .saved = saveState { return true }
-        return false
     }
 
     var body: some View {
@@ -396,7 +384,13 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 Label("週次プランを保存しました", systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.green)
-                Text("\(count) 件のルーティンを追加しました。ルーティン一覧から開始したり、内容を編集できます。")
+                Text("\(count) 件のルーティンを追加しました")
+                    .font(.headline)
+                Text(WeeklyPlanSaveState.savedSummary(routineCount: count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("新しい条件で再生成すると、別の候補として保存できます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -416,7 +410,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 modelContext.insert(step)
             }
         }
-        saveState = .saved(outputs.count)
+        saveState = .saved(routineCount: outputs.count)
     }
 
     // MARK: - Footer
@@ -490,6 +484,32 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             : [Color(red: 0.93, green: 0.96, blue: 1.00),
                Color(red: 0.99, green: 0.96, blue: 1.00)]
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+/// Save lifecycle for the weekly-plan review screen. A top-level
+/// (non-private) value type so its decisions can be unit-tested without
+/// driving the SwiftUI view. Pure — it holds no `Routine`/`Step`/model
+/// objects and performs no persistence; the view owns the actual insert.
+enum WeeklyPlanSaveState: Equatable {
+    /// No save has happened for the current candidate yet.
+    case idle
+    /// The current candidate was saved, creating `routineCount` routines.
+    case saved(routineCount: Int)
+
+    /// Whether the current candidate may still be saved. Becomes `false`
+    /// once saved — this is how the UI prevents accidental duplicate saves
+    /// of the same generated candidate (the save button is replaced by a
+    /// confirmation card). Regenerating resets to `.idle`, re-enabling save.
+    var canSave: Bool {
+        if case .idle = self { return true }
+        return false
+    }
+
+    /// Localized summary shown after a successful save. Makes explicit that
+    /// each non-empty session became a normal routine.
+    static func savedSummary(routineCount: Int) -> String {
+        "各セッションが通常のルーティンとして追加されました（\(routineCount) 件）。ルーティン一覧から開始したり、内容を編集できます。"
     }
 }
 
