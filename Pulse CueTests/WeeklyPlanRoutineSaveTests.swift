@@ -162,6 +162,38 @@ struct WeeklyPlanRoutineSaveTests {
         #expect(outs.map(\.routine.name) == sessionTitles)
     }
 
+    // MARK: - Savable-session count (pure, no model construction)
+
+    @Test
+    func savableSessionsExcludeEmptySessions() {
+        let p = plan([
+            session(title: "Day 1", exercises: [candidate(id: "a", name: "A")]),
+            session(title: "Day 2 (empty)", exercises: []),
+            session(title: "Day 3", exercises: [candidate(id: "b", name: "B"), candidate(id: "c", name: "C")]),
+        ])
+        #expect(p.savableSessionCount == 2)
+        #expect(p.savableSessions.map(\.title) == ["Day 1", "Day 3"])
+    }
+
+    @Test
+    func savableSessionCountIsZeroWhenAllEmpty() {
+        let p = plan([session(title: "Day 1", exercises: []), session(title: "Day 2", exercises: [])])
+        #expect(p.savableSessionCount == 0)
+        #expect(p.savableSessions.isEmpty)
+    }
+
+    @Test
+    func savableSessionCountMatchesMakeRoutinesCount() {
+        // The UI counts savable sessions without building any Routine/Step;
+        // that count must still agree with what a save would produce.
+        let p = plan([
+            session(title: "Day 1", exercises: [candidate(id: "a", name: "A")]),
+            session(title: "Day 2", exercises: []),
+            session(title: "Day 3", exercises: [candidate(id: "b", name: "B")]),
+        ])
+        #expect(p.savableSessionCount == RoutineFactory.makeRoutines(from: p).count)
+    }
+
     // MARK: - Explicit-confirm boundary (in-memory SwiftData)
 
     @Test

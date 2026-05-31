@@ -383,7 +383,7 @@ AI チャット（ユーザーが目標 / 制約を会話で伝える）
   メニュー作成カード」セクションが、現行プラン生成フローの動作確認手順を保持している。
 
 
-## Rule-based weekly plan generator (PR #70)
+## Rule-based weekly plan generator (PR #69)
 
 `RuleBasedWeeklyPlanGenerator.generate(request:catalog:)` is a pure, deterministic function turning a goal/split request plus the local `MachineCatalog` into a `WeeklyTrainingPlanCandidate` — candidates only. It never touches `ModelContext` and never creates `Routine`/`Step`.
 
