@@ -113,6 +113,7 @@ struct SettingsView: View {
                 integrationsCard
                 myGymCard
                 machineCatalogCard
+                weeklyPlanCandidateCard
                 appSettingsCard
                 appInfoCard
                 saveButton
@@ -494,6 +495,34 @@ struct SettingsView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Text("ローカル一覧から検索・部位で絞り込みできます。外部APIは使用しません。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var weeklyPlanCandidateCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "calendar", title: "週次プラン候補")
+                NavigationLink {
+                    WeeklyTrainingPlanCandidateReviewView()
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("週次トレーニングプラン候補を作成")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("ローカルのマシンカタログをもとに、ルールベースで週次プラン候補を作成します。保存はまだ行われません。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
