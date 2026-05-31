@@ -2,23 +2,29 @@
 //  WeeklyTrainingPlanCandidateReviewView.swift
 //  Pulse Cue
 //
-//  Local, read-only UI for generating and reviewing a rule-based weekly
-//  training plan candidate (see `RuleBasedWeeklyPlanGenerator`, PR #69).
-//  Mirrors the machine-catalog screens' local-only stance:
+//  Local UI for generating, reviewing, and (on explicit confirmation)
+//  saving a rule-based weekly training plan candidate (see
+//  `RuleBasedWeeklyPlanGenerator`, PR #69). Mirrors the machine-catalog
+//  candidate flow's boundary:
 //
-//   - no SwiftData reads/writes, no `ModelContext`, no networking, no AI,
-//   - it never creates or saves `Routine`/`Step` — the generated plan is
-//     a candidate the user can regenerate by changing inputs, nothing
-//     more. Saving is a follow-up PR.
+//   - no networking, no AI, no external data,
+//   - the generated plan stays INERT — nothing is persisted on open,
+//     input change, generation, viewing, or back-out,
+//   - only an explicit tap on「週次プランを保存」builds normal `Routine` /
+//     `Step` records (one routine per session) via `RoutineFactory` and
+//     inserts them into the SwiftData context. No schema change.
 //
-//  The generator itself is pure and deterministic; this view only holds
-//  the request inputs in `@State` and renders the resulting value type.
+//  The generator and the factory are both pure; this view only holds the
+//  request inputs and the generated candidate in `@State` and performs
+//  the insert on confirmation.
 //
 
 import SwiftUI
+import SwiftData
 
 struct WeeklyTrainingPlanCandidateReviewView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
 
     // Request inputs (mirror TrainingPlanGenerationRequest's main fields).
     @State private var goal: TrainingGoal = .consistency
@@ -28,6 +34,14 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var selectedBodyParts: Set<BodyPart> = []
 
     @State private var candidate: WeeklyTrainingPlanCandidate?
+    @State private var saveState: SaveState = .idle
+
+    /// Tracks the save lifecycle so the candidate stays inert until the
+    /// user confirms, and so regenerating clears any prior result.
+    private enum SaveState: Equatable {
+        case idle
+        case saved(Int)
+    }
 
     // Body-part filter order matches the catalog screen (胸/背中/肩/腕/脚/体幹/有酸素).
     private let bodyPartChoices: [BodyPart] = [
@@ -42,6 +56,16 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             experienceLevel: experience,
             preferredSplit: split
         )
+    }
+
+    /// Number of routines a save would create — one per non-empty session.
+    private var savableSessionCount: Int {
+        candidate.map { RoutineFactory.makeRoutines(from: $0).count } ?? 0
+    }
+
+    private var isSaved: Bool {
+        if case .saved = saveState { return true }
+        return false
     }
 
     var body: some View {
@@ -60,6 +84,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                         ForEach(Array(candidate.sessions.enumerated()), id: \.offset) { _, session in
                             sessionCard(session)
                         }
+                        saveSection(candidate)
                     }
                     footerNote
                     Color.clear.frame(height: 24)
@@ -198,6 +223,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     private var generateButton: some View {
         Button {
             candidate = RuleBasedWeeklyPlanGenerator.generate(request: request)
+            // Regenerating clears any prior save so the new candidate is
+            // inert again until the user confirms.
+            saveState = .idle
         } label: {
             Label("候補を生成", systemImage: "wand.and.stars")
                 .font(.subheadline.weight(.bold))
@@ -313,17 +341,90 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         )
     }
 
+    // MARK: - Save (review → confirm → save)
+
+    @ViewBuilder
+    private func saveSection(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
+        if case .saved(let count) = saveState {
+            successCard(count: count)
+        } else {
+            saveCard(candidate)
+        }
+    }
+
+    private func saveCard(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
+        let count = savableSessionCount
+        return card {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ルーティンとして保存")
+                    .font(.headline)
+                Text("保存すると、各セッションが通常のルーティンとして追加されます。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("生成された候補は保存前に確認してください。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if count == 0 {
+                    Text("保存できるセッションがありません。対象部位や日数を変えて再生成してください。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button {
+                    save(candidate)
+                } label: {
+                    Label("週次プランを保存", systemImage: "tray.and.arrow.down.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(count == 0)
+            }
+        }
+    }
+
+    private func successCard(count: Int) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("週次プランを保存しました", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+                Text("\(count) 件のルーティンを追加しました。ルーティン一覧から開始したり、内容を編集できます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Builds routines purely via `RoutineFactory`, then inserts them on
+    /// this explicit user action only. SwiftUI's `modelContext` autosaves,
+    /// matching the machine-candidate and generated-plan save paths.
+    private func save(_ candidate: WeeklyTrainingPlanCandidate) {
+        let outputs = RoutineFactory.makeRoutines(from: candidate)
+        guard !outputs.isEmpty else { return }
+        for output in outputs {
+            modelContext.insert(output.routine)
+            for step in output.steps {
+                modelContext.insert(step)
+            }
+        }
+        saveState = .saved(outputs.count)
+    }
+
     // MARK: - Footer
 
     private var footerNote: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("このプラン候補はまだ保存されません。ルーティンへの保存は今後対応予定です。")
-            Text("保存はまだ行われません。")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
+        Text("保存すると各セッションが通常のルーティンとして追加されます。マシンカタログにセット数等が未登録の種目は目安値で保存されます。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
     }
 
     // MARK: - Reusable building blocks
@@ -394,4 +495,5 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     NavigationStack {
         WeeklyTrainingPlanCandidateReviewView()
     }
+    .modelContainer(for: [Routine.self, Step.self], inMemory: true)
 }
