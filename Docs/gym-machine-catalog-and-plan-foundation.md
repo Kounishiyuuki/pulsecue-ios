@@ -390,3 +390,25 @@ AI チャット（ユーザーが目標 / 制約を会話で伝える）
 Public types (in `Pulse Cue/Services/RuleBasedWeeklyPlanGenerator.swift`): `TrainingGoal`, `ExperienceLevel`, `TrainingSplit`, `TrainingPlanGenerationRequest`, `TrainingSessionCandidate`, `WeeklyTrainingPlanCandidate`.
 
 Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full body; `limitedBodyParts` dropped from focus when something remains; sparse catalog handled by leaning on `bodyParts` and relaxing `beginnerFriendlyOnly` (with a warning) instead of emptying the plan.
+
+
+## AI 計画ボーダリー（モック / ローカルのみ・PR #74）
+
+将来の AI チャットによるプラン作成に備え、**ローカルのみ**の境界を追加した
+（`Pulse Cue/Services/AITrainingPlanProvider.swift`）。本 PR では実 AI・
+ネットワーク・API キー・永続化は一切追加していない。
+
+- リクエスト/レスポンス値型: `AITrainingPlanRequest` /
+  `AITrainingPlanResponse` / `AITrainingSessionResponse`
+- プロバイダ抽象: `AITrainingPlanProviding`
+  （`func generatePlan(for:) async throws -> AITrainingPlanResponse`）
+- 実装は `MockAITrainingPlanProvider` のみ（決定論的・オフライン）。
+- `AITrainingPlanNormalizer.normalize(response:request:catalog:)` が
+  生（未検証）の AI 出力を既存の `WeeklyTrainingPlanCandidate` に正規化する。
+  不明なマシン ID は除外して警告、空セッションはスキップ、タイトル欠落は
+  安全なフォールバック、空レスポンスはクラッシュせず警告付き候補を返す。
+
+**重要**: AI 出力は必ず `AITrainingPlanNormalizer` を通して
+`WeeklyTrainingPlanCandidate` に正規化してからレビュー / 保存する。
+正規化結果は候補値のみで、`Routine`/`Step` を作成せず `ModelContext` にも
+触れない。実プロバイダ / API は今後の課題。
