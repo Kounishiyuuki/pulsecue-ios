@@ -381,3 +381,12 @@ AI チャット（ユーザーが目標 / 制約を会話で伝える）
 - [`ai-privacy-and-safety.md`](ai-privacy-and-safety.md) — AI 安全境界の鉄則。
 - [`manual-qa-checklist.md`](manual-qa-checklist.md) — 既存の「マイジム」「Today: ジムから
   メニュー作成カード」セクションが、現行プラン生成フローの動作確認手順を保持している。
+
+
+## Rule-based weekly plan generator (PR #70)
+
+`RuleBasedWeeklyPlanGenerator.generate(request:catalog:)` is a pure, deterministic function turning a goal/split request plus the local `MachineCatalog` into a `WeeklyTrainingPlanCandidate` — candidates only. It never touches `ModelContext` and never creates `Routine`/`Step`.
+
+Public types (in `Pulse Cue/Services/RuleBasedWeeklyPlanGenerator.swift`): `TrainingGoal`, `ExperienceLevel`, `TrainingSplit`, `TrainingPlanGenerationRequest`, `TrainingSessionCandidate`, `WeeklyTrainingPlanCandidate`.
+
+Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full body; `limitedBodyParts` dropped from focus when something remains; sparse catalog handled by leaning on `bodyParts` and relaxing `beginnerFriendlyOnly` (with a warning) instead of emptying the plan.

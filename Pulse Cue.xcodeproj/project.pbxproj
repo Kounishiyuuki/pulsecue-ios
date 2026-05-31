@@ -74,6 +74,8 @@
 		D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3102 /* GymRepository.swift */; };
 		D17104DB1A8E4001B0DA3201 /* WorkoutPlanGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3202 /* WorkoutPlanGenerator.swift */; };
 		D17104DB1A8E4001B0DA3301 /* RoutineFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3302 /* RoutineFactory.swift */; };
+		D17104DB1A8E4001B0DA5741 /* RuleBasedWeeklyPlanGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5742 /* RuleBasedWeeklyPlanGenerator.swift */; };
+		D17104DB1A8E4001B0DA5751 /* RuleBasedWeeklyPlanGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5752 /* RuleBasedWeeklyPlanGeneratorTests.swift */; };
 		D17104DB1A8E4001B0DA3401 /* MyGymHomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3402 /* MyGymHomeViewModel.swift */; };
 		D17104DB1A8E4001B0DA3501 /* GymRegistrationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3502 /* GymRegistrationViewModel.swift */; };
 		D17104DB1A8E4001B0DA3601 /* ManualMachineSelectionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3602 /* ManualMachineSelectionViewModel.swift */; };
@@ -243,6 +245,8 @@
 		D17104DB1A8E4001B0DA3102 /* GymRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepository.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3202 /* WorkoutPlanGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPlanGenerator.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3302 /* RoutineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineFactory.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA5742 /* RuleBasedWeeklyPlanGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RuleBasedWeeklyPlanGenerator.swift; path = "Pulse Cue/Services/RuleBasedWeeklyPlanGenerator.swift"; sourceTree = SOURCE_ROOT; };
+		D17104DB1A8E4001B0DA5752 /* RuleBasedWeeklyPlanGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RuleBasedWeeklyPlanGeneratorTests.swift; path = "Pulse CueTests/RuleBasedWeeklyPlanGeneratorTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA3402 /* MyGymHomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymHomeViewModel.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3502 /* GymRegistrationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRegistrationViewModel.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3602 /* ManualMachineSelectionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualMachineSelectionViewModel.swift; sourceTree = "<group>"; };
@@ -816,6 +820,7 @@
 				D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */,
 				D17104DB1A8E4001B0DA3201 /* WorkoutPlanGenerator.swift in Sources */,
 				D17104DB1A8E4001B0DA3301 /* RoutineFactory.swift in Sources */,
+				D17104DB1A8E4001B0DA5741 /* RuleBasedWeeklyPlanGenerator.swift in Sources */,
 				D17104DB1A8E4001B0DA3401 /* MyGymHomeViewModel.swift in Sources */,
 				D17104DB1A8E4001B0DA3501 /* GymRegistrationViewModel.swift in Sources */,
 				D17104DB1A8E4001B0DA3601 /* ManualMachineSelectionViewModel.swift in Sources */,
@@ -878,6 +883,7 @@
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */,
+				D17104DB1A8E4001B0DA5751 /* RuleBasedWeeklyPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5101 /* NearbyGymCandidateViewModelTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5401 /* RoutineOrderStoreTests.swift in Sources */,
