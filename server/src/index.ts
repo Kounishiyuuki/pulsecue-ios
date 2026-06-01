@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { requireImportAuthorization } from "./auth";
+import { aiTrainingPlanHandler } from "./routes/aiTrainingPlan";
 import { authImportTokenHandler } from "./routes/authImportToken";
 import { healthHandler } from "./routes/health";
 import { importGymMachinesHandler } from "./routes/importGymMachines";
@@ -22,6 +23,12 @@ app.post(
 // validation before public exposure (see server/README.md and
 // Docs/import-token-endpoint-spec.md).
 app.post("/api/auth/import-token", authImportTokenHandler);
+// Deterministic MOCK-ONLY proxy for AI training plan drafts. No real
+// AI / provider / networking / secrets, and intentionally UNGATED
+// (dev/mock only) — the real endpoint will require a short-lived
+// `ai:training-plan` scoped token. See
+// Docs/ai-training-plan-proxy-endpoint-spec.md.
+app.post("/api/ai/training-plan", aiTrainingPlanHandler);
 
 app.notFound((c) =>
 	c.json({ error: { code: "not_found", message: "Route not found" } }, 404),
