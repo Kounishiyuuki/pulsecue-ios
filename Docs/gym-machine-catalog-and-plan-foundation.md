@@ -412,3 +412,8 @@ Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full bod
 `WeeklyTrainingPlanCandidate` に正規化してからレビュー / 保存する。
 正規化結果は候補値のみで、`Routine`/`Step` を作成せず `ModelContext` にも
 触れない。実プロバイダ / API は今後の課題。
+
+実 AI プロバイダ（バックエンド経由・クレデンシャル・プライバシー・エラー/レート制限・
+実装順序）の意思決定は
+[`ai-training-plan-provider-architecture.md`](ai-training-plan-provider-architecture.md)
+を参照（PR #77、ドキュメントのみ）。
