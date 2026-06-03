@@ -47,12 +47,22 @@ PR #74–#76 でその AI 版フローは**モックのみ**で実装済み（AI
 | AI 計画境界（リクエスト/レスポンス値型・プロバイダ抽象・正規化） | 実装済み（`AITrainingPlanProvider.swift`） | #74 |
 | モック chat UI（`AIプラン相談`） | 実装済み（`MockAITrainingPlanChatView`） | #75 |
 | モック候補 → 明示保存ハンドオフ | 実装済み（`RoutineFactory.makeRoutines(from:)` + 明示 `modelContext.insert`） | #76 |
+| iOS エンドポイントクライアント（`AITrainingPlanProviding` 実装） | 実装済み（`AITrainingPlanEndpointClient`。既定 UI に未配線） | #80 |
+| プロバイダ選択境界（mock / endpoint の明示切替） | 実装済み（`AITrainingPlanProviderFactory`。既定は mock） | #81 |
 | 実 AI プロバイダ | **未実装** | — |
-| ネットワーク通信 / `userMessage` 送信 | **無し** | — |
+| ネットワーク通信 / `userMessage` 送信 | **無し**（既定経路。endpoint は明示注入時のみ） | — |
 | プロバイダ API キー / Worker URL | **アプリにもリポジトリにも存在しない** | — |
 
-`AITrainingPlanProviding` の唯一の実装は `MockAITrainingPlanProvider`（決定論的・
-オフライン・RNG / clock / I/O なし）。`AITrainingPlanNormalizer.normalize(response:request:catalog:)`
+`AITrainingPlanProviding` には 2 つの実装がある: `MockAITrainingPlanProvider`（決定論的・
+オフライン・RNG / clock / I/O なし）と `AITrainingPlanEndpointClient`（PR #80。バックエンド
+プロキシを叩くネットワーク実装）。どちらを構築するかは `AITrainingPlanProviderFactory`
+（PR #81）が決める。**既定は mock** で、`makeProvider()` を引数なしで呼ぶと
+`MockAITrainingPlanProvider` が返る。endpoint 実装は、呼び出し側が
+`AITrainingPlanEndpointConfiguration`（`baseURL` は必須・任意の `tokenProvider`）を
+**明示的に注入したときだけ**構築される。本番 URL・トークン・シークレットはこの境界に
+一切埋め込まれておらず、Info.plist / xcconfig / `UserDefaults` / Keychain / 環境変数からも
+読まない。`MockAITrainingPlanChatView` は既定でこの factory 経由の mock を使い続ける。
+`AITrainingPlanNormalizer.normalize(response:request:catalog:)`
 が生（未検証）の `AITrainingPlanResponse` を既存の `WeeklyTrainingPlanCandidate` に
 正規化する（純粋・total・例外なし）。レビュー / 保存は実 AI とは独立しており、
 `Routine` / `Step` はユーザーが「この候補を保存」を押したときにのみ作られる。

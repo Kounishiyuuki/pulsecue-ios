@@ -27,9 +27,15 @@ struct MockAITrainingPlanChatView: View {
     @Environment(\.modelContext) private var modelContext
 
     // The provider is referenced through the protocol so a real one can
-    // be swapped in later without touching this view. Today it is always
-    // the offline deterministic mock.
-    private let provider: AITrainingPlanProviding = MockAITrainingPlanProvider()
+    // be swapped in later without touching this view. It is resolved
+    // through `AITrainingPlanProviderFactory`, whose default is the offline
+    // deterministic mock — so the screen stays mock-only unless a caller
+    // explicitly injects an endpoint-backed provider (no production wiring).
+    private let provider: AITrainingPlanProviding
+
+    init(provider: AITrainingPlanProviding = AITrainingPlanProviderFactory.makeProvider()) {
+        self.provider = provider
+    }
 
     @State private var userMessage: String = ""
     @State private var goal: TrainingGoal = .consistency
