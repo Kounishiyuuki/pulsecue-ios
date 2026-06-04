@@ -294,3 +294,5 @@ endpoint 実装を画面に配線する経路は **dev 専用**（PR #82）: fac
 - [`import-token-endpoint-spec.md`](import-token-endpoint-spec.md) — 短期デバイス
   スコープトークンのエンドポイント仕様。プラン生成が認証付きバックエンドを要する場合の
   参照元。
+- [`ai-endpoint-integration-readiness.md`](ai-endpoint-integration-readiness.md) —
+  endpoint provider を dev 経路へ接続する前の readiness checklist と local QA 手順。
