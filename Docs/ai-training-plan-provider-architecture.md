@@ -50,6 +50,7 @@ PR #74–#76 でその AI 版フローは**モックのみ**で実装済み（AI
 | iOS エンドポイントクライアント（`AITrainingPlanProviding` 実装） | 実装済み（`AITrainingPlanEndpointClient`。既定 UI に未配線） | #80 |
 | プロバイダ選択境界（mock / endpoint の明示切替） | 実装済み（`AITrainingPlanProviderFactory`。既定は mock） | #81 |
 | dev 専用 endpoint 配線（明示注入の seam） | 実装済み（`makeEndpointProvider(config:)` + `#if DEBUG` の `MockAITrainingPlanChatView(endpointConfiguration:)`。既定 UI は mock のまま） | #82 |
+| 生成 UX のハードニング（loading / error / retry / cancel） | 実装済み（`AIPlanGenerationPhase` / `AIPlanGenerationError`。安全な日本語コピー・明示リトライ・キャンセル安全。実 endpoint は依然 既定ではない） | #83 |
 | 実 AI プロバイダ | **未実装** | — |
 | ネットワーク通信 / `userMessage` 送信 | **無し**（既定経路。endpoint は明示注入時のみ） | — |
 | プロバイダ API キー / Worker URL | **アプリにもリポジトリにも存在しない** | — |
