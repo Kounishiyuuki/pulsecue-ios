@@ -53,7 +53,8 @@ struct MockAITrainingPlanChatView: View {
     @State private var goal: TrainingGoal = .consistency
     @State private var daysPerWeek: Int = 3
     @State private var candidate: WeeklyTrainingPlanCandidate?
-    @State private var isGenerating: Bool = false
+    @State private var phase: AIPlanGenerationPhase = .idle
+    @State private var generationTask: Task<Void, Never>?
     @State private var saveState: WeeklyPlanSaveState = .idle
 
     /// Number of routines a save would create — one per non-empty session.
@@ -71,6 +72,15 @@ struct MockAITrainingPlanChatView: View {
                     mockNotice
                     inputCard
                     generateButton
+                    if phase.showsCancel {
+                        cancelButton
+                    }
+                    if let error = phase.failureError {
+                        errorCard(error)
+                    }
+                    if phase == .cancelled {
+                        cancelledNotice
+                    }
                     if let candidate {
                         summaryCard(candidate)
                         if !candidate.warnings.isEmpty {
@@ -90,6 +100,7 @@ struct MockAITrainingPlanChatView: View {
         }
         .navigationTitle("AIプラン相談")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { generationTask?.cancel() }
     }
 
     // MARK: - Header
@@ -167,47 +178,134 @@ struct MockAITrainingPlanChatView: View {
             generate()
         } label: {
             HStack(spacing: 8) {
-                if isGenerating {
+                if phase.isGenerating {
                     ProgressView()
                 } else {
                     Image(systemName: "wand.and.stars")
                 }
-                Text("プラン候補を作成")
+                Text(phase.isGenerating ? "作成中…" : "プラン候補を作成")
                     .font(.subheadline.weight(.bold))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(isGenerating)
+        .disabled(!phase.canStartGeneration)
     }
 
-    /// Runs the mock provider then the normalizer. The provider is
-    /// `async` only to satisfy the protocol; the mock does no real work
-    /// and never throws, but we still handle failure defensively by
-    /// normalizing an empty response into a warning candidate.
+    private var cancelButton: some View {
+        Button(role: .cancel) {
+            cancelGeneration()
+        } label: {
+            Text("キャンセル")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    // MARK: - Error / cancelled states
+
+    /// User-facing failure card. Shows safe mapped copy and an explicit
+    /// retry action — nothing is created or saved on failure.
+    private func errorCard(_ error: AIPlanGenerationError) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(error.message)
+                    .font(.footnote)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button {
+                generate()
+            } label: {
+                Label("再試行", systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    /// Non-alarming note after the user cancels an in-flight generation.
+    private var cancelledNotice: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+            Text("作成をキャンセルしました。もう一度作成できます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+        )
+    }
+
+    /// Runs the provider then the normalizer, driving the generation phase
+    /// machine. Loading shows a spinner + cancel; success shows the
+    /// candidate; failure shows a safe error card with retry; cancellation
+    /// returns to a non-alarming cancelled state. The default provider is
+    /// the offline mock (which does no real work and never throws); the
+    /// failure/cancel paths exist for the dev-only endpoint provider.
+    ///
+    /// Nothing is created or saved here — the candidate stays inert until
+    /// the user explicitly confirms the save (unchanged boundary).
     private func generate() {
-        isGenerating = true
+        // Cancel any in-flight request and clear stale results so the
+        // screen shows only loading until this run resolves.
+        generationTask?.cancel()
+        candidate = nil
+        saveState = .idle
+        phase = .generating
+
         let request = AITrainingPlanRequest(
             userMessage: userMessage,
             goal: goal,
             daysPerWeek: daysPerWeek
         )
-        Task { @MainActor in
-            let response: AITrainingPlanResponse
+        generationTask = Task { @MainActor in
             do {
-                response = try await provider.generatePlan(for: request)
+                let response = try await provider.generatePlan(for: request)
+                if Task.isCancelled {
+                    phase = .cancelled
+                    return
+                }
+                candidate = AITrainingPlanNormalizer.normalize(response: response, request: request)
+                saveState = .idle
+                phase = .success
+            } catch is CancellationError {
+                phase = .cancelled
             } catch {
-                response = AITrainingPlanResponse(
-                    warnings: ["プラン候補を作成できませんでした。もう一度お試しください。"]
-                )
+                // Only a safe, mapped category is surfaced — never the raw
+                // error, response body, or userMessage.
+                phase = .failure(AIPlanGenerationError.from(error))
             }
-            candidate = AITrainingPlanNormalizer.normalize(response: response, request: request)
-            // A freshly generated candidate is inert again until the user
-            // explicitly confirms the save.
-            saveState = .idle
-            isGenerating = false
         }
+    }
+
+    /// Stops an in-flight generation on explicit user action. Creates and
+    /// saves nothing; returns to a non-alarming cancelled state.
+    private func cancelGeneration() {
+        generationTask?.cancel()
+        generationTask = nil
+        phase = .cancelled
     }
 
     // MARK: - Summary
