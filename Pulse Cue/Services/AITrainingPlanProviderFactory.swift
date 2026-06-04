@@ -86,4 +86,21 @@ enum AITrainingPlanProviderFactory {
             )
         }
     }
+
+    /// The default / offline provider. This is what every shipping call
+    /// site gets; it is the spelled-out form of `makeProvider()` (`.mock`).
+    static func makeDefaultProvider() -> AITrainingPlanProviding {
+        makeProvider(mode: .mock)
+    }
+
+    /// Explicit, opt-in seam for building the network-backed provider from
+    /// caller-supplied configuration. Used only by dev/test wiring — never
+    /// by the default UI path. `config.baseURL` is required, so there is no
+    /// way to reach the endpoint client without a base URL, and no
+    /// production URL/token/secret is introduced here.
+    static func makeEndpointProvider(
+        config: AITrainingPlanEndpointConfiguration
+    ) -> AITrainingPlanProviding {
+        makeProvider(mode: .endpoint(config))
+    }
 }

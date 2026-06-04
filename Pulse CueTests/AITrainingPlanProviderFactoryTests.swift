@@ -13,7 +13,11 @@ import Foundation
 import Testing
 @testable import Pulse_Cue
 
+// `@MainActor` because the app target uses `SWIFT_DEFAULT_ACTOR_ISOLATION =
+// MainActor`, so the factory, providers, and `MockAITrainingPlanChatView`
+// are main-actor isolated. Mirrors `AITrainingPlanEndpointClientTests`.
 @Suite
+@MainActor
 struct AITrainingPlanProviderFactoryTests {
 
     private func endpointConfig(
@@ -105,5 +109,62 @@ struct AITrainingPlanProviderFactoryTests {
         #expect(config.tokenProvider == nil)
         #expect(config.timeout == 30)
         #expect(config.session === URLSession.shared)
+    }
+
+    // MARK: - Convenience seams (dev-only endpoint wiring)
+
+    @Test
+    func makeDefaultProviderReturnsMock() {
+        let provider = AITrainingPlanProviderFactory.makeDefaultProvider()
+        #expect(provider is MockAITrainingPlanProvider)
+        #expect((provider as? AITrainingPlanEndpointClient) == nil)
+    }
+
+    @Test
+    func makeEndpointProviderRequiresExplicitConfigAndReturnsEndpointClient() throws {
+        let url = URL(string: "https://backend.test/")!
+        let provider = AITrainingPlanProviderFactory.makeEndpointProvider(
+            config: endpointConfig(baseURL: url)
+        )
+        let client = try #require(provider as? AITrainingPlanEndpointClient)
+        #expect(client.baseURL == url)
+    }
+
+    @Test
+    func makeEndpointProviderPassesInjectedTokenProviderThrough() async throws {
+        let provider = AITrainingPlanProviderFactory.makeEndpointProvider(
+            config: endpointConfig(tokenProvider: { "short-lived-token" })
+        )
+        let client = try #require(provider as? AITrainingPlanEndpointClient)
+        let token = await client.tokenProvider?()
+        #expect(token == "short-lived-token")
+    }
+
+    @Test
+    func makeEndpointProviderHasNoTokenWhenNoneInjected() throws {
+        let provider = AITrainingPlanProviderFactory.makeEndpointProvider(
+            config: endpointConfig(tokenProvider: nil)
+        )
+        let client = try #require(provider as? AITrainingPlanEndpointClient)
+        #expect(client.tokenProvider == nil)
+    }
+
+    // MARK: - View wiring (default stays mock; dev seam is explicit)
+
+    @Test
+    func defaultChatViewInitRequiresNoEndpointConfiguration() {
+        // The shipping/default initializer takes no endpoint config and
+        // builds without one — proving normal users stay off the endpoint.
+        _ = MockAITrainingPlanChatView()
+    }
+
+    @Test
+    func devEndpointChatViewInitAcceptsExplicitConfiguration() {
+        // The DEBUG-only dev seam constructs the screen from explicit local
+        // configuration. No URL/token is read from storage; the caller
+        // supplies a fake test URL.
+        _ = MockAITrainingPlanChatView(
+            endpointConfiguration: endpointConfig()
+        )
     }
 }

@@ -49,6 +49,7 @@ PR #74–#76 でその AI 版フローは**モックのみ**で実装済み（AI
 | モック候補 → 明示保存ハンドオフ | 実装済み（`RoutineFactory.makeRoutines(from:)` + 明示 `modelContext.insert`） | #76 |
 | iOS エンドポイントクライアント（`AITrainingPlanProviding` 実装） | 実装済み（`AITrainingPlanEndpointClient`。既定 UI に未配線） | #80 |
 | プロバイダ選択境界（mock / endpoint の明示切替） | 実装済み（`AITrainingPlanProviderFactory`。既定は mock） | #81 |
+| dev 専用 endpoint 配線（明示注入の seam） | 実装済み（`makeEndpointProvider(config:)` + `#if DEBUG` の `MockAITrainingPlanChatView(endpointConfiguration:)`。既定 UI は mock のまま） | #82 |
 | 実 AI プロバイダ | **未実装** | — |
 | ネットワーク通信 / `userMessage` 送信 | **無し**（既定経路。endpoint は明示注入時のみ） | — |
 | プロバイダ API キー / Worker URL | **アプリにもリポジトリにも存在しない** | — |
@@ -62,6 +63,11 @@ PR #74–#76 でその AI 版フローは**モックのみ**で実装済み（AI
 **明示的に注入したときだけ**構築される。本番 URL・トークン・シークレットはこの境界に
 一切埋め込まれておらず、Info.plist / xcconfig / `UserDefaults` / Keychain / 環境変数からも
 読まない。`MockAITrainingPlanChatView` は既定でこの factory 経由の mock を使い続ける。
+endpoint 実装を画面に配線する経路は **dev 専用**（PR #82）: factory の
+`makeEndpointProvider(config:)` と、`#if DEBUG` でのみコンパイルされる
+`MockAITrainingPlanChatView(endpointConfiguration:)` 初期化子だけが endpoint プロバイダを
+構築する。release ビルドにはこの seam が含まれず、`SettingsView` は常に引数なしで mock を
+開く。本番でのプロバイダ有効化（ユーザー向けトグル等）は引き続き将来 PR の課題。
 `AITrainingPlanNormalizer.normalize(response:request:catalog:)`
 が生（未検証）の `AITrainingPlanResponse` を既存の `WeeklyTrainingPlanCandidate` に
 正規化する（純粋・total・例外なし）。レビュー / 保存は実 AI とは独立しており、
