@@ -37,6 +37,18 @@ struct MockAITrainingPlanChatView: View {
         self.provider = provider
     }
 
+#if DEBUG
+    /// Dev-only wiring seam. Builds the screen against the network-backed
+    /// endpoint provider from explicit, caller-supplied local configuration
+    /// (e.g. a developer pointing at a local mock server). Compiled into
+    /// DEBUG builds only, so it can never become a release/default path —
+    /// `SettingsView` and the no-arg initializer stay on the mock provider.
+    /// No URL/token is baked in; the caller supplies the configuration.
+    init(endpointConfiguration config: AITrainingPlanEndpointConfiguration) {
+        self.init(provider: AITrainingPlanProviderFactory.makeEndpointProvider(config: config))
+    }
+#endif
+
     @State private var userMessage: String = ""
     @State private var goal: TrainingGoal = .consistency
     @State private var daysPerWeek: Int = 3
