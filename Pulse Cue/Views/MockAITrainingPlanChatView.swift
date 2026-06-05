@@ -32,9 +32,14 @@ struct MockAITrainingPlanChatView: View {
     // deterministic mock — so the screen stays mock-only unless a caller
     // explicitly injects an endpoint-backed provider (no production wiring).
     private let provider: AITrainingPlanProviding
+    /// True only on the DEBUG-only endpoint QA path, so the screen can show
+    /// accurate "talking to a local endpoint" copy instead of the mock
+    /// notice. Always `false` in the default/release path → copy unchanged.
+    private let isEndpointQA: Bool
 
     init(provider: AITrainingPlanProviding = AITrainingPlanProviderFactory.makeProvider()) {
         self.provider = provider
+        self.isEndpointQA = false
     }
 
 #if DEBUG
@@ -45,7 +50,8 @@ struct MockAITrainingPlanChatView: View {
     /// `SettingsView` and the no-arg initializer stay on the mock provider.
     /// No URL/token is baked in; the caller supplies the configuration.
     init(endpointConfiguration config: AITrainingPlanEndpointConfiguration) {
-        self.init(provider: AITrainingPlanProviderFactory.makeEndpointProvider(config: config))
+        self.provider = AITrainingPlanProviderFactory.makeEndpointProvider(config: config)
+        self.isEndpointQA = true
     }
 #endif
 
@@ -109,7 +115,9 @@ struct MockAITrainingPlanChatView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("AIプラン相談")
                 .font(.system(size: 28, weight: .bold))
-            Text("入力内容をもとに、ローカルのモックプロバイダーでプラン候補を作成します。")
+            Text(isEndpointQA
+                 ? "入力内容をもとに、ローカルのモックエンドポイント経由でプラン候補を作成します。"
+                 : "入力内容をもとに、ローカルのモックプロバイダーでプラン候補を作成します。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -119,7 +127,9 @@ struct MockAITrainingPlanChatView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
-            Text("これはモックAI相談です。実際のAI通信は行っていません。")
+            Text(isEndpointQA
+                 ? "DEBUG QA: ローカルのモックエンドポイントに接続し、通信経路を確認します。実際のAIプロバイダには接続しません。"
+                 : "これはモックAI相談です。実際のAI通信は行っていません。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -489,7 +499,9 @@ struct MockAITrainingPlanChatView: View {
     // MARK: - Footer
 
     private var footerNote: some View {
-        Text("保存すると各セッションが通常のルーティンとして追加されます。実際のAI通信は行わず、ローカルのモックで動作します。")
+        Text(isEndpointQA
+             ? "保存すると各セッションが通常のルーティンとして追加されます。DEBUG QAではローカルのモックエンドポイントに接続します。実際のAIプロバイダには接続しません。"
+             : "保存すると各セッションが通常のルーティンとして追加されます。実際のAI通信は行わず、ローカルのモックで動作します。")
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)

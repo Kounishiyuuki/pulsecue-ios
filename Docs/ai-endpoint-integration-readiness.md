@@ -28,6 +28,15 @@ Related docs:
   with a caller-supplied `baseURL`.
 - `MockAITrainingPlanChatView(endpointConfiguration:)` exists only behind
   `#if DEBUG`; release/default UI still uses the no-argument mock path.
+- A DEBUG-only QA harness now wires this up: an "AI endpoint QA" card in
+  `SettingsView` (compiled only under `#if DEBUG`) opens the chat view with
+  `AITrainingPlanEndpointConfiguration.debugLocalMock`, a loopback-only
+  (`http://127.0.0.1:8787/`) configuration with no token. The card and the
+  loopback URL are absent from release builds. On this path the screen shows
+  accurate "local mock endpoint" copy instead of the mock notice; the default
+  Settings entry remains the no-argument mock path.
+- No production URL, Worker URL, provider key, or token is bundled by the QA
+  harness; the loopback configuration carries `tokenProvider == nil`.
 - The server-side training-plan route currently available for local QA is a
   deterministic mock endpoint. It saves nothing, performs no real AI call, and
   requires no provider credential.
@@ -168,8 +177,10 @@ Do not proceed with endpoint integration if any of these appear:
 
 Use this order for future PRs:
 
-1. Add a DEBUG-only endpoint wiring test, preview, or local QA harness that
-   injects `AITrainingPlanEndpointConfiguration` explicitly.
+1. ~~Add a DEBUG-only endpoint wiring test, preview, or local QA harness that
+   injects `AITrainingPlanEndpointConfiguration` explicitly.~~ **Done:** the
+   `#if DEBUG` "AI endpoint QA" Settings card opens the chat view with
+   `AITrainingPlanEndpointConfiguration.debugLocalMock` (loopback, no token).
 2. QA endpoint success, timeout, unauthorized, rate-limit, unavailable, and
    invalid-response mappings through `AIPlanGenerationError`.
 3. Define a typed short-lived token strategy for the training-plan scope.

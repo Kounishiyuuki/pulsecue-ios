@@ -167,4 +167,34 @@ struct AITrainingPlanProviderFactoryTests {
             endpointConfiguration: endpointConfig()
         )
     }
+
+#if DEBUG
+    // MARK: - DEBUG-only local QA harness configuration
+
+    @Test
+    func debugLocalMockConfigurationIsLoopbackOnlyWithNoToken() {
+        let config = AITrainingPlanEndpointConfiguration.debugLocalMock
+        // Loopback only — never a production host or Worker URL.
+        #expect(config.baseURL.host == "127.0.0.1")
+        #expect(config.baseURL.scheme == "http")
+        // No token is bundled with the QA configuration.
+        #expect(config.tokenProvider == nil)
+    }
+
+    @Test
+    func debugLocalMockBuildsEndpointClientForLocalBaseURL() throws {
+        let config = AITrainingPlanEndpointConfiguration.debugLocalMock
+        let provider = AITrainingPlanProviderFactory.makeEndpointProvider(config: config)
+        let client = try #require(provider as? AITrainingPlanEndpointClient)
+        #expect(client.baseURL == config.baseURL)
+        #expect(client.tokenProvider == nil)
+    }
+
+    @Test
+    func debugEndpointQAChatViewCanBeBuiltFromLocalMock() {
+        // The DEBUG QA Settings entry builds the screen from the loopback
+        // configuration; this mirrors that call site without any network.
+        _ = MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMock)
+    }
+#endif
 }
