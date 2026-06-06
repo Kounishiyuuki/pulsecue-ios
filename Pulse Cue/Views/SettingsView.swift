@@ -115,6 +115,9 @@ struct SettingsView: View {
                 machineCatalogCard
                 weeklyPlanCandidateCard
                 aiPlanChatCard
+#if DEBUG
+                aiEndpointQACard
+#endif
                 appSettingsCard
                 appInfoCard
                 saveButton
@@ -566,6 +569,40 @@ struct SettingsView: View {
             }
         }
     }
+
+#if DEBUG
+    /// DEBUG-only QA entry. Opens the AI plan screen wired to the local mock
+    /// endpoint via the explicit `#if DEBUG` endpoint initializer. Never
+    /// compiled into release builds, so the shipping app only ever opens the
+    /// no-argument mock path above.
+    private var aiEndpointQACard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "ladybug", title: "AI endpoint QA")
+                NavigationLink {
+                    MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMock)
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ローカルのモックエンドポイントで通信経路を確認")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("DEBUG限定。ローカルのモックエンドポイントでAIプラン相談の通信経路を確認します。本番URL・キー・トークンは含みません。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+#endif
 
     private var appInfoCard: some View {
         glassCard {

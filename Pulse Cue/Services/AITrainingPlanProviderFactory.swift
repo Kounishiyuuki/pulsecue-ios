@@ -56,6 +56,25 @@ struct AITrainingPlanEndpointConfiguration {
     }
 }
 
+#if DEBUG
+extension AITrainingPlanEndpointConfiguration {
+    /// DEBUG-only configuration for the local QA harness. Points at the
+    /// deterministic mock server route (PR #79) on the loopback interface so
+    /// a developer can exercise the real request → decode → normalize path
+    /// without any production endpoint, Worker URL, key, or token.
+    ///
+    /// - This is **loopback only** (`127.0.0.1`) and compiled into DEBUG
+    ///   builds only — it is never present in release binaries.
+    /// - No token is supplied; `tokenProvider` stays `nil`.
+    /// - Adjust the port to match the local server's dev workflow if needed.
+    static var debugLocalMock: AITrainingPlanEndpointConfiguration {
+        AITrainingPlanEndpointConfiguration(
+            baseURL: URL(string: "http://127.0.0.1:8787/")!
+        )
+    }
+}
+#endif
+
 // MARK: - Provider mode
 
 /// Which `AITrainingPlanProviding` conformer to build. `endpoint` carries
