@@ -296,3 +296,6 @@ endpoint 実装を画面に配線する経路は **dev 専用**（PR #82）: fac
   参照元。
 - [`ai-endpoint-integration-readiness.md`](ai-endpoint-integration-readiness.md) —
   endpoint provider を dev 経路へ接続する前の readiness checklist と local QA 手順。
+- [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md) — AI
+  エンドポイント認証・型付きトークン戦略（スコープ・境界・エラー・責務分担）。実 AI /
+  本番有効化の前提となる auth 設計。

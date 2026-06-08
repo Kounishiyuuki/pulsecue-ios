@@ -14,6 +14,7 @@ Related docs:
 - [`ai-privacy-and-safety.md`](ai-privacy-and-safety.md)
 - [`credential-strategy.md`](credential-strategy.md)
 - [`import-token-endpoint-spec.md`](import-token-endpoint-spec.md)
+- [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md)
 
 ---
 
@@ -184,7 +185,10 @@ Use this order for future PRs:
    `AITrainingPlanEndpointConfiguration.debugLocalMock` (loopback, no token).
 2. QA endpoint success, timeout, unauthorized, rate-limit, unavailable, and
    invalid-response mappings through `AIPlanGenerationError`.
-3. Define a typed short-lived token strategy for the training-plan scope.
+3. ~~Define a typed short-lived token strategy for the training-plan scope.~~
+   **Documented:** see
+   [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md)
+   (docs-only; auth/token implementation is still future work).
 4. Implement token acquisition and refresh only after the auth/token design is
    approved.
 5. Add real provider adapter code only on the server side after auth/token is
