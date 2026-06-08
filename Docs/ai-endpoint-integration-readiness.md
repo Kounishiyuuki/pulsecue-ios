@@ -10,6 +10,7 @@ Related docs:
 
 - [`ai-training-plan-provider-architecture.md`](ai-training-plan-provider-architecture.md)
 - [`ai-training-plan-proxy-endpoint-spec.md`](ai-training-plan-proxy-endpoint-spec.md)
+- [`ai-endpoint-debug-qa-results.md`](ai-endpoint-debug-qa-results.md)
 - [`ai-privacy-and-safety.md`](ai-privacy-and-safety.md)
 - [`credential-strategy.md`](credential-strategy.md)
 - [`import-token-endpoint-spec.md`](import-token-endpoint-spec.md)
