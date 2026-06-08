@@ -115,9 +115,7 @@ struct MockAITrainingPlanChatView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("AIプラン相談")
                 .font(.system(size: 28, weight: .bold))
-            Text(isEndpointQA
-                 ? "入力内容をもとに、ローカルのモックエンドポイント経由でプラン候補を作成します。"
-                 : "入力内容をもとに、ローカルのモックプロバイダーでプラン候補を作成します。")
+            Text(headerCopy)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -127,9 +125,7 @@ struct MockAITrainingPlanChatView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
-            Text(isEndpointQA
-                 ? "DEBUG QA: ローカルのモックエンドポイントに接続し、通信経路を確認します。実際のAIプロバイダには接続しません。"
-                 : "これはモックAI相談です。実際のAI通信は行っていません。")
+            Text(noticeCopy)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -499,13 +495,38 @@ struct MockAITrainingPlanChatView: View {
     // MARK: - Footer
 
     private var footerNote: some View {
-        Text(isEndpointQA
-             ? "保存すると各セッションが通常のルーティンとして追加されます。DEBUG QAではローカルのモックエンドポイントに接続します。実際のAIプロバイダには接続しません。"
-             : "保存すると各セッションが通常のルーティンとして追加されます。実際のAI通信は行わず、ローカルのモックで動作します。")
+        Text(footerCopy)
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
+    }
+
+    private var headerCopy: String {
+#if DEBUG
+        if isEndpointQA {
+            return "入力内容をもとに、ローカルのモックエンドポイント経由でプラン候補を作成します。"
+        }
+#endif
+        return "入力内容をもとに、ローカルのモックプロバイダーでプラン候補を作成します。"
+    }
+
+    private var noticeCopy: String {
+#if DEBUG
+        if isEndpointQA {
+            return "DEBUG QA: ローカルのモックエンドポイントに接続し、通信経路を確認します。実際のAIプロバイダには接続しません。"
+        }
+#endif
+        return "これはモックAI相談です。実際のAI通信は行っていません。"
+    }
+
+    private var footerCopy: String {
+#if DEBUG
+        if isEndpointQA {
+            return "保存すると各セッションが通常のルーティンとして追加されます。DEBUG QAではローカルのモックエンドポイントに接続します。実際のAIプロバイダには接続しません。"
+        }
+#endif
+        return "保存すると各セッションが通常のルーティンとして追加されます。実際のAI通信は行わず、ローカルのモックで動作します。"
     }
 
     // MARK: - Reusable building blocks
