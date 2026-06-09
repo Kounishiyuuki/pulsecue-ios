@@ -189,6 +189,11 @@ Use this order for future PRs:
    **Documented:** see
    [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md)
    (docs-only; auth/token implementation is still future work).
+   ~~Define the server-side auth contract for `POST /api/ai/training-plan`.~~
+   **Documented:** see
+   [`ai-training-plan-proxy-endpoint-spec.md`](ai-training-plan-proxy-endpoint-spec.md)
+   §4.1–§4.9 (required header, token/scope requirements, error envelope with
+   `requestId`, status/code table, safety + logging rules, and a test matrix).
 4. Implement token acquisition and refresh only after the auth/token design is
    approved.
 5. Add real provider adapter code only on the server side after auth/token is

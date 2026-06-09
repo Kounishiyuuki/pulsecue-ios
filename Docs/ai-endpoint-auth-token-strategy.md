@@ -108,7 +108,10 @@ loading/error/retry/cancel のハードニング（`AIPlanGenerationPhase` / `AI
 { "error": { "code": "<machine-readable code>", "message": "<人間可読の説明>" } }
 ```
 
-認証導入に伴い、proxy spec §7 の表に **`token_expired` / `invalid_scope`** を加える。
+認証導入に伴い、proxy spec §7 の表に **`token_expired` / `invalid_scope`** を加えた
+（PR #89）。サーバ側の完全な認証コントラクト（必須ヘッダ・トークン要件・envelope の
+`requestId`・ステータス/コード表・安全規則・テストマトリクス）は
+[proxy spec](ai-training-plan-proxy-endpoint-spec.md) **§4.1–§4.9** を参照。
 iOS は server code を型付きクライアントエラーへ、さらに
 `AIPlanGenerationError`（PR #83）のユーザー向けカテゴリへ畳み込む。
 
@@ -195,7 +198,7 @@ iOS は server code を型付きクライアントエラーへ、さらに
 | 順 | 内容 | ネットワーク / 実 AI |
 |---|---|---|
 | **PR #88（本 PR）** | 本認証・トークン戦略（ドキュメントのみ） | なし |
-| 次 | サーバ auth 契約のドキュメント / proxy spec 更新（`token_expired` / `invalid_scope` 追記） | なし |
+| **PR #89** | サーバ auth 契約のドキュメント / proxy spec 更新（`token_expired` / `invalid_scope` 追記、§4.1–§4.9） | なし |
 | 次 | サーバ側 **モックトークン検証**（dev 専用・実プロバイダなし） | サーバのみ |
 | 次 | iOS **型付き auth エラーマッピング**（`token_expired` / `invalid_scope` → `unauthorized` 系） | なし（クライアント） |
 | 次 | **フェイクトークン**での dev QA | ローカルのみ |
