@@ -76,7 +76,154 @@ Authorization: Bearer <short-lived device-scoped token>
 - **本ドキュメントに secret / 実トークン値 / 実 URL を一切記載しない。**
 - 認証・型付きトークンの詳細方針（スコープ・境界・エラー・責務分担）は
   [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md) を参照。
-  そこで本 §7 のエラー表に `token_expired` / `invalid_scope` を加える想定。
+
+> 以下 §4.1–§4.9 は **将来の認証コントラクト**を確定するための仕様であり、
+> **本 PR では実装しない**（auth ミドルウェア・トークン検証・トークン発行・実
+> プロバイダ呼び出しのいずれも追加しない）。プレースホルダのみを記載し、実トークン
+> 値・実 secret・実 URL は一切含めない。現状の dev/mock エンドポイントは引き続き
+> ungated（§4.8）。
+
+### 4.1 必須認証ヘッダ（Required auth header, future）
+
+本番有効化後、`POST /api/ai/training-plan` は次のヘッダを**必須**とする:
+
+```
+Authorization: Bearer <short-lived app-to-backend token>
+```
+
+- `<short-lived app-to-backend token>` は**プレースホルダ**。実トークン値は本書に書かない。
+- これは「アプリ → 自社バックエンド」用トークンであり、**プロバイダ API キーではない**。
+- 実エンドポイント URL は本書に記載しない（既存方針どおり、`/api/...` 名前空間のみ示す）。
+
+### 4.2 トークン要件（Token requirements, future）
+
+- **app → backend 専用**。iOS はこのトークンでのみ自社バックエンドを呼ぶ。
+- **プロバイダ API キーはサーバ側 secret にのみ存在**し、iOS へは降ろさない。
+- **必須スコープ: `ai:training-plan`**。他スコープのトークンは拒否（§4.4 `invalid_scope`）。
+- **短期（short-lived）**。`expiresAt` 失効後は無効。TTL は別途
+  [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md) §3 / `import-token-endpoint-spec.md` で確定。
+- **プロバイダ呼び出しの前にサーバがトークンを検証する**。検証前に推論を走らせない。
+- **トークンをプロバイダへ転送しない**。トークンは自社境界で消費し、プロバイダには渡さない。
+- **プロバイダキーを iOS へ返さない**。レスポンス・エラーのいずれにも含めない。
+
+### 4.3 エラー envelope 形（Error envelope shape）
+
+`POST /api/ai/training-plan` のエラーは次の形に統一する（§7 と一致）:
+
+```json
+{
+  "error": {
+    "code": "<machine-readable code>",
+    "message": "<人間可読の説明（安全・非機微）>",
+    "requestId": "<安全な相関 ID（非機微）>"
+  }
+}
+```
+
+任意フィールド（必要時のみ・常に安全/非機微であること）:
+
+- `retryAfterSeconds`: `rate_limited` / `quota_exceeded` で再試行までの目安秒数。
+- `details`: **安全かつ非機微な場合のみ**。トークン・プロバイダ生エラー・相談文・
+  内部スタックトレース・他ユーザー情報は**入れない**。
+
+`requestId` はサーバが採番する相関用 ID。ログ突合に使い、トークンや個人情報を含めない。
+
+### 4.4 HTTP ステータスとエラーコード（Status & codes, future）
+
+| 状況 | HTTP | code |
+|---|---|---|
+| `Authorization` ヘッダ欠落 | 401 | `unauthorized` |
+| `Authorization` ヘッダの形式不正（`Bearer ` 接頭なし等） | 401 | `unauthorized` |
+| 空の bearer トークン | 401 | `unauthorized` |
+| トークン無効（署名/検証失敗） | 401 | `unauthorized` |
+| トークン期限切れ | 401 | `token_expired` |
+| 有効だが `ai:training-plan` スコープ無し | 403 | `invalid_scope` |
+| レート制限超過 | 429 | `rate_limited`（`retryAfterSeconds` 任意） |
+| クォータ超過 | 429 | `quota_exceeded`（`retryAfterSeconds` 任意） |
+| リクエストボディ不正（JSON/型/制約） | 400 | `invalid_request` |
+| プロバイダ応答タイムアウト | 504 | `timeout` |
+| プロバイダ障害 / 到達不可 | 503 | `provider_unavailable` |
+| プロバイダ出力がスキーマ不適合 / 安全でない | 502 | `invalid_provider_response` |
+| 想定外のサーバ失敗 | 500 | `unknown` |
+
+> **コード名の整合**: 「プロバイダ出力が不正/安全でない（502）」の**正準ワイヤコードは
+> `invalid_provider_response`**。これは現行 iOS クライアント
+> （`AITrainingPlanEndpointClient`）がデコードする文字列であり、概念上の
+> 「invalid response」条件に対応する（iOS は `AIPlanGenerationError.invalidResponse`
+> へ畳み込む。§4.7）。サーバ実装は `invalid_response` ではなく
+> `invalid_provider_response` を返すこと（変える場合は iOS デコーダも同時更新）。
+> 401 系（`unauthorized` / `token_expired`）と 403（`invalid_scope`）の判別は
+> `code` で行い、`message` にスコープ名やトークン詳細を含めない。
+
+### 4.5 レスポンス安全規則（Response safety rules）
+
+- レスポンスに**プロバイダ API キーを含めない**。
+- レスポンスに**プロバイダの生エラーを含めない**（型付き `code` + 安全な `message` のみ）。
+- レスポンスに**プロバイダの生ペイロードを含めない**（§6 のスキーマに正規化してから返す）。
+- レスポンス/エラーに**トークンをエコーしない**。
+- **`userMessage`（相談文）をエラーやログにエコーしない**。
+- `requestId` は安全・非機微であること。
+
+### 4.6 ロギング規則（Logging rules）
+
+[`ai-privacy-and-safety.md`](ai-privacy-and-safety.md) / §10 と一致:
+
+- **`Authorization` ヘッダを redact する**（ヘッダ丸ごと出力に注意）。
+- **トークンをログに残さない。**
+- **プロバイダ API キーをログに残さない。**
+- **`userMessage` 全文をログに残さない。**
+- **プロバイダの生レスポンスをログに残さない。**
+- 残してよいのは安全なリクエストメタデータ（`deviceId` または hash・`appVersion`・
+  timestamp）+ 結果 `code` + `requestId` のみ。
+
+### 4.7 iOS マッピング期待（iOS mapping expectations）
+
+サーバ `code` → iOS の型付きエラー → `AIPlanGenerationError`（PR #83）カテゴリ:
+
+| サーバ code | iOS の扱い | `AIPlanGenerationError` |
+|---|---|---|
+| `unauthorized` / `token_expired` | トークン再取得を **1 度だけ**試行（ループガード）→ 失敗ならエラー UI | unauthorized |
+| `invalid_scope` | 再取得せずエラー UI（バグ可能性として扱う） | unauthorized |
+| `rate_limited` / `quota_exceeded` | 「時間をおいて再試行」/「利用上限」案内 + ルールベース誘導 | rateLimited |
+| `timeout` / `provider_unavailable` | 再試行案内 + ルールベースフォールバック | timeout / providerUnavailable |
+| `invalid_provider_response` | 安全なフォールバック（「うまく作成できませんでした」+ 再試行） | invalidResponse |
+| `unknown` | 汎用エラー + 再試行 | unknown |
+
+- **どの認証/エンドポイント失敗でも `Routine` / `Step` を作らない。**
+- **`AITrainingPlanNormalizer` が候補表示前の最後の門番**であり続ける。
+- **保存は明示確定のみ**（「この候補を保存」）。
+
+### 4.8 dev/local 移行（Dev/local transition）
+
+- 現状の **DEBUG loopback QA は local/mock 専用のまま**でよい（`#if DEBUG` の
+  `debugLocalMock`、認証なし）。
+- 将来の**モックトークン検証はフェイク/ローカルトークンのみ**で行う（実トークン不可）。
+- **本番 auth 有効化は別 PR + 別承認**。本 docs PR は本番エンドポイントを有効化しない。
+
+### 4.9 将来実装のテストマトリクス（Test matrix for future implementation）
+
+サーバ auth 実装 PR は、最低限次を網羅する（ライブプロバイダ・実トークンは使わない）:
+
+| # | ケース | 期待 |
+|---|---|---|
+| 1 | `Authorization` ヘッダ無し | 401 `unauthorized` |
+| 2 | `Authorization` ヘッダ形式不正 | 401 `unauthorized` |
+| 3 | 空の bearer トークン | 401 `unauthorized` |
+| 4 | 無効トークン | 401 `unauthorized` |
+| 5 | 期限切れトークン | 401 `token_expired` |
+| 6 | 有効トークン・スコープ不一致 | 403 `invalid_scope` |
+| 7 | 有効トークン・`ai:training-plan` スコープ | 200（候補レスポンス） |
+| 8 | レート制限超過 | 429 `rate_limited` |
+| 9 | クォータ超過 | 429 `quota_exceeded` |
+| 10 | プロバイダタイムアウト | 504 `timeout` |
+| 11 | プロバイダ到達不可 | 503 `provider_unavailable` |
+| 12 | プロバイダ不正応答 | 502 `invalid_provider_response` |
+| 13 | 不正 JSON ボディ | 400 `invalid_request` |
+| 14 | 正常リクエスト・`availableMachineIds` あり | 200・既知 id のみ使用 |
+| 15 | 正常リクエスト・未知マシン id | 200・未知 id 除外 + 警告 |
+
+> 認証ケース（#1–#6）はモックトークン検証層で、プロバイダ系（#10–#12）はプロバイダ
+> アダプタのスタブで検証する。いずれも実 AI・実トークン・本番 URL に依存しない。
 
 ---
 
@@ -148,17 +295,19 @@ iOS の `AITrainingPlanResponse` 相当（draft、生・未検証として扱う
 既存 Worker のエラー envelope と揃える:
 
 ```json
-{ "error": { "code": "<machine-readable code>", "message": "<人間可読の説明>" } }
+{ "error": { "code": "<machine-readable code>", "message": "<人間可読の説明>", "requestId": "<安全な相関 ID>" } }
 ```
 
 | code | HTTP | 説明 | iOS 側の扱い |
 |---|---|---|---|
-| `unauthorized` | 401 | トークン欠落 / 無効 / 期限切れ | トークン再取得を 1 度試行 → 失敗ならエラー UI |
+| `unauthorized` | 401 | トークン欠落 / 形式不正 / 無効 | トークン再取得を 1 度試行 → 失敗ならエラー UI |
+| `token_expired` | 401 | トークン期限切れ | トークン再取得を 1 度試行（ループガード）→ 失敗ならエラー UI |
+| `invalid_scope` | 403 | 有効だが `ai:training-plan` スコープ無し | 再取得せずエラー UI（バグ可能性） |
 | `invalid_request` | 400 | JSON パース失敗 / 必須欠落 / 型不正 / 制約違反 | 入力を見直す案内。送信前にクライアントでも検証 |
 | `rate_limited` | 429 | per-user / per-device の頻度上限超過 | 「時間をおいて再試行」+ ルールベースへ誘導 |
 | `quota_exceeded` | 429 | プラン生成クォータ超過 | 「現在利用できません」+ ルールベース / 手動へ誘導 |
 | `timeout` | 504 | プロバイダ応答タイムアウト | 「時間をおいて再試行」。リトライはユーザー操作のみ |
-| `provider_unavailable` | 502/503 | プロバイダ障害 / 到達不可 | 同上 + ルールベースフォールバック |
+| `provider_unavailable` | 503 | プロバイダ障害 / 到達不可 | 同上 + ルールベースフォールバック |
 | `invalid_provider_response` | 502 | プロバイダ出力がスキーマ不適合 | 「うまく作成できませんでした」+ 再試行 / ルールベース |
 | `unknown` | 500 | 想定外のサーバ失敗 | 汎用エラー + 再試行 / ルールベース |
 
@@ -167,6 +316,8 @@ iOS の `AITrainingPlanResponse` 相当（draft、生・未検証として扱う
 - どのエラーでも **`Routine` / `Step` を作らない**。
 - 再試行コピーを出し、最終的に `RuleBasedWeeklyPlanGenerator` / 手動編集へ着地できる。
 - `message` にトークン値・内部スタックトレース・他ユーザー情報を含めない。
+- 認証関連コード（`unauthorized` / `token_expired` / `invalid_scope`）と envelope の
+  `requestId` を含む完全な認証コントラクトは §4.1–§4.9 を参照。
 
 ---
 
