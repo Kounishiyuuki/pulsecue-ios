@@ -14,3 +14,16 @@ PULSECUE_IMPORT_API_KEY=local-dev-dummy-key
 # locally; production must use `wrangler secret put
 # PULSECUE_IMPORT_TOKEN_SECRET` with a strong random value.
 PULSECUE_IMPORT_TOKEN_SECRET=local-dev-token-signing-secret
+
+# --- MOCK auth for POST /api/ai/training-plan (local/test only) ---
+# OFF by default. Leave AI_TRAINING_PLAN_AUTH_MODE unset (or anything
+# other than "mock") to keep the endpoint UNGATED, matching the default
+# DEBUG loopback QA. When set to "mock", the route requires a fake
+# `Authorization: Bearer` token matching one of the values below. These
+# are NOT production auth and NOT provider keys — only clearly fake,
+# local/test tokens. Never put a real secret or token here; production
+# auth is a separate, approved step.
+# AI_TRAINING_PLAN_AUTH_MODE=mock
+# AI_TRAINING_PLAN_MOCK_VALID_TOKEN=fake-valid-ai-training-plan-token
+# AI_TRAINING_PLAN_MOCK_EXPIRED_TOKEN=fake-expired-ai-training-plan-token
+# AI_TRAINING_PLAN_MOCK_WRONG_SCOPE_TOKEN=fake-wrong-scope-ai-token
