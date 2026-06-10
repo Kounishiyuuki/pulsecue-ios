@@ -264,6 +264,15 @@ struct MockAITrainingPlanChatView: View {
         )
     }
 
+    /// Machine ids sent with the request. The endpoint QA path must send
+    /// real `MachineCatalog` ids because the server mock only lays out the
+    /// machines the request provides — an empty list yields zero sessions.
+    /// The offline mock path sends none and falls back to the full catalog
+    /// itself, so its output is unchanged. Deterministic, all real ids.
+    static func qaRequestMachineIds(isEndpointQA: Bool) -> [String] {
+        isEndpointQA ? MachineCatalog.all.map(\.id) : []
+    }
+
     /// Runs the provider then the normalizer, driving the generation phase
     /// machine. Loading shows a spinner + cancel; success shows the
     /// candidate; failure shows a safe error card with retry; cancellation
@@ -284,7 +293,8 @@ struct MockAITrainingPlanChatView: View {
         let request = AITrainingPlanRequest(
             userMessage: userMessage,
             goal: goal,
-            daysPerWeek: daysPerWeek
+            daysPerWeek: daysPerWeek,
+            availableMachineIds: Self.qaRequestMachineIds(isEndpointQA: isEndpointQA)
         )
         generationTask = Task { @MainActor in
             do {

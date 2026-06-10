@@ -168,6 +168,46 @@ struct AITrainingPlanProviderFactoryTests {
         )
     }
 
+    // MARK: - QA request machine ids (endpoint path must send real catalog ids)
+
+    @Test
+    func endpointQARequestSendsNonEmptyRealCatalogMachineIds() {
+        let ids = MockAITrainingPlanChatView.qaRequestMachineIds(isEndpointQA: true)
+        #expect(!ids.isEmpty)
+        // Every id must resolve in the local catalog so the normalizer keeps it.
+        let catalog = Set(MachineCatalog.all.map(\.id))
+        #expect(ids.allSatisfy { catalog.contains($0) })
+        #expect(ids == MachineCatalog.all.map(\.id)) // deterministic
+    }
+
+    @Test
+    func offlineRequestSendsNoMachineIdsSoMockFallbackIsUnchanged() {
+        // The offline/default path sends none; the mock fills the catalog
+        // itself, so the shipping screen's output is unchanged.
+        #expect(MockAITrainingPlanChatView.qaRequestMachineIds(isEndpointQA: false).isEmpty)
+    }
+
+    @Test
+    func catalogIdsRoundTripIntoNonEmptyNormalizedSessions() {
+        // Reproduces the server mock shape: sessions referencing real catalog
+        // ids should normalize into non-empty sessions (the 0-session symptom
+        // was caused by sending no availableMachineIds, not a catalog mismatch).
+        let ids = MockAITrainingPlanChatView.qaRequestMachineIds(isEndpointQA: true)
+        let response = AITrainingPlanResponse(
+            title: "QA",
+            sessions: [
+                AITrainingSessionResponse(title: "Day 1", exerciseMachineIds: Array(ids.prefix(2))),
+                AITrainingSessionResponse(title: "Day 2", exerciseMachineIds: Array(ids.dropFirst(2).prefix(2))),
+            ]
+        )
+        let candidate = AITrainingPlanNormalizer.normalize(
+            response: response,
+            request: AITrainingPlanRequest(availableMachineIds: ids)
+        )
+        #expect(!candidate.sessions.isEmpty)
+        #expect(candidate.sessions.allSatisfy { !$0.exercises.isEmpty })
+    }
+
 #if DEBUG
     // MARK: - DEBUG-only local QA harness configuration
 
