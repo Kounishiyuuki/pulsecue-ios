@@ -117,6 +117,7 @@ struct SettingsView: View {
                 aiPlanChatCard
 #if DEBUG
                 aiEndpointQACard
+                aiEndpointQAFakeTokenCard
 #endif
                 appSettingsCard
                 appInfoCard
@@ -588,6 +589,40 @@ struct SettingsView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Text("DEBUG限定。ローカルのモックエンドポイントでAIプラン相談の通信経路を確認します。本番URL・キー・トークンは含みません。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// DEBUG-only QA entry that injects a fake **valid** local token so the
+    /// endpoint client exercises the server mock-auth success path
+    /// (`AI_TRAINING_PLAN_AUTH_MODE=mock`). Fake token + loopback only;
+    /// never compiled into release builds, never stored or displayed.
+    private var aiEndpointQAFakeTokenCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "ladybug.fill", title: "AI endpoint QA（fake token）")
+                NavigationLink {
+                    MockAITrainingPlanChatView(
+                        endpointConfiguration: .debugLocalMockWithFakeToken()
+                    )
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("フェイクトークンで mock-auth 経路を確認")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("DEBUG限定。ローカルのモックエンドポイントにフェイクの有効トークンを付けて送信し、サーバーの mock-auth 成功経路を確認します。本番URL・実トークン・キーは含みません。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)

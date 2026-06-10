@@ -201,6 +201,11 @@ Use this order for future PRs:
    `server/src/auth/aiTrainingPlanAuth.ts` gates the route only when
    `AI_TRAINING_PLAN_AUTH_MODE=mock`, validating fake/local `AI_TRAINING_PLAN_MOCK_*`
    tokens per §4. Default (unset) stays ungated; no real token issuer/secret/provider.
+   ~~Add a DEBUG **fake-token** QA path on iOS.~~ **Done (PR #92):** the
+   `#if DEBUG` `AITrainingPlanEndpointConfiguration.debugLocalMockWithFakeToken()`
+   + the "AI endpoint QA（fake token）" Settings card inject a clearly-fake local
+   token via `tokenProvider`, exercising the server mock-auth success path. Fake
+   tokens are DEBUG-only (absent from Release), never stored/logged/displayed.
 4. Implement token acquisition and refresh only after the auth/token design is
    approved.
 5. Add real provider adapter code only on the server side after auth/token is

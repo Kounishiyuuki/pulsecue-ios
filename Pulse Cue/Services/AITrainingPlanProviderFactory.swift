@@ -72,6 +72,34 @@ extension AITrainingPlanEndpointConfiguration {
             baseURL: URL(string: "http://127.0.0.1:8787/")!
         )
     }
+
+    /// Clearly-FAKE, local/test-only tokens used by the DEBUG fake-token QA
+    /// path. They match the server's `.dev.vars.example` mock-auth values
+    /// (PR #90) so the loopback server can validate them when started with
+    /// `AI_TRAINING_PLAN_AUTH_MODE=mock`. These are **not** real secrets and
+    /// exist only in DEBUG builds — never stored, logged, displayed, or
+    /// read from Keychain/UserDefaults/Info.plist.
+    enum DebugFakeToken {
+        static let valid = "fake-valid-ai-training-plan-token"
+        static let expired = "fake-expired-ai-training-plan-token"
+        static let wrongScope = "fake-wrong-scope-ai-token"
+    }
+
+    /// DEBUG-only QA configuration that injects a fake token via
+    /// `tokenProvider`, so the endpoint client exercises the server
+    /// mock-auth path (`Authorization: Bearer <fake token>`). Reuses the
+    /// loopback `debugLocalMock` base URL. Defaults to the fake **valid**
+    /// token (success path); pass `.expired` / `.wrongScope` to exercise the
+    /// typed auth-error mapping. The token is a fake constant captured in a
+    /// closure — nothing is persisted.
+    static func debugLocalMockWithFakeToken(
+        _ token: String = DebugFakeToken.valid
+    ) -> AITrainingPlanEndpointConfiguration {
+        AITrainingPlanEndpointConfiguration(
+            baseURL: debugLocalMock.baseURL,
+            tokenProvider: { token }
+        )
+    }
 }
 #endif
 
