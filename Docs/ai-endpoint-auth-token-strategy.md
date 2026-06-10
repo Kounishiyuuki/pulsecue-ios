@@ -184,7 +184,7 @@ iOS は server code を型付きクライアントエラーへ、さらに
   （`AITrainingPlanEndpointClientTests`）で担保済み。
 - **注入トークンありのヘッダ挙動**のユニットテスト（`Authorization: Bearer <fake>`）。← 既存。
 - **`unauthorized` マッピング**テスト。← 既存。
-- **`invalid_scope` / `token_expired` マッピング**テストは**サーバ契約が定まってから**追加。
+- **`invalid_scope` / `token_expired` マッピング**テスト。← PR #91 で追加。
 - **ライブプロバイダを叩くテストをしない。**
 - **テストに実トークンを書かない**（フェイク値のみ。例: `"short-lived-token"`）。
 - ネットワーク層は `URLProtocol` スタブで差し替え（既存方針）。
@@ -200,7 +200,7 @@ iOS は server code を型付きクライアントエラーへ、さらに
 | **PR #88（本 PR）** | 本認証・トークン戦略（ドキュメントのみ） | なし |
 | **PR #89** | サーバ auth 契約のドキュメント / proxy spec 更新（`token_expired` / `invalid_scope` 追記、§4.1–§4.9） | なし |
 | **PR #90** | サーバ側 **モックトークン検証**（`AI_TRAINING_PLAN_AUTH_MODE=mock` の opt-in、フェイクトークンのみ・dev 専用・実プロバイダなし） | サーバのみ |
-| 次 | iOS **型付き auth エラーマッピング**（`token_expired` / `invalid_scope` → `unauthorized` 系） | なし（クライアント） |
+| **PR #91** | iOS **型付き auth エラーマッピング**（`unauthorized` / `token_expired` / `invalid_scope` を安全な表示カテゴリへ変換）。トークン発行・永続化・自動更新は未実装 | なし（クライアント） |
 | 次 | **フェイクトークン**での dev QA | ローカルのみ |
 | 次 | サーバ **実プロバイダアダプタ**（auth 通過後のみ） | サーバのみ・実 AI |
 | 次 | **本番有効化**（プライバシー・auth・コスト・opt-in 承認後に別途） | あり（承認時のみ） |

@@ -192,7 +192,19 @@ struct AITrainingPlanEndpointClientTests {
     @Test
     func unauthorizedMapsFrom401() async {
         await expectError(.unauthorized, status: 401,
-                          json: #"{"error":{"code":"unauthorized","message":"x"}}"#)
+                          json: #"{"error":{"code":"unauthorized","message":"x","requestId":"req-1"}}"#)
+    }
+
+    @Test
+    func tokenExpiredMapsFrom401Envelope() async {
+        await expectError(.tokenExpired, status: 401,
+                          json: #"{"error":{"code":"token_expired","message":"x","requestId":"req-2"}}"#)
+    }
+
+    @Test
+    func invalidScopeMapsFrom403Envelope() async {
+        await expectError(.invalidScope, status: 403,
+                          json: #"{"error":{"code":"invalid_scope","message":"x","requestId":"req-3"}}"#)
     }
 
     @Test
@@ -210,6 +222,35 @@ struct AITrainingPlanEndpointClientTests {
     @Test
     func providerUnavailableMapsFrom503() async {
         await expectError(.providerUnavailable, status: 503, json: "{}")
+    }
+
+    @Test
+    func invalidProviderResponseCodeStillMapsToInvalidProviderResponse() async {
+        await expectError(.invalidProviderResponse, status: 502,
+                          json: #"{"error":{"code":"invalid_provider_response","message":"x"}}"#)
+    }
+
+    @Test
+    func malformedAuthEnvelopeMapsSafely() async {
+        await expectError(.unauthorized, status: 401, json: "not json at all")
+        await expectError(.unknown, status: 403, json: "{}")
+    }
+
+    @Test
+    func authErrorsDoNotExposeTokenOrUserMessageInDisplayedCopy() {
+        let rawToken = "fake-token-that-should-not-appear"
+        let rawUserMessage = "PLEASE_DO_NOT_SHOW_THIS_USER_MESSAGE"
+        let messages = [
+            AIPlanGenerationError.from(AITrainingPlanEndpointError.unauthorized).message,
+            AIPlanGenerationError.from(AITrainingPlanEndpointError.tokenExpired).message,
+            AIPlanGenerationError.from(AITrainingPlanEndpointError.invalidScope).message,
+        ]
+        for message in messages {
+            #expect(!message.contains(rawToken))
+            #expect(!message.contains(rawUserMessage))
+            #expect(!message.contains("Authorization"))
+            #expect(!message.contains("Bearer"))
+        }
     }
 
     @Test

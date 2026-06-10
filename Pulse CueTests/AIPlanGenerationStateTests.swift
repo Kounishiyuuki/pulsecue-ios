@@ -74,6 +74,8 @@ struct AIPlanGenerationStateTests {
     func endpointErrorsMapToExpectedCategories() {
         #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.timeout) == .timeout)
         #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.unauthorized) == .unauthorized)
+        #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.tokenExpired) == .tokenExpired)
+        #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.invalidScope) == .invalidScope)
         #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.rateLimited) == .rateLimited)
         #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.providerUnavailable) == .providerUnavailable)
         #expect(AIPlanGenerationError.from(AITrainingPlanEndpointError.transportFailed) == .providerUnavailable)
@@ -97,7 +99,8 @@ struct AIPlanGenerationStateTests {
     @Test
     func everyCategoryHasNonEmptyJapaneseCopy() {
         let categories: [AIPlanGenerationError] = [
-            .timeout, .unauthorized, .rateLimited, .providerUnavailable, .invalidResponse, .unknown,
+            .timeout, .unauthorized, .tokenExpired, .invalidScope, .rateLimited,
+            .providerUnavailable, .invalidResponse, .unknown,
         ]
         for category in categories {
             #expect(!category.message.isEmpty)
@@ -105,13 +108,16 @@ struct AIPlanGenerationStateTests {
         // Spot-check the exact copy for a couple of categories.
         #expect(AIPlanGenerationError.timeout.message == "通信に時間がかかっています。もう一度お試しください。")
         #expect(AIPlanGenerationError.unauthorized.message == "認証情報を確認してください。")
+        #expect(AIPlanGenerationError.tokenExpired.message == "認証の有効期限が切れています。再度お試しください。")
+        #expect(AIPlanGenerationError.invalidScope.message == "この操作に必要な権限を確認してください。")
     }
 
     @Test
     func copyNeverLeaksRawErrorDetail() {
         // Mapped copy must not echo enum case names or raw provider detail.
-        for category in [AIPlanGenerationError.timeout, .unauthorized, .rateLimited,
-                         .providerUnavailable, .invalidResponse, .unknown] {
+        for category in [AIPlanGenerationError.timeout, .unauthorized, .tokenExpired,
+                         .invalidScope, .rateLimited, .providerUnavailable,
+                         .invalidResponse, .unknown] {
             #expect(!category.message.contains("Error"))
             #expect(!category.message.contains("AITrainingPlanEndpointError"))
         }
