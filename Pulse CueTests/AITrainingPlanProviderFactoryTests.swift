@@ -196,5 +196,55 @@ struct AITrainingPlanProviderFactoryTests {
         // configuration; this mirrors that call site without any network.
         _ = MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMock)
     }
+
+    // MARK: - DEBUG-only fake-token QA configuration
+
+    @Test
+    func debugFakeTokenConfigStaysLoopbackAndInjectsValidToken() async throws {
+        let config = AITrainingPlanEndpointConfiguration.debugLocalMockWithFakeToken()
+        // Same loopback target as the no-token QA config.
+        #expect(config.baseURL == AITrainingPlanEndpointConfiguration.debugLocalMock.baseURL)
+        #expect(config.baseURL.host == "127.0.0.1")
+        // Defaults to the fake VALID token (success path).
+        let token = await config.tokenProvider?()
+        #expect(token == AITrainingPlanEndpointConfiguration.DebugFakeToken.valid)
+        #expect(token == "fake-valid-ai-training-plan-token")
+    }
+
+    @Test
+    func debugFakeTokenConfigCanInjectExpiredAndWrongScopeTokens() async throws {
+        let expired = AITrainingPlanEndpointConfiguration.debugLocalMockWithFakeToken(
+            AITrainingPlanEndpointConfiguration.DebugFakeToken.expired
+        )
+        let wrongScope = AITrainingPlanEndpointConfiguration.debugLocalMockWithFakeToken(
+            AITrainingPlanEndpointConfiguration.DebugFakeToken.wrongScope
+        )
+        #expect(await expired.tokenProvider?() == "fake-expired-ai-training-plan-token")
+        #expect(await wrongScope.tokenProvider?() == "fake-wrong-scope-ai-token")
+    }
+
+    @Test
+    func debugFakeTokenConfigBuildsEndpointClientCarryingTheFakeToken() async throws {
+        let config = AITrainingPlanEndpointConfiguration.debugLocalMockWithFakeToken()
+        let provider = AITrainingPlanProviderFactory.makeEndpointProvider(config: config)
+        let client = try #require(provider as? AITrainingPlanEndpointClient)
+        #expect(client.baseURL == config.baseURL)
+        // The endpoint client carries the injected fake token provider.
+        #expect(await client.tokenProvider?() == "fake-valid-ai-training-plan-token")
+    }
+
+    @Test
+    func noTokenQAConfigStillHasNoToken() {
+        // The original loopback QA config remains unauthenticated.
+        #expect(AITrainingPlanEndpointConfiguration.debugLocalMock.tokenProvider == nil)
+    }
+
+    @Test
+    func debugFakeTokenChatViewCanBeBuilt() {
+        // Mirrors the fake-token QA Settings entry; no network performed.
+        _ = MockAITrainingPlanChatView(
+            endpointConfiguration: .debugLocalMockWithFakeToken()
+        )
+    }
 #endif
 }

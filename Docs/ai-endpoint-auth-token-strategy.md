@@ -201,7 +201,7 @@ iOS は server code を型付きクライアントエラーへ、さらに
 | **PR #89** | サーバ auth 契約のドキュメント / proxy spec 更新（`token_expired` / `invalid_scope` 追記、§4.1–§4.9） | なし |
 | **PR #90** | サーバ側 **モックトークン検証**（`AI_TRAINING_PLAN_AUTH_MODE=mock` の opt-in、フェイクトークンのみ・dev 専用・実プロバイダなし） | サーバのみ |
 | **PR #91** | iOS **型付き auth エラーマッピング**（`unauthorized` / `token_expired` / `invalid_scope` を安全な表示カテゴリへ変換）。トークン発行・永続化・自動更新は未実装 | なし（クライアント） |
-| 次 | **フェイクトークン**での dev QA | ローカルのみ |
+| **PR #92** | **フェイクトークン**での dev QA（`#if DEBUG` の `debugLocalMockWithFakeToken` + 「AI endpoint QA（fake token）」カード。`Authorization: Bearer <fake>` でサーバ mock-auth 成功経路を確認。実トークン・永続化・自動更新なし） | ローカルのみ |
 | 次 | サーバ **実プロバイダアダプタ**（auth 通過後のみ） | サーバのみ・実 AI |
 | 次 | **本番有効化**（プライバシー・auth・コスト・opt-in 承認後に別途） | あり（承認時のみ） |
 

@@ -138,3 +138,44 @@ Use this sequence for follow-up work:
 5. Add a real provider adapter only after auth and token handling are ready.
 6. Add any production endpoint UI only after privacy, auth, cost, and opt-in
    behavior are approved.
+
+---
+
+## 8. DEBUG Fake-Token QA Path (PR #92)
+
+A second DEBUG-only QA path lets a developer exercise the **server mock-auth**
+success path (PR #90) from the app, using clearly-fake local tokens.
+
+- **What it is:** `AITrainingPlanEndpointConfiguration.debugLocalMockWithFakeToken()`
+  (`#if DEBUG`) reuses the loopback base URL and injects a fake **valid** token
+  via `tokenProvider`, so the endpoint client sends
+  `Authorization: Bearer <fake token>`. A separate Settings card,
+  "AI endpoint QA（fake token）" (`#if DEBUG`), opens the screen with it. The
+  original no-token "AI endpoint QA" card is unchanged.
+- **Local-only and test-only.** It targets `http://127.0.0.1:8787/` and works
+  only when the local server is started in mock-auth mode. It is **not**
+  production auth.
+- **Fake tokens only.** The values match the server `.dev.vars.example`
+  mock-auth tokens and live only in `#if DEBUG` code:
+  `fake-valid-ai-training-plan-token`, `fake-expired-ai-training-plan-token`,
+  `fake-wrong-scope-ai-token`. They are never stored, logged, displayed, or read
+  from Keychain/UserDefaults/Info.plist.
+- **To run locally**, start the server with mock auth enabled:
+
+  ```
+  AI_TRAINING_PLAN_AUTH_MODE=mock
+  AI_TRAINING_PLAN_MOCK_VALID_TOKEN=fake-valid-ai-training-plan-token
+  AI_TRAINING_PLAN_MOCK_EXPIRED_TOKEN=fake-expired-ai-training-plan-token
+  AI_TRAINING_PLAN_MOCK_WRONG_SCOPE_TOKEN=fake-wrong-scope-ai-token
+  ```
+
+  then open the "AI endpoint QA（fake token）" card and generate a plan; the
+  server returns the deterministic mock response on the valid token.
+- **Release exclusion (verified):** the Release binary contains none of the
+  fake token strings, the QA card titles, the loopback URL, or the DEBUG QA
+  copy. Endpoint mode remains non-default.
+- **Still out of scope:** production auth is disabled; token persistence,
+  refresh, and login remain unimplemented; the real provider is out of scope.
+  Expired / wrong-scope tokens are constructible via
+  `debugLocalMockWithFakeToken(.expired)` / `.wrongScope` and covered by unit
+  tests; the auth-error → `AIPlanGenerationError` mapping is from PR #91.
