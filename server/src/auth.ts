@@ -118,7 +118,7 @@ export function extractBearerToken(headerValue: string | undefined): string | nu
  * `crypto.timingSafeEqual`, so this compares UTF-8 bytes with a fixed
  * number of operations regardless of where the first difference is.
  */
-function timingSafeEqual(a: string, b: string): boolean {
+export function timingSafeEqual(a: string, b: string): boolean {
 	const encoder = new TextEncoder();
 	const aBytes = encoder.encode(a);
 	const bBytes = encoder.encode(b);

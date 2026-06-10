@@ -197,8 +197,13 @@ Authorization: Bearer <short-lived app-to-backend token>
 
 - 現状の **DEBUG loopback QA は local/mock 専用のまま**でよい（`#if DEBUG` の
   `debugLocalMock`、認証なし）。
-- 将来の**モックトークン検証はフェイク/ローカルトークンのみ**で行う（実トークン不可）。
-- **本番 auth 有効化は別 PR + 別承認**。本 docs PR は本番エンドポイントを有効化しない。
+- **モックトークン検証は実装済み（PR #90）だが既定では OFF**。サーバ env
+  `AI_TRAINING_PLAN_AUTH_MODE=mock` のときだけ有効化され、`AI_TRAINING_PLAN_MOCK_*`
+  の**フェイク/ローカルトークンのみ**を受け付ける（実トークン・実 secret・プロバイダ
+  キーは存在しない）。モード未設定なら従来どおり **ungated** で、既存の DEBUG loopback
+  QA を壊さない。検証は `server/src/auth/aiTrainingPlanAuth.ts`、設定例は
+  `server/.dev.vars.example`。
+- **本番 auth 有効化は別 PR + 別承認**。本実装は本番エンドポイントを有効化しない。
 
 ### 4.9 将来実装のテストマトリクス（Test matrix for future implementation）
 

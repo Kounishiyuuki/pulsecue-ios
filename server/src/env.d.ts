@@ -21,5 +21,31 @@ declare namespace Cloudflare {
 		 * `wrangler secret put PULSECUE_IMPORT_TOKEN_SECRET`.
 		 */
 		PULSECUE_IMPORT_TOKEN_SECRET: string;
+		/**
+		 * Optional, **local/test-only** switch for mock auth on
+		 * `POST /api/ai/training-plan`. When set to `"mock"`, the route
+		 * requires a `Authorization: Bearer <token>` matching one of the
+		 * `AI_TRAINING_PLAN_MOCK_*` values below. Any other value (or
+		 * unset) leaves the endpoint UNGATED — the current default DEBUG
+		 * loopback QA behavior. This is **not** production auth: there is
+		 * no real token issuer/validation and no provider key here.
+		 */
+		AI_TRAINING_PLAN_AUTH_MODE?: string;
+		/**
+		 * Fake, local/test-only token accepted as a valid
+		 * `ai:training-plan`-scoped token in mock-auth mode. Never a real
+		 * secret or provider key. Unset unless mock auth is enabled.
+		 */
+		AI_TRAINING_PLAN_MOCK_VALID_TOKEN?: string;
+		/**
+		 * Fake, local/test-only token treated as expired in mock-auth mode
+		 * (→ 401 `token_expired`). Never a real secret.
+		 */
+		AI_TRAINING_PLAN_MOCK_EXPIRED_TOKEN?: string;
+		/**
+		 * Fake, local/test-only token treated as wrong-scope in mock-auth
+		 * mode (→ 403 `invalid_scope`). Never a real secret.
+		 */
+		AI_TRAINING_PLAN_MOCK_WRONG_SCOPE_TOKEN?: string;
 	}
 }

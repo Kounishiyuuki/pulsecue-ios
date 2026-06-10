@@ -199,7 +199,7 @@ iOS は server code を型付きクライアントエラーへ、さらに
 |---|---|---|
 | **PR #88（本 PR）** | 本認証・トークン戦略（ドキュメントのみ） | なし |
 | **PR #89** | サーバ auth 契約のドキュメント / proxy spec 更新（`token_expired` / `invalid_scope` 追記、§4.1–§4.9） | なし |
-| 次 | サーバ側 **モックトークン検証**（dev 専用・実プロバイダなし） | サーバのみ |
+| **PR #90** | サーバ側 **モックトークン検証**（`AI_TRAINING_PLAN_AUTH_MODE=mock` の opt-in、フェイクトークンのみ・dev 専用・実プロバイダなし） | サーバのみ |
 | 次 | iOS **型付き auth エラーマッピング**（`token_expired` / `invalid_scope` → `unauthorized` 系） | なし（クライアント） |
 | 次 | **フェイクトークン**での dev QA | ローカルのみ |
 | 次 | サーバ **実プロバイダアダプタ**（auth 通過後のみ） | サーバのみ・実 AI |

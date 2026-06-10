@@ -194,6 +194,10 @@ Use this order for future PRs:
    [`ai-training-plan-proxy-endpoint-spec.md`](ai-training-plan-proxy-endpoint-spec.md)
    §4.1–§4.9 (required header, token/scope requirements, error envelope with
    `requestId`, status/code table, safety + logging rules, and a test matrix).
+   ~~Add server-side **mock** token validation.~~ **Done (PR #90):**
+   `server/src/auth/aiTrainingPlanAuth.ts` gates the route only when
+   `AI_TRAINING_PLAN_AUTH_MODE=mock`, validating fake/local `AI_TRAINING_PLAN_MOCK_*`
+   tokens per §4. Default (unset) stays ungated; no real token issuer/secret/provider.
 4. Implement token acquisition and refresh only after the auth/token design is
    approved.
 5. Add real provider adapter code only on the server side after auth/token is
