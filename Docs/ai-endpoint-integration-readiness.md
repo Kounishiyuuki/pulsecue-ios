@@ -183,8 +183,11 @@ Use this order for future PRs:
    injects `AITrainingPlanEndpointConfiguration` explicitly.~~ **Done:** the
    `#if DEBUG` "AI endpoint QA" Settings card opens the chat view with
    `AITrainingPlanEndpointConfiguration.debugLocalMock` (loopback, no token).
-2. QA endpoint success, timeout, unauthorized, rate-limit, unavailable, and
-   invalid-response mappings through `AIPlanGenerationError`.
+2. ~~QA endpoint success, timeout, unauthorized, token-expired, invalid-scope,
+   rate-limit, unavailable, and invalid-response mappings through
+   `AIPlanGenerationError`.~~ **Done for iOS typed mapping (PR #91):** this
+   is client-side error categorization only; token issuance, token persistence,
+   automatic refresh, and production auth remain unimplemented.
 3. ~~Define a typed short-lived token strategy for the training-plan scope.~~
    **Documented:** see
    [`ai-endpoint-auth-token-strategy.md`](ai-endpoint-auth-token-strategy.md)

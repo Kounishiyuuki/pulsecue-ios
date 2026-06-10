@@ -25,6 +25,8 @@ import Foundation
 nonisolated enum AIPlanGenerationError: Equatable, Sendable {
     case timeout
     case unauthorized
+    case tokenExpired
+    case invalidScope
     case rateLimited
     case providerUnavailable
     case invalidResponse
@@ -37,6 +39,10 @@ nonisolated enum AIPlanGenerationError: Equatable, Sendable {
             return "通信に時間がかかっています。もう一度お試しください。"
         case .unauthorized:
             return "認証情報を確認してください。"
+        case .tokenExpired:
+            return "認証の有効期限が切れています。再度お試しください。"
+        case .invalidScope:
+            return "この操作に必要な権限を確認してください。"
         case .rateLimited:
             return "短時間にリクエストが集中しています。少し待ってから再試行してください。"
         case .providerUnavailable:
@@ -61,6 +67,10 @@ nonisolated enum AIPlanGenerationError: Equatable, Sendable {
             return .timeout
         case .unauthorized:
             return .unauthorized
+        case .tokenExpired:
+            return .tokenExpired
+        case .invalidScope:
+            return .invalidScope
         case .rateLimited:
             return .rateLimited
         case .providerUnavailable, .transportFailed:

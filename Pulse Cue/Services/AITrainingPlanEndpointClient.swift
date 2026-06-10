@@ -36,6 +36,8 @@ enum AITrainingPlanEndpointError: Error, Equatable, Sendable {
     case encodingFailed
     case transportFailed
     case unauthorized
+    case tokenExpired
+    case invalidScope
     case rateLimited
     case timeout
     case providerUnavailable
@@ -139,6 +141,8 @@ struct AITrainingPlanEndpointClient: AITrainingPlanProviding {
         let code = (try? JSONDecoder().decode(ErrorEnvelopeDTO.self, from: data))?.error?.code
         switch code {
         case "unauthorized": return .unauthorized
+        case "token_expired": return .tokenExpired
+        case "invalid_scope": return .invalidScope
         case "rate_limited", "quota_exceeded": return .rateLimited
         case "timeout": return .timeout
         case "provider_unavailable": return .providerUnavailable
