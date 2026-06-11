@@ -53,6 +53,7 @@
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
 		DA57885887FA409498252986 /* WorkoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */; };
 		E28727782CB448ABBE5F84CE /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006E74099FEC4FEA860FC867 /* AppTheme.swift */; };
+		E28727782CB448ABBE5F8501 /* PulseUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006E74099FEC4FEA860FC901 /* PulseUI.swift */; };
 		EAB30E8A343941638ECD43B2 /* RunnerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38AF9175A5654DA28D42BFAB /* RunnerViewModel.swift */; };
 		ECC52B578D4C4FE697181A1C /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD02E7540234858B9B7F496 /* HistoryView.swift */; };
 		FAE38562062C4A8EB6BCFFA9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EEA51C8303A042F49C6E267B /* Assets.xcassets */; };
@@ -76,6 +77,7 @@
 		D17104DB1A8E4001B0DA5793 /* AITrainingPlanEndpointClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5794 /* AITrainingPlanEndpointClientTests.swift */; };
 		D17104DB1A8E4001B0DA5795 /* AITrainingPlanProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5796 /* AITrainingPlanProviderFactoryTests.swift */; };
 		D17104DB1A8E4001B0DA5797 /* AIPlanGenerationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5798 /* AIPlanGenerationStateTests.swift */; };
+		D17104DB1A8E4001B0DA5799 /* PulseUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA579A /* PulseUITests.swift */; };
 		D17104DB1A8E4001B0DA57B1 /* MockAIPlanSaveHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA57B2 /* MockAIPlanSaveHandoffTests.swift */; };
 		D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2F02 /* Gym.swift */; };
 		D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3002 /* GymMachine.swift */; };
@@ -186,6 +188,7 @@
 
 /* Begin PBXFileReference section */
 		006E74099FEC4FEA860FC867 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		006E74099FEC4FEA860FC901 /* PulseUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseUI.swift; sourceTree = "<group>"; };
 		161A24D02ABE4F458BF5B81D /* RoutinePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutinePickerSheet.swift; sourceTree = "<group>"; };
 		19B33DB07E7349E7996C58DB /* ScreenWakeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenWakeManager.swift; sourceTree = "<group>"; };
 		20132618DA9D4059810757F4 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
@@ -259,6 +262,7 @@
 		D17104DB1A8E4001B0DA5794 /* AITrainingPlanEndpointClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanEndpointClientTests.swift; path = "Pulse CueTests/AITrainingPlanEndpointClientTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5796 /* AITrainingPlanProviderFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanProviderFactoryTests.swift; path = "Pulse CueTests/AITrainingPlanProviderFactoryTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5798 /* AIPlanGenerationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AIPlanGenerationStateTests.swift; path = "Pulse CueTests/AIPlanGenerationStateTests.swift"; sourceTree = SOURCE_ROOT; };
+		D17104DB1A8E4001B0DA579A /* PulseUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PulseUITests.swift; path = "Pulse CueTests/PulseUITests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA57B2 /* MockAIPlanSaveHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockAIPlanSaveHandoffTests.swift; path = "Pulse CueTests/MockAIPlanSaveHandoffTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA2F02 /* Gym.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gym.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3002 /* GymMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymMachine.swift; sourceTree = "<group>"; };
@@ -509,6 +513,7 @@
 			children = (
 				C42B362F210943269227ACCE /* AppTab.swift */,
 				006E74099FEC4FEA860FC867 /* AppTheme.swift */,
+				006E74099FEC4FEA860FC901 /* PulseUI.swift */,
 				B6DCF85EFBDB4BDB932AE5F6 /* DateUtils.swift */,
 				D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */,
 				19B33DB07E7349E7996C58DB /* ScreenWakeManager.swift */,
@@ -780,6 +785,7 @@
 				7E3B925692AD4CF08125DCCD /* SoundHapticManager.swift in Sources */,
 				747C04136B9B471D8C4D42DC /* AppTab.swift in Sources */,
 				E28727782CB448ABBE5F84CE /* AppTheme.swift in Sources */,
+				E28727782CB448ABBE5F8501 /* PulseUI.swift in Sources */,
 				C005AB9BA16E40BEA40C3EB2 /* DateUtils.swift in Sources */,
 				6BF02A37870A447DA4527794 /* ScreenWakeManager.swift in Sources */,
 				EAB30E8A343941638ECD43B2 /* RunnerViewModel.swift in Sources */,
@@ -917,6 +923,7 @@
 				D17104DB1A8E4001B0DA5793 /* AITrainingPlanEndpointClientTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5795 /* AITrainingPlanProviderFactoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5797 /* AIPlanGenerationStateTests.swift in Sources */,
+				D17104DB1A8E4001B0DA5799 /* PulseUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA57B1 /* MockAIPlanSaveHandoffTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
