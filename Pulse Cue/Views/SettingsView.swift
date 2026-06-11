@@ -116,8 +116,7 @@ struct SettingsView: View {
                 weeklyPlanCandidateCard
                 aiPlanChatCard
 #if DEBUG
-                aiEndpointQACard
-                aiEndpointQAFakeTokenCard
+                aiEndpointQASection
 #endif
                 appSettingsCard
                 appInfoCard
@@ -572,70 +571,77 @@ struct SettingsView: View {
     }
 
 #if DEBUG
-    /// DEBUG-only QA entry. Opens the AI plan screen wired to the local mock
-    /// endpoint via the explicit `#if DEBUG` endpoint initializer. Never
-    /// compiled into release builds, so the shipping app only ever opens the
-    /// no-argument mock path above.
-    private var aiEndpointQACard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "ladybug", title: "AI endpoint QA")
-                NavigationLink {
-                    MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMock)
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("ローカルのモックエンドポイントで通信経路を確認")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("DEBUG限定。ローカルのモックエンドポイントでAIプラン相談の通信経路を確認します。本番URL・キー・トークンは含みません。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+    /// DEBUG-only developer / QA tools, grouped into one quiet section so they
+    /// never read like a normal user feature. Compiled only in DEBUG builds —
+    /// the shipping app shows none of this and only ever opens the no-argument
+    /// mock path in `aiPlanChatCard` above. Navigation destinations are
+    /// unchanged from the previous separate QA cards.
+    private var aiEndpointQASection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                PulseSectionHeader("開発者ツール", icon: "ladybug")
+                PulseStatusBadge("DEBUG", kind: .warning)
+            }
+            Text("AIプラン相談の通信経路を確認するための開発・QA専用ツールです。通常のAIプラン相談とは別物で、リリース版には含まれません。")
+                .font(.caption)
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            qaRow(
+                title: "AI endpoint QA",
+                subtitle: "ローカルのモックエンドポイントで通信経路を確認（トークンなし）。",
+                badges: [("LOCAL", .info), ("MOCK", .info)]
+            ) {
+                MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMock)
+            }
+
+            Divider().overlay(AppTheme.separator)
+
+            qaRow(
+                title: "AI endpoint QA（fake token）",
+                subtitle: "フェイクの有効トークンでサーバーの mock-auth 成功経路を確認。",
+                badges: [("LOCAL", .info), ("FAKE TOKEN", .warning)]
+            ) {
+                MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMockWithFakeToken())
             }
         }
+        .pulseCard()
     }
 
-    /// DEBUG-only QA entry that injects a fake **valid** local token so the
-    /// endpoint client exercises the server mock-auth success path
-    /// (`AI_TRAINING_PLAN_AUTH_MODE=mock`). Fake token + loopback only;
-    /// never compiled into release builds, never stored or displayed.
-    private var aiEndpointQAFakeTokenCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "ladybug.fill", title: "AI endpoint QA（fake token）")
-                NavigationLink {
-                    MockAITrainingPlanChatView(
-                        endpointConfiguration: .debugLocalMockWithFakeToken()
-                    )
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("フェイクトークンで mock-auth 経路を確認")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("DEBUG限定。ローカルのモックエンドポイントにフェイクの有効トークンを付けて送信し、サーバーの mock-auth 成功経路を確認します。本番URL・実トークン・キーは含みません。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
+    /// Compact, low-emphasis navigation row for a DEBUG QA destination —
+    /// deliberately quieter than the normal feature cards.
+    private func qaRow<Destination: View>(
+        title: String,
+        subtitle: String,
+        badges: [(String, PulseStatusBadge.Kind)],
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
+                            PulseStatusBadge(badge.0, kind: badge.1)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
                     }
-                    .contentShape(Rectangle())
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .multilineTextAlignment(.leading)
                 }
-                .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 #endif
 
