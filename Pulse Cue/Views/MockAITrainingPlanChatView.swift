@@ -23,7 +23,6 @@ import SwiftUI
 import SwiftData
 
 struct MockAITrainingPlanChatView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
 
     // The provider is referenced through the protocol so a real one can
@@ -327,31 +326,35 @@ struct MockAITrainingPlanChatView: View {
     // MARK: - Summary
 
     private func summaryCard(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
-        card {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 Text(candidate.title)
                     .font(.headline)
-                HStack(spacing: 6) {
-                    metaPill(text: candidate.goal.displayName)
-                    metaPill(text: "週 \(candidate.daysPerWeek) 日")
-                    metaPill(text: "\(candidate.sessions.count) セッション")
-                }
-                if !candidate.rationale.isEmpty {
-                    Text(candidate.rationale)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Spacer(minLength: 8)
+                PulseStatusBadge("下書き・未保存", kind: .info)
+            }
+            HStack(spacing: 6) {
+                metaPill(text: candidate.goal.displayName)
+                metaPill(text: "週 \(candidate.daysPerWeek) 日")
+                metaPill(text: "\(candidate.sessions.count) セッション")
+            }
+            if !candidate.rationale.isEmpty {
+                Text(candidate.rationale)
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .pulseCard()
     }
 
     private func warningsCard(_ warnings: [String]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            PulseStatusBadge("注意", kind: .warning)
             ForEach(warnings, id: \.self) { warning in
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppTheme.warning)
                     Text(warning)
                         .font(.footnote)
                         .fixedSize(horizontal: false, vertical: true)
@@ -359,40 +362,38 @@ struct MockAITrainingPlanChatView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(AppTheme.Spacing.l)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
+            RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
+                .fill(AppTheme.warning.opacity(0.10))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+            RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
+                .strokeBorder(AppTheme.warning.opacity(0.30), lineWidth: 1)
         )
     }
 
     // MARK: - Session
 
     private func sessionCard(_ session: TrainingSessionCandidate) -> some View {
-        card {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(session.title)
-                    .font(.subheadline.weight(.bold))
-                if !session.focusBodyParts.isEmpty {
-                    chipRow(session.focusBodyParts.map(\.displayName))
-                }
-                VStack(spacing: 8) {
-                    ForEach(Array(session.exercises.enumerated()), id: \.offset) { _, ex in
-                        exerciseRow(ex)
-                    }
-                }
-                if !session.notes.isEmpty {
-                    Text(session.notes)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            PulseSectionHeader(session.title, icon: "figure.strengthtraining.traditional")
+            if !session.focusBodyParts.isEmpty {
+                chipRow(session.focusBodyParts.map(\.displayName))
+            }
+            VStack(spacing: 8) {
+                ForEach(Array(session.exercises.enumerated()), id: \.offset) { _, ex in
+                    exerciseRow(ex)
                 }
             }
+            if !session.notes.isEmpty {
+                Text(session.notes)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .pulseCard()
     }
 
     private func exerciseRow(_ ex: RoutineStepCandidate) -> some View {
@@ -402,7 +403,7 @@ struct MockAITrainingPlanChatView: View {
             if !ex.bodyParts.isEmpty {
                 Text(ex.bodyParts.map(\.displayName).joined(separator: " / "))
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.textSecondary)
             }
             HStack(spacing: 6) {
                 if let setsReps = ex.setsAndRepsText {
@@ -420,7 +421,11 @@ struct MockAITrainingPlanChatView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+                .fill(Color.primary.opacity(0.03))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(AppTheme.separator, lineWidth: 0.5)
         )
     }
 
@@ -437,54 +442,47 @@ struct MockAITrainingPlanChatView: View {
 
     private func saveCard(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
         let count = savableSessionCount
-        return card {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("ルーティンとして保存")
-                    .font(.headline)
-                Text("保存すると、各セッションが通常のルーティンとして追加されます。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("ルーティンとして保存")
+                .font(.headline)
+            Text("保存するまで候補は端末に追加されません。保存すると各セッションが通常のルーティンとして追加されます。")
+                .font(.footnote)
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if count == 0 {
+                Text("保存できるセッションがありません。相談内容や日数を変えて再生成してください。")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                if count == 0 {
-                    Text("保存できるセッションがありません。相談内容や日数を変えて再生成してください。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Button {
-                    save(candidate)
-                } label: {
-                    Label("この候補を保存", systemImage: "tray.and.arrow.down.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(count == 0)
             }
+
+            Button {
+                save(candidate)
+            } label: {
+                Label("この候補を保存", systemImage: "tray.and.arrow.down.fill")
+            }
+            .buttonStyle(PulsePrimaryButtonStyle())
+            .disabled(count == 0)
         }
+        .pulseCard()
     }
 
     private func successCard(count: Int) -> some View {
-        card {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("保存しました", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
-                Text("\(count) 件のルーティンを追加しました")
-                    .font(.headline)
-                Text("AIプラン相談で作成した候補を通常のルーティンとして保存しました。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("新しい相談内容で再生成すると、別の候補として保存できます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            PulseStatusBadge("保存済み", kind: .success)
+            Text("\(count) 件のルーティンを追加しました")
+                .font(.headline)
+            Text("AIプラン相談で作成した候補を通常のルーティンとして保存しました。")
+                .font(.caption)
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("新しい相談内容で再生成すると、別の候補として保存できます。")
+                .font(.caption)
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .pulseCard()
     }
 
     /// Builds routines purely via `RoutineFactory`, then inserts them on
@@ -560,8 +558,8 @@ struct MockAITrainingPlanChatView: View {
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(Capsule().fill(Color.accentColor.opacity(0.14)))
-            .foregroundStyle(Color.accentColor)
+            .background(Capsule().fill(AppTheme.accentSoft))
+            .foregroundStyle(AppTheme.accent)
     }
 
     private func metricChip(icon: String, text: String) -> some View {
@@ -584,8 +582,8 @@ struct MockAITrainingPlanChatView: View {
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-                    .foregroundStyle(Color.accentColor)
+                    .background(Capsule().fill(AppTheme.accentSoft))
+                    .foregroundStyle(AppTheme.accent)
             }
             Spacer(minLength: 0)
         }
@@ -594,12 +592,9 @@ struct MockAITrainingPlanChatView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        let colors: [Color] = colorScheme == .dark
-            ? [Color(red: 0.05, green: 0.07, blue: 0.12),
-               Color(red: 0.07, green: 0.06, blue: 0.13)]
-            : [Color(red: 0.93, green: 0.96, blue: 1.00),
-               Color(red: 0.99, green: 0.96, blue: 1.00)]
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        // Calm, airy Apple Health Light surface (adapts to dark mode) — the
+        // candidate cards float above it instead of a saturated gradient.
+        AppTheme.surface
     }
 }
 
