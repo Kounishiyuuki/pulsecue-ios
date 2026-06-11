@@ -88,18 +88,7 @@ struct PulsePrimaryButtonStyle: ButtonStyle {
     var isEnabled: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, AppTheme.Spacing.m)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .fill(isEnabled ? AnyShapeStyle(AppTheme.accent) : AnyShapeStyle(Color.gray.opacity(0.35)))
-                    .shadow(color: isEnabled ? AppTheme.accent.opacity(0.22) : .clear,
-                            radius: 8, x: 0, y: 4)
-            )
-            .opacity(configuration.isPressed ? 0.9 : 1.0)
+        PulseButtonBody(variant: .primary, manualEnabled: isEnabled, configuration: configuration)
     }
 }
 
@@ -109,20 +98,7 @@ struct PulseSecondaryButtonStyle: ButtonStyle {
     var isEnabled: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(isEnabled ? AppTheme.accent : Color.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, AppTheme.Spacing.m)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .fill(AppTheme.accentSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .strokeBorder(AppTheme.accent.opacity(isEnabled ? 0.30 : 0.12), lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.9 : 1.0)
+        PulseButtonBody(variant: .secondary, manualEnabled: isEnabled, configuration: configuration)
     }
 }
 
@@ -132,9 +108,78 @@ struct PulseTertiaryButtonStyle: ButtonStyle {
     var isEnabled: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
+        PulseButtonBody(variant: .tertiary, manualEnabled: isEnabled, configuration: configuration)
+    }
+}
+
+/// Shared label body for the Pulse button styles. A `ButtonStyle`'s
+/// `makeBody` cannot read `@Environment`, so the rendered visuals live in
+/// this `View` where `@Environment(\.isEnabled)` is available. The disabled
+/// appearance therefore follows SwiftUI's `.disabled(...)` as well as the
+/// style's manual `isEnabled` flag.
+struct PulseButtonBody: View {
+    enum Variant { case primary, secondary, tertiary }
+
+    @Environment(\.isEnabled) private var environmentIsEnabled
+
+    let variant: Variant
+    let manualEnabled: Bool
+    let configuration: ButtonStyle.Configuration
+
+    /// The visual enabled state: enabled only when both the manual flag and
+    /// the `.disabled(...)` environment are enabled.
+    static func isEffectivelyEnabled(manual: Bool, environment: Bool) -> Bool {
+        manual && environment
+    }
+
+    private var effectiveEnabled: Bool {
+        Self.isEffectivelyEnabled(manual: manualEnabled, environment: environmentIsEnabled)
+    }
+
+    var body: some View {
+        switch variant {
+        case .primary: primary
+        case .secondary: secondary
+        case .tertiary: tertiary
+        }
+    }
+
+    private var primary: some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppTheme.Spacing.m)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                    .fill(effectiveEnabled ? AnyShapeStyle(AppTheme.accent) : AnyShapeStyle(Color.gray.opacity(0.35)))
+                    .shadow(color: effectiveEnabled ? AppTheme.accent.opacity(0.22) : .clear,
+                            radius: 8, x: 0, y: 4)
+            )
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+    }
+
+    private var secondary: some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(effectiveEnabled ? AppTheme.accent : Color.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppTheme.Spacing.m)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                    .fill(AppTheme.accentSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                    .strokeBorder(AppTheme.accent.opacity(effectiveEnabled ? 0.30 : 0.12), lineWidth: 1)
+            )
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+    }
+
+    private var tertiary: some View {
         configuration.label
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(isEnabled ? AppTheme.accent : Color.secondary)
+            .foregroundStyle(effectiveEnabled ? AppTheme.accent : Color.secondary)
             .padding(.vertical, AppTheme.Spacing.s)
             .padding(.horizontal, AppTheme.Spacing.s)
             .opacity(configuration.isPressed ? 0.55 : 1.0)

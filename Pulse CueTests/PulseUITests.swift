@@ -45,6 +45,39 @@ struct PulseUITests {
         _ = Button("Tertiary") {}.buttonStyle(PulseTertiaryButtonStyle())
     }
 
+    // MARK: - Disabled visual state respects both manual flag and .disabled(...)
+
+    @Test
+    func effectiveEnabledIsManualAndEnvironment() {
+        // Enabled only when BOTH the manual flag and the `.disabled(...)`
+        // environment are enabled — disabled if either is false.
+        #expect(PulseButtonBody.isEffectivelyEnabled(manual: true, environment: true) == true)
+        #expect(PulseButtonBody.isEffectivelyEnabled(manual: false, environment: true) == false)
+        #expect(PulseButtonBody.isEffectivelyEnabled(manual: true, environment: false) == false)
+        #expect(PulseButtonBody.isEffectivelyEnabled(manual: false, environment: false) == false)
+    }
+
+    @Test
+    func manualDisabledFlagStillForcesDisabled() {
+        // The kept manual API: isEnabled:false disables regardless of env.
+        #expect(PulseButtonBody.isEffectivelyEnabled(manual: false, environment: true) == false)
+    }
+
+    @Test
+    func environmentDisabledIsRespectedEvenWhenManualEnabled() {
+        // The fix: SwiftUI `.disabled(true)` (environment == false) disables
+        // even when the style's manual flag stays the default `true`.
+        #expect(PulseButtonBody.isEffectivelyEnabled(manual: true, environment: false) == false)
+    }
+
+    @Test
+    func disabledButtonStylesStillConstruct() {
+        // The styles remain applicable together with `.disabled(...)`.
+        _ = Button("Primary") {}.buttonStyle(PulsePrimaryButtonStyle()).disabled(true)
+        _ = Button("Secondary") {}.buttonStyle(PulseSecondaryButtonStyle(isEnabled: false))
+        _ = Button("Tertiary") {}.buttonStyle(PulseTertiaryButtonStyle()).disabled(true)
+    }
+
     @Test
     func spacingScaleIsMonotonic() {
         #expect(AppTheme.Spacing.xs < AppTheme.Spacing.s)
