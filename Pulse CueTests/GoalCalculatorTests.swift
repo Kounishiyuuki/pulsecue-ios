@@ -178,4 +178,31 @@ struct GoalCalculatorTests {
         // Ate 2200, target 1958 → +242
         #expect(GoalCalculator.todayGoalGap(todayIntake: 2200, targetIntake: 1958) == 242)
     }
+
+    // MARK: - Effective intake target (manual override → profile fallback)
+
+    @Test
+    func effectiveIntakeTargetPrefersManualOverride() {
+        // Manual HealthTargets value wins over the profile-calculated one.
+        #expect(GoalCalculator.effectiveIntakeTarget(manualTarget: 1800, profileTarget: 1958) == 1800)
+    }
+
+    @Test
+    func effectiveIntakeTargetFallsBackToProfileWhenNoManual() {
+        // No manual override → use the profile-calculated target (what
+        // Nutrition shows), so Today and Nutrition agree.
+        #expect(GoalCalculator.effectiveIntakeTarget(manualTarget: nil, profileTarget: 1958) == 1958)
+    }
+
+    @Test
+    func effectiveIntakeTargetIsNilWhenNeitherAvailable() {
+        // No manual and no profile target → no target (graceful).
+        #expect(GoalCalculator.effectiveIntakeTarget(manualTarget: nil, profileTarget: nil) == nil)
+    }
+
+    @Test
+    func effectiveIntakeTargetUsesManualEvenWhenProfileMissing() {
+        // Manual override still applies when the profile target is nil.
+        #expect(GoalCalculator.effectiveIntakeTarget(manualTarget: 2100, profileTarget: nil) == 2100)
+    }
 }

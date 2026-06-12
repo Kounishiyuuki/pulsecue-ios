@@ -83,4 +83,16 @@ enum GoalCalculator {
     static func todayGoalGap(todayIntake: Int, targetIntake: Int) -> Int {
         todayIntake - targetIntake
     }
+
+    /// Effective daily intake target for a screen that supports a manual
+    /// override (e.g. `HealthTargets.intakeCalories`) on top of the
+    /// profile-calculated target (`UserProfile.targetIntake(...)`).
+    ///
+    /// Priority: manual override → profile-calculated fallback → `nil`.
+    /// This keeps Today consistent with Nutrition (which uses the profile
+    /// target) without duplicating the BMR/TDEE/target formula — the caller
+    /// passes the already-computed `profileTarget`.
+    static func effectiveIntakeTarget(manualTarget: Int?, profileTarget: Int?) -> Int? {
+        manualTarget ?? profileTarget
+    }
 }
