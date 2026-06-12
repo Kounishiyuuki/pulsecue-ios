@@ -65,6 +65,26 @@ struct TodayView: View {
         HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings)
     }
 
+    /// Most recent logged body weight in the dashboard window — the
+    /// "current weight" used to compute the profile-based calorie target,
+    /// mirroring Nutrition's `latestWeight`. `recentLogs` is date-descending,
+    /// so the first entry with a weight is the latest. `nil` when no weight
+    /// is logged; `UserProfile.targetIntake` then falls back to goal weight.
+    private var latestLoggedWeight: Double? {
+        recentLogs.first(where: { $0.weightKg != nil })?.weightKg
+    }
+
+    /// Today's intake calorie target. Prefers the manual `HealthTargets`
+    /// override; when none is set it falls back to the profile-calculated
+    /// target (the same value Nutrition shows) so Today and Nutrition agree
+    /// after profile/goal setup without requiring a manual target.
+    private var intakeCalorieTarget: Int? {
+        GoalCalculator.effectiveIntakeTarget(
+            manualTarget: resolvedTargets.intakeCalories,
+            profileTarget: profiles.first?.targetIntake(currentWeightKg: latestLoggedWeight)
+        )
+    }
+
     var body: some View {
         ZStack {
             backgroundLayer.ignoresSafeArea()
@@ -325,7 +345,7 @@ struct TodayView: View {
                 field: .nutrition,
                 targetSubtitle: kcalSubtitle(
                     current: todayLog?.intakeCalories,
-                    target: targets.intakeCalories
+                    target: intakeCalorieTarget
                 )
             )
             metricCard(
