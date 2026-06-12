@@ -36,7 +36,6 @@ import SwiftData
 
 struct NutritionView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var settings: SettingsStore
 
     @Query(sort: [SortDescriptor(\MealEntry.createdAt, order: .forward)]) private var allMeals: [MealEntry]
@@ -177,35 +176,8 @@ struct NutritionView: View {
     // MARK: - Background / accent
 
     private var backgroundLayer: some View {
-        LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var backgroundColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(red: 0.05, green: 0.07, blue: 0.12),
-                Color(red: 0.07, green: 0.06, blue: 0.13),
-                Color(red: 0.05, green: 0.07, blue: 0.10)
-            ]
-        } else {
-            return [
-                Color(red: 0.93, green: 0.96, blue: 1.00),
-                Color(red: 0.96, green: 0.97, blue: 1.00),
-                Color(red: 0.99, green: 0.96, blue: 1.00)
-            ]
-        }
-    }
-
-    private var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.27, green: 0.62, blue: 0.95),
-                Color(red: 0.49, green: 0.51, blue: 0.97),
-                Color(red: 0.66, green: 0.45, blue: 0.95)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 
     private var proteinGradient: LinearGradient {
@@ -232,8 +204,7 @@ struct NutritionView: View {
     // MARK: - Sections
 
     private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.headline)
+        PulseSectionHeader(text)
             .padding(.top, 4)
     }
 
@@ -261,9 +232,9 @@ struct NutritionView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(
-                            Capsule().fill(accentGradient.opacity(0.15))
+                            Capsule().fill(AppTheme.accent.opacity(0.15))
                         )
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 .accessibilityLabel("AI で食事を記録")
             }
@@ -283,19 +254,19 @@ struct NutritionView: View {
                 systemImage: "doc.text.viewfinder",
                 label: "栄養表示",
                 accessibilityLabel: "栄養表示を読み取る",
-                gradient: accentGradient
+                tint: AppTheme.accent
             ) { showNutritionLabelOCR = true }
             NutritionEntryActionChip(
                 systemImage: "barcode.viewfinder",
                 label: "バーコード",
                 accessibilityLabel: "バーコードを読み取る",
-                gradient: accentGradient
+                tint: AppTheme.accent
             ) { showBarcodeScanner = true }
             NutritionEntryActionChip(
                 systemImage: "photo",
                 label: "写真",
                 accessibilityLabel: "食事写真をプレビュー",
-                gradient: accentGradient
+                tint: AppTheme.accent
             ) { showPhotoFoodCapture = true }
             Spacer(minLength: 0)
         }
@@ -316,11 +287,11 @@ struct NutritionView: View {
             HStack(alignment: .center, spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(accentGradient.opacity(0.15))
+                        .fill(AppTheme.accent.opacity(0.15))
                         .frame(width: 40, height: 40)
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("7日間の傾向")
@@ -396,7 +367,7 @@ struct NutritionView: View {
                 HStack(spacing: 4) {
                     Image(systemName: suggestion.slot.systemImage)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                     Text(suggestion.slot.label)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -409,7 +380,7 @@ struct NutritionView: View {
                 HStack(alignment: .lastTextBaseline, spacing: 2) {
                     Text("\(formatInt(suggestion.kcal))")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                     Text("kcal")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -423,7 +394,7 @@ struct NutritionView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(accentGradient.opacity(0.25), lineWidth: 0.6)
+                    .strokeBorder(AppTheme.accent.opacity(0.25), lineWidth: 0.6)
             )
         }
         .buttonStyle(.plain)
@@ -494,7 +465,7 @@ struct NutritionView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                     Text(template.slot.label)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -507,7 +478,7 @@ struct NutritionView: View {
                 HStack(alignment: .lastTextBaseline, spacing: 2) {
                     Text("\(formatInt(template.kcal))")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                     Text("kcal")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -527,7 +498,7 @@ struct NutritionView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(accentGradient.opacity(0.25), lineWidth: 0.6)
+                    .strokeBorder(AppTheme.accent.opacity(0.25), lineWidth: 0.6)
             )
         }
         .buttonStyle(.plain)
@@ -614,10 +585,16 @@ struct NutritionView: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(formatInt(confirmedKcal))
                     .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
                 Text(targetKcal.map { "/ \(formatInt($0)) kcal" } ?? "/ —")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if targetKcal != nil {
+                    // Clarifies the target is the profile-calculated value
+                    // (UserProfile.targetIntake), consistent with Today.
+                    PulseStatusBadge("計算目標", kind: .info)
+                }
             }
 
             HStack(alignment: .top, spacing: 10) {
@@ -641,9 +618,7 @@ struct NutritionView: View {
                 )
             }
         }
-        .padding(20)
-        .background(glassBackground)
-        .overlay(glassStroke)
+        .pulseCard(padding: 20)
     }
 
     private func macroPanel(label: String, grams: Int, target: Int, gradient: LinearGradient) -> some View {
@@ -712,7 +687,7 @@ struct NutritionView: View {
                     HStack(spacing: 8) {
                         Text("\(formatInt(meal.kcal)) kcal")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(accentGradient)
+                            .foregroundStyle(AppTheme.accent)
                         if let protein = meal.proteinGrams, protein > 0 {
                             proteinChip(grams: protein)
                         }
@@ -771,11 +746,11 @@ struct NutritionView: View {
     private func slotThumb(_ slot: MealSlot) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(accentGradient.opacity(0.15))
+                .fill(AppTheme.accent.opacity(0.15))
                 .frame(width: 48, height: 48)
             Image(systemName: slot.systemImage)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
         }
     }
 
@@ -807,11 +782,11 @@ struct NutritionView: View {
             VStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill(accentGradient.opacity(0.12))
+                        .fill(AppTheme.accent.opacity(0.12))
                         .frame(width: 44, height: 44)
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 Text(slot.label)
                     .font(.subheadline.weight(.bold))
@@ -858,7 +833,7 @@ struct NutritionView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("~ \(formatInt(meal.kcal))")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                     Text("kcal")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -908,7 +883,7 @@ struct NutritionView: View {
                 .buttonStyle(.plain)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(accentGradient)
+                        .fill(AppTheme.accent)
                         .shadow(
                             color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.4),
                             radius: 12, y: 6
@@ -934,7 +909,7 @@ struct NutritionView: View {
         .overlay(glassStroke)
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(accentGradient.opacity(0.35), lineWidth: 1.2)
+                .strokeBorder(AppTheme.accent.opacity(0.35), lineWidth: 1.2)
         )
     }
 
@@ -980,14 +955,14 @@ struct NutritionView: View {
             Text("推定")
                 .font(.caption2.weight(.bold))
         }
-        .foregroundStyle(accentGradient)
+        .foregroundStyle(AppTheme.accent)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule().fill(.regularMaterial)
         )
         .overlay(
-            Capsule().strokeBorder(accentGradient.opacity(0.5), lineWidth: 0.6)
+            Capsule().strokeBorder(AppTheme.accent.opacity(0.5), lineWidth: 0.6)
         )
     }
 
@@ -1102,7 +1077,7 @@ private struct NutritionEntryActionChip: View {
     let systemImage: String
     let label: String
     let accessibilityLabel: String
-    let gradient: LinearGradient
+    let tint: Color
     let action: () -> Void
 
     var body: some View {
@@ -1112,9 +1087,9 @@ private struct NutritionEntryActionChip: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
-                    Capsule().fill(gradient.opacity(0.15))
+                    Capsule().fill(tint.opacity(0.15))
                 )
-                .foregroundStyle(gradient)
+                .foregroundStyle(tint)
         }
         .accessibilityLabel(accessibilityLabel)
     }
