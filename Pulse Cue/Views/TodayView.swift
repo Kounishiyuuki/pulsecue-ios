@@ -26,7 +26,6 @@ import SwiftData
 
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
     @Binding var selectedTab: AppTab
@@ -75,6 +74,8 @@ struct TodayView: View {
                     heroCard
                     startWorkoutButton
                     TodayGymPlanCard()
+                    PulseSectionHeader("今日のサマリー", icon: "chart.bar.xaxis")
+                        .padding(.top, 2)
                     metricsGrid
                     nutritionLogLink
                     balanceCard
@@ -103,35 +104,8 @@ struct TodayView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var backgroundColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(red: 0.05, green: 0.07, blue: 0.12),
-                Color(red: 0.07, green: 0.06, blue: 0.13),
-                Color(red: 0.05, green: 0.07, blue: 0.10)
-            ]
-        } else {
-            return [
-                Color(red: 0.93, green: 0.96, blue: 1.00),
-                Color(red: 0.96, green: 0.97, blue: 1.00),
-                Color(red: 0.99, green: 0.96, blue: 1.00)
-            ]
-        }
-    }
-
-    private var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.27, green: 0.62, blue: 0.95),
-                Color(red: 0.49, green: 0.51, blue: 0.97),
-                Color(red: 0.66, green: 0.45, blue: 0.95)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 
     // MARK: - Hero card
@@ -141,7 +115,7 @@ struct TodayView: View {
             HStack(alignment: .center, spacing: 10) {
                 ZStack {
                     Circle()
-                        .fill(accentGradient)
+                        .fill(AppTheme.accent)
                         .frame(width: 36, height: 36)
                     Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 16, weight: .semibold))
@@ -164,7 +138,7 @@ struct TodayView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(conditionHeadline)
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                     Text(conditionSubhead)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -196,14 +170,14 @@ struct TodayView: View {
 
                 ZStack {
                     Circle()
-                        .stroke(accentGradient, lineWidth: 4)
+                        .stroke(AppTheme.accent, lineWidth: 4)
                         .frame(width: 56, height: 56)
                     Circle()
-                        .fill(accentGradient.opacity(0.12))
+                        .fill(AppTheme.accent.opacity(0.12))
                         .frame(width: 48, height: 48)
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 .accessibilityHidden(true)
             }
@@ -271,11 +245,8 @@ struct TodayView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(accentGradient)
-                    .shadow(
-                        color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.35),
-                        radius: 18, x: 0, y: 10
-                    )
+                    .fill(AppTheme.accent)
+                    .shadow(color: AppTheme.accent.opacity(0.22), radius: 10, x: 0, y: 6)
             )
         }
         .buttonStyle(.plain)
@@ -306,11 +277,11 @@ struct TodayView: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(accentGradient.opacity(0.16))
+                        .fill(AppTheme.accent.opacity(0.16))
                         .frame(width: 38, height: 38)
                     Image(systemName: "fork.knife")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("食事ログ")
@@ -602,7 +573,7 @@ struct TodayView: View {
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
                     }
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("週間サマリーを見る")
