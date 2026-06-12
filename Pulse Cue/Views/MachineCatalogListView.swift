@@ -13,8 +13,6 @@
 import SwiftUI
 
 struct MachineCatalogListView: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     @State private var searchText: String = ""
     @State private var selectedBodyParts: Set<BodyPart> = []
 
@@ -73,7 +71,7 @@ struct MachineCatalogListView: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.textSecondary)
             TextField("マシン名・タグで検索", text: $searchText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -83,7 +81,7 @@ struct MachineCatalogListView: View {
                     searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("検索をクリア")
@@ -92,8 +90,12 @@ struct MachineCatalogListView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
+            RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                .strokeBorder(AppTheme.separator, lineWidth: 1)
         )
     }
 
@@ -137,14 +139,14 @@ struct MachineCatalogListView: View {
                 .padding(.vertical, 8)
                 .background(
                     Capsule().fill(
-                        isOn ? Color.accentColor.opacity(0.18)
+                        isOn ? AppTheme.accentSoft
                              : Color.primary.opacity(0.06)
                     )
                 )
-                .foregroundStyle(isOn ? Color.accentColor : .primary)
+                .foregroundStyle(isOn ? AppTheme.accent : .primary)
                 .overlay(
                     Capsule().strokeBorder(
-                        isOn ? Color.accentColor.opacity(0.6) : Color.clear,
+                        isOn ? AppTheme.accent.opacity(0.5) : Color.clear,
                         lineWidth: 1
                     )
                 )
@@ -199,35 +201,31 @@ struct MachineCatalogListView: View {
         VStack(spacing: 8) {
             Image(systemName: "dumbbell")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.textSecondary)
             Text("一致するマシンがありません")
                 .font(.subheadline.weight(.semibold))
             Text("検索ワードや部位フィルターを変更してください。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+            RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
+                .strokeBorder(AppTheme.separator, lineWidth: 1)
         )
     }
 
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        let colors: [Color] = colorScheme == .dark
-            ? [Color(red: 0.05, green: 0.07, blue: 0.12),
-               Color(red: 0.07, green: 0.06, blue: 0.13)]
-            : [Color(red: 0.93, green: 0.96, blue: 1.00),
-               Color(red: 0.99, green: 0.96, blue: 1.00)]
-        return LinearGradient(
-            colors: colors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 }
 
@@ -241,9 +239,9 @@ private struct MachineCatalogRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(entry.displayName)
                     .font(.headline)
-                Spacer()
+                Spacer(minLength: 8)
                 if entry.beginnerFriendly == true {
-                    badge(text: "初心者OK", color: .green)
+                    PulseStatusBadge("初心者OK", kind: .success)
                 }
             }
 
@@ -265,23 +263,14 @@ private struct MachineCatalogRow: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(
-                                Capsule().fill(Color.primary.opacity(0.06))
+                                Capsule().fill(Color.primary.opacity(0.05))
                             )
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppTheme.textSecondary)
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-        )
+        .pulseCard()
     }
 
     private func metadataLabels() -> [String] {
@@ -290,15 +279,6 @@ private struct MachineCatalogRow: View {
         if let e = entry.equipmentType { out.append(e.displayName) }
         if let d = entry.difficulty { out.append(d.displayName) }
         return out
-    }
-
-    private func badge(text: String, color: Color) -> some View {
-        Text(text)
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.18)))
-            .foregroundStyle(color)
     }
 }
 
@@ -316,9 +296,9 @@ private struct FlowChips: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(
-                        Capsule().fill(Color.accentColor.opacity(0.12))
+                        Capsule().fill(AppTheme.accentSoft)
                     )
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppTheme.accent)
             }
             Spacer(minLength: 0)
         }
