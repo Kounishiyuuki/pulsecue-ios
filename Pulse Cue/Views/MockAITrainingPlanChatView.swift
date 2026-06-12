@@ -74,7 +74,7 @@ struct MockAITrainingPlanChatView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     headerBlock
-                    mockNotice
+                    introCard
                     inputCard
                     generateButton
                     if phase.showsCancel {
@@ -120,60 +120,97 @@ struct MockAITrainingPlanChatView: View {
         }
     }
 
-    private var mockNotice: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
-            Text(noticeCopy)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// Calm intro: what the screen does, the simple flow, the unsaved-draft
+    /// note, and a scannable available-machine summary. Replaces the plain
+    /// info notice while preserving the mock / DEBUG-QA wording.
+    private var introCard: some View {
+        PulseCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    PulseSectionHeader("使い方", icon: "sparkles")
+                    introBadge
+                }
+                Text(noticeCopy)
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("① 条件を入力 → ② プラン候補を作成 → ③ 内容を確認して保存")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("作成されるのは下書きの候補です。「この候補を保存」を押すまで端末には追加されません。")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Image(systemName: "dumbbell")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.accent)
+                    Text("利用可能なマシン: \(MachineCatalog.all.count) 種類（ローカルカタログ）")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+    }
+
+    /// Small badge that keeps the offline mock vs DEBUG-QA distinction clear.
+    private var introBadge: some View {
+        let label: String
+        let kind: PulseStatusBadge.Kind
+#if DEBUG
+        if isEndpointQA {
+            label = "DEBUG QA"
+            kind = .warning
+        } else {
+            label = "オフライン"
+            kind = .info
+        }
+#else
+        label = "オフライン"
+        kind = .info
+#endif
+        return PulseStatusBadge(label, kind: kind)
     }
 
     // MARK: - Input
 
     private var inputCard: some View {
-        card {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("相談内容")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextField("例: 週3回で胸と肩を中心に鍛えたい", text: $userMessage, axis: .vertical)
-                        .lineLimit(3...6)
-                        .textFieldStyle(.roundedBorder)
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            PulseSectionHeader("条件を入力", icon: "slider.horizontal.3")
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("目標")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Picker("目標", selection: $goal) {
-                        ForEach(Array(TrainingGoal.allCases), id: \.self) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("相談内容")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                TextField("例: 週3回で胸と肩を中心に鍛えたい", text: $userMessage, axis: .vertical)
+                    .lineLimit(3...6)
+                    .textFieldStyle(.roundedBorder)
+            }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("週あたりの日数")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Stepper(value: $daysPerWeek, in: 1...6) {
-                        Text("週 \(daysPerWeek) 日")
-                            .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("目標")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Picker("目標", selection: $goal) {
+                    ForEach(Array(TrainingGoal.allCases), id: \.self) { option in
+                        Text(option.displayName).tag(option)
                     }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("週あたりの日数")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Stepper(value: $daysPerWeek, in: 1...6) {
+                    Text("週 \(daysPerWeek) 日")
+                        .font(.subheadline.weight(.semibold))
                 }
             }
         }
+        .pulseCard()
     }
 
     // MARK: - Generate
@@ -185,16 +222,14 @@ struct MockAITrainingPlanChatView: View {
             HStack(spacing: 8) {
                 if phase.isGenerating {
                     ProgressView()
+                        .tint(.white)
                 } else {
                     Image(systemName: "wand.and.stars")
                 }
                 Text(phase.isGenerating ? "作成中…" : "プラン候補を作成")
-                    .font(.subheadline.weight(.bold))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(PulsePrimaryButtonStyle())
         .disabled(!phase.canStartGeneration)
     }
 
@@ -203,11 +238,8 @@ struct MockAITrainingPlanChatView: View {
             cancelGeneration()
         } label: {
             Text("キャンセル")
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(PulseSecondaryButtonStyle())
     }
 
     // MARK: - Error / cancelled states
@@ -538,20 +570,6 @@ struct MockAITrainingPlanChatView: View {
     }
 
     // MARK: - Reusable building blocks
-
-    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.regularMaterial)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
-    }
 
     private func metaPill(text: String) -> some View {
         Text(text)
