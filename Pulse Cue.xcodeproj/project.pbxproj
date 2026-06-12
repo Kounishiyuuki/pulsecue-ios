@@ -47,6 +47,7 @@
 		D17104DB1A8E4001B0DA2901 /* UserProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */; };
 		D17104DB1A8E4001B0DA2A01 /* GoalCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */; };
 		D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */; };
+		D17104DB1A8E4001B0DA2C11 /* ProfileCalorieSourceConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2C12 /* ProfileCalorieSourceConsistencyTests.swift */; };
 		D17104DB1A8E4001B0DA2C01 /* UserProfileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */; };
 		D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2502 /* NutritionView.swift */; };
 		D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */; };
@@ -232,6 +233,7 @@
 		D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStore.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2A02 /* GoalCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCalculator.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCalculatorTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA2C12 /* ProfileCalorieSourceConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileCalorieSourceConsistencyTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStoreTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2502 /* NutritionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntrySheet.swift; sourceTree = "<group>"; };
@@ -582,6 +584,7 @@
 				D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */,
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
 				D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */,
+				D17104DB1A8E4001B0DA2C12 /* ProfileCalorieSourceConsistencyTests.swift */,
 				D17104DB1A8E4001B0DA2C02 /* UserProfileStoreTests.swift */,
 				BDE1723552AB4F81AC7BF16C /* HealthTargetResolverTests.swift */,
 				383FE2766DA844EDA5013578 /* HealthTargetDifferenceTests.swift */,
@@ -897,6 +900,7 @@
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2B01 /* GoalCalculatorTests.swift in Sources */,
+				D17104DB1A8E4001B0DA2C11 /* ProfileCalorieSourceConsistencyTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2C01 /* UserProfileStoreTests.swift in Sources */,
 				91E24A763C894718BA258814 /* HealthTargetResolverTests.swift in Sources */,
 				443834CF9A2C427189536769 /* HealthTargetDifferenceTests.swift in Sources */,

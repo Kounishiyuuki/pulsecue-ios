@@ -9,6 +9,24 @@
 //  intentionally has no SwiftData dependency: Routines / DayLogs are
 //  per-record, this is global per-device.
 //
+//  Source-of-truth note (see ProfileCalorieSourceConsistencyTests):
+//   - `SettingsStore` holds **app preferences only** — notifications,
+//     sound, haptics, keep-screen-on, and the AI transmission scope.
+//     It is NOT a source of body metrics, goals, or calorie targets.
+//   - Body metrics + goal (height / age / sex / activity / goal weight /
+//     weekly change) live in `UserProfile` (SwiftData), which drives all
+//     BMR / TDEE / target-intake calculations via `GoalCalculator`.
+//     `UserProfileStore` seeds `UserProfile` once from the legacy
+//     `settings.*` UserDefaults keys; after that `UserProfile` is
+//     authoritative and `SettingsStore` no longer reads those keys.
+//   - The `BiologicalSex` / `ActivityFactor` enums are *defined* in this
+//     file for historical reasons, but the profile *values* are stored on
+//     `UserProfile`, not here.
+//   - Manual daily targets (Today's per-day / weekday / date overrides)
+//     live in `HealthTargets` / `HealthTargetStore`; they are an explicit
+//     override layer on top of the profile-calculated target, not a
+//     competing profile source.
+//
 
 import Foundation
 import Combine
