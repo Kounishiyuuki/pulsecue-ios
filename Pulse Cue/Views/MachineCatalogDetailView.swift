@@ -13,8 +13,6 @@
 import SwiftUI
 
 struct MachineCatalogDetailView: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     let entry: MachineCatalogEntry
 
     @State private var showingCandidatePreview = false
@@ -59,13 +57,13 @@ struct MachineCatalogDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(entry.displayName)
                         .font(.system(size: 24, weight: .bold))
-                    Spacer()
+                    Spacer(minLength: 8)
                     if entry.beginnerFriendly == true {
-                        badge(text: "初心者OK", color: .green)
+                        PulseStatusBadge("初心者OK", kind: .success)
                     }
                 }
                 if !primaryBodyParts.isEmpty {
-                    chipRow(primaryBodyParts.map(\.displayName), tint: .accentColor)
+                    chipRow(primaryBodyParts.map(\.displayName), tint: AppTheme.accent)
                 }
             }
         }
@@ -82,7 +80,7 @@ struct MachineCatalogDetailView: View {
                         labeledChips(
                             label: "主に効く部位",
                             items: primaryBodyParts.map(\.displayName),
-                            tint: .accentColor
+                            tint: AppTheme.accent
                         )
                     }
                     if !entry.secondaryMuscles.isEmpty {
@@ -143,20 +141,9 @@ struct MachineCatalogDetailView: View {
                 Button {
                     showingCandidatePreview = true
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.pencil")
-                        Text("種目候補を見る")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.14))
-                    )
-                    .foregroundStyle(Color.accentColor)
+                    Label("種目候補を見る", systemImage: "square.and.pencil")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PulseSecondaryButtonStyle())
                 .padding(.top, 4)
                 .accessibilityHint("種目候補のプレビューを開きます")
             }
@@ -215,25 +202,14 @@ struct MachineCatalogDetailView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
+            PulseSectionHeader(title)
                 .padding(.horizontal, 4)
             card { content() }
         }
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.regularMaterial)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
+        content().pulseCard()
     }
 
     private func labeledChips(label: String, items: [String], tint: Color) -> some View {
@@ -265,7 +241,7 @@ struct MachineCatalogDetailView: View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.subheadline)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppTheme.accent)
                 .frame(width: 22)
             Text(text)
                 .font(.subheadline.weight(.semibold))
@@ -288,28 +264,11 @@ struct MachineCatalogDetailView: View {
         }
     }
 
-    private func badge(text: String, color: Color) -> some View {
-        Text(text)
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.18)))
-            .foregroundStyle(color)
-    }
-
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        let colors: [Color] = colorScheme == .dark
-            ? [Color(red: 0.05, green: 0.07, blue: 0.12),
-               Color(red: 0.07, green: 0.06, blue: 0.13)]
-            : [Color(red: 0.93, green: 0.96, blue: 1.00),
-               Color(red: 0.99, green: 0.96, blue: 1.00)]
-        return LinearGradient(
-            colors: colors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 }
 
