@@ -58,6 +58,7 @@
 		EAB30E8A343941638ECD43B2 /* RunnerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38AF9175A5654DA28D42BFAB /* RunnerViewModel.swift */; };
 		ECC52B578D4C4FE697181A1C /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD02E7540234858B9B7F496 /* HistoryView.swift */; };
 		FAE38562062C4A8EB6BCFFA9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EEA51C8303A042F49C6E267B /* Assets.xcassets */; };
+		AAB10C0000000000000000F2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000F1 /* PrivacyInfo.xcprivacy */; };
 		FC8288834D88458B95DF7E56 /* Pulse_CueUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FBA91F3E114F92BB31BF6D /* Pulse_CueUITestsLaunchTests.swift */; };
 		FD61BFE41E6A466BA9E043D0 /* SampleDataSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */; };
 		D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */; };
@@ -238,6 +239,7 @@
 		D17104DB1A8E4001B0DA2502 /* NutritionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MealEntrySheet.swift; sourceTree = "<group>"; };
 		D179FE16B3D648C896CCC224 /* Pulse_Cue.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Pulse_Cue.entitlements; sourceTree = "<group>"; };
+		AAB10C0000000000000000F1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D6D3039B896D46E0888653BD /* RunnerPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPersistence.swift; sourceTree = "<group>"; };
 		E6B2555CCFB6446F98D0903E /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
 		EAFC74456C7C4C97946A4092 /* RoutineOrderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineOrderStore.swift; sourceTree = "<group>"; };
@@ -632,6 +634,7 @@
 			children = (
 				6D29739D89D24F6689D06A6A /* Info.plist */,
 				D179FE16B3D648C896CCC224 /* Pulse_Cue.entitlements */,
+				AAB10C0000000000000000F1 /* PrivacyInfo.xcprivacy */,
 			);
 			name = "Supporting Files";
 			sourceTree = "<group>";
@@ -748,6 +751,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FAE38562062C4A8EB6BCFFA9 /* Assets.xcassets in Resources */,
+				AAB10C0000000000000000F2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -978,17 +982,17 @@
 				EXECUTABLE_FILE = "$(EXECUTABLE_NAME)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Pulse Cue/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = PulseCue;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "y.Pulse-Cue";
+				PRODUCT_BUNDLE_IDENTIFIER = com.kounishiyuuki.pulsecue;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -996,7 +1000,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "1";
 			};
 			name = Debug;
 		};
@@ -1013,17 +1017,17 @@
 				EXECUTABLE_FILE = "$(EXECUTABLE_NAME)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Pulse Cue/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = PulseCue;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "y.Pulse-Cue";
+				PRODUCT_BUNDLE_IDENTIFIER = com.kounishiyuuki.pulsecue;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -1031,7 +1035,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "1";
 			};
 			name = Release;
 		};
