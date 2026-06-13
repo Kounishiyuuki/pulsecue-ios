@@ -24,7 +24,7 @@ struct RoutineEditorView: View {
 
     var body: some View {
         List {
-            Section("ルーティン") {
+            Section {
                 TextField("ルーティン名", text: $routine.name)
                     .onChange(of: routine.name) { _, newValue in
                         if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -32,11 +32,15 @@ struct RoutineEditorView: View {
                         }
                         routine.updatedAt = Date()
                     }
+                    .listRowBackground(rowBackground)
+            } header: {
+                PulseSectionHeader("ルーティン", icon: "list.bullet.rectangle")
             }
 
-            Section("種目") {
+            Section {
                 ForEach(steps, id: \.id) { step in
                     StepRowView(step: step)
+                        .listRowBackground(rowBackground)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 deleteStep(step)
@@ -59,12 +63,24 @@ struct RoutineEditorView: View {
                 } label: {
                     Label("種目を追加", systemImage: "plus")
                 }
+                .tint(AppTheme.accent)
+                .listRowBackground(rowBackground)
+            } header: {
+                PulseSectionHeader("種目", icon: "dumbbell")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.surface.ignoresSafeArea())
         .navigationTitle("ルーティン編集")
         .toolbar {
             EditButton()
         }
+    }
+
+    /// Opaque grouped-card fill so rows still read as cards on the calm
+    /// `AppTheme.surface` once the default scroll background is hidden.
+    private var rowBackground: Color {
+        Color(.secondarySystemGroupedBackground)
     }
 
     private func addStep() {
@@ -141,6 +157,7 @@ private struct StepRowView: View {
                         .font(.footnote)
                 }
                 .labelsHidden()
+                .tint(AppTheme.accent)
             }
 
             HStack {
