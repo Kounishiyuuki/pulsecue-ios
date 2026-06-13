@@ -13,6 +13,10 @@
 		1421CAEEAA9C45B0BDE79E95 /* RoutinePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 161A24D02ABE4F458BF5B81D /* RoutinePickerSheet.swift */; };
 		25BF5148D69C49A1946FF607 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A8C7265A2048DABE767678 /* SettingsView.swift */; };
 		AAB10C0000000000000000A2 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000A1 /* OnboardingView.swift */; };
+		AAB10C0000000000000000C2 /* AuthState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000C1 /* AuthState.swift */; };
+		AAB10C0000000000000000C4 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000C3 /* AuthSession.swift */; };
+		AAB10C0000000000000000C6 /* AuthProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000C5 /* AuthProvider.swift */; };
+		AAB10C0000000000000000C8 /* AuthSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000C7 /* AuthSessionStore.swift */; };
 		2AB81DE242B545479F23C358 /* DayLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F931151BAB1D473A8625DFF3 /* DayLog.swift */; };
 		3468F1E5463D451698CE3737 /* Step.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FF7150E5F514C0E944597A5 /* Step.swift */; };
 		47613D044A2546D286182CD0 /* RoutineEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F09FF63F2B40ED822DB5FB /* RoutineEditorView.swift */; };
@@ -82,6 +86,7 @@
 		D17104DB1A8E4001B0DA5797 /* AIPlanGenerationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5798 /* AIPlanGenerationStateTests.swift */; };
 		D17104DB1A8E4001B0DA5799 /* PulseUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA579A /* PulseUITests.swift */; };
 		AAB10C0000000000000000B2 /* OnboardingSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000B1 /* OnboardingSettingsTests.swift */; };
+		AAB10C0000000000000000D2 /* AuthShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000D1 /* AuthShellTests.swift */; };
 		D17104DB1A8E4001B0DA57B1 /* MockAIPlanSaveHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA57B2 /* MockAIPlanSaveHandoffTests.swift */; };
 		D17104DB1A8E4001B0DA2F01 /* Gym.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2F02 /* Gym.swift */; };
 		D17104DB1A8E4001B0DA3001 /* GymMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3002 /* GymMachine.swift */; };
@@ -199,6 +204,10 @@
 		21A1C70A4F4C4790A97F5998 /* StepResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepResult.swift; sourceTree = "<group>"; };
 		25A8C7265A2048DABE767678 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000A1 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000000C1 /* AuthState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthState.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000000C3 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000000C5 /* AuthProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthProvider.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000000C7 /* AuthSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionStore.swift; sourceTree = "<group>"; };
 		26F09FF63F2B40ED822DB5FB /* RoutineEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineEditorView.swift; sourceTree = "<group>"; };
 		2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutView.swift; sourceTree = "<group>"; };
 		2FD02E7540234858B9B7F496 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -271,6 +280,7 @@
 		D17104DB1A8E4001B0DA5798 /* AIPlanGenerationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AIPlanGenerationStateTests.swift; path = "Pulse CueTests/AIPlanGenerationStateTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA579A /* PulseUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PulseUITests.swift; path = "Pulse CueTests/PulseUITests.swift"; sourceTree = SOURCE_ROOT; };
 		AAB10C0000000000000000B1 /* OnboardingSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnboardingSettingsTests.swift; path = "Pulse CueTests/OnboardingSettingsTests.swift"; sourceTree = SOURCE_ROOT; };
+		AAB10C0000000000000000D1 /* AuthShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AuthShellTests.swift; path = "Pulse CueTests/AuthShellTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA57B2 /* MockAIPlanSaveHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockAIPlanSaveHandoffTests.swift; path = "Pulse CueTests/MockAIPlanSaveHandoffTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA2F02 /* Gym.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gym.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3002 /* GymMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymMachine.swift; sourceTree = "<group>"; };
@@ -517,6 +527,17 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		AAB10C0000000000000000C0 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				AAB10C0000000000000000C1 /* AuthState.swift */,
+				AAB10C0000000000000000C3 /* AuthSession.swift */,
+				AAB10C0000000000000000C5 /* AuthProvider.swift */,
+				AAB10C0000000000000000C7 /* AuthSessionStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
 		65A8A0E64C2A4C0A9D34EB1E /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
@@ -558,6 +579,7 @@
 			isa = PBXGroup;
 			children = (
 				441270712157404BB1402A26 /* App */,
+				AAB10C0000000000000000C0 /* Auth */,
 				74598358BF684396B5173D66 /* Models */,
 				86AE8C4359EF4E47ABDA7C34 /* ViewModels */,
 				0D8204BD8467472493866B8C /* Views */,
@@ -622,6 +644,7 @@
 				D17104DB1A8E4001B0DA5402 /* RoutineOrderStoreTests.swift */,
 				D17104DB1A8E4001B0DA5502 /* RunnerRestorationTests.swift */,
 				AAB10C0000000000000000B1 /* OnboardingSettingsTests.swift */,
+				AAB10C0000000000000000D1 /* AuthShellTests.swift */,
 			);
 			path = "Pulse CueTests";
 			sourceTree = "<group>";
@@ -811,6 +834,10 @@
 				85C95AE57DCF4B3F89561F4A /* SessionDetailView.swift in Sources */,
 				25BF5148D69C49A1946FF607 /* SettingsView.swift in Sources */,
 				AAB10C0000000000000000A2 /* OnboardingView.swift in Sources */,
+				AAB10C0000000000000000C2 /* AuthState.swift in Sources */,
+				AAB10C0000000000000000C4 /* AuthSession.swift in Sources */,
+				AAB10C0000000000000000C6 /* AuthProvider.swift in Sources */,
+				AAB10C0000000000000000C8 /* AuthSessionStore.swift in Sources */,
 				80A050FE49EF4AF5B290D2A8 /* HealthTargetSettingsView.swift in Sources */,
 				5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */,
 				DA57885887FA409498252986 /* WorkoutView.swift in Sources */,
@@ -940,6 +967,7 @@
 				D17104DB1A8E4001B0DA5797 /* AIPlanGenerationStateTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5799 /* PulseUITests.swift in Sources */,
 				AAB10C0000000000000000B2 /* OnboardingSettingsTests.swift in Sources */,
+				AAB10C0000000000000000D2 /* AuthShellTests.swift in Sources */,
 				D17104DB1A8E4001B0DA57B1 /* MockAIPlanSaveHandoffTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,

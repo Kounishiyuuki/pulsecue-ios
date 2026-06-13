@@ -85,4 +85,5 @@ struct ContentView: View {
         .modelContainer(for: [Routine.self, Step.self, Session.self, StepResult.self, DayLog.self], inMemory: true)
         .environmentObject(SettingsStore())
         .environmentObject(RunnerViewModel(settings: SettingsStore()))
+        .environmentObject(AuthSessionStore())
 }

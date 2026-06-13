@@ -29,6 +29,7 @@ import UserNotifications
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var authSession: AuthSessionStore
 
     // 14 days of DayLog so we can pull "current weight" + today's intake
     // for the goal-gap card without a second SwiftData read.
@@ -116,6 +117,7 @@ struct SettingsView: View {
                 }
                 goalCard(profile: $profile)
                 integrationsCard
+                accountCard
                 myGymCard
                 machineCatalogCard
                 weeklyPlanCandidateCard
@@ -635,6 +637,37 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 #endif
+
+    // MARK: - Account (read-only status shell)
+
+    /// Read-only display of the current local usage state. This is an
+    /// intentionally minimal hook for the auth shell (PR #112): it shows
+    /// whether the app is in guest / signed-out / mock-provider state. No
+    /// login buttons or sign-in flow exist yet — the full Login/Register UI
+    /// is PR #113. Nothing here gates app usage.
+    private var accountCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "person.crop.circle", title: "アカウント")
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("現在の利用状態")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(authSession.statusLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    PulseStatusBadge("準備中", kind: .info)
+                }
+                Text("ログイン（Apple / Google）は今後のアップデートで対応予定です。現在はログインなしでそのまま利用できます。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 
     // MARK: - Help / onboarding replay
 
