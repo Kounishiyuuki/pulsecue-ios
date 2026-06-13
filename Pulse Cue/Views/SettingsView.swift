@@ -43,6 +43,7 @@ struct SettingsView: View {
     @State private var showNotificationAlert = false
     @State private var showSavedToast = false
     @State private var showOnboardingReplay = false
+    @State private var showLoginSheet = false
 
     init() {
         let cal = Calendar.current
@@ -100,6 +101,9 @@ struct SettingsView: View {
             OnboardingView(primaryTitle: "閉じる") {
                 showOnboardingReplay = false
             }
+        }
+        .sheet(isPresented: $showLoginSheet) {
+            LoginView(authSession: authSession)
         }
     }
 
@@ -640,15 +644,16 @@ struct SettingsView: View {
 
     // MARK: - Account (read-only status shell)
 
-    /// Read-only display of the current local usage state. This is an
-    /// intentionally minimal hook for the auth shell (PR #112): it shows
-    /// whether the app is in guest / signed-out / mock-provider state. No
-    /// login buttons or sign-in flow exist yet — the full Login/Register UI
-    /// is PR #113. Nothing here gates app usage.
+    /// Account / login entry for the auth shell. Shows the current local
+    /// usage state and opens the Login/Register UI (PR #113) in a sheet.
+    /// Apple / Google are local mock placeholders only — no real sign-in,
+    /// SDK, network, or tokens. Nothing here gates app usage: login is
+    /// entirely optional and existing features stay available.
     private var accountCard: some View {
         glassCard {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader(icon: "person.crop.circle", title: "アカウント")
+
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("現在の利用状態")
@@ -659,9 +664,50 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    PulseStatusBadge("準備中", kind: .info)
+                    PulseStatusBadge("ローカルのみ", kind: .info)
                 }
-                Text("ログイン（Apple / Google）は今後のアップデートで対応予定です。現在はログインなしでそのまま利用できます。")
+
+                Button {
+                    showLoginSheet = true
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("ログイン・アカウント設定")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("ゲスト / Apple / Google の続け方を選べます（Apple・Google は準備中のローカル確認用）。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if authSession.isSignedIn {
+                    Divider().opacity(0.4)
+                    Button(role: .destructive) {
+                        authSession.signOut()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                            Text("ログアウト")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                }
+
+                Divider().opacity(0.4)
+
+                Text("アカウント削除は実ログイン連携時に有効になります。現在はアカウントが作成されないため、削除する情報もありません。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
