@@ -41,6 +41,7 @@ struct SettingsView: View {
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var showNotificationAlert = false
     @State private var showSavedToast = false
+    @State private var showOnboardingReplay = false
 
     init() {
         let cal = Calendar.current
@@ -94,6 +95,11 @@ struct SettingsView: View {
             Text("iOS の設定アプリで通知を許可してください。")
         }
         .onAppear { refreshNotificationStatus() }
+        .sheet(isPresented: $showOnboardingReplay) {
+            OnboardingView(primaryTitle: "閉じる") {
+                showOnboardingReplay = false
+            }
+        }
     }
 
     @ViewBuilder
@@ -118,6 +124,7 @@ struct SettingsView: View {
                 aiEndpointQASection
 #endif
                 appSettingsCard
+                helpCard
                 appInfoCard
                 saveButton
                 Color.clear.frame(height: 24)
@@ -628,6 +635,36 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 #endif
+
+    // MARK: - Help / onboarding replay
+
+    private var helpCard: some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionHeader(icon: "questionmark.circle.fill", title: "ヘルプ")
+                Button {
+                    showOnboardingReplay = true
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("アプリの使い方をもう一度見る")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("PulseCue でできることと、データの保存についての案内を表示します。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
 
     private var appInfoCard: some View {
         glassCard {
