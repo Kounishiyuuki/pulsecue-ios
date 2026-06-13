@@ -38,17 +38,24 @@ struct RoutinePickerSheet: View {
                     noMatchRow
                 } else {
                     if !pinnedRoutines.isEmpty {
-                        Section("ピン留め") {
+                        Section {
                             ForEach(pinnedRoutines) { routine in
                                 routineRow(routine)
                             }
+                        } header: {
+                            PulseSectionHeader("ピン留め", icon: "pin.fill")
                         }
                     }
                     if !otherRoutines.isEmpty {
-                        Section(pinnedRoutines.isEmpty ? "ルーティン" : "その他") {
+                        Section {
                             ForEach(otherRoutines) { routine in
                                 routineRow(routine)
                             }
+                        } header: {
+                            PulseSectionHeader(
+                                pinnedRoutines.isEmpty ? "ルーティン" : "その他",
+                                icon: "list.bullet.rectangle"
+                            )
                         }
                     }
                     reorderHintFooter
@@ -56,7 +63,7 @@ struct RoutinePickerSheet: View {
             }
             .navigationTitle("ルーティン開始")
             .scrollContentBackground(.hidden)
-            .background(AppTheme.background)
+            .background(AppTheme.surface.ignoresSafeArea())
             .listStyle(.insetGrouped)
             .searchable(text: $searchText, prompt: "ルーティンを検索")
             .toolbar {
@@ -92,12 +99,13 @@ struct RoutinePickerSheet: View {
                 Spacer(minLength: 0)
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(AppTheme.accent)
                     .accessibilityHidden(true)
             }
             .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
+        .listRowBackground(Color(.secondarySystemGroupedBackground))
         .accessibilityLabel("\(routine.name)\(routine.isPinned ? "、ピン留め済み" : "")")
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button {
@@ -118,7 +126,7 @@ struct RoutinePickerSheet: View {
             systemImage: "list.bullet.rectangle",
             description: Text("ワークアウトでルーティンを作成してください。")
         )
-        .listRowBackground(AppTheme.background)
+        .listRowBackground(AppTheme.surface)
     }
 
     private var noMatchRow: some View {
@@ -127,7 +135,7 @@ struct RoutinePickerSheet: View {
             systemImage: "magnifyingglass",
             description: Text("別のキーワードを試すか、検索をクリアしてください。")
         )
-        .listRowBackground(AppTheme.background)
+        .listRowBackground(AppTheme.surface)
     }
 
     @ViewBuilder
@@ -148,7 +156,7 @@ struct RoutinePickerSheet: View {
                 }
             }
             .foregroundStyle(.secondary)
-            .listRowBackground(AppTheme.background)
+            .listRowBackground(AppTheme.surface)
         }
     }
 
