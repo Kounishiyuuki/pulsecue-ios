@@ -31,7 +31,6 @@ struct RunnerView: View {
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showRoutinePicker = false
     @State private var showEndAlert = false
@@ -90,35 +89,8 @@ struct RunnerView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var backgroundColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(red: 0.05, green: 0.07, blue: 0.12),
-                Color(red: 0.07, green: 0.06, blue: 0.13),
-                Color(red: 0.05, green: 0.07, blue: 0.10)
-            ]
-        } else {
-            return [
-                Color(red: 0.93, green: 0.96, blue: 1.00),
-                Color(red: 0.96, green: 0.97, blue: 1.00),
-                Color(red: 0.99, green: 0.96, blue: 1.00)
-            ]
-        }
-    }
-
-    private var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.27, green: 0.62, blue: 0.95),
-                Color(red: 0.49, green: 0.51, blue: 0.97),
-                Color(red: 0.66, green: 0.45, blue: 0.95)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 
     // MARK: - Brand header
@@ -126,7 +98,7 @@ struct RunnerView: View {
     private var brandHeader: some View {
         HStack {
             ZStack {
-                Circle().fill(accentGradient).frame(width: 32, height: 32)
+                Circle().fill(AppTheme.accent).frame(width: 32, height: 32)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -204,7 +176,7 @@ struct RunnerView: View {
     private func chipBackground(isActive: Bool) -> some View {
         if isActive {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(accentGradient)
+                .fill(AppTheme.accent)
         } else {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(.regularMaterial)
@@ -222,7 +194,7 @@ struct RunnerView: View {
 
                 Circle()
                     .trim(from: 0, to: progressFraction)
-                    .stroke(accentGradient, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                    .stroke(AppTheme.accent, style: StrokeStyle(lineWidth: 14, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .frame(width: 220, height: 220)
                     .animation(.easeInOut(duration: 0.3), value: progressFraction)
@@ -334,17 +306,17 @@ struct RunnerView: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(accentGradient.opacity(0.18))
+                    .fill(AppTheme.accent.opacity(0.18))
                     .frame(width: 44, height: 44)
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text("NEXT UP")
                     .font(.caption2.weight(.bold))
                     .tracking(1.3)
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
                 Text(nextStepTitle)
                     .font(.headline)
                     .lineLimit(1)
@@ -394,7 +366,7 @@ struct RunnerView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(accentGradient)
+                    .fill(AppTheme.accent)
                     .shadow(
                         color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.35),
                         radius: 18, x: 0, y: 10
@@ -477,11 +449,8 @@ struct RunnerView: View {
             .frame(maxWidth: .infinity)
             .background(
                 Capsule()
-                    .fill(accentGradient)
-                    .shadow(
-                        color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.4),
-                        radius: 14, x: 0, y: 6
-                    )
+                    .fill(AppTheme.accent)
+                    .shadow(color: AppTheme.accent.opacity(0.22), radius: 10, x: 0, y: 6)
             )
         }
         .buttonStyle(.plain)
@@ -530,7 +499,7 @@ struct RunnerView: View {
     @ViewBuilder
     private func iconButtonBackground(isAccent: Bool, isDisabled: Bool) -> some View {
         if isAccent && !isDisabled {
-            Circle().fill(accentGradient)
+            Circle().fill(AppTheme.accent)
         } else if isAccent && isDisabled {
             Circle().fill(Color(.systemGray5))
         } else {
