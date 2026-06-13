@@ -43,7 +43,7 @@ struct AuthUILogicTests {
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .apple)
         #expect(store.session?.email == nil)
-        #expect(store.statusLabel == "Apple でサインイン（準備中）")
+        #expect(store.statusLabel == "Appleでサインイン済み")
     }
 
     @Test
@@ -104,7 +104,7 @@ struct AuthUILogicTests {
         #expect(store.statusLabel == "ゲスト（ローカル利用）")
 
         await store.signInWithMockApple()
-        #expect(store.statusLabel == "Apple でサインイン（準備中）")
+        #expect(store.statusLabel == "Appleでサインイン済み")
 
         await store.signInWithMockGoogle()
         #expect(store.statusLabel == "Google でサインイン（準備中）")

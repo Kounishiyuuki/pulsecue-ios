@@ -71,7 +71,7 @@ struct AuthShellTests {
         #expect(session?.provider == .apple)
         // Display-only metadata; no credential is surfaced.
         #expect(session?.email == nil)
-        #expect(store.statusLabel == "Apple でサインイン（準備中）")
+        #expect(store.statusLabel == "Appleでサインイン済み")
     }
 
     @Test
@@ -128,7 +128,7 @@ struct AuthShellTests {
     @Test
     func providerKindStatusLabels() {
         #expect(AuthProviderKind.guest.statusLabel == "ゲスト（ローカル利用）")
-        #expect(AuthProviderKind.apple.statusLabel == "Apple でサインイン（準備中）")
+        #expect(AuthProviderKind.apple.statusLabel == "Appleでサインイン済み")
         #expect(AuthProviderKind.google.statusLabel == "Google でサインイン（準備中）")
     }
 }

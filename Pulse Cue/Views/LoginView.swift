@@ -2,22 +2,26 @@
 //  LoginView.swift
 //  Pulse Cue
 //
-//  User-facing login / account UI *shell* (PR #113). Built only on
-//  `AppTheme` + `PulseUI` primitives, and driven entirely by the local auth
-//  shell from PR #112 (`AuthSessionStore`).
+//  User-facing login / account UI for the auth shell. Built on `AppTheme` +
+//  `PulseUI` primitives and driven by `AuthSessionStore`.
 //
-//  IMPORTANT — this is a UI shell with mock/local actions only:
-//    - "Appleで続ける"  → AuthSessionStore.signInWithMockApple()  (no SDK)
-//    - "Googleで続ける" → AuthSessionStore.signInWithMockGoogle() (no SDK)
+//  Actions:
+//    - "Sign in with Apple" → real Apple flow via `SignInWithAppleButton`
+//      (PR #114). Only sanitized, non-sensitive display metadata (name/email)
+//      reaches `AuthSessionStore.completeAppleSignIn`; the identityToken,
+//      authorizationCode, and Apple `user` identifier are never read or stored.
+//    - "Googleで続ける" → AuthSessionStore.signInWithMockGoogle() — still a
+//      local mock placeholder until PR #115.
 //    - "ゲストで続ける"  → AuthSessionStore.continueAsGuest()
-//  No real Sign in with Apple, no Google Sign-In, no AuthenticationServices,
-//  no network, no tokens, no URL schemes, no OAuth client IDs, no Keychain.
-//  Apple / Google are local placeholders for QA only; the copy says so. The
-//  guest path is the only one that reflects real (local-only) usage today,
-//  so it is presented as the primary action.
+//
+//  Even with real Apple sign-in, the app stays local-first: no token
+//  persistence, no Keychain, no server token exchange, no sync. The copy
+//  makes clear that account linking / backup / sync are not active yet, and
+//  login is never required to use the app.
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct LoginView: View {
     @ObservedObject var authSession: AuthSessionStore
@@ -70,28 +74,27 @@ struct LoginView: View {
     private var actionsCard: some View {
         PulseCard {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-                HStack(spacing: AppTheme.Spacing.s) {
-                    PulseSectionHeader("続ける方法を選ぶ", icon: "rectangle.portrait.and.arrow.right")
-                    PulseStatusBadge("準備中", kind: .info)
-                }
+                PulseSectionHeader("続ける方法を選ぶ", icon: "rectangle.portrait.and.arrow.right")
 
-                // Guest is the only path that reflects real, local-only usage
-                // today, so it is the primary action.
+                // Real Sign in with Apple. Only sanitized name/email is used;
+                // no token / code / user identifier is read or stored.
+                SignInWithAppleButton(.continue) { request in
+                    request.requestedScopes = [.fullName, .email]
+                } onCompletion: { result in
+                    handleAppleCompletion(result)
+                }
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 50)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
+
+                // Guest reflects real, local-only usage today.
                 Button("ゲストで続ける") {
                     authSession.continueAsGuest()
                     dismiss()
                 }
-                .buttonStyle(PulsePrimaryButtonStyle())
-
-                // Apple / Google are local mock placeholders (no SDK / no auth).
-                Button("Appleで続ける") {
-                    Task {
-                        await authSession.signInWithMockApple()
-                        dismiss()
-                    }
-                }
                 .buttonStyle(PulseSecondaryButtonStyle())
 
+                // Google remains a local mock placeholder until PR #115.
                 Button("Googleで続ける") {
                     Task {
                         await authSession.signInWithMockGoogle()
@@ -100,12 +103,34 @@ struct LoginView: View {
                 }
                 .buttonStyle(PulseSecondaryButtonStyle())
 
-                Text("Apple / Google連携は現在準備中のローカル確認用です。実際のサインインや同期はまだ行われません。")
+                Text("Appleでサインインできます。サインインしても現在のデータはこの端末内に保存され、同期・バックアップ・アカウント連携はまだ有効ではありません。Google連携は準備中のローカル確認用です。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// Handles the Apple authorization result. On success it extracts ONLY the
+    /// non-sensitive display name / email; the identityToken, authorizationCode,
+    /// and Apple `user` identifier are deliberately ignored and never stored.
+    /// Cancellation / failure leaves the auth state unchanged.
+    private func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
+        guard case let .success(authorization) = result else { return }
+        let appleResult: AppleSignInResult
+        if let credential = authorization.credential as? ASAuthorizationAppleIDCredential {
+            appleResult = AppleSignInResult(
+                nameComponents: credential.fullName,
+                email: credential.email
+            )
+        } else {
+            appleResult = AppleSignInResult(displayName: nil, email: nil)
+        }
+        authSession.completeAppleSignIn(
+            displayName: appleResult.displayName,
+            email: appleResult.email
+        )
+        dismiss()
     }
 
     // MARK: - Local-first note

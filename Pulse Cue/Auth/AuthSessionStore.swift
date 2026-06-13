@@ -65,10 +65,23 @@ final class AuthSessionStore: ObservableObject {
         state = .guest
     }
 
-    /// Mock Apple sign-in (placeholder for PR #114). No real auth occurs.
+    /// Mock Apple sign-in. Retained for tests and as a non-UI fallback; the
+    /// real Apple flow goes through `completeAppleSignIn` below.
     func signInWithMockApple() async {
         guard let session = try? await appleProvider.signIn() else { return }
         state = .signedIn(session)
+    }
+
+    /// Records a real Sign in with Apple result (PR #114).
+    ///
+    /// Accepts ONLY sanitized, non-sensitive display metadata. The Apple
+    /// `identityToken`, `authorizationCode`, and `user` identifier are
+    /// intentionally not parameters, so they cannot reach this store or be
+    /// stored anywhere. Nothing is persisted — `state` is in-memory only.
+    func completeAppleSignIn(displayName: String?, email: String?) {
+        state = .signedIn(
+            AuthSession(provider: .apple, displayName: displayName, email: email)
+        )
     }
 
     /// Mock Google sign-in (placeholder for PR #115). No real auth occurs.
