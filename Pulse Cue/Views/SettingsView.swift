@@ -649,10 +649,12 @@ struct SettingsView: View {
     // MARK: - Account (read-only status shell)
 
     /// Account / login entry for the auth shell. Shows the current local
-    /// usage state and opens the Login/Register UI (PR #113) in a sheet.
-    /// Apple / Google are local mock placeholders only — no real sign-in,
-    /// SDK, network, or tokens. Nothing here gates app usage: login is
-    /// entirely optional and existing features stay available.
+    /// usage state and opens the Login UI (PR #113) in a sheet. Apple is a
+    /// real Sign in with Apple flow (PR #114); Google Sign-In (PR #115) stays
+    /// disabled until real OAuth values replace the Info.plist placeholder.
+    /// Either way the app stays local-first — no token persistence — and
+    /// nothing here gates app usage: login is optional and existing features
+    /// stay available.
     private var accountCard: some View {
         glassCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -679,7 +681,7 @@ struct SettingsView: View {
                             Text("ログイン・アカウント設定")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text("ゲスト / Apple / Google の続け方を選べます（Apple・Google は準備中のローカル確認用）。")
+                            Text("ゲストのまま使えます。Apple でサインインでき、Google は設定準備中です。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
