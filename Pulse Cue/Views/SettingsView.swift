@@ -28,7 +28,6 @@ import UserNotifications
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var settings: SettingsStore
 
     // 14 days of DayLog so we can pull "current weight" + today's intake
@@ -131,23 +130,8 @@ struct SettingsView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var backgroundColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(red: 0.05, green: 0.07, blue: 0.12),
-                Color(red: 0.07, green: 0.06, blue: 0.13),
-                Color(red: 0.05, green: 0.07, blue: 0.10)
-            ]
-        } else {
-            return [
-                Color(red: 0.93, green: 0.96, blue: 1.00),
-                Color(red: 0.96, green: 0.97, blue: 1.00),
-                Color(red: 0.99, green: 0.96, blue: 1.00)
-            ]
-        }
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 
     private var accentGradient: LinearGradient {
@@ -178,7 +162,7 @@ struct SettingsView: View {
     private var brandHeader: some View {
         HStack {
             ZStack {
-                Circle().fill(accentGradient).frame(width: 32, height: 32)
+                Circle().fill(AppTheme.accent).frame(width: 32, height: 32)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -329,7 +313,7 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("曜日・日付ごとの目標")
                         .font(.subheadline.weight(.semibold))
@@ -683,7 +667,7 @@ struct SettingsView: View {
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(accentGradient)
+                        .fill(AppTheme.accent)
                         .shadow(
                             color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.35),
                             radius: 18, x: 0, y: 10
@@ -727,7 +711,7 @@ struct SettingsView: View {
         .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(accentGradient)
+                .fill(AppTheme.accent)
                 .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         )
     }
@@ -791,10 +775,10 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
             Text(title)
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
         }
     }
 
