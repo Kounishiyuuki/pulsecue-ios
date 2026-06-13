@@ -27,8 +27,6 @@ import SwiftUI
 import SwiftData
 
 struct HistoryView: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
     private var sessions: [Session]
 
@@ -75,35 +73,8 @@ struct HistoryView: View {
     // MARK: - Background / accent
 
     private var backgroundLayer: some View {
-        LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var backgroundColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(red: 0.05, green: 0.07, blue: 0.12),
-                Color(red: 0.07, green: 0.06, blue: 0.13),
-                Color(red: 0.05, green: 0.07, blue: 0.10)
-            ]
-        } else {
-            return [
-                Color(red: 0.93, green: 0.96, blue: 1.00),
-                Color(red: 0.96, green: 0.97, blue: 1.00),
-                Color(red: 0.99, green: 0.96, blue: 1.00)
-            ]
-        }
-    }
-
-    private var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.27, green: 0.62, blue: 0.95),
-                Color(red: 0.49, green: 0.51, blue: 0.97),
-                Color(red: 0.66, green: 0.45, blue: 0.95)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 
     // MARK: - Derived data
@@ -199,7 +170,7 @@ struct HistoryView: View {
                 Text(formatTotalTime(seconds: session.totalSeconds))
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
                 Text("TOTAL TIME")
                     .font(.caption2.weight(.bold))
                     .tracking(1.2)
@@ -225,16 +196,16 @@ struct HistoryView: View {
     private var latestSessionPill: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(accentGradient)
+                .fill(AppTheme.accent)
                 .frame(width: 6, height: 6)
             Text("最新の完了セッション")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(Capsule().fill(.regularMaterial))
-        .overlay(Capsule().strokeBorder(accentGradient.opacity(0.4), lineWidth: 0.6))
+        .overlay(Capsule().strokeBorder(AppTheme.accent.opacity(0.4), lineWidth: 0.6))
     }
 
     private func statTile(label: String, value: String) -> some View {
@@ -261,12 +232,12 @@ struct HistoryView: View {
                 // Soft band underneath
                 Sparkline(values: sparklineValues, smooth: true)
                     .stroke(
-                        accentGradient.opacity(0.15),
+                        AppTheme.accent.opacity(0.15),
                         style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round)
                     )
                 Sparkline(values: sparklineValues, smooth: true)
                     .stroke(
-                        accentGradient,
+                        AppTheme.accent,
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
                     )
             }
@@ -288,7 +259,7 @@ struct HistoryView: View {
         VStack(spacing: 10) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 32))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
             Text("履歴がありません")
                 .font(.headline)
             Text("ルーティンを完了するとここに記録されます。")
@@ -323,7 +294,7 @@ struct HistoryView: View {
                         .frame(width: 40, height: 40)
                     Image(systemName: iconFor(routineId: session.routineId))
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -398,7 +369,7 @@ struct HistoryView: View {
         } label: {
             Text("さらに読み込む")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(
@@ -406,7 +377,7 @@ struct HistoryView: View {
                         .fill(.regularMaterial)
                 )
                 .overlay(
-                    Capsule().strokeBorder(accentGradient.opacity(0.35), lineWidth: 0.6)
+                    Capsule().strokeBorder(AppTheme.accent.opacity(0.35), lineWidth: 0.6)
                 )
         }
         .buttonStyle(.plain)
