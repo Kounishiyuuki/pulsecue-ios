@@ -44,6 +44,7 @@ struct SettingsView: View {
     @State private var showSavedToast = false
     @State private var showOnboardingReplay = false
     @State private var showLoginSheet = false
+    @State private var showProfileGymSetup = false
 
     init() {
         let cal = Calendar.current
@@ -104,6 +105,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLoginSheet) {
             LoginView(authSession: authSession)
+        }
+        .sheet(isPresented: $showProfileGymSetup) {
+            ProfileGymSetupView()
         }
     }
 
@@ -676,6 +680,29 @@ struct SettingsView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Text("ゲスト / Apple / Google の続け方を選べます（Apple・Google は準備中のローカル確認用）。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Divider().opacity(0.4)
+
+                Button {
+                    showProfileGymSetup = true
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("プロフィールとジムの設定")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("身長・今日の体重・マイジムの設定状況をまとめて確認できます。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
