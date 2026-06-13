@@ -11,6 +11,7 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var runnerViewModel: RunnerViewModel
+    @EnvironmentObject var settings: SettingsStore
 
     @State private var selectedTab: AppTab = .today
 
@@ -60,6 +61,22 @@ struct ContentView: View {
             runnerViewModel.configure(modelContext: modelContext)
             SampleDataSeeder.seedIfNeeded(modelContext: modelContext)
         }
+        .fullScreenCover(isPresented: onboardingPresented) {
+            OnboardingView {
+                settings.completeOnboarding()
+            }
+        }
+    }
+
+    /// Presents the first-launch onboarding until the user starts as a guest.
+    /// The setter is a no-op: dismissal is driven solely by
+    /// `settings.completeOnboarding()` flipping `hasCompletedOnboarding`, so
+    /// the cover cannot be swiped away without entering the app.
+    private var onboardingPresented: Binding<Bool> {
+        Binding(
+            get: { !settings.hasCompletedOnboarding },
+            set: { _ in }
+        )
     }
 }
 

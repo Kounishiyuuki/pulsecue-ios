@@ -156,6 +156,16 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(aiTransmissionScope.rawValue, forKey: Keys.aiTransmissionScope) }
     }
 
+    // First-launch onboarding completion flag. This is the ONLY thing the
+    // onboarding flow persists — no credential, token, or session state.
+    // Defaults to `false`, so a fresh install (or cleared UserDefaults)
+    // shows the onboarding once; after the user starts as a guest it stays
+    // `true`. Reusing the same loopback/Required-Reason UserDefaults scope
+    // declared in `PrivacyInfo.xcprivacy` (CA92.1).
+    @Published var hasCompletedOnboarding: Bool {
+        didSet { defaults.set(hasCompletedOnboarding, forKey: Keys.hasCompletedOnboarding) }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -173,7 +183,14 @@ final class SettingsStore: ObservableObject {
             self.aiTransmissionScope = .standard
         }
 
+        self.hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
+
         ScreenWakeManager.apply(keepScreenOn)
+    }
+
+    /// Marks the first-launch onboarding as completed (guest entry). Idempotent.
+    func completeOnboarding() {
+        hasCompletedOnboarding = true
     }
 
     private enum Keys {
@@ -182,5 +199,6 @@ final class SettingsStore: ObservableObject {
         static let hapticsEnabled = "settings.hapticsEnabled"
         static let keepScreenOn = "settings.keepScreenOn"
         static let aiTransmissionScope = "settings.aiTransmissionScope"
+        static let hasCompletedOnboarding = "settings.hasCompletedOnboarding"
     }
 }
