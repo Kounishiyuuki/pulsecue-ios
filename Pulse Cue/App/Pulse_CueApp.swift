@@ -12,6 +12,10 @@ import SwiftData
 struct Pulse_CueApp: App {
     @StateObject private var settings: SettingsStore
     @StateObject private var runnerViewModel: RunnerViewModel
+    // Local auth *shell* state (PR #112). Provided so future PRs (Login/Register
+    // UI, Apple, Google) have a ready place to read account state. It does not
+    // gate any existing feature and persists nothing.
+    @StateObject private var authSession = AuthSessionStore()
 
     var sharedModelContainer: ModelContainer = {
         let modelConfiguration = ModelConfiguration(
@@ -41,6 +45,7 @@ struct Pulse_CueApp: App {
             ContentView()
                 .environmentObject(settings)
                 .environmentObject(runnerViewModel)
+                .environmentObject(authSession)
         }
         .modelContainer(sharedModelContainer)
     }
