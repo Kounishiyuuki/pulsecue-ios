@@ -56,7 +56,7 @@ struct AuthUILogicTests {
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .google)
         #expect(store.session?.email == nil)
-        #expect(store.statusLabel == "Google でサインイン（準備中）")
+        #expect(store.statusLabel == "Googleでサインイン済み")
     }
 
     // MARK: - Settings logout availability
@@ -107,6 +107,6 @@ struct AuthUILogicTests {
         #expect(store.statusLabel == "Appleでサインイン済み")
 
         await store.signInWithMockGoogle()
-        #expect(store.statusLabel == "Google でサインイン（準備中）")
+        #expect(store.statusLabel == "Googleでサインイン済み")
     }
 }

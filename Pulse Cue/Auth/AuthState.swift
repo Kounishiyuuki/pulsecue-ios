@@ -26,14 +26,14 @@ enum AuthProviderKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     /// Short Japanese label for the current usage state, used by the
-    /// read-only Settings status row. Apple is a real sign-in (PR #114);
-    /// Google still reads as "準備中" until PR #115. Either way the data
-    /// stays local — sync/account linking is not active yet.
+    /// read-only Settings status row. Apple (PR #114) and Google (PR #115)
+    /// are real sign-ins; either way the data stays local — sync/account
+    /// linking is not active yet.
     var statusLabel: String {
         switch self {
         case .guest:  return "ゲスト（ローカル利用）"
         case .apple:  return "Appleでサインイン済み"
-        case .google: return "Google でサインイン（準備中）"
+        case .google: return "Googleでサインイン済み"
         }
     }
 }

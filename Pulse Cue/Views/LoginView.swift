@@ -10,22 +10,36 @@
 //      (PR #114). Only sanitized, non-sensitive display metadata (name/email)
 //      reaches `AuthSessionStore.completeAppleSignIn`; the identityToken,
 //      authorizationCode, and Apple `user` identifier are never read or stored.
-//    - "Googleで続ける" → AuthSessionStore.signInWithMockGoogle() — still a
-//      local mock placeholder until PR #115.
+//    - "Googleで続ける" → real Google Sign-In via the GoogleSignIn SDK when a
+//      real iOS OAuth client is configured (PR #115). Only sanitized
+//      name/email reaches `AuthSessionStore.completeGoogleSignIn`; the idToken,
+//      accessToken, refreshToken, serverAuthCode, and user identifier are
+//      never read or stored. While the Info.plist client ID is the documented
+//      placeholder, the button is disabled and a "設定準備中" note is shown —
+//      no real sign-in starts and no fake signed-in state is created.
 //    - "ゲストで続ける"  → AuthSessionStore.continueAsGuest()
 //
-//  Even with real Apple sign-in, the app stays local-first: no token
+//  Even with real Apple/Google sign-in, the app stays local-first: no token
 //  persistence, no Keychain, no server token exchange, no sync. The copy
 //  makes clear that account linking / backup / sync are not active yet, and
 //  login is never required to use the app.
 //
 
 import SwiftUI
+import UIKit
 import AuthenticationServices
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 struct LoginView: View {
     @ObservedObject var authSession: AuthSessionStore
     @Environment(\.dismiss) private var dismiss
+
+    /// Google sign-in configuration read from Info.plist. While this holds the
+    /// documented placeholder, `isConfigured` is false and the Google button
+    /// stays disabled.
+    private let googleConfig = GoogleSignInConfig.fromMainBundle()
 
     var body: some View {
         ZStack {
@@ -94,16 +108,24 @@ struct LoginView: View {
                 }
                 .buttonStyle(PulseSecondaryButtonStyle())
 
-                // Google remains a local mock placeholder until PR #115.
+                // Real Google Sign-In when a real iOS OAuth client is
+                // configured; disabled with a note while the placeholder is in
+                // place. Only sanitized name/email is used; no token / code /
+                // user identifier is read or stored.
                 Button("Googleで続ける") {
-                    Task {
-                        await authSession.signInWithMockGoogle()
-                        dismiss()
-                    }
+                    startGoogleSignIn()
                 }
                 .buttonStyle(PulseSecondaryButtonStyle())
+                .disabled(!googleConfig.isConfigured)
 
-                Text("Appleでサインインできます。サインインしても現在のデータはこの端末内に保存され、同期・バックアップ・アカウント連携はまだ有効ではありません。Google連携は準備中のローカル確認用です。")
+                if !googleConfig.isConfigured {
+                    Text("Googleログインは設定準備中です。Google Cloud の設定が完了すると利用できます。")
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("Apple・Googleでサインインできます。サインインしても現在のデータはこの端末内に保存され、同期・バックアップ・アカウント連携はまだ有効ではありません。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -132,6 +154,51 @@ struct LoginView: View {
         )
         dismiss()
     }
+
+    // MARK: - Google sign-in
+
+    /// Entry point for the Google button. Refuses to start unless a real iOS
+    /// OAuth client is configured, so the documented placeholder can never
+    /// trigger a real flow or fabricate a signed-in state.
+    private func startGoogleSignIn() {
+        guard googleConfig.isConfigured else { return }
+        presentGoogleSignIn()
+    }
+
+#if canImport(GoogleSignIn)
+    /// Presents the real Google Sign-In sheet. On success it extracts ONLY the
+    /// non-sensitive display name / email; the idToken, accessToken,
+    /// refreshToken, serverAuthCode, and Google user identifier are deliberately
+    /// ignored and never stored. Cancellation / failure leaves state unchanged.
+    private func presentGoogleSignIn() {
+        guard let presenter = Self.topViewController() else { return }
+        GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { signInResult, error in
+            guard error == nil, let profile = signInResult?.user.profile else { return }
+            let googleResult = GoogleSignInResult(
+                displayName: profile.name,
+                email: profile.email
+            )
+            authSession.completeGoogleSignIn(
+                displayName: googleResult.displayName,
+                email: googleResult.email
+            )
+            dismiss()
+        }
+    }
+
+    /// Finds the top-most view controller to present the Google sheet from.
+    private static func topViewController() -> UIViewController? {
+        let scene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
+            ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
+        guard var top = scene?.keyWindow?.rootViewController else { return nil }
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+#else
+    /// GoogleSignIn SDK unavailable at build time — treat as not configured.
+    private func presentGoogleSignIn() {}
+#endif
 
     // MARK: - Local-first note
 
