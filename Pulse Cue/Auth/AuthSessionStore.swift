@@ -84,10 +84,24 @@ final class AuthSessionStore: ObservableObject {
         )
     }
 
-    /// Mock Google sign-in (placeholder for PR #115). No real auth occurs.
+    /// Mock Google sign-in. Retained for tests and as a non-UI fallback; the
+    /// real Google flow goes through `completeGoogleSignIn` below.
     func signInWithMockGoogle() async {
         guard let session = try? await googleProvider.signIn() else { return }
         state = .signedIn(session)
+    }
+
+    /// Records a real Google Sign-In result (PR #115).
+    ///
+    /// Accepts ONLY sanitized, non-sensitive display metadata. The Google
+    /// `idToken`, `accessToken`, `refreshToken`, `serverAuthCode`, and user
+    /// identifier are intentionally not parameters, so they cannot reach this
+    /// store or be stored anywhere. Nothing is persisted — `state` is
+    /// in-memory only.
+    func completeGoogleSignIn(displayName: String?, email: String?) {
+        state = .signedIn(
+            AuthSession(provider: .google, displayName: displayName, email: email)
+        )
     }
 
     /// Clear any account context. The app stays usable afterwards.

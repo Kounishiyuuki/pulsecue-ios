@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 @main
 struct Pulse_CueApp: App {
@@ -46,8 +49,21 @@ struct Pulse_CueApp: App {
                 .environmentObject(settings)
                 .environmentObject(runnerViewModel)
                 .environmentObject(authSession)
+                .onOpenURL { url in
+                    // GoogleSignIn URL callback only. No other app flow uses
+                    // custom URL schemes, so this is scoped to the SDK.
+                    handleOpenURL(url)
+                }
         }
         .modelContainer(sharedModelContainer)
+    }
+
+    /// Routes incoming URLs to GoogleSignIn only. Returns immediately when the
+    /// SDK is unavailable, so the app builds and runs without it.
+    private func handleOpenURL(_ url: URL) {
+        #if canImport(GoogleSignIn)
+        GIDSignIn.sharedInstance.handle(url)
+        #endif
     }
 }
 

@@ -8,5 +8,27 @@
 	<string>ジム登録の際、近くのジムを検索するために位置情報を使います。現在地は近くのジム検索にのみ使用します。</string>
 	<key>UIBackgroundModes</key>
 	<array/>
+	<!-- Google Sign-In configuration (PR #115).
+	     These two values are DOCUMENTED PLACEHOLDERS until a real Google Cloud
+	     OAuth iOS client exists for com.kounishiyuuki.pulsecue. While the
+	     placeholder is in place, GoogleSignInConfig.isConfigured is false and
+	     the Google button shows "設定準備中" without starting a real sign-in.
+	     To enable real Google Sign-In, replace BOTH values:
+	       1. GIDClientID            -> <REAL>.apps.googleusercontent.com
+	       2. the CFBundleURLSchemes -> com.googleusercontent.apps.<REAL>
+	     No code change is required. -->
+	<key>GIDClientID</key>
+	<string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.kounishiyuuki.pulsecue.googlesignin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.YOUR_IOS_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
