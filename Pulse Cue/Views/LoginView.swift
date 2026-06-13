@@ -174,15 +174,25 @@ struct LoginView: View {
         guard let presenter = Self.topViewController() else { return }
         GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { signInResult, error in
             guard error == nil, let profile = signInResult?.user.profile else { return }
-            let googleResult = GoogleSignInResult(
-                displayName: profile.name,
-                email: profile.email
-            )
-            authSession.completeGoogleSignIn(
-                displayName: googleResult.displayName,
-                email: googleResult.email
-            )
-            dismiss()
+            // Extract ONLY the non-sensitive display name / email up front, so
+            // the MainActor handoff below captures plain `String?` values and
+            // never the SDK result. The idToken, accessToken, refreshToken,
+            // serverAuthCode, and Google user identifier are never touched.
+            let displayName = profile.name
+            let email = profile.email
+            // Hop to the main actor for the state update + dismiss, which are
+            // both main-actor isolated. The SDK callback itself is nonisolated.
+            Task { @MainActor in
+                let googleResult = GoogleSignInResult(
+                    displayName: displayName,
+                    email: email
+                )
+                authSession.completeGoogleSignIn(
+                    displayName: googleResult.displayName,
+                    email: googleResult.email
+                )
+                dismiss()
+            }
         }
     }
 

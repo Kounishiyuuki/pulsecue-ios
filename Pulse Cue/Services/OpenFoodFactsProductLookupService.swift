@@ -140,7 +140,11 @@ private struct OFFProduct: Decodable {
 
     /// Rounds a per-100 g value to a whole number, clamped to a sane
     /// range so a malformed feed value can never overflow `Int`.
-    private static func roundedInt(_ value: Double) -> Int {
+    ///
+    /// `nonisolated` because it is a pure function with no main-actor state:
+    /// this lets it be passed as a function reference to `Optional.map` (a
+    /// nonisolated higher-order function) without a concurrency warning.
+    private nonisolated static func roundedInt(_ value: Double) -> Int {
         Int(min(max(value, 0), 1_000_000).rounded())
     }
 }

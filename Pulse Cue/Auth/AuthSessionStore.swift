@@ -34,16 +34,22 @@ final class AuthSessionStore: ObservableObject {
     private let appleProvider: AuthProvider
     private let googleProvider: AuthProvider
 
+    /// Providers default to `nil` and are constructed inside this
+    /// `@MainActor` init body. The mock providers are main-actor-isolated
+    /// (the app target uses default `MainActor` isolation), so building them
+    /// here — rather than as actor-isolated default arguments evaluated in a
+    /// nonisolated context — avoids a concurrency warning. Behavior is
+    /// unchanged: with no injection the same mock providers are used.
     init(
         initialState: AuthState = .guest,
-        guestProvider: AuthProvider = GuestAuthProvider(),
-        appleProvider: AuthProvider = MockAppleAuthProvider(),
-        googleProvider: AuthProvider = MockGoogleAuthProvider()
+        guestProvider: AuthProvider? = nil,
+        appleProvider: AuthProvider? = nil,
+        googleProvider: AuthProvider? = nil
     ) {
         self.state = initialState
-        self.guestProvider = guestProvider
-        self.appleProvider = appleProvider
-        self.googleProvider = googleProvider
+        self.guestProvider = guestProvider ?? GuestAuthProvider()
+        self.appleProvider = appleProvider ?? MockAppleAuthProvider()
+        self.googleProvider = googleProvider ?? MockGoogleAuthProvider()
     }
 
     /// The attached session, if signed in. `nil` for guest / signed-out.
