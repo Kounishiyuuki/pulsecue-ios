@@ -82,8 +82,10 @@ App Store Connect の App Privacy 回答に必要な情報をまとめる。
 - [x] Release leakage scan: clean（`127.0.0.1` / `8787` / `fake-valid` / `fake-expired` / `workers.dev` / `debugLocalMock` / `DebugFakeToken` すべて 0 件）
 
 ### 3.3 提出前に App Store Connect 側で必要な作業（このフェーズの対象外・参考）
+- [ ] **有料 Apple Developer Program に加入**（Personal/無料チームは Sign in with Apple 非対応のため Archive 不可。詳細は `Docs/testflight-external-setup.md` §1.1 を参照）
 - [ ] App ID `com.kounishiyuuki.pulsecue` を Developer Portal / ASC に登録
 - [ ] App ID で `Sign in with Apple` Capability を有効化（手順は `Docs/testflight-external-setup.md` §1 を参照）
+- [ ] Xcode の Signing で **正式（有料）チーム**を選択し、プロビジョニングプロファイルを再生成
 - [ ] Google ログインは Info.plist がプレースホルダのまま無効でも提出可。実値で有効化する場合の手順は `Docs/testflight-external-setup.md` §2・§3 を参照
 - [ ] Archive（Generic iOS Device / 実機署名）作成 → App Store Connect へアップロード
 - [ ] App Privacy 質問への回答（本ドキュメント §2 に基づく）
