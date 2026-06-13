@@ -59,35 +59,8 @@ struct WorkoutView: View {
     // MARK: - Background / accent
 
     private var backgroundLayer: some View {
-        LinearGradient(colors: backgroundColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var backgroundColors: [Color] {
-        if colorScheme == .dark {
-            return [
-                Color(red: 0.05, green: 0.07, blue: 0.12),
-                Color(red: 0.07, green: 0.06, blue: 0.13),
-                Color(red: 0.05, green: 0.07, blue: 0.10)
-            ]
-        } else {
-            return [
-                Color(red: 0.93, green: 0.96, blue: 1.00),
-                Color(red: 0.96, green: 0.97, blue: 1.00),
-                Color(red: 0.99, green: 0.96, blue: 1.00)
-            ]
-        }
-    }
-
-    private var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.27, green: 0.62, blue: 0.95),
-                Color(red: 0.49, green: 0.51, blue: 0.97),
-                Color(red: 0.66, green: 0.45, blue: 0.95)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        // Calm, airy Apple Health Light surface (adapts to dark mode).
+        AppTheme.surface
     }
 
     // MARK: - Header / search / title
@@ -95,7 +68,7 @@ struct WorkoutView: View {
     private var brandHeader: some View {
         HStack {
             ZStack {
-                Circle().fill(accentGradient).frame(width: 32, height: 32)
+                Circle().fill(AppTheme.accent).frame(width: 32, height: 32)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -151,7 +124,7 @@ struct WorkoutView: View {
                     .font(.system(size: 28, weight: .black))
                 Image(systemName: "bolt.heart.fill")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
                 Spacer()
                 if !routines.isEmpty {
                     Text("\(filteredRoutines.count) / \(routines.count) 件")
@@ -302,11 +275,11 @@ struct WorkoutView: View {
     private func pinIcon(isPinned: Bool) -> some View {
         ZStack {
             if isPinned {
-                Circle().fill(accentGradient.opacity(0.15)).frame(width: 28, height: 28)
+                Circle().fill(AppTheme.accent.opacity(0.15)).frame(width: 28, height: 28)
             }
             Image(systemName: isPinned ? "pin.fill" : "pin")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isPinned ? AnyShapeStyle(accentGradient) : AnyShapeStyle(Color.secondary))
+                .foregroundStyle(isPinned ? AnyShapeStyle(AppTheme.accent) : AnyShapeStyle(Color.secondary))
         }
         .frame(width: 28, height: 28)
     }
@@ -333,11 +306,11 @@ struct WorkoutView: View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(accentGradient.opacity(0.14))
+                    .fill(AppTheme.accent.opacity(0.14))
                     .frame(width: 74, height: 74)
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(accentGradient)
+                    .foregroundStyle(AppTheme.accent)
             }
             VStack(spacing: 6) {
                 Text("最初のルーティンを作成")
@@ -355,7 +328,7 @@ struct WorkoutView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 11)
-                    .background(Capsule().fill(accentGradient))
+                    .background(Capsule().fill(AppTheme.accent))
             }
             .buttonStyle(.plain)
         }
@@ -375,7 +348,7 @@ struct WorkoutView: View {
         VStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(accentGradient)
+                .foregroundStyle(AppTheme.accent)
             Text("該当するルーティンがありません")
                 .font(.headline.weight(.bold))
             Text("検索語を変えるか、新しいルーティンを作成してください。")
@@ -402,11 +375,11 @@ struct WorkoutView: View {
             VStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill(accentGradient.opacity(0.12))
+                        .fill(AppTheme.accent.opacity(0.12))
                         .frame(width: 44, height: 44)
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(accentGradient)
+                        .foregroundStyle(AppTheme.accent)
                 }
                 Text("新規作成")
                     .font(.subheadline.weight(.bold))
@@ -424,7 +397,7 @@ struct WorkoutView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .strokeBorder(
-                        accentGradient.opacity(0.4),
+                        AppTheme.accent.opacity(0.4),
                         style: StrokeStyle(lineWidth: 1.2, dash: [5])
                     )
             )
@@ -439,7 +412,7 @@ struct WorkoutView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(accentGradient)
+                    .fill(AppTheme.accent)
                     .frame(width: 56, height: 56)
                     .shadow(
                         color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.4),
