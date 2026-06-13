@@ -83,6 +83,8 @@ App Store Connect の App Privacy 回答に必要な情報をまとめる。
 
 ### 3.3 提出前に App Store Connect 側で必要な作業（このフェーズの対象外・参考）
 - [ ] App ID `com.kounishiyuuki.pulsecue` を Developer Portal / ASC に登録
+- [ ] App ID で `Sign in with Apple` Capability を有効化（手順は `Docs/testflight-external-setup.md` §1 を参照）
+- [ ] Google ログインは Info.plist がプレースホルダのまま無効でも提出可。実値で有効化する場合の手順は `Docs/testflight-external-setup.md` §2・§3 を参照
 - [ ] Archive（Generic iOS Device / 実機署名）作成 → App Store Connect へアップロード
 - [ ] App Privacy 質問への回答（本ドキュメント §2 に基づく）
 - [ ] 輸出コンプライアンス（暗号化）回答
@@ -90,6 +92,10 @@ App Store Connect の App Privacy 回答に必要な情報をまとめる。
 
 > §3.3 は実機署名・ASC 登録が必要なため、ローカルのシミュレータ検証範囲外。
 > 実機署名や App ID 登録でローカル環境依存のエラーが出た場合は回避実装せず、エラー内容を共有する方針。
+
+> 関連ドキュメント:
+> - 外部設定（Apple Developer Portal / Google Cloud OAuth / Info.plist 置換）の実作業: `Docs/testflight-external-setup.md`
+> - 提出前の手動 QA（認証準備フェーズを含む）: `Docs/manual-qa-checklist.md`
 
 ---
 
