@@ -99,3 +99,29 @@ TestFlight 提出前に、リポジトリ外（Apple Developer Portal / Google C
 - [ ] オンボーディングを手動テスト
 - [ ] ログイン / アカウント画面を手動テスト
 - [ ] プロフィール / ジム設定を手動テスト
+
+> 認証準備フェーズ（オンボーディング / ログイン / アカウント / プロフィール・ジム設定）の
+> 詳細な手動 QA 項目は `Docs/manual-qa-checklist.md` の「認証準備フェーズ」節を参照。
+
+---
+
+## 5. Release リーク検査メモ（参考・軽量手順）
+
+DEBUG 限定の QA 文字列や本番 URL/トークンが Release バイナリに混入していないことを確認する
+軽量手順。**secret / token は記載しない。** スキャン語にヒットしないことが期待値。
+
+1. Release ビルド成果物の `.app` を特定し、メインバイナリに対して `strings` で確認する。
+2. 期待値: 以下のアプリ固有リスク語はすべて **0 件**。
+   - `OPENAI_API_KEY` / `sk-` / `8787` / `workers.dev` / `.workers.dev`
+   - `fake-valid` / `fake-expired` / `fake-wrong-scope` / `DebugFakeToken`
+   - `AI endpoint QA` / `開発者ツール` / `FAKE TOKEN`
+3. 解釈の注意:
+   - `127.0.0.1` / `id_token` / `access_token` / `refresh_token` / `client_secret` / `Keychain` 等が
+     検出されても、それらは **GoogleSignIn / AppAuth / GTMAppAuth SDK のメタデータ**であり、
+     アプリ所有コードのトークン保存ではない（`8787` が 0 件なら DEBUG ループバックではない）。
+   - 判断に迷う場合はソース grep で、アプリ所有コードが token/code/user ID を保存・ログ・
+     `AuthSessionStore` へ受け渡ししていないことを併せて確認する。
+
+> 関連ドキュメント:
+> - TestFlight 提出ベースライン（プロジェクト設定 / App Privacy 回答）: `Docs/testflight-readiness-baseline.md`
+> - 手動 QA チェックリスト: `Docs/manual-qa-checklist.md`
