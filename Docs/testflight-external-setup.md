@@ -29,6 +29,40 @@ TestFlight 提出前に、リポジトリ外（Apple Developer Portal / Google C
     `Sign in with Apple` が有効でないと署名・動作に失敗する場合がある。提出前に必ず有効化する。
   - **secret / token は追加しない。** 設定は Portal 側の Capability 有効化のみ。
 
+### 1.1 Personal（無料）チーム制約と Apple Developer Program（重要）
+
+Archive 検証で判明した確定的な制約。**アプリコードのブロッカーではなく、Apple アカウント種別の制約。**
+
+- **Personal（無料）開発チームでは Archive できない。**
+  本アプリは `com.apple.developer.applesignin` entitlement を持つため、**Personal/無料の Apple
+  開発チームでは Sign in with Apple Capability を含むプロビジョニングプロファイルを作成できず、
+  Archive 署名が失敗する。** 実際のエラー例:
+
+  ```
+  Cannot create a iOS App Development provisioning profile for
+  "com.kounishiyuuki.pulsecue". Personal development teams do not support
+  the Sign In with Apple capability.
+  ```
+
+- **有料 Apple Developer Program メンバーシップが必須。**
+  Sign in with Apple を含む状態での **Archive / TestFlight 配布には、有料の
+  Apple Developer Program（個人 or 組織の正式チーム）への加入が必要。** TestFlight
+  アップロード自体も有料メンバーシップが前提。
+
+- **加入後の手順（コード変更なしで進められる）:**
+  1. Apple Developer Program に加入し、正式（有料）チームを取得する。
+  2. Xcode の Signing & Capabilities で、対象ターゲットの Team を**正式（有料）チーム**に切り替える。
+  3. App ID `com.kounishiyuuki.pulsecue` で `Sign in with Apple` Capability を有効化（§1）。
+  4. Automatic Signing でプロビジョニングプロファイルを再生成／更新させる
+     （`-allowProvisioningUpdates` でも可）。
+  5. Archive 検証を再実行する（成功すれば TestFlight アップロードへ進める）。
+
+- **entitlement 削除は既定の解決策にしない。**
+  `com.apple.developer.applesignin` を外せば Personal チームでも開発ビルドは可能になるが、
+  これは **ローカル開発時の一時的な回避策**に限る。Sign in with Apple は本アプリの機能であり、
+  **リリース経路では entitlement を維持したまま有料チームで署名する**のが正しい。回避目的での
+  恒久的な entitlement 削除は行わない。
+
 ---
 
 ## 2. Google Cloud OAuth iOS クライアント設定
