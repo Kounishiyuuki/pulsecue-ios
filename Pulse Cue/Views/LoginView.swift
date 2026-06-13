@@ -125,7 +125,7 @@ struct LoginView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Text("Apple・Googleでサインインできます。サインインしても現在のデータはこの端末内に保存され、同期・バックアップ・アカウント連携はまだ有効ではありません。")
+                Text("Apple でサインインできます（Google は設定準備中）。サインインしても現在のデータはこの端末内に保存され、同期・バックアップ・アカウント連携はまだ有効ではありません。")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
