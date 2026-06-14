@@ -57,3 +57,10 @@ API 通信を行わない。
 - リクエストビルダーはトークン未注入 / nil / 空文字のとき `Authorization` を付けない。
 - トークンが明示注入されたときだけ `Authorization: Bearer` を付ける。
 - ビルダーはトークンをキャッシュ/永続化せず、毎回プロバイダを再呼び出しする。
+
+---
+
+## 関連
+
+この汎用基盤と、既存の AI / 写真推定 endpoint provider 群との関係（共有パターン・意図的に分離した点・
+将来の統合/実 API 接続ステップ）は `Docs/api-foundation-and-existing-providers.md` を参照。
