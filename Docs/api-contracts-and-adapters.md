@@ -59,3 +59,26 @@
 - リクエストパスが `api/health`・GET・body なしで正しく組まれる（本番 URL 不要）。
 - mock client がフィクスチャを返し、healthy / degraded / 不正 JSON / 404 が正しくマップされる。
 - adapter は token / base URL を保持せず、永続化経路を導入しない。
+
+## 6. DEBUG 限定の手動ヘルス確認ツール
+
+開発・QA 用に、API 基盤を**DEBUG ビルドでのみ**手動確認できる小さなツールを追加した
+（`Pulse Cue/Views/APIHealthQAView.swift` + `Pulse Cue/Services/APIHealthQAModel.swift`、
+いずれもファイル全体が `#if DEBUG`）。
+
+- 設定 → 「開発者ツール」（`#if DEBUG`）内の「API ヘルス確認」から開く。**Release には含まれない。**
+- 画面内のみのベースURLを入力し、**ユーザーが「確認する」を押したときだけ** `/api/health` を確認。
+  自動実行はしない。
+- ベースURLは**メモリ上のみ**で、UserDefaults / Keychain に保存しない。本番 URL の既定値なし。
+- トークン入力欄はなく、Authorization は送らない。**読み取り専用の body なし GET**で、
+  ユーザーデータを送らない。
+- 結果は 未確認 / 未設定 / 確認中 / 正常 / 縮退 / 通信無効 / エラー を表示するのみ。
+  同期・バックアップが有効であるかのような表現はしない。
+- 実装は PR #122/#123 の `APIIntegrationFoundation` / `APIClientFactory` / `APIHealthService`
+  を再利用し、API クライアント概念の重複を作らない。
+- テスト（`Pulse CueTests/APIHealthQAModelTests.swift`・`#if DEBUG`）は空/不正URLが通信しないこと、
+  mock-backed の結果マッピング、既定 disabled サービスが通信せず `.disabled` になることを検証
+  （実ネットワークは行わない）。
+
+> Release 安全性: 上記の DEBUG 専用コード・文字列（「API ヘルス確認」「開発者ツール」等）は
+> `#if DEBUG` により Release バイナリへ混入しない（Release leakage scan で確認）。

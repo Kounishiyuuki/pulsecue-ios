@@ -90,6 +90,7 @@
 		D17104DB1A8E4001B0DA5791 /* AITrainingPlanNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5792 /* AITrainingPlanNormalizerTests.swift */; };
 		D17104DB1A8E4001B0DA5793 /* AITrainingPlanEndpointClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5794 /* AITrainingPlanEndpointClientTests.swift */; };
 		D17104DB1A8E4001B0DA5795 /* AITrainingPlanProviderFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5796 /* AITrainingPlanProviderFactoryTests.swift */; };
+		AAB10C0000000000000001C5 /* APIHealthQAModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001C4 /* APIHealthQAModelTests.swift */; };
 		AAB10C0000000000000001B5 /* APIContractsAndAdaptersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001B4 /* APIContractsAndAdaptersTests.swift */; };
 		AAB10C0000000000000001A3 /* APIIntegrationFoundationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001A2 /* APIIntegrationFoundationTests.swift */; };
 		D17104DB1A8E4001B0DA5797 /* AIPlanGenerationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5798 /* AIPlanGenerationStateTests.swift */; };
@@ -110,6 +111,8 @@
 		D17104DB1A8E4001B0DA5781 /* AITrainingPlanProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5782 /* AITrainingPlanProvider.swift */; };
 		D17104DB1A8E4001B0DA5783 /* AITrainingPlanEndpointClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5784 /* AITrainingPlanEndpointClient.swift */; };
 		D17104DB1A8E4001B0DA5785 /* AITrainingPlanProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5786 /* AITrainingPlanProviderFactory.swift */; };
+		AAB10C0000000000000001C1 /* APIHealthQAModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001C0 /* APIHealthQAModel.swift */; };
+		AAB10C0000000000000001C3 /* APIHealthQAView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001C2 /* APIHealthQAView.swift */; };
 		AAB10C0000000000000001B1 /* APIContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001B0 /* APIContracts.swift */; };
 		AAB10C0000000000000001B3 /* APIHealthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001B2 /* APIHealthService.swift */; };
 		AAB10C0000000000000001A1 /* APIIntegrationFoundation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000001A0 /* APIIntegrationFoundation.swift */; };
@@ -299,6 +302,7 @@
 		D17104DB1A8E4001B0DA5792 /* AITrainingPlanNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanNormalizerTests.swift; path = "Pulse CueTests/AITrainingPlanNormalizerTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5794 /* AITrainingPlanEndpointClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanEndpointClientTests.swift; path = "Pulse CueTests/AITrainingPlanEndpointClientTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5796 /* AITrainingPlanProviderFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanProviderFactoryTests.swift; path = "Pulse CueTests/AITrainingPlanProviderFactoryTests.swift"; sourceTree = SOURCE_ROOT; };
+		AAB10C0000000000000001C4 /* APIHealthQAModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIHealthQAModelTests.swift; path = "Pulse CueTests/APIHealthQAModelTests.swift"; sourceTree = SOURCE_ROOT; };
 		AAB10C0000000000000001B4 /* APIContractsAndAdaptersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIContractsAndAdaptersTests.swift; path = "Pulse CueTests/APIContractsAndAdaptersTests.swift"; sourceTree = SOURCE_ROOT; };
 		AAB10C0000000000000001A2 /* APIIntegrationFoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIIntegrationFoundationTests.swift; path = "Pulse CueTests/APIIntegrationFoundationTests.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5798 /* AIPlanGenerationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AIPlanGenerationStateTests.swift; path = "Pulse CueTests/AIPlanGenerationStateTests.swift"; sourceTree = SOURCE_ROOT; };
@@ -319,6 +323,8 @@
 		D17104DB1A8E4001B0DA5782 /* AITrainingPlanProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanProvider.swift; path = "Pulse Cue/Services/AITrainingPlanProvider.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5784 /* AITrainingPlanEndpointClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanEndpointClient.swift; path = "Pulse Cue/Services/AITrainingPlanEndpointClient.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5786 /* AITrainingPlanProviderFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanProviderFactory.swift; path = "Pulse Cue/Services/AITrainingPlanProviderFactory.swift"; sourceTree = SOURCE_ROOT; };
+		AAB10C0000000000000001C0 /* APIHealthQAModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIHealthQAModel.swift; path = "Pulse Cue/Services/APIHealthQAModel.swift"; sourceTree = SOURCE_ROOT; };
+		AAB10C0000000000000001C2 /* APIHealthQAView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIHealthQAView.swift; path = "Pulse Cue/Views/APIHealthQAView.swift"; sourceTree = SOURCE_ROOT; };
 		AAB10C0000000000000001B0 /* APIContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIContracts.swift; path = "Pulse Cue/Services/APIContracts.swift"; sourceTree = SOURCE_ROOT; };
 		AAB10C0000000000000001B2 /* APIHealthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIHealthService.swift; path = "Pulse Cue/Services/APIHealthService.swift"; sourceTree = SOURCE_ROOT; };
 		AAB10C0000000000000001A0 /* APIIntegrationFoundation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = APIIntegrationFoundation.swift; path = "Pulse Cue/Services/APIIntegrationFoundation.swift"; sourceTree = SOURCE_ROOT; };
@@ -452,6 +458,7 @@
 				25A8C7265A2048DABE767678 /* SettingsView.swift */,
 				16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */,
 				AAB10C0000000000000000A1 /* OnboardingView.swift */,
+				AAB10C0000000000000001C2 /* APIHealthQAView.swift */,
 				AAB10C0000000000000000E1 /* LoginView.swift */,
 				AAB10C0000000000000000D5 /* ProfileGymSetupView.swift */,
 				910B6185D8234DA3924900CF /* TodayView.swift */,
@@ -478,6 +485,7 @@
 			isa = PBXGroup;
 			children = (
 				D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */,
+				AAB10C0000000000000001C0 /* APIHealthQAModel.swift */,
 				AAB10C0000000000000001B0 /* APIContracts.swift */,
 				AAB10C0000000000000001B2 /* APIHealthService.swift */,
 				AAB10C0000000000000001A0 /* APIIntegrationFoundation.swift */,
@@ -650,6 +658,7 @@
 			isa = PBXGroup;
 			children = (
 				D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */,
+				AAB10C0000000000000001C4 /* APIHealthQAModelTests.swift */,
 				AAB10C0000000000000001B4 /* APIContractsAndAdaptersTests.swift */,
 				AAB10C0000000000000001A2 /* APIIntegrationFoundationTests.swift */,
 				FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */,
@@ -975,6 +984,8 @@
 				D17104DB1A8E4001B0DA5781 /* AITrainingPlanProvider.swift in Sources */,
 				D17104DB1A8E4001B0DA5783 /* AITrainingPlanEndpointClient.swift in Sources */,
 				D17104DB1A8E4001B0DA5785 /* AITrainingPlanProviderFactory.swift in Sources */,
+				AAB10C0000000000000001C1 /* APIHealthQAModel.swift in Sources */,
+				AAB10C0000000000000001C3 /* APIHealthQAView.swift in Sources */,
 				AAB10C0000000000000001B1 /* APIContracts.swift in Sources */,
 				AAB10C0000000000000001B3 /* APIHealthService.swift in Sources */,
 				AAB10C0000000000000001A1 /* APIIntegrationFoundation.swift in Sources */,
@@ -1043,6 +1054,7 @@
 				D17104DB1A8E4001B0DA5791 /* AITrainingPlanNormalizerTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5793 /* AITrainingPlanEndpointClientTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5795 /* AITrainingPlanProviderFactoryTests.swift in Sources */,
+				AAB10C0000000000000001C5 /* APIHealthQAModelTests.swift in Sources */,
 				AAB10C0000000000000001B5 /* APIContractsAndAdaptersTests.swift in Sources */,
 				AAB10C0000000000000001A3 /* APIIntegrationFoundationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5797 /* AIPlanGenerationStateTests.swift in Sources */,
