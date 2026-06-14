@@ -82,3 +82,10 @@
 
 > Release 安全性: 上記の DEBUG 専用コード・文字列（「API ヘルス確認」「開発者ツール」等）は
 > `#if DEBUG` により Release バイナリへ混入しない（Release leakage scan で確認）。
+
+---
+
+## 関連
+
+この contract / adapter 層と、既存の AI / 写真推定 endpoint provider 群との対応・共有パターン・
+将来の統合/実 API 接続ステップは `Docs/api-foundation-and-existing-providers.md` を参照。
