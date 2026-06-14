@@ -605,6 +605,16 @@ struct SettingsView: View {
             ) {
                 MockAITrainingPlanChatView(endpointConfiguration: .debugLocalMockWithFakeToken())
             }
+
+            Divider().overlay(AppTheme.separator)
+
+            qaRow(
+                title: "API ヘルス確認",
+                subtitle: "入力したベースURLの /api/health を手動確認（読み取り専用・トークンなし・保存なし）。",
+                badges: [("DEBUG", .warning), ("READ-ONLY", .info)]
+            ) {
+                APIHealthQAView()
+            }
         }
         .pulseCard()
     }
