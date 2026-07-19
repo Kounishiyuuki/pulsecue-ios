@@ -135,9 +135,12 @@ struct RuleBasedWeeklyPlanGeneratorTests {
     // MARK: - Sparse catalog / beginner filter
 
     @Test
-    func beginnerFriendlyOnlyDoesNotCrashWithSparseCatalog() {
-        // The shipped catalog has no beginnerFriendly flags, so the filter
-        // must relax rather than yield an empty plan.
+    func beginnerFriendlyOnlyIsHonoredByShippedCatalog() {
+        // Since the 1.0 catalog now carries real beginnerFriendly flags,
+        // beginner-only mode filters for real instead of relaxing: every
+        // balanced body part still has a beginner-friendly machine, so the
+        // plan is non-empty, only beginner-friendly machines are chosen, and
+        // no "初心者向け条件を緩和" warning is emitted.
         let plan = RuleBasedWeeklyPlanGenerator.generate(
             request: TrainingPlanGenerationRequest(
                 daysPerWeek: 3,
@@ -145,7 +148,10 @@ struct RuleBasedWeeklyPlanGeneratorTests {
             )
         )
         #expect(plan.sessions.allSatisfy { !$0.exercises.isEmpty })
-        #expect(plan.warnings.contains { $0.contains("初心者") })
+        let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
+        let selected = machineIds.compactMap { MachineCatalog.entry(for: $0) }
+        #expect(selected.allSatisfy { $0.beginnerFriendly == true })
+        #expect(!plan.warnings.contains { $0.contains("初心者") })
     }
 
     @Test
@@ -232,6 +238,31 @@ struct RuleBasedWeeklyPlanGeneratorTests {
         )
         // 24 / 12 = 2 cap.
         #expect((short.sessions.first?.exercises.count ?? 0) <= 2)
+    }
+
+    // MARK: - 1.0 catalog expansion
+
+    @Test
+    func newCatalogMachinesContributeToWeeklyPlanViaExistingPath() {
+        // The weekly generator reads catalog entries + fallback generation
+        // directly (no per-machine template table), so a representative new
+        // machine surfaces in a plan just by being in the catalog. Inject a
+        // single-entry catalog to prove it end-to-end for each part family.
+        let cases: [(id: String, part: BodyPart)] = [
+            ("hack_squat", .legs),
+            ("incline_chest_press", .chest),
+            ("lateral_raise_machine", .shoulders),
+            ("abdominal_machine", .core),
+        ]
+        for c in cases {
+            let entry = MachineCatalog.entry(for: c.id)!
+            let plan = RuleBasedWeeklyPlanGenerator.generate(
+                request: TrainingPlanGenerationRequest(daysPerWeek: 1, targetBodyParts: [c.part]),
+                catalog: [entry]
+            )
+            let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
+            #expect(machineIds.contains(c.id), "\(c.id) did not appear in a weekly plan")
+        }
     }
 
     // MARK: - Enum display names

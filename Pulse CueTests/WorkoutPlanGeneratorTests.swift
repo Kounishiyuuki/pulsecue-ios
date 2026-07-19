@@ -115,4 +115,56 @@ struct WorkoutPlanGeneratorTests {
         #expect(plan.defaultTitle.contains("脚"))
         #expect(plan.defaultTitle.contains("Athletic Plus"))
     }
+
+    // MARK: - Catalog / template integrity
+
+    @Test
+    func everyTemplateMachineIdExistsInCatalog() {
+        let catalogIds = Set(MachineCatalog.all.map(\.id))
+        let unknown = WorkoutPlanGenerator.allTemplateMachineIds.subtracting(catalogIds)
+        #expect(unknown.isEmpty, "templates reference ids missing from the catalog: \(unknown.sorted())")
+    }
+
+    /// The 12 machines added in the 1.0 catalog expansion, with the primary
+    /// body part their single-workout template lives under.
+    private static let newMachinePrimaryBodyPart: [(id: String, part: BodyPart)] = [
+        ("abdominal_machine", .core),
+        ("arm_curl_machine", .arms),
+        ("assisted_pull_up", .back),
+        ("barbell", .chest),
+        ("calf_raise", .legs),
+        ("hack_squat", .legs),
+        ("hip_abduction", .legs),
+        ("incline_chest_press", .chest),
+        ("lateral_raise_machine", .shoulders),
+        ("rear_delt_fly", .shoulders),
+        ("rowing_machine", .fullBody),
+        ("triceps_extension_machine", .arms),
+    ]
+
+    @Test
+    func everyNewMachineHasASingleWorkoutTemplate() {
+        let templated = WorkoutPlanGenerator.allTemplateMachineIds
+        for new in Self.newMachinePrimaryBodyPart {
+            #expect(templated.contains(new.id), "new machine \(new.id) has no single-workout template")
+        }
+    }
+
+    @Test
+    func eachNewMachineAloneProducesItInSingleWorkoutPlan() throws {
+        // A machine that is selectable in My Gym must be usable by the
+        // single-workout planner: owning only that machine yields a plan
+        // that contains it.
+        let context = try Self.makeContext()
+        let gym = Self.makeGym(in: context)
+        for new in Self.newMachinePrimaryBodyPart {
+            let plan = WorkoutPlanGenerator.generate(
+                bodyPart: new.part,
+                gym: gym,
+                availableMachines: [Self.machine(new.id, on: gym)]
+            )
+            #expect(plan.exercises.contains { $0.machineId == new.id },
+                    "\(new.id) did not appear in a \(new.part.rawValue) plan")
+        }
+    }
 }
