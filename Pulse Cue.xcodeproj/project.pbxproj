@@ -130,6 +130,7 @@
 		D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */; };
 		D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */; };
 		D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */; };
+		A1B2C3D4E5F6000000000B01 /* ManualMachineSelectionViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000B02 /* ManualMachineSelectionViewModelTests.swift */; };
 		D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */; };
 		D17104DB1A8E4001B0DA4101 /* GymCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */; };
 		D17104DB1A8E4001B0DA4201 /* GymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */; };
@@ -342,6 +343,7 @@
 		D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPlanGeneratorTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepositoryTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000B02 /* ManualMachineSelectionViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualMachineSelectionViewModelTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineFactoryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidate.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchService.swift; sourceTree = "<group>"; };
@@ -690,6 +692,7 @@
 				D17104DB1A8E4001B0DA5772 /* WeeklyPlanRoutineSaveTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
+				A1B2C3D4E5F6000000000B02 /* ManualMachineSelectionViewModelTests.swift */,
 				D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */,
 				D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */,
 				D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */,
@@ -1068,6 +1071,7 @@
 				D17104DB1A8E4001B0DA57B1 /* MockAIPlanSaveHandoffTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
+				A1B2C3D4E5F6000000000B01 /* ManualMachineSelectionViewModelTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5751 /* RuleBasedWeeklyPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */,

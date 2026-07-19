@@ -3,10 +3,17 @@
 //  Pulse Cue
 //
 //  Lets the user mark which catalog machines exist at the given gym.
-//  Each toggle flips local state; tapping「保存」pushes the diff into
-//  SwiftData via `GymRepository.setMachines`. Catalog rows are
-//  grouped by their primary body part so the user can scan by
-//  workout target rather than alphabetically.
+//  Each toggle flips local state; tapping「プランを保存」pushes the diff
+//  into SwiftData via `GymRepository.setMachines`. Catalog rows stay
+//  grouped by their primary body part so the user can scan by workout
+//  target rather than alphabetically.
+//
+//  Search + body-part filtering layer on top of that original layout:
+//  `.searchable` provides the search field and a compact chip row scopes
+//  the visible body-part sections. All filter state and the filtered
+//  results live in `ManualMachineSelectionViewModel` (reusing
+//  `MachineCatalogQuery`); `selectedIds` stays the complete selection so
+//  hiding a machine via search/filter never drops it on save.
 //
 
 import SwiftUI
@@ -31,11 +38,20 @@ struct ManualMachineSelectionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     headerCard
+                    filterChips
 
-                    ForEach(BodyPart.allCases) { part in
-                        let entries = entries(for: part)
-                        if !entries.isEmpty {
-                            bodyPartCard(part: part, entries: entries)
+                    if viewModel.hiddenSelectedCount > 0 {
+                        hiddenSelectedNote
+                    }
+
+                    if viewModel.visibleEntries.isEmpty {
+                        emptyStateCard
+                    } else {
+                        ForEach(displayedParts) { part in
+                            let entries = entries(for: part)
+                            if !entries.isEmpty {
+                                bodyPartCard(part: part, entries: entries)
+                            }
                         }
                     }
 
@@ -56,6 +72,13 @@ struct ManualMachineSelectionView: View {
         }
         .navigationTitle("マシンを選択")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $viewModel.searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "マシン名・タグで検索"
+        )
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
         .task { viewModel.configure(modelContext: modelContext) }
         .onChange(of: viewModel.state) { _, newValue in
             if newValue == .saved { dismiss() }
@@ -72,6 +95,92 @@ struct ManualMachineSelectionView: View {
                 .foregroundStyle(.secondary)
         }
         .myGymCard()
+    }
+
+    // MARK: - Filter chips (compact, horizontal)
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                selectedOnlyChip
+                Divider().frame(height: 20).opacity(0.4)
+                ForEach(viewModel.bodyPartFilters) { part in
+                    bodyPartChip(part)
+                }
+                if viewModel.hasActiveFilters {
+                    clearChip
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var selectedOnlyChip: some View {
+        let isOn = viewModel.showSelectedOnly
+        return Button {
+            viewModel.showSelectedOnly.toggle()
+        } label: {
+            Label("選択中", systemImage: isOn ? "checkmark.circle.fill" : "checkmark.circle")
+                .font(.caption.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(chipBackground(isOn: isOn))
+                .foregroundStyle(isOn ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.hasSelection && !viewModel.showSelectedOnly)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private func bodyPartChip(_ part: BodyPart) -> some View {
+        let isOn = viewModel.selectedBodyParts.contains(part)
+        return Button {
+            viewModel.toggleBodyPart(part)
+        } label: {
+            Text(chipLabel(for: part))
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(chipBackground(isOn: isOn))
+                .foregroundStyle(isOn ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private var clearChip: some View {
+        Button {
+            viewModel.clearFilters()
+        } label: {
+            Text("すべて")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("絞り込みを解除")
+    }
+
+    private func chipBackground(isOn: Bool) -> some View {
+        Capsule().fill(
+            isOn ? AnyShapeStyle(MyGymStyle.accentGradient)
+                 : AnyShapeStyle(Color.primary.opacity(0.06))
+        )
+    }
+
+    private var hiddenSelectedNote: some View {
+        Label(
+            "選択済み \(viewModel.hiddenSelectedCount) 台は現在の絞り込みに含まれていません（保存対象です）。",
+            systemImage: "info.circle"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func bodyPartCard(part: BodyPart, entries: [MachineCatalogEntry]) -> some View {
@@ -91,6 +200,36 @@ struct ManualMachineSelectionView: View {
             }
         }
         .myGymCard()
+    }
+
+    private var emptyStateCard: some View {
+        VStack(spacing: 8) {
+            Image(systemName: viewModel.showSelectedOnly ? "checklist" : "magnifyingglass")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(emptyTitle)
+                .font(.subheadline.weight(.semibold))
+            Text(emptyMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .myGymCard()
+    }
+
+    private var emptyTitle: String {
+        viewModel.showSelectedOnly ? "選択済みのマシンがありません" : "一致するマシンがありません"
+    }
+
+    private var emptyMessage: String {
+        if viewModel.showSelectedOnly {
+            return viewModel.hasSelection
+                ? "現在の絞り込みでは選択済みマシンが表示されません。"
+                : "マシンを選ぶと、ここで確認できます。"
+        }
+        return "検索ワードや部位フィルターを変更してください。"
     }
 
     private func errorCard(message: String) -> some View {
@@ -137,6 +276,7 @@ struct ManualMachineSelectionView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(viewModel.isSelected(entry) ? .isSelected : [])
     }
 
     private var saveBar: some View {
@@ -145,7 +285,7 @@ struct ManualMachineSelectionView: View {
                 Text("選択済み")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("\(viewModel.selectedIds.count) 台")
+                Text("\(viewModel.selectedCount) 台")
                     .font(.headline.weight(.bold))
             }
             Spacer()
@@ -174,8 +314,17 @@ struct ManualMachineSelectionView: View {
 
     // MARK: - Catalog helpers
 
+    /// Body-part sections to render: all parts by default, or only the
+    /// parts the user is filtering by. The machines inside each section
+    /// come from the view model's already-filtered `visibleEntries`.
+    private var displayedParts: [BodyPart] {
+        viewModel.selectedBodyParts.isEmpty
+            ? viewModel.bodyPartFilters
+            : viewModel.bodyPartFilters.filter { viewModel.selectedBodyParts.contains($0) }
+    }
+
     private func entries(for part: BodyPart) -> [MachineCatalogEntry] {
-        MachineCatalog.all.filter { $0.bodyParts.contains(part) }
+        viewModel.visibleEntries.filter { $0.bodyParts.contains(part) }
     }
 
     private func selectedCountText(for entries: [MachineCatalogEntry]) -> String {
@@ -188,6 +337,13 @@ struct ManualMachineSelectionView: View {
             .filter { entry.bodyParts.contains($0) }
             .map(\.displayName)
             .joined(separator: " / ")
+    }
+
+    private func chipLabel(for part: BodyPart) -> String {
+        // Catalog uses `.fullBody` for cardio-style machines (treadmill/
+        // bike); surface that as 有酸素 here per the catalog screen without
+        // touching the persisted `BodyPart` enum. Display-only relabel.
+        part == .fullBody ? "有酸素" : part.displayName
     }
 
     private func bodyPartIcon(_ part: BodyPart) -> String {
