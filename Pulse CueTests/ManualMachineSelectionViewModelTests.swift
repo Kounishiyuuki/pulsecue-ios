@@ -174,6 +174,22 @@ struct ManualMachineSelectionViewModelTests {
     }
 
     @Test
+    func newlyAddedCatalogMachineSelectsSavesAndFilters() throws {
+        // A 1.0-expansion machine must be selectable, persist through
+        // GymMachine, and remain reachable via body-part filtering.
+        let (vm, repo, gym, _) = try Self.makeConfiguredVM()
+        let hackSquat = MachineCatalog.entry(for: "hack_squat")!
+
+        vm.selectedBodyParts = [.legs]
+        #expect(vm.visibleEntries.contains { $0.id == "hack_squat" })
+
+        vm.toggle(hackSquat)
+        vm.save()
+        #expect(vm.state == .saved)
+        #expect(repo.machines(for: gym).map(\.machineId).contains("hack_squat"))
+    }
+
+    @Test
     func selectionsAreScopedPerGym() throws {
         let context = try Self.makeContext()
         let repo = GymRepository(modelContext: context)
