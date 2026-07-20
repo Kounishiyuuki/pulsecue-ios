@@ -22,13 +22,13 @@ struct Pulse_CueApp: App {
 
     var sharedModelContainer: ModelContainer = {
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV2.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV3.self),
             isStoredInMemoryOnly: false
         )
 
         do {
             return try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV2.self),
+                for: Schema(versionedSchema: PulseCueSchemaV3.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -79,6 +79,11 @@ struct Pulse_CueApp: App {
 //
 // V1 → V2 is additive only (two new entities); no data transform is
 // required, so the stage is `.lightweight`.
+//
+// V2 → V3 adds `CustomMachine` (user-created gym equipment). It is a
+// single new entity with no change to any existing model, so it is again
+// purely additive and lightweight — existing rows are not enumerated or
+// mutated. See Docs for the V3 schema / rollback note.
 
 enum PulseCueSchemaV1: VersionedSchema {
     static var versionIdentifier = Schema.Version(1, 0, 0)
@@ -112,9 +117,27 @@ enum PulseCueSchemaV2: VersionedSchema {
     }
 }
 
+enum PulseCueSchemaV3: VersionedSchema {
+    static var versionIdentifier = Schema.Version(3, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Routine.self,
+            Step.self,
+            Session.self,
+            StepResult.self,
+            DayLog.self,
+            MealEntry.self,
+            UserProfile.self,
+            Gym.self,
+            GymMachine.self,
+            CustomMachine.self
+        ]
+    }
+}
+
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [PulseCueSchemaV1.self, PulseCueSchemaV2.self]
+        [PulseCueSchemaV1.self, PulseCueSchemaV2.self, PulseCueSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
@@ -122,6 +145,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV1.self,
                 toVersion: PulseCueSchemaV2.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV2.self,
+                toVersion: PulseCueSchemaV3.self
             )
         ]
     }

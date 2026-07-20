@@ -417,3 +417,41 @@ Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full bod
 実装順序）の意思決定は
 [`ai-training-plan-provider-architecture.md`](ai-training-plan-provider-architecture.md)
 を参照（PR #77、ドキュメントのみ）。
+
+## カスタムマシン用 SwiftData V3 スキーマ（PR: custom-machine-schema-v3）
+
+ユーザーが手入力で作成するジムマシンを保存するため、SwiftData スキーマに
+`CustomMachine` エンティティを追加し、スキーマ版を **V2 → V3** に上げた。
+
+- **モデル**: `Pulse Cue/Models/CustomMachine.swift`。標準カタログ選択を表す
+  `GymMachine` とは別モデル。`GymMachine` は無変更。source discriminator を
+  `GymMachine` に足したり、両者を optional 過多の統合モデルにまとめたりしない。
+- **結合**: `gymId`（`Gym.id` への論理 FK、`@Relationship` なし）。gym 削除時は
+  `GymRepository.deleteGym` が `GymMachine` と `CustomMachine` を手動 cascade。
+- **bodyParts**: `[String]`（`BodyPart.rawValue`）で保存。transformable
+  `[BodyPart]` は使わない。`resolvedBodyParts` が不明な raw 値を安全に除外する
+  ため、将来の `BodyPart` 変更や壊れた値でも読み出しでクラッシュしない。
+- **識別子**: 永続 identity は UUID `id`。プランナー/参照用の派生文字列
+  `referenceId = "custom_<lowercased uuid>"` は非永続で、編集で不変・標準の
+  snake_case カタログ ID と衝突しない。
+- **migration**: `PulseCueMigrationPlan` に `.lightweight(V2 → V3)` を 1 段追加
+  （純追加・既存行の列挙や変更なし）。`Pulse_CueApp.swift` の `ModelContainer`
+  は V3 スキーマ + プランで開く。既存の `Gym` / `GymMachine` / `Routine` /
+  `Step` / `Session` / `StepResult` / `DayLog` / `MealEntry` / `UserProfile`
+  行はそのまま保持される（`CustomMachineMigrationTests` が実 on-disk ストアで検証）。
+
+### rollback / downgrade 制約
+
+- migration 方向は **V2 → V3 のみ**。**V3 → V2 のダウングレードは未対応**。
+- V3 で作成した `CustomMachine` を含むストアを、`CustomMachine` を知らない
+  旧 V2 ビルドで開くと **起動に失敗し得る**（未知エンティティによる不整合。
+  `ModelContainer` init 失敗 → 起動時 `fatalError`）。
+- そのため pre-release / TestFlight で V3 から V2 へ戻す場合、**アプリ削除 +
+  再インストール**が必要になることがある。**削除するとローカルのみのデータは
+  失われる**（クラウドバックアップ / 復元は存在しない）。
+- 広く配布する前に、V2 ビルドを 1 本保持し、実ストアのコピーで V2 → V3 を
+  検証してから展開すること。
+
+本 PR は schema/migration + Repository CRUD のみ。追加/編集/削除 UI、My Gym の
+統合表示、プランナー連携（標準 + カスタムの `AvailableEquipment` アダプタ）は
+後続 PR で行う。
