@@ -26,6 +26,12 @@ struct ManualMachineSelectionView: View {
 
     @StateObject private var viewModel: ManualMachineSelectionViewModel
 
+    /// Which custom machine the form sheet is editing; `nil` while the
+    /// sheet is closed. `isAddingCustom` drives the create case.
+    @State private var editingCustomMachine: CustomMachine?
+    @State private var isAddingCustom = false
+    @State private var pendingDeletion: CustomMachine?
+
     init(gym: Gym) {
         _viewModel = StateObject(wrappedValue: ManualMachineSelectionViewModel(gym: gym))
     }
@@ -44,7 +50,9 @@ struct ManualMachineSelectionView: View {
                         hiddenSelectedNote
                     }
 
-                    if viewModel.visibleEntries.isEmpty {
+                    customCard
+
+                    if viewModel.hasNoVisibleEquipment {
                         emptyStateCard
                     } else {
                         ForEach(displayedParts) { part in
@@ -82,6 +90,30 @@ struct ManualMachineSelectionView: View {
         .task { viewModel.configure(modelContext: modelContext) }
         .onChange(of: viewModel.state) { _, newValue in
             if newValue == .saved { dismiss() }
+        }
+        .sheet(isPresented: $isAddingCustom, onDismiss: viewModel.reloadCustomMachines) {
+            CustomMachineFormView(gym: viewModel.gym)
+        }
+        .sheet(item: $editingCustomMachine, onDismiss: viewModel.reloadCustomMachines) { machine in
+            CustomMachineFormView(gym: viewModel.gym, editing: machine)
+        }
+        .confirmationDialog(
+            pendingDeletion.map { "「\($0.displayName)」を削除しますか？" } ?? "",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("削除", role: .destructive) {
+                if let machine = pendingDeletion {
+                    viewModel.deleteCustom(machine)
+                }
+                pendingDeletion = nil
+            }
+            Button("キャンセル", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            Text("このカスタムマシンをジムから削除します。保存済みのワークアウト履歴は残ります。")
         }
     }
 
@@ -202,6 +234,154 @@ struct ManualMachineSelectionView: View {
         .myGymCard()
     }
 
+    // MARK: - Custom machines
+
+    /// One compact card holding every user-authored machine plus the add
+    /// action. Deliberately a single card so custom equipment stays
+    /// clearly identifiable without visually outweighing the 28-entry
+    /// standard catalog below it.
+    private var customCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                MyGymStyle.sectionHeader(icon: "wrench.and.screwdriver.fill", title: "カスタムマシン")
+                if viewModel.hasCustomMachines {
+                    Text("\(viewModel.customSelectedCount) / \(viewModel.customMachines.count)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                }
+                Spacer(minLength: 0)
+                Button {
+                    isAddingCustom = true
+                } label: {
+                    Label("追加", systemImage: "plus.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .accessibilityLabel("カスタムマシンを追加")
+            }
+
+            if !viewModel.hasCustomMachines {
+                Text("カタログにない器具は、ここに登録するとプラン作成に使えます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if viewModel.visibleCustomMachines.isEmpty {
+                Text("現在の絞り込みに一致するカスタムマシンはありません。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(Array(viewModel.visibleCustomMachines.enumerated()), id: \.element.id) { index, machine in
+                    if index > 0 { Divider().opacity(0.35) }
+                    customRow(machine)
+                }
+            }
+        }
+        .myGymCard()
+    }
+
+    private func customRow(_ machine: CustomMachine) -> some View {
+        let isOn = viewModel.isCustomSelected(machine)
+        return HStack(spacing: 12) {
+            Button {
+                viewModel.toggleCustom(machine)
+            } label: {
+                HStack(spacing: 12) {
+                    checkbox(isOn: isOn)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(machine.displayName)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            customBadge
+                        }
+                        Text(customSubtitle(machine))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(customAccessibilityLabel(machine, isOn: isOn))
+            .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+
+            Menu {
+                Button {
+                    editingCustomMachine = machine
+                } label: {
+                    Label("編集", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    pendingDeletion = machine
+                } label: {
+                    Label("削除", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("\(machine.displayName) の操作")
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var customBadge: some View {
+        Text("カスタム")
+            .font(.caption2.weight(.bold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.accentColor.opacity(0.16)))
+            .foregroundStyle(Color.accentColor)
+            .accessibilityHidden(true)
+    }
+
+    /// Body parts, plus the equipment type when the user set one.
+    private func customSubtitle(_ machine: CustomMachine) -> String {
+        let parts = machine.resolvedBodyParts.map(\.displayName).joined(separator: " / ")
+        let base = parts.isEmpty ? "部位未設定" : parts
+        if let type = machine.resolvedEquipmentType {
+            return "\(base) ・ \(type.displayName)"
+        }
+        return base
+    }
+
+    /// Spoken as one phrase so VoiceOver conveys name, source, parts and
+    /// availability without the user hunting through separate elements.
+    private func customAccessibilityLabel(_ machine: CustomMachine, isOn: Bool) -> String {
+        "\(machine.displayName)、カスタムマシン、\(customSubtitle(machine))、\(isOn ? "利用可能" : "利用しない")"
+    }
+
+    private func checkbox(isOn: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(
+                    isOn ? Color.clear : Color.secondary.opacity(0.4),
+                    lineWidth: 1.5
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isOn ? AnyShapeStyle(MyGymStyle.accentGradient) : AnyShapeStyle(Color.clear))
+                )
+                .frame(width: 22, height: 22)
+            if isOn {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
     private var emptyStateCard: some View {
         VStack(spacing: 8) {
             Image(systemName: viewModel.showSelectedOnly ? "checklist" : "magnifyingglass")
@@ -223,11 +403,19 @@ struct ManualMachineSelectionView: View {
         viewModel.showSelectedOnly ? "選択済みのマシンがありません" : "一致するマシンがありません"
     }
 
+    /// Distinguishes "you have selected nothing yet" from "your filter
+    /// matched nothing" from "this gym has no custom machines yet", so
+    /// the message always tells the user what to do next.
     private var emptyMessage: String {
         if viewModel.showSelectedOnly {
             return viewModel.hasSelection
                 ? "現在の絞り込みでは選択済みマシンが表示されません。"
                 : "マシンを選ぶと、ここで確認できます。"
+        }
+        if viewModel.hasActiveFilters {
+            return viewModel.hasCustomMachines
+                ? "検索ワードや部位フィルターを変更してください。"
+                : "検索ワードや部位フィルターを変更するか、カスタムマシンを追加してください。"
         }
         return "検索ワードや部位フィルターを変更してください。"
     }
@@ -285,7 +473,9 @@ struct ManualMachineSelectionView: View {
                 Text("選択済み")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("\(viewModel.selectedCount) 台")
+                // Standard + custom, so the number matches what will
+                // actually be saved and used for plan generation.
+                Text("\(viewModel.totalSelectedCount) 台")
                     .font(.headline.weight(.bold))
             }
             Spacer()

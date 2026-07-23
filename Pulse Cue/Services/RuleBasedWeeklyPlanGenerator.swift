@@ -147,10 +147,19 @@ enum RuleBasedWeeklyPlanGenerator {
     /// parts. Excludes `.fullBody` (a catalog tag, not a training focus).
     static let balancedFullBody: [BodyPart] = [.chest, .back, .legs, .shoulders, .arms, .core]
 
+    /// Generates a weekly candidate from unified available equipment.
+    ///
+    /// Defaults to the whole bundled catalog, which is exactly the
+    /// previous behavior. Callers that know the active gym pass its
+    /// available custom machines in as well, so user-authored equipment
+    /// takes part in the same selection rules instead of needing a
+    /// parallel planning system. Unavailable equipment is dropped up
+    /// front and never reaches a candidate.
     static func generate(
         request: TrainingPlanGenerationRequest,
-        catalog: [MachineCatalogEntry] = MachineCatalog.all
+        equipment: [AvailableEquipment] = AvailableEquipment.standardCatalog()
     ) -> WeeklyTrainingPlanCandidate {
+        let catalog = equipment.filter(\.isAvailable)
         var warnings: [String] = []
         func warn(_ message: String) {
             if !warnings.contains(message) { warnings.append(message) }
@@ -293,7 +302,7 @@ enum RuleBasedWeeklyPlanGenerator {
 
     private static func selectExercises(
         focus: [BodyPart],
-        catalog: [MachineCatalogEntry],
+        catalog: [AvailableEquipment],
         count: Int,
         beginnerOnly: Bool
     ) -> Selection {
@@ -301,8 +310,11 @@ enum RuleBasedWeeklyPlanGenerator {
             return Selection(candidates: [], focusFallback: false, beginnerRelaxed: false)
         }
 
-        func matches(parts: [BodyPart], beginner: Bool) -> [MachineCatalogEntry] {
+        func matches(parts: [BodyPart], beginner: Bool) -> [AvailableEquipment] {
             let query = MachineCatalogQuery(bodyParts: parts, beginnerFriendlyOnly: beginner)
+            // Custom equipment has no `beginnerFriendly` flag, so a
+            // beginner-only request excludes it conservatively rather
+            // than assuming it is safe for beginners.
             return catalog.filter { $0.matches(query) }
         }
 
@@ -330,7 +342,7 @@ enum RuleBasedWeeklyPlanGenerator {
         }
 
         let chosen = Array(pool.prefix(count))
-        let candidates = chosen.map { RoutineStepCandidate(entry: $0, sourceLabel: sourceLabel) }
+        let candidates = chosen.map { RoutineStepCandidate(equipment: $0, sourceLabel: sourceLabel) }
         return Selection(candidates: candidates, focusFallback: focusFallback, beginnerRelaxed: beginnerRelaxed)
     }
 

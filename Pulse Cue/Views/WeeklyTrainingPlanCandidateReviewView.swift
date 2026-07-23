@@ -210,9 +210,27 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
     // MARK: - Generate
 
+    /// The whole bundled catalog (the long-standing behavior for the
+    /// weekly planner) plus the active gym's *available* custom machines,
+    /// so user-authored equipment can be suggested too. Read-only: this
+    /// creates no SwiftData objects.
+    private func generationEquipment() -> [AvailableEquipment] {
+        var equipment = AvailableEquipment.standardCatalog()
+        let repository = GymRepository(modelContext: modelContext)
+        if let gym = repository.activeGym() {
+            equipment += repository.customMachines(for: gym)
+                .filter(\.isAvailable)
+                .map(AvailableEquipment.init(custom:))
+        }
+        return equipment
+    }
+
     private var generateButton: some View {
         Button {
-            candidate = RuleBasedWeeklyPlanGenerator.generate(request: request)
+            candidate = RuleBasedWeeklyPlanGenerator.generate(
+                request: request,
+                equipment: generationEquipment()
+            )
             // Regenerating clears any prior save so the new candidate is
             // inert again until the user confirms.
             saveState = .idle

@@ -50,21 +50,67 @@ enum WorkoutPlanGenerator {
     /// gets an explicit warning that the plan will be short.
     private static let minMachinesForFullPlan = 3
 
-    /// Generates a plan from the available machines.
-    /// Falls back to a non-empty exercises list whenever any of the
-    /// available machines maps to a template for the body part; the
-    /// `warnings` array carries the explanation when the result is
-    /// thin or empty.
+    /// Conservative fallback prescription for a user-authored machine.
+    /// We only know its name and body parts, so we do not pretend to know
+    /// a precise prescription — these mirror `RoutineStepCandidate`'s
+    /// fallbacks and the cue is generic, safety-oriented guidance.
+    static let customFallbackSets = 3
+    static let customFallbackReps = 10
+    static let customFallbackRestSeconds = 60
+    static let customFallbackCue = "重量とフォームを確認しながら、無理のない範囲で行う"
+
+    /// Generates a plan from the gym's available equipment.
+    ///
+    /// Standard equipment keeps the original catalog-template behavior
+    /// (same exercise names, sets, reps, rest and cues, same priority
+    /// order). Custom equipment has no authored template, so a generic
+    /// fallback exercise is derived from its display name and body parts
+    /// and appended after the standard suggestions — custom machines
+    /// supplement the catalog rather than displacing it.
+    ///
+    /// Unavailable equipment never enters a plan.
     static func generate(
         bodyPart: BodyPart,
         gym: Gym,
-        availableMachines: [GymMachine]
+        availableEquipment: [AvailableEquipment]
     ) -> GeneratedPlan {
-        let availableIds = Set(availableMachines.map(\.machineId))
-        let candidates = templates(for: bodyPart).filter { availableIds.contains($0.machineId) }
+        let usable = availableEquipment.filter(\.isAvailable)
+        let standardIds = Set(usable.filter { !$0.isCustom }.map(\.id))
+        let templateMatches = templates(for: bodyPart).filter { standardIds.contains($0.machineId) }
+
+        let standardExercises = templateMatches.map { template in
+            GeneratedExercise(
+                machineId: template.machineId,
+                exerciseName: template.exerciseName,
+                sets: template.sets,
+                reps: template.reps,
+                restSeconds: template.restSeconds,
+                cue: template.cue
+            )
+        }
+
+        // Custom machines qualify only when they actually train the
+        // requested part. Deduped by reference id so one machine cannot
+        // fill the plan twice.
+        var seenCustomIds = Set<String>()
+        let customExercises = usable
+            .filter { $0.isCustom && $0.bodyParts.contains(bodyPart) }
+            .compactMap { equipment -> GeneratedExercise? in
+                guard seenCustomIds.insert(equipment.id).inserted else { return nil }
+                return GeneratedExercise(
+                    machineId: equipment.id,
+                    exerciseName: equipment.displayName,
+                    sets: customFallbackSets,
+                    reps: customFallbackReps,
+                    restSeconds: customFallbackRestSeconds,
+                    cue: customFallbackCue
+                )
+            }
+
+        let candidates = standardExercises + customExercises
 
         var warnings: [String] = []
-        if availableMachines.isEmpty {
+        if usable.isEmpty {
             warnings.append("選択中のマシンがありません。マイジムから利用できるマシンを選択してください。")
         } else if candidates.isEmpty {
             warnings.append("\(bodyPart.displayName)を鍛えられるマシンが見つかりませんでした。別のマシンを追加するか、別の部位を選んでください。")
@@ -72,21 +118,11 @@ enum WorkoutPlanGenerator {
             warnings.append("選択中のマシンが少ないためメニューが短くなっています。マシンを追加するとより良い提案ができます。")
         }
 
-        let chosen = Array(candidates.prefix(maxExercises))
         return GeneratedPlan(
             bodyPart: bodyPart,
             gymId: gym.id,
             gymName: gym.name,
-            exercises: chosen.map { template in
-                GeneratedExercise(
-                    machineId: template.machineId,
-                    exerciseName: template.exerciseName,
-                    sets: template.sets,
-                    reps: template.reps,
-                    restSeconds: template.restSeconds,
-                    cue: template.cue
-                )
-            },
+            exercises: Array(candidates.prefix(maxExercises)),
             warnings: warnings
         )
     }

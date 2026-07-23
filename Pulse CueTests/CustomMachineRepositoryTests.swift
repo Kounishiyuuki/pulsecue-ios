@@ -245,6 +245,36 @@ struct CustomMachineRepositoryTests {
     }
 
     @Test
+    func deletingAndRecreatingProducesANewIdentity() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gym = repo.createGym(name: "Gym A")
+        let first = try repo.addCustomMachine(to: gym, displayName: "同じ名前", bodyParts: [.chest])
+        let firstId = first.id
+        let firstRef = first.referenceId
+
+        repo.deleteCustomMachine(first)
+        let recreated = try repo.addCustomMachine(to: gym, displayName: "同じ名前", bodyParts: [.chest])
+
+        // Recreating is a new record, not a resurrection of the old one.
+        #expect(recreated.id != firstId)
+        #expect(recreated.referenceId != firstRef)
+        #expect(repo.customMachines(for: gym).count == 1)
+    }
+
+    @Test
+    func identicalNamesAreAllowedInDifferentGyms() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gymA = repo.createGym(name: "A")
+        let gymB = repo.createGym(name: "B")
+        let a = try repo.addCustomMachine(to: gymA, displayName: "共通名マシン", bodyParts: [.chest])
+        let b = try repo.addCustomMachine(to: gymB, displayName: "共通名マシン", bodyParts: [.chest])
+
+        #expect(a.id != b.id)
+        #expect(repo.customMachines(for: gymA).map(\.displayName) == ["共通名マシン"])
+        #expect(repo.customMachines(for: gymB).map(\.displayName) == ["共通名マシン"])
+    }
+
+    @Test
     func customMachinesAreScopedPerGym() throws {
         let (repo, _) = try Self.makeRepo()
         let gymA = repo.createGym(name: "A")

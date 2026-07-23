@@ -70,6 +70,29 @@ struct RoutineStepCandidate: Equatable {
         )
     }
 
+    /// Builds a candidate from unified available equipment.
+    ///
+    /// Standard equipment delegates to the catalog-entry initializer
+    /// above, so catalog-driven candidates are byte-for-byte what they
+    /// were before custom machines existed. Custom equipment carries no
+    /// authored sets/reps/rest, so it gets an empty template and the
+    /// `resolved*` fallbacks below supply conservative values — we do not
+    /// invent a prescription from a machine name.
+    init(equipment: AvailableEquipment, sourceLabel: String = "マシンカタログ") {
+        if let entry = equipment.catalogEntry {
+            self.init(entry: entry, sourceLabel: sourceLabel)
+        } else {
+            self.init(
+                machineId: equipment.id,
+                exerciseName: equipment.displayName,
+                bodyParts: equipment.orderedBodyParts,
+                template: MachineExerciseTemplate(sets: nil, reps: nil, restSeconds: nil),
+                notes: nil,
+                sourceLabel: sourceLabel
+            )
+        }
+    }
+
     /// True when the entry carried at least one usable default. When
     /// false the preview shows `MachineExerciseTemplate.fallbackMessage`.
     var hasMenuDefaults: Bool { template.hasAnyDefault }
