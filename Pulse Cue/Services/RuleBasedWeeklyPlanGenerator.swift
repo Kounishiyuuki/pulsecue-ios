@@ -149,12 +149,12 @@ enum RuleBasedWeeklyPlanGenerator {
 
     /// Generates a weekly candidate from unified available equipment.
     ///
-    /// Defaults to the whole bundled catalog, which is exactly the
-    /// previous behavior. Callers that know the active gym pass its
-    /// available custom machines in as well, so user-authored equipment
-    /// takes part in the same selection rules instead of needing a
-    /// parallel planning system. Unavailable equipment is dropped up
-    /// front and never reaches a candidate.
+    /// Defaults to the whole bundled catalog for generic planning when
+    /// no gym is configured. Gym-aware callers must pass the active gym's
+    /// available equipment from `GymRepository`, so unselected standard
+    /// machines and unavailable custom machines cannot enter candidates.
+    /// Unavailable equipment is dropped up front and never reaches a
+    /// candidate.
     static func generate(
         request: TrainingPlanGenerationRequest,
         equipment: [AvailableEquipment] = AvailableEquipment.standardCatalog()

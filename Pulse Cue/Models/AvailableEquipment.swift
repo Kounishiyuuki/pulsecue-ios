@@ -149,9 +149,9 @@ struct AvailableEquipment: Identifiable, Hashable {
         )
     }
 
-    /// Every bundled catalog machine as standard equipment. Used by the
-    /// weekly planner, which suggests from the whole catalog rather than
-    /// from one gym's selection.
+    /// Every bundled catalog machine as standard equipment. Used only for
+    /// generic planning when no gym is configured; gym-aware generation
+    /// must use `GymRepository.availableEquipment(for:availableOnly:)`.
     static func standardCatalog(_ catalog: [MachineCatalogEntry] = MachineCatalog.all) -> [AvailableEquipment] {
         catalog.map { AvailableEquipment(entry: $0) }
     }

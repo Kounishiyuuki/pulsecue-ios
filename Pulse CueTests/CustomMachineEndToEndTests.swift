@@ -389,6 +389,144 @@ struct CustomMachineEndToEndTests {
         #expect(plan.sessions.flatMap { $0.exercises.map(\.exerciseName) }.contains("壊れたメタデータ"))
     }
 
+    @Test
+    func weeklyUICallPathUsesOnlyActiveGymAvailableEquipment() throws {
+        let (repo, _) = try Self.makeRepo()
+        let active = repo.createGym(name: "Active")
+        repo.setMachines(["leg_press"], for: active)
+        let activeCustom = try repo.addCustomMachine(to: active, displayName: "自作レッグ", bodyParts: [.legs])
+        let unavailable = try repo.addCustomMachine(to: active, displayName: "封鎖中レッグ", bodyParts: [.legs])
+        repo.setCustomMachineAvailability(unavailable, isAvailable: false)
+
+        let other = repo.createGym(name: "Other", makeActive: false)
+        repo.setMachines(["hack_squat"], for: other)
+        _ = try repo.addCustomMachine(to: other, displayName: "別ジムレッグ", bodyParts: [.legs])
+
+        let equipment = try Self.requireReadyEquipment(from: repo)
+        let suppliedIds = Set(equipment.map(\.id))
+        #expect(suppliedIds == ["leg_press", activeCustom.referenceId])
+
+        let plan = RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(daysPerWeek: 1, targetBodyParts: [.legs]),
+            equipment: equipment
+        )
+        let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
+        #expect(machineIds.isSubset(of: suppliedIds))
+        #expect(machineIds.contains("leg_press") || machineIds.contains(activeCustom.referenceId))
+        #expect(!machineIds.contains("hack_squat"))
+        #expect(!machineIds.contains("leg_extension"))
+        #expect(!machineIds.contains("leg_curl"))
+        #expect(!machineIds.contains(unavailable.referenceId))
+        #expect(!plan.sessions.flatMap { $0.exercises.map(\.exerciseName) }.contains("別ジムレッグ"))
+    }
+
+    @Test
+    func weeklyEquipmentProviderAllowsSelectedStandardOnly() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gym = repo.createGym(name: "A")
+        repo.setMachines(["leg_press"], for: gym)
+
+        let equipment = try Self.requireReadyEquipment(from: repo)
+        #expect(equipment.map(\.id) == ["leg_press"])
+    }
+
+    @Test
+    func weeklyEquipmentProviderAllowsCustomOnly() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gym = repo.createGym(name: "A")
+        let custom = try repo.addCustomMachine(to: gym, displayName: "自作チェスト", bodyParts: [.chest])
+
+        let equipment = try Self.requireReadyEquipment(from: repo)
+        #expect(equipment.map(\.id) == [custom.referenceId])
+
+        let plan = RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(daysPerWeek: 1, targetBodyParts: [.chest]),
+            equipment: equipment
+        )
+        #expect(plan.sessions.flatMap { $0.exercises.map(\.exerciseName) }.contains("自作チェスト"))
+    }
+
+    @Test
+    func weeklyEquipmentProviderAllowsMixedStandardAndCustom() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gym = repo.createGym(name: "A")
+        repo.setMachines(["chest_press"], for: gym)
+        let custom = try repo.addCustomMachine(to: gym, displayName: "自作チェスト", bodyParts: [.chest])
+
+        let equipment = try Self.requireReadyEquipment(from: repo)
+        #expect(Set(equipment.map(\.id)) == ["chest_press", custom.referenceId])
+    }
+
+    @Test
+    func weeklyEquipmentProviderDoesNotFallbackForActiveGymWithZeroAvailableEquipment() throws {
+        let (repo, _) = try Self.makeRepo()
+        _ = repo.createGym(name: "A")
+
+        #expect(WeeklyPlanEquipmentProvider.resolve(repository: repo) == .activeGymHasNoAvailableEquipment)
+    }
+
+    @Test
+    func weeklyEquipmentProviderExcludesUnavailableCustomMachines() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gym = repo.createGym(name: "A")
+        let custom = try repo.addCustomMachine(to: gym, displayName: "封鎖中", bodyParts: [.chest])
+        repo.setCustomMachineAvailability(custom, isAvailable: false)
+
+        #expect(WeeklyPlanEquipmentProvider.resolve(repository: repo) == .activeGymHasNoAvailableEquipment)
+    }
+
+    @Test
+    func weeklyEquipmentProviderRequiresActiveGymWhenGymsExistButNoneIsActive() throws {
+        let (repo, _) = try Self.makeRepo()
+        _ = repo.createGym(name: "A", makeActive: false)
+        _ = repo.createGym(name: "B", makeActive: false)
+
+        #expect(WeeklyPlanEquipmentProvider.resolve(repository: repo) == .needsActiveGym)
+    }
+
+    @Test
+    func weeklyEquipmentProviderKeepsGenericCatalogFallbackWhenNoGymIsConfigured() throws {
+        let (repo, _) = try Self.makeRepo()
+
+        let equipment = try Self.requireReadyEquipment(from: repo)
+        #expect(equipment.count == MachineCatalog.all.count)
+        #expect(Set(equipment.map(\.id)) == Set(MachineCatalog.all.map(\.id)))
+    }
+
+    @Test
+    func beginnerOnlyWeeklyRequestExcludesCustomMachinesWithUnknownBeginnerSuitability() throws {
+        let (repo, _) = try Self.makeRepo()
+        let gym = repo.createGym(name: "A")
+        repo.setMachines(["leg_press"], for: gym)
+        let custom = try repo.addCustomMachine(to: gym, displayName: "素性不明レッグ", bodyParts: [.legs])
+
+        let equipment = try Self.requireReadyEquipment(from: repo)
+        let plan = RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(
+                daysPerWeek: 1,
+                targetBodyParts: [.legs],
+                beginnerFriendlyOnly: true
+            ),
+            equipment: equipment
+        )
+
+        let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
+        #expect(machineIds.contains("leg_press"))
+        #expect(!machineIds.contains(custom.referenceId))
+    }
+
+    private static func requireReadyEquipment(from repo: GymRepository) throws -> [AvailableEquipment] {
+        switch WeeklyPlanEquipmentProvider.resolve(repository: repo) {
+        case .ready(let equipment):
+            return equipment
+        case .activeGymHasNoAvailableEquipment:
+            Issue.record("Expected ready equipment, got zero-equipment state")
+        case .needsActiveGym:
+            Issue.record("Expected ready equipment, got active-gym-required state")
+        }
+        return []
+    }
+
     // MARK: - Preview / explicit-save boundary
 
     @Test

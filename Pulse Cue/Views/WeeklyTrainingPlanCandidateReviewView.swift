@@ -35,6 +35,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
     @State private var candidate: WeeklyTrainingPlanCandidate?
     @State private var saveState: WeeklyPlanSaveState = .idle
+    @State private var equipmentNotice: String?
 
     // Body-part filter order matches the catalog screen (胸/背中/肩/腕/脚/体幹/有酸素).
     private let bodyPartChoices: [BodyPart] = [
@@ -66,6 +67,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                     headerBlock
                     controlsCard
                     generateButton
+                    if let equipmentNotice {
+                        equipmentNoticeCard(equipmentNotice)
+                    }
                     if let candidate {
                         summaryCard(candidate)
                         if !candidate.warnings.isEmpty {
@@ -210,30 +214,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
     // MARK: - Generate
 
-    /// The whole bundled catalog (the long-standing behavior for the
-    /// weekly planner) plus the active gym's *available* custom machines,
-    /// so user-authored equipment can be suggested too. Read-only: this
-    /// creates no SwiftData objects.
-    private func generationEquipment() -> [AvailableEquipment] {
-        var equipment = AvailableEquipment.standardCatalog()
-        let repository = GymRepository(modelContext: modelContext)
-        if let gym = repository.activeGym() {
-            equipment += repository.customMachines(for: gym)
-                .filter(\.isAvailable)
-                .map(AvailableEquipment.init(custom:))
-        }
-        return equipment
-    }
-
     private var generateButton: some View {
         Button {
-            candidate = RuleBasedWeeklyPlanGenerator.generate(
-                request: request,
-                equipment: generationEquipment()
-            )
-            // Regenerating clears any prior save so the new candidate is
-            // inert again until the user confirms.
-            saveState = .idle
+            generateCandidate()
         } label: {
             Label("候補を生成", systemImage: "wand.and.stars")
                 .font(.subheadline.weight(.bold))
@@ -243,7 +226,48 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         .buttonStyle(.borderedProminent)
     }
 
+    private func generateCandidate() {
+        let repository = GymRepository(modelContext: modelContext)
+        switch WeeklyPlanEquipmentProvider.resolve(repository: repository) {
+        case .ready(let equipment):
+            equipmentNotice = nil
+            candidate = RuleBasedWeeklyPlanGenerator.generate(
+                request: request,
+                equipment: equipment
+            )
+            // Regenerating clears any prior save so the new candidate is
+            // inert again until the user confirms.
+            saveState = .idle
+        case .activeGymHasNoAvailableEquipment:
+            candidate = nil
+            saveState = .idle
+            equipmentNotice = WeeklyPlanEquipmentProvider.noAvailableEquipmentMessage
+        case .needsActiveGym:
+            candidate = nil
+            saveState = .idle
+            equipmentNotice = WeeklyPlanEquipmentProvider.needsActiveGymMessage
+        }
+    }
+
     // MARK: - Summary
+
+    private func equipmentNoticeCard(_ message: String) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(message, systemImage: "wrench.adjustable")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                NavigationLink {
+                    MyGymHomeView()
+                } label: {
+                    Label("My Gymを開く", systemImage: "building.2.fill")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
 
     private func summaryCard(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
         card {
@@ -528,6 +552,35 @@ enum WeeklyPlanSaveState: Equatable {
     /// each non-empty session became a normal routine.
     static func savedSummary(routineCount: Int) -> String {
         "各セッションが通常のルーティンとして追加されました（\(routineCount) 件）。ルーティン一覧から開始したり、内容を編集できます。"
+    }
+}
+
+/// Repository-backed equipment boundary for weekly plan generation.
+/// Kept outside the SwiftUI view so tests can prove the UI call path
+/// cannot silently widen an active gym's equipment back to the full
+/// bundled catalog.
+@MainActor
+enum WeeklyPlanEquipmentProvider {
+    static let noAvailableEquipmentMessage = "利用できるマシンがありません。My Gymで使用するマシンを選択してください。"
+    static let needsActiveGymMessage = "使用するジムをMy Gymで選択してください。"
+
+    enum Resolution: Equatable {
+        case ready([AvailableEquipment])
+        case activeGymHasNoAvailableEquipment
+        case needsActiveGym
+    }
+
+    static func resolve(repository: GymRepository) -> Resolution {
+        if let activeGym = repository.activeGym() {
+            let equipment = repository.availableEquipment(for: activeGym, availableOnly: true)
+            return equipment.isEmpty ? .activeGymHasNoAvailableEquipment : .ready(equipment)
+        }
+
+        if repository.allGyms().isEmpty {
+            return .ready(AvailableEquipment.standardCatalog())
+        }
+
+        return .needsActiveGym
     }
 }
 
