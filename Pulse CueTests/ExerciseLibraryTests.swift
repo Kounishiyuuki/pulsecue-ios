@@ -44,6 +44,18 @@ struct ExerciseLibraryTests {
         }
     }
 
+    @Test func exerciseBodyPartsAreCanonicalAndUnique() {
+        for exercise in ExerciseLibrary.all {
+            #expect(!exercise.secondaryBodyParts.contains(exercise.primaryBodyPart))
+            #expect(Set(exercise.secondaryBodyParts).count == exercise.secondaryBodyParts.count)
+            #expect(exercise.bodyParts.first == exercise.primaryBodyPart)
+            #expect(Set(exercise.bodyParts).count == exercise.bodyParts.count)
+            #expect(exercise.bodyParts == [exercise.primaryBodyPart] + BodyPart.allCases.filter {
+                $0 != exercise.primaryBodyPart && exercise.secondaryBodyParts.contains($0)
+            })
+        }
+    }
+
     // MARK: - Equipment references
 
     @Test func everyExactEquipmentIdExistsInCatalog() {
@@ -153,6 +165,15 @@ struct ExerciseLibraryTests {
                 ExerciseLibrary.resolve(equipmentId: entry.id, bodyParts: ordered) != nil,
                 "no movement resolves for catalog equipment \(entry.id)"
             )
+        }
+    }
+
+    @Test func resolvedExercisePrimaryBodyPartMatchesRequestedContext() {
+        for entry in MachineCatalog.all {
+            for part in BodyPart.allCases where entry.bodyParts.contains(part) {
+                let resolved = ExerciseLibrary.resolve(equipmentId: entry.id, bodyParts: [part])
+                #expect(resolved?.trains(part) == true, "\(entry.id) did not resolve for \(part)")
+            }
         }
     }
 }

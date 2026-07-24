@@ -137,13 +137,34 @@ struct ExercisePlannerIntegrationTests {
         #expect(!names.contains("ケーブルマシン"))
         let cable = Self.allCandidates(plan).first { $0.exerciseName == "ケーブルロー" }
         #expect(cable?.exerciseId == "cable_row")
+        #expect(cable?.bodyParts == [.back, .arms])
+        #expect(cable?.bodyParts.contains(.chest) == false)
+        #expect(cable?.bodyParts.contains(.shoulders) == false)
     }
 
-    @Test func weeklyMultiPurposeEquipmentResolvesByBodyPart() {
+    @Test func weeklyCableArmCandidateUsesExerciseBodyParts() {
+        let candidates = Self.allCandidates(Self.weekly([Self.standard("cable_machine")], focus: .arms))
+        let cable = candidates.first { $0.exerciseId == "cable_triceps_pushdown" }
+        #expect(cable?.exerciseName == "ケーブルトライセプスプッシュダウン")
+        #expect(cable?.bodyParts == [.arms])
+    }
+
+    @Test func weeklyMultiPurposeEquipmentResolvesByBodyPart() throws {
         let legs = Self.allCandidates(Self.weekly([Self.standard("barbell")], focus: .legs))
         let chest = Self.allCandidates(Self.weekly([Self.standard("barbell")], focus: .chest))
-        #expect(legs.first?.exerciseId == "barbell_back_squat")
-        #expect(chest.first?.exerciseId == "barbell_bench_press")
+        let legCandidate = try #require(legs.first)
+        let chestCandidate = try #require(chest.first)
+        #expect(legCandidate.exerciseId == "barbell_back_squat")
+        #expect(legCandidate.bodyParts == [.legs, .core])
+        #expect(chestCandidate.exerciseId == "barbell_bench_press")
+        #expect(chestCandidate.bodyParts == [.chest, .arms])
+    }
+
+    @Test func weeklyDumbbellCandidateUsesExerciseBodyParts() throws {
+        let candidates = Self.allCandidates(Self.weekly([Self.standard("dumbbells")], focus: .shoulders))
+        let candidate = try #require(candidates.first)
+        #expect(candidate.exerciseId == "dumbbell_lateral_raise")
+        #expect(candidate.bodyParts == [.shoulders])
     }
 
     @Test func weeklyCustomFallbackStaysNilAndKeepsName() {
@@ -151,6 +172,7 @@ struct ExercisePlannerIntegrationTests {
         let candidate = Self.allCandidates(plan).first { $0.exerciseName == "自作プレス機" }
         #expect(candidate != nil)
         #expect(candidate?.exerciseId == nil)
+        #expect(candidate?.bodyParts == [.chest])
     }
 
     @Test func weeklyCustomNameWithAliasNeverResolves() {

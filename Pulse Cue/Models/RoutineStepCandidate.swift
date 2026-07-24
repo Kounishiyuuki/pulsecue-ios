@@ -25,10 +25,11 @@ struct RoutineStepCandidate: Equatable {
     /// Canonical catalog id (e.g. `lat_pulldown`). Preserved so a future
     /// save step can re-resolve the source machine.
     let machineId: String
-    /// User-facing exercise name — the machine's `displayName`.
+    /// User-facing resolved exercise name, or the equipment display name
+    /// when no standard exercise identity is available.
     let exerciseName: String
-    /// Primary body parts in canonical `BodyPart.allCases` order so the
-    /// (unordered) source `Set` renders stably.
+    /// Resolved exercise body parts (primary first, then canonical
+    /// secondaries), or canonical equipment body parts for a fallback.
     let bodyParts: [BodyPart]
     /// Sets / reps / rest preview, reused from the detail screen so the
     /// numbers and fallback copy match exactly.
@@ -100,7 +101,8 @@ struct RoutineStepCandidate: Equatable {
             self.init(
                 machineId: entry.id,
                 exerciseName: resolvedExercise?.displayName ?? entry.displayName,
-                bodyParts: BodyPart.allCases.filter { entry.bodyParts.contains($0) },
+                bodyParts: resolvedExercise?.bodyParts
+                    ?? BodyPart.allCases.filter { entry.bodyParts.contains($0) },
                 template: MachineExerciseTemplate(entry: entry),
                 notes: entry.setupNotes ?? entry.safetyNotes,
                 sourceLabel: sourceLabel,

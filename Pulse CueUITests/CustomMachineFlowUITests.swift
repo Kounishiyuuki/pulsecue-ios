@@ -88,7 +88,11 @@ final class CustomMachineFlowUITests: XCTestCase {
         search.typeText("旧型")
         XCTAssertTrue(app.staticTexts["旧型レッグプレス"].waitForExistence(timeout: 3), "Custom search result missing")
         capture(app, "08-custom-search")
-        app.buttons["Cancel"].firstMatch.tap()
+        search.typeText("\n")
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForNonExistence(timeout: 3),
+            "Search keyboard did not dismiss"
+        )
 
         // 8. Edit entry is available from the row menu.
         app.buttons["旧型レッグプレス の操作"].tap()
@@ -104,7 +108,16 @@ final class CustomMachineFlowUITests: XCTestCase {
         app.buttons["削除"].tap()
         XCTAssertTrue(app.buttons["削除"].waitForExistence(timeout: 3), "Delete confirmation missing")
         capture(app, "10-custom-delete-confirmation")
-        app.buttons["キャンセル"].tap()
+        let deleteCancel = app.buttons.matching(
+            NSPredicate(
+                format: "label == %@ OR label == %@ OR label == %@",
+                "キャンセル",
+                "Cancel",
+                "Close"
+            )
+        ).firstMatch
+        XCTAssertTrue(deleteCancel.waitForExistence(timeout: 3), "Delete cancel button missing")
+        deleteCancel.tap()
     }
 }
 
