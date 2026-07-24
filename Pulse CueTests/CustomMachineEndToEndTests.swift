@@ -22,7 +22,7 @@ import Testing
 struct CustomMachineEndToEndTests {
 
     private static func makeRepo() throws -> (GymRepository, ModelContext) {
-        let schema = Schema(versionedSchema: PulseCueSchemaV3.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
         let context = ModelContext(container)

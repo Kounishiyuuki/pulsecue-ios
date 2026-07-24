@@ -16,11 +16,11 @@ import Testing
 struct CustomMachineRepositoryTests {
 
     private static func makeRepo() throws -> (GymRepository, ModelContext) {
-        // Use the production V3 versioned schema (in-memory) rather than an
-        // ad-hoc `Schema([...])`: building a raw subset schema that includes
+        // Use the production (latest) versioned schema (in-memory) rather than
+        // an ad-hoc `Schema([...])`: building a raw subset schema that includes
         // `CustomMachine` tripped a CoreData "model still editable" crash,
         // while the versioned schema (the same one the app ships) is stable.
-        let schema = Schema(versionedSchema: PulseCueSchemaV3.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
         let context = ModelContext(container)

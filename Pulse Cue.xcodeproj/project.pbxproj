@@ -86,6 +86,9 @@
 		D17104DB1A8E4001B0DA57A1 /* MockAITrainingPlanChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA57A2 /* MockAITrainingPlanChatView.swift */; };
 		D17104DB1A8E4001B0DA5711 /* RoutineStepCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */; };
 		D17104DB1A8E4001B0DA7001 /* AvailableEquipment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */; };
+		D17104DB1A8E4001B0DA9031 /* StepExerciseIdSaveBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9032 /* StepExerciseIdSaveBoundaryTests.swift */; };
+		D17104DB1A8E4001B0DA9021 /* StepExerciseIdMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9022 /* StepExerciseIdMigrationTests.swift */; };
+		D17104DB1A8E4001B0DA9011 /* Step+ExerciseResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9012 /* Step+ExerciseResolution.swift */; };
 		D17104DB1A8E4001B0DA8081 /* ExercisePlannerIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA8082 /* ExercisePlannerIntegrationTests.swift */; };
 		D17104DB1A8E4001B0DA8071 /* ExerciseGuideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA8072 /* ExerciseGuideTests.swift */; };
 		D17104DB1A8E4001B0DA8061 /* ExerciseLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA8062 /* ExerciseLibraryTests.swift */; };
@@ -315,6 +318,9 @@
 		D17104DB1A8E4001B0DA57A2 /* MockAITrainingPlanChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockAITrainingPlanChatView.swift; path = "Pulse Cue/Views/MockAITrainingPlanChatView.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStepCandidate.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableEquipment.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA9032 /* StepExerciseIdSaveBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepExerciseIdSaveBoundaryTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA9022 /* StepExerciseIdMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepExerciseIdMigrationTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA9012 /* Step+ExerciseResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Step+ExerciseResolution.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA8082 /* ExercisePlannerIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExercisePlannerIntegrationTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA8072 /* ExerciseGuideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseGuideTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA8062 /* ExerciseLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseLibraryTests.swift; sourceTree = "<group>"; };
@@ -654,6 +660,7 @@
 				D17104DB1A8E4001B0DA5612 /* MachineExerciseTemplate.swift */,
 				D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */,
 				D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */,
+				D17104DB1A8E4001B0DA9012 /* Step+ExerciseResolution.swift */,
 				D17104DB1A8E4001B0DA8042 /* ExerciseGuide.swift */,
 				D17104DB1A8E4001B0DA8032 /* ExerciseLibrary.swift */,
 				D17104DB1A8E4001B0DA8022 /* Exercise.swift */,
@@ -735,6 +742,8 @@
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
 				D17104DB1A8E4001B0DA6102 /* CustomMachineMigrationTests.swift */,
 				D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */,
+				D17104DB1A8E4001B0DA9032 /* StepExerciseIdSaveBoundaryTests.swift */,
+				D17104DB1A8E4001B0DA9022 /* StepExerciseIdMigrationTests.swift */,
 				D17104DB1A8E4001B0DA8082 /* ExercisePlannerIntegrationTests.swift */,
 				D17104DB1A8E4001B0DA8072 /* ExerciseGuideTests.swift */,
 				D17104DB1A8E4001B0DA8062 /* ExerciseLibraryTests.swift */,
@@ -1027,6 +1036,7 @@
 				D17104DB1A8E4001B0DA57A1 /* MockAITrainingPlanChatView.swift in Sources */,
 				D17104DB1A8E4001B0DA5711 /* RoutineStepCandidate.swift in Sources */,
 				D17104DB1A8E4001B0DA7001 /* AvailableEquipment.swift in Sources */,
+				D17104DB1A8E4001B0DA9011 /* Step+ExerciseResolution.swift in Sources */,
 				D17104DB1A8E4001B0DA8051 /* ExerciseGuideView.swift in Sources */,
 				D17104DB1A8E4001B0DA8041 /* ExerciseGuide.swift in Sources */,
 				D17104DB1A8E4001B0DA8031 /* ExerciseLibrary.swift in Sources */,
@@ -1130,6 +1140,8 @@
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA6101 /* CustomMachineMigrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */,
+				D17104DB1A8E4001B0DA9031 /* StepExerciseIdSaveBoundaryTests.swift in Sources */,
+				D17104DB1A8E4001B0DA9021 /* StepExerciseIdMigrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA8081 /* ExercisePlannerIntegrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA8071 /* ExerciseGuideTests.swift in Sources */,
 				D17104DB1A8E4001B0DA8061 /* ExerciseLibraryTests.swift in Sources */,

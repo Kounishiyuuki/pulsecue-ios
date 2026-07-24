@@ -106,7 +106,10 @@ struct CustomMachineMigrationTests {
         ))
         let routine = Routine(id: routineId, name: "背中の日")
         context.insert(routine)
-        context.insert(Step(
+        // Seed with the version-specific legacy Step (the actual V2/V3 shape,
+        // no `exerciseId`) so this stays a faithful V2→V3 test after the V4
+        // change split Step into legacy vs. current models.
+        context.insert(PulseCueSchemaV1.Step(
             id: stepId,
             routineId: routineId,
             order: 0,
@@ -165,7 +168,8 @@ struct CustomMachineMigrationTests {
             try Self.seedV2Store(at: url) { try Self.seedRealisticV2($0) }
             try Self.openV3Store(at: url) { context in
                 let routines = try context.fetch(FetchDescriptor<Routine>())
-                let steps = try context.fetch(FetchDescriptor<Step>())
+                // V3 store holds the legacy Step shape.
+                let steps = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Step>())
                 let sessions = try context.fetch(FetchDescriptor<Session>())
                 let results = try context.fetch(FetchDescriptor<StepResult>())
                 #expect(routines.count == 1)

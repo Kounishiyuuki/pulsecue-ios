@@ -19,6 +19,14 @@ final class Step {
     var restSeconds: Int
     var note: String
     var isWarmup: Bool
+    /// Optional stable Exercise Library identity (schema V4+). Stored as a
+    /// plain `ExerciseID.rawValue` string — NOT a relationship, enum, or
+    /// transformable — so persisted data survives library type changes and
+    /// unknown/deprecated ids stay readable. `nil` for pre-V4 rows, manual
+    /// steps, and custom/unresolved exercises. It is enhancement metadata:
+    /// `title` remains the universal display/runtime value, so a `nil` (or
+    /// unresolvable) id never blocks a workout. Never inferred from `title`.
+    var exerciseId: String?
 
     init(
         id: UUID = UUID(),
@@ -29,7 +37,8 @@ final class Step {
         repsTarget: Int,
         restSeconds: Int,
         note: String = "",
-        isWarmup: Bool = false
+        isWarmup: Bool = false,
+        exerciseId: String? = nil
     ) {
         self.id = id
         self.routineId = routineId
@@ -40,6 +49,7 @@ final class Step {
         self.restSeconds = Step.clampRest(restSeconds)
         self.note = note
         self.isWarmup = isWarmup
+        self.exerciseId = exerciseId
     }
 
     static func clampRest(_ value: Int) -> Int {
