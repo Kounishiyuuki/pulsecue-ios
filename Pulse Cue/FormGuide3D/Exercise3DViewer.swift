@@ -31,6 +31,8 @@ private struct Exercise3DRepresentable: UIViewRepresentable {
 struct Exercise3DViewer: View {
     @ObservedObject var controller: Exercise3DSceneController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isOrbiting = false
+    @State private var isZooming = false
 
     private let sceneHeight: CGFloat = 300
 
@@ -64,16 +66,34 @@ struct Exercise3DViewer: View {
             .gesture(
                 DragGesture(minimumDistance: 4)
                     .onChanged { value in
-                        controller.orbit(
-                            deltaAzimuth: Float(-value.translation.width) * 0.0009,
-                            deltaElevation: Float(value.translation.height) * 0.0009
+                        if !isOrbiting {
+                            isOrbiting = true
+                            controller.beginOrbitGesture()
+                        }
+                        // `translation` is CUMULATIVE from gesture start; the
+                        // controller applies it against a captured baseline.
+                        controller.updateOrbit(
+                            totalTranslationX: Float(value.translation.width),
+                            y: Float(value.translation.height)
                         )
+                    }
+                    .onEnded { _ in
+                        isOrbiting = false
+                        controller.endGesture()
                     }
             )
             .simultaneousGesture(
                 MagnificationGesture()
                     .onChanged { scale in
-                        controller.zoom(scale: Float(scale))
+                        if !isZooming {
+                            isZooming = true
+                            controller.beginZoomGesture()
+                        }
+                        controller.updateZoom(magnification: Float(scale))
+                    }
+                    .onEnded { _ in
+                        isZooming = false
+                        controller.endGesture()
                     }
             )
     }

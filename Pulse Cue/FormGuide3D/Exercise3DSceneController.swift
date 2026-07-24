@@ -29,24 +29,32 @@ final class Exercise3DSceneController: ObservableObject {
 
     let profile: ExerciseMotionProfile
     private let engine: ExerciseMotionEngine
-    private let reduceMotion: Bool
+    private var reduceMotion: Bool
     /// Test/robustness hook: when true, scene construction is treated as
     /// failed so the guide falls back to text without a real ARView.
     private let simulateFailure: Bool
+
+    /// The defined cycle start. `最初から` always returns here.
+    private let cycleStartProgress: Float = 0
+    /// A clearer static demonstration pose used as the initial frame when
+    /// Reduce Motion is on (the peak of the movement). It is only an initial
+    /// frame — restart still goes to `cycleStartProgress`.
+    private let reduceMotionStaticProgress: Float = 0.5
 
     private weak var arView: ARView?
     private var joints: [ExerciseJoint: Entity] = [:]
     private var cameraEntity = PerspectiveCamera()
     private var updateSub: Cancellable?
 
-    private var progress: Float = 0        // 0...1 cycle position
-    // Spherical camera around the target.
+    private(set) var progress: Float = 0   // 0...1 cycle position (test-readable)
     private let target = SIMD3<Float>(0, 1.15, 0)
-    private var azimuth: Float
-    private var elevation: Float = 0.12
-    private var distance: Float = 2.4
-    private let minDistance: Float = 1.3
-    private let maxDistance: Float = 4.0
+
+    // Orbit camera: `cameraState` is the committed state; the *Baseline
+    // fields hold the state captured at the start of an in-flight gesture so
+    // cumulative drag/pinch values are applied absolutely (no compounding).
+    private(set) var cameraState: OrbitCameraState
+    private var orbitBaseline: OrbitCameraState
+    private var zoomBaseline: OrbitCameraState
 
     init(profile: ExerciseMotionProfile, reduceMotion: Bool = false, simulateFailure: Bool = false) {
         self.profile = profile
@@ -54,11 +62,14 @@ final class Exercise3DSceneController: ObservableObject {
         self.reduceMotion = reduceMotion
         self.simulateFailure = simulateFailure
         self.camera = profile.preferredCamera
-        self.azimuth = Self.azimuth(for: profile.preferredCamera)
+        let state = OrbitCameraState.default(for: profile.preferredCamera)
+        self.cameraState = state
+        self.orbitBaseline = state
+        self.zoomBaseline = state
         // Reduce Motion: do not auto-run continuous motion; show a clear
-        // static demonstration pose (the peak) and let the user opt in.
+        // static demonstration pose and let the user opt in.
         self.isPlaying = !reduceMotion
-        if reduceMotion { self.progress = 0.5 }
+        self.progress = reduceMotion ? reduceMotionStaticProgress : cycleStartProgress
     }
 
     // MARK: - Scene construction
@@ -83,13 +94,17 @@ final class Exercise3DSceneController: ObservableObject {
         joints = mannequin.joints
         anchor.addChild(mannequin.root)
 
-        // Equipment context.
-        anchor.addChild(EquipmentSceneFactory.makeEquipment(profile.equipmentScene))
+        // Equipment context (positions derived from this profile's FK).
+        anchor.addChild(EquipmentSceneFactory.makeEquipment(for: profile))
 
-        // Lighting: key + fill so the silhouette reads without harsh shadows.
+        // Lighting: key + fill so the silhouette reads. Shadows are disabled
+        // — they are not needed for an MVP movement reference and cast-shadow
+        // programmable-blending is a common source of simulator Metal
+        // pipeline warnings.
         let key = DirectionalLight()
         key.light.intensity = 2200
         key.light.color = .white
+        key.shadow = nil
         key.look(at: .zero, from: SIMD3(1.2, 2.0, 1.5), relativeTo: nil)
         anchor.addChild(key)
 
@@ -142,54 +157,83 @@ final class Exercise3DSceneController: ObservableObject {
     func play() { isPlaying = true }
     func pause() { isPlaying = false }
 
+    /// `最初から`: always returns to the defined cycle start (progress 0),
+    /// regardless of Reduce Motion. Does not change play/pause.
     func restart() {
-        progress = reduceMotion ? 0.5 : 0
+        progress = cycleStartProgress
         applyPose(at: progress)
     }
 
     func setSpeed(_ value: Float) { speed = value }
 
+    // MARK: - Reduce Motion runtime sync
+
+    /// Called when the system Reduce Motion setting changes while the guide
+    /// is on screen. Turning it ON stops continuous motion immediately and
+    /// shows the static demonstration pose. Turning it OFF is conservative:
+    /// stays paused so the badge and controller never disagree; the user can
+    /// explicitly press play.
+    func setReduceMotion(_ enabled: Bool) {
+        guard enabled != reduceMotion else { return }
+        reduceMotion = enabled
+        if enabled {
+            isPlaying = false
+            progress = reduceMotionStaticProgress
+            applyPose(at: progress)
+        } else {
+            // Remain paused; do not auto-start.
+            isPlaying = false
+        }
+    }
+
     // MARK: - Camera controls
 
     func setCamera(_ preset: Exercise3DCamera) {
         camera = preset
-        azimuth = Self.azimuth(for: preset)
-        elevation = 0.12
+        // Preserve current zoom distance; only reframe the angle.
+        cameraState = OrbitCameraState(
+            azimuth: OrbitCameraState.default(for: preset).azimuth,
+            elevation: OrbitCameraState.default(for: preset).elevation,
+            distance: cameraState.distance
+        )
+        commitBaselines()
         updateCameraTransform()
     }
 
-    func orbit(deltaAzimuth: Float, deltaElevation: Float) {
-        azimuth += deltaAzimuth
-        elevation = min(max(elevation + deltaElevation, -0.6), 1.1) // clamp so camera never inverts
+    // Gesture lifecycle: capture the baseline once, then apply cumulative
+    // values against it so event frequency cannot compound the result.
+    func beginOrbitGesture() { orbitBaseline = cameraState }
+    func updateOrbit(totalTranslationX dx: Float, y dy: Float) {
+        cameraState = orbitBaseline.dragged(byTotalX: dx, y: dy)
         updateCameraTransform()
     }
 
-    func zoom(scale: Float) {
-        guard scale > 0 else { return }
-        distance = min(max(distance / scale, minDistance), maxDistance)
+    func beginZoomGesture() { zoomBaseline = cameraState }
+    func updateZoom(magnification: Float) {
+        cameraState = zoomBaseline.zoomed(byMagnification: magnification)
         updateCameraTransform()
     }
+
+    /// Commit final camera state at gesture end so the next gesture starts
+    /// from here (no snap-back).
+    func endGesture() { commitBaselines() }
 
     func resetCamera() {
-        setCamera(profile.preferredCamera)
-        distance = 2.4
+        camera = profile.preferredCamera
+        cameraState = OrbitCameraState.default(for: profile.preferredCamera)
+        commitBaselines()
         updateCameraTransform()
+    }
+
+    private func commitBaselines() {
+        orbitBaseline = cameraState
+        zoomBaseline = cameraState
     }
 
     private func updateCameraTransform() {
-        let x = target.x + distance * sin(azimuth) * cos(elevation)
-        let y = target.y + distance * sin(elevation)
-        let z = target.z + distance * cos(azimuth) * cos(elevation)
-        cameraEntity.position = SIMD3(x, y, z)
-        cameraEntity.look(at: target, from: cameraEntity.position, relativeTo: nil)
-    }
-
-    private static func azimuth(for preset: Exercise3DCamera) -> Float {
-        switch preset {
-        case .front: return 0
-        case .side: return .pi / 2
-        case .threeQuarter: return .pi / 4
-        }
+        let pos = cameraState.position(target: target)
+        cameraEntity.position = pos
+        cameraEntity.look(at: target, from: pos, relativeTo: nil)
     }
 
     // MARK: - Lifecycle

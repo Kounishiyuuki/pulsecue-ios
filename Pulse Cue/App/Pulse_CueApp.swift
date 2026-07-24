@@ -40,7 +40,11 @@ struct Pulse_CueApp: App {
 
     init() {
         let settings = SettingsStore()
-        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains(PulseCueUITestSupport.customMachineFlowArgument)
+            || args.contains(PulseCueUITestSupport.formGuide3DArgument) {
+            // Test/dev fixtures skip onboarding so the deterministic route is
+            // not covered by the onboarding fullScreenCover.
             settings.completeOnboarding()
         }
         _settings = StateObject(wrappedValue: settings)
@@ -73,6 +77,27 @@ struct Pulse_CueApp: App {
 
 enum PulseCueUITestSupport {
     static let customMachineFlowArgument = "-pulsecue-ui-test-custom-machine-flow"
+
+    /// Test/development-only: opens a deterministic 3D Form Guide directly at
+    /// launch for visual/screenshot review. Recognized only in DEBUG builds
+    /// (see `ContentView`); it presents an existing guide, persists nothing,
+    /// and never appears on any normal user path.
+    static let formGuide3DArgument = "-pulsecue-ui-test-form-guide-3d"
+    /// Optional companion: `-pulsecue-ui-test-exercise-id <exerciseId>` selects
+    /// which of the 10 guided exercises to open (defaults to chest press).
+    static let formGuide3DExerciseIdArgument = "-pulsecue-ui-test-exercise-id"
+
+    /// The requested exercise id for the deterministic guide route, or a
+    /// sensible default. Returns `nil` when the route argument is absent.
+    static func requestedFormGuideExerciseId() -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains(formGuide3DArgument) else { return nil }
+        if let i = args.firstIndex(of: formGuide3DExerciseIdArgument),
+           i + 1 < args.count {
+            return args[i + 1]
+        }
+        return "machine_chest_press"
+    }
 }
 
 // MARK: - SwiftData schema versioning

@@ -62,8 +62,11 @@ enum ExerciseMotionLibrary {
         exerciseId: "machine_chest_press", duration: 2.6,
         preferredCamera: .side, equipmentScene: .chestPress,
         keyframes: loop(
-            start: pose(seatedLegs(), arms(upperX: -1.4, upperZ: 0.5, foreX: 1.4)),
-            peak: pose(seatedLegs(), arms(upperX: -1.5, upperZ: 0.2, foreX: 0.0))
+            // Start: hands at chest height, elbows flexed (FK hand ≈ y1.03,
+            // z+0.25, in front of torso). Peak: pressed forward + extended
+            // (FK hand ≈ y1.28, z+0.51). See ExerciseMotionProfileTests.
+            start: pose(seatedLegs(), arms(upperX: -1.3, upperZ: 0.45, foreX: 1.25)),
+            peak: pose(seatedLegs(), arms(upperX: -1.5, upperZ: 0.25, foreX: 0.15))
         )
     )
 
@@ -73,8 +76,12 @@ enum ExerciseMotionLibrary {
         exerciseId: "lat_pulldown", duration: 2.8,
         preferredCamera: .front, equipmentScene: .latPulldown,
         keyframes: loop(
-            start: pose(seatedLegs(), arms(upperX: -2.8, upperZ: 0.3, foreX: 0.0)),
-            peak: pose(seatedLegs(), arms(upperX: -0.6, upperZ: 0.4, foreX: 1.3))
+            // Start: hands overhead (FK hand ≈ y1.85). Peak: pulled to
+            // upper-chest, staying in front of the trunk and above the
+            // pelvis (FK hand ≈ y1.12, z+0.42) — no pelvis-level / behind-
+            // torso endpoint.
+            start: pose(seatedLegs(), arms(upperX: -2.9, upperZ: 0.25, foreX: 0.0)),
+            peak: pose(seatedLegs(), arms(upperX: -1.3, upperZ: 0.4, foreX: 0.45))
         )
     )
 
@@ -84,8 +91,11 @@ enum ExerciseMotionLibrary {
         exerciseId: "machine_seated_row", duration: 2.6,
         preferredCamera: .side, equipmentScene: .seatedRow,
         keyframes: loop(
-            start: pose(seatedLegs(), arms(upperX: -1.3, upperZ: 0.2, foreX: 0.0)),
-            peak: pose(seatedLegs(), arms(upperX: -0.3, upperZ: 0.2, foreX: 1.6))
+            // Start: hands forward (FK hand ≈ z+0.48). Peak: hands approach
+            // the torso but stay in front of the torso surface (FK hand ≈
+            // y0.92, z+0.22) — no penetration / behind-backrest endpoint.
+            start: pose(seatedLegs(), arms(upperX: -1.2, upperZ: 0.2, foreX: 0.0)),
+            peak: pose(seatedLegs(), arms(upperX: -0.85, upperZ: 0.2, foreX: 0.8))
         )
     )
 

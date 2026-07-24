@@ -2,11 +2,12 @@
 //  ExerciseGuideView.swift
 //  Pulse Cue
 //
-//  Text-based Form Guide. This PR intentionally ships no 3D: the screen is
-//  useful today through authored Japanese guidance, and is laid out so a
-//  future iOS-17-compatible RealityKit viewer can be inserted ABOVE the
-//  text (see `viewerPlaceholderAnchor`) without redesigning it. There is
-//  NO blank 3D box, mannequin, "coming soon", or placeholder animation.
+//  Form Guide. For the 10 MVP-guided exercises this now shows an actual
+//  RealityKit 3D movement demo (`Guide3DSection` → `Exercise3DViewer`)
+//  ABOVE the authored Japanese text sections. The 3D is additive: the text
+//  guide remains the authoritative instruction and renders even if the 3D
+//  scene fails to construct. Exercises without a motion profile show text
+//  only.
 //
 //  It reads nothing and writes nothing — opening or dismissing it creates
 //  no `Routine`/`Step` and mutates no repository state. It is theme-aware
@@ -191,6 +192,7 @@ struct ExerciseGuideView: View {
 private struct Guide3DSection: View {
     let profile: ExerciseMotionProfile
     let reduceMotion: Bool
+    @Environment(\.accessibilityReduceMotion) private var envReduceMotion
     @StateObject private var controller: Exercise3DSceneController
 
     init(profile: ExerciseMotionProfile, reduceMotion: Bool) {
@@ -208,6 +210,11 @@ private struct Guide3DSection: View {
             } else {
                 Exercise3DViewer(controller: controller)
             }
+        }
+        // Keep the controller in sync if Reduce Motion changes at runtime so
+        // the badge and the RealityKit playback never disagree.
+        .onChange(of: envReduceMotion) { _, newValue in
+            controller.setReduceMotion(newValue)
         }
         .onDisappear { controller.teardown() }
     }

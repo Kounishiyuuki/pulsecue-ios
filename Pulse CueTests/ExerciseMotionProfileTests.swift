@@ -160,4 +160,80 @@ struct ExerciseMotionProfileTests {
         #expect(handY(e, 0.5) > handY(e, 0.0) + 0.1)
         #expect(handX(e, 0.5) < handX(e, 0.0) - 0.1)
     }
+
+    // MARK: - Stronger spatial constraints (torso reference)
+    //
+    // Torso column reference (rest): chest ≈ (0,1.25,0); the trunk spans
+    // roughly |x|<0.10, |z|<0.10, y∈[0.9,1.45]. Torso front surface z≈+0.08.
+    // Backrest plane ≈ z=-0.22. Shoulder rest y≈1.35.
+
+    private let torsoFrontZ: Float = 0.08
+    private let backrestZ: Float = -0.22
+    private let shoulderY: Float = 1.35
+
+    private func pos(_ e: ExerciseMotionEngine, _ p: Float, _ j: ExerciseJoint) -> SIMD3<Float> {
+        MannequinSkeleton.worldPosition(of: j, pose: e.pose(atProgress: p))
+    }
+    /// Shoulder→hand reach (elbow-extension proxy).
+    private func reach(_ e: ExerciseMotionEngine, _ p: Float) -> Float {
+        simd_distance(pos(e, p, .rightShoulder), pos(e, p, .rightHand))
+    }
+
+    @Test func chestPressStaysInChestRegionAndPressesForward() {
+        let e = engine("machine_chest_press")
+        // Start hands near chest height (not lower abdomen).
+        #expect((0.95...1.45).contains(handY(e, 0.0)))
+        // Both hands stay in front of the torso surface (no penetration).
+        for p: Float in [0, 0.25, 0.5, 0.75] {
+            #expect(pos(e, p, .rightHand).z > torsoFrontZ)
+            #expect(pos(e, p, .leftHand).z > torsoFrontZ)
+        }
+        // Peak is forward of start and elbows more extended.
+        #expect(handZ(e, 0.5) > handZ(e, 0.0))
+        #expect(reach(e, 0.5) > reach(e, 0.0))
+    }
+
+    @Test func latPulldownStartsOverheadEndsUpperChestInFront() {
+        let e = engine("lat_pulldown")
+        // Start hands above the shoulders (overhead).
+        #expect(handY(e, 0.0) > shoulderY)
+        // Peak below start, but above a conservative lower-torso boundary
+        // (not pelvis level ≈ 0.95).
+        #expect(handY(e, 0.5) < handY(e, 0.0))
+        #expect(handY(e, 0.5) > 1.0)
+        // Hands remain in front of / aligned with the trunk (not behind).
+        for p: Float in [0, 0.25, 0.5] {
+            #expect(pos(e, p, .rightHand).z > -0.05)
+        }
+    }
+
+    @Test func seatedRowApproachesTorsoWithoutPenetrating() {
+        let e = engine("machine_seated_row")
+        // Start hands well forward.
+        #expect(handZ(e, 0.0) > 0.30)
+        // Peak closer to torso than start, but stops in front of the torso
+        // surface and never reaches behind the backrest.
+        #expect(handZ(e, 0.5) < handZ(e, 0.0))
+        for p: Float in [0, 0.25, 0.5, 0.75] {
+            #expect(pos(e, p, .rightHand).z > torsoFrontZ)   // no torso penetration
+            #expect(pos(e, p, .rightHand).z > backrestZ)     // not behind backrest
+        }
+    }
+
+    @Test func legPressExtendsFromFlexedTowardPlate() {
+        let e = engine("leg_press")
+        let startShin = e.pose(atProgress: 0)[.rightShin].x
+        let peakShin = e.pose(atProgress: 0.5)[.rightShin].x
+        // Knee moves from more-flexed toward more-extended…
+        #expect(peakShin < startShin)
+        // …but not into hyperextension (shin stays flexed past straight).
+        #expect(peakShin > 0.2)
+        // Feet move toward the plate direction (+Z).
+        let footStartZ = pos(e, 0, .rightFoot).z
+        let footPeakZ = pos(e, 0.5, .rightFoot).z
+        #expect(footPeakZ > footStartZ + 0.1)
+        // Finite + loop-compatible endpoints.
+        #expect(pos(e, 0, .rightFoot).x.isFinite && pos(e, 1, .rightFoot).z.isFinite)
+        #expect(abs(pos(e, 0, .rightFoot).z - pos(e, 1, .rightFoot).z) < 0.0001)
+    }
 }

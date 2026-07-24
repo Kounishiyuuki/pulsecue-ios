@@ -50,12 +50,18 @@ StepResult）を変更しない。
 - すべて手続き的生成のためバイナリアセット追加はゼロ（メッシュ/マテリアルを再利用）。
 - 同時に動く 3D シーンは 1 つのみ。dismiss で購読停止・エンティティ解放。
 
-## 既知の制約（シミュレータ）
+## 既知の制約（シミュレータ Metal 警告）
 
-シミュレータの Metal は RealityKit の programmable blending / shadow 技法を完全には
-サポートせず、`makeRenderPipelineState failed` 等の警告が出る（実機では発生しない）。
-このため 3D の忠実な**目視確認は実機推奨**。モーションの方向的正しさは forward
-kinematics のユニットテストで担保している。
+本環境（iOS シミュレータ）でビューアを起動すると、RealityKit/Metal から
+`makeRenderPipelineState failed [reading from a rendertarget is not supported]` /
+`meshShadowCasterProgrammableBlending failed compilation` 等のマテリアル/シャドウ関連
+警告が観測される。これはシミュレータの Metal がプログラマブルブレンディング/シャドウ
+技法を完全にはサポートしないことに起因すると考えられるが、**実機での挙動は本環境では
+未検証であり、「シミュレータ固有」であるとは断定しない**。ARView 自体は生成・生存して
+おり、パイプライン初期化の警告が出るのみである。
+
+このため 3D の忠実な**目視確認は実機での確認が必要**。モーションの方向・空間妥当性は
+forward kinematics のユニットテスト（手/足の座標拘束）で担保している。
 
 ## 将来の差し替えシーム
 
