@@ -342,7 +342,23 @@ enum RuleBasedWeeklyPlanGenerator {
         }
 
         let chosen = Array(pool.prefix(count))
-        let candidates = chosen.map { RoutineStepCandidate(equipment: $0, sourceLabel: sourceLabel) }
+        // Resolve each selected equipment into a concrete Exercise Library
+        // movement using the day's focus (so a multi-purpose machine like
+        // barbell/cable resolves to the right movement for this body part).
+        // The selected equipment stays the hard boundary — resolution only
+        // renames/identifies, it never widens the pool. Custom equipment has
+        // no library movement, so it keeps the safe machine-name fallback.
+        let resolutionParts = focus.isEmpty ? BodyPart.allCases : focus
+        let candidates = chosen.map { equipment -> RoutineStepCandidate in
+            let resolved = equipment.catalogEntry.flatMap {
+                ExerciseLibrary.resolve(equipmentId: $0.id, bodyParts: resolutionParts)
+            }
+            return RoutineStepCandidate(
+                equipment: equipment,
+                resolvedExercise: resolved,
+                sourceLabel: sourceLabel
+            )
+        }
         return Selection(candidates: candidates, focusFallback: focusFallback, beginnerRelaxed: beginnerRelaxed)
     }
 
