@@ -270,13 +270,13 @@ struct GeneratedPlanPreviewView: View {
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .padding(.horizontal, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.white.opacity(0.1))
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(exerciseName) のフォームを見る")

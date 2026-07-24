@@ -380,11 +380,12 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                     guideExerciseId = guideId
                 } label: {
                     Label("フォームを見る", systemImage: "figure.strengthtraining.traditional")
-                        .font(.caption.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
-                .padding(.top, 2)
                 .accessibilityLabel("\(ex.exerciseName) のフォームを見る")
             }
         }

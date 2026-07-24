@@ -34,6 +34,11 @@ struct RunnerView: View {
 
     @State private var showRoutinePicker = false
     @State private var showEndAlert = false
+    /// Non-nil while the Form Guide sheet is shown for the current step.
+    /// Resolved ONLY from the persisted `Step.exerciseId` (never from title
+    /// or equipment). Presenting it is observational — no workout state,
+    /// timer, set/rep progress, or StepResult is changed.
+    @State private var guideExerciseId: ExerciseID?
 
     var body: some View {
         ZStack {
@@ -45,6 +50,7 @@ struct RunnerView: View {
                     statusChips
                     restTimerCard
                     currentSetCard
+                    formGuideButton
                     nextUpCard
                     if runnerViewModel.isRunning {
                         endSessionButton
@@ -68,6 +74,9 @@ struct RunnerView: View {
         }
         .sheet(isPresented: $showRoutinePicker) {
             RoutinePickerSheet()
+        }
+        .sheet(item: $guideExerciseId) { id in
+            ExerciseGuideView(exerciseId: id)
         }
         .alert("セッションを終了しますか？", isPresented: $showEndAlert) {
             Button("終了", role: .destructive) {
@@ -298,6 +307,42 @@ struct RunnerView: View {
         .padding(20)
         .background(glassBackground)
         .overlay(glassStroke)
+    }
+
+    // MARK: - Form guide entry (observational)
+
+    /// Shown only when the current step carries a persisted `exerciseId`
+    /// that resolves to a bundled exercise WITH a Form Guide. Uses
+    /// `Step.hasResolvableGuide` (persisted id → library), never title,
+    /// equipment name, or custom-machine inference. Opening the guide does
+    /// not touch the workout.
+    @ViewBuilder
+    private var formGuideButton: some View {
+        if let step = runnerViewModel.currentStep,
+           step.hasResolvableGuide,
+           let id = step.typedExerciseId {
+            Button {
+                guideExerciseId = id
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "figure.strengthtraining.traditional")
+                    Text("フォームを見る")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 18)
+                .frame(minHeight: 48)
+                .frame(maxWidth: .infinity)
+                .background(glassBackground)
+                .overlay(glassStroke)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppTheme.accent)
+            .accessibilityLabel("\(step.title) のフォームを見る")
+        }
     }
 
     // MARK: - Next up card

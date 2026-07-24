@@ -17,11 +17,13 @@ import SwiftUI
 
 struct ExerciseGuideView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let exerciseId: ExerciseID
 
     private var exercise: Exercise? { ExerciseLibrary.exercise(for: exerciseId) }
     private var guide: ExerciseGuide? { FormGuideLibrary.guide(for: exerciseId) }
+    private var motionProfile: ExerciseMotionProfile? { ExerciseMotionLibrary.profile(for: exerciseId) }
 
     var body: some View {
         NavigationStack {
@@ -47,11 +49,13 @@ struct ExerciseGuideView: View {
     private func content(exercise: Exercise, guide: ExerciseGuide) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Anchor where a future 3D viewer is inserted. No visible
-                // placeholder is drawn today, per the no-fake-3D rule.
-                viewerPlaceholderAnchor
-
                 header(exercise: exercise)
+
+                // 3D movement demo (additive). The text sections below remain
+                // the authoritative instruction and render even if 3D fails.
+                if let motionProfile {
+                    Guide3DSection(profile: motionProfile, reduceMotion: reduceMotion)
+                }
 
                 section(title: "基本の動き", systemImage: "figure.strengthtraining.traditional") {
                     numberedList(guide.instructions)
@@ -68,11 +72,6 @@ struct ExerciseGuideView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    @ViewBuilder
-    private var viewerPlaceholderAnchor: some View {
-        EmptyView()
     }
 
     private func header(exercise: Exercise) -> some View {
@@ -181,6 +180,51 @@ struct ExerciseGuideView: View {
             .compactMap { MachineCatalog.entry(for: $0)?.displayName }
         guard !names.isEmpty else { return nil }
         return "対応マシン: " + names.joined(separator: "、")
+    }
+}
+
+/// Owns the RealityKit scene controller lifecycle for one guide viewing.
+/// Isolated as its own view so the `@StateObject` is created only when a
+/// motion profile exists, and is torn down on disappear. If the 3D scene
+/// fails to construct, a concise non-blocking fallback is shown while the
+/// surrounding text guide keeps working.
+private struct Guide3DSection: View {
+    let profile: ExerciseMotionProfile
+    let reduceMotion: Bool
+    @StateObject private var controller: Exercise3DSceneController
+
+    init(profile: ExerciseMotionProfile, reduceMotion: Bool) {
+        self.profile = profile
+        self.reduceMotion = reduceMotion
+        _controller = StateObject(
+            wrappedValue: Exercise3DSceneController(profile: profile, reduceMotion: reduceMotion)
+        )
+    }
+
+    var body: some View {
+        Group {
+            if controller.sceneFailed {
+                fallback
+            } else {
+                Exercise3DViewer(controller: controller)
+            }
+        }
+        .onDisappear { controller.teardown() }
+    }
+
+    private var fallback: some View {
+        Label(
+            "3Dデモを表示できませんでした。下の説明を参考にしてください。",
+            systemImage: "cube.transparent"
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
     }
 }
 
