@@ -23,6 +23,17 @@ enum RoutineFactory {
         let steps: [Step]
     }
 
+    /// Turns a transient `ExerciseID` into the value to persist on a `Step`.
+    /// Only a *known current* library id is stored; an unknown/invalid
+    /// transient id (or `nil` for custom/unresolved) becomes `nil` rather
+    /// than persisting a bogus known-reference claim. Titles are never used
+    /// to infer an id. (Read-time tolerance of unknown *stored* ids from a
+    /// newer app is handled separately by `Step.resolvedExercise`.)
+    private static func persistableExerciseId(_ id: ExerciseID?) -> String? {
+        guard let id, ExerciseLibrary.isValid(id) else { return nil }
+        return id.rawValue
+    }
+
     static func makeRoutine(from plan: GeneratedPlan, now: Date = Date()) -> Output {
         let routine = Routine(
             name: plan.defaultTitle,
@@ -37,7 +48,8 @@ enum RoutineFactory {
                 sets: exercise.sets,
                 repsTarget: exercise.reps,
                 restSeconds: exercise.restSeconds,
-                note: exercise.cue
+                note: exercise.cue,
+                exerciseId: persistableExerciseId(exercise.exerciseId)
             )
         }
         return Output(routine: routine, steps: steps)
@@ -68,7 +80,8 @@ enum RoutineFactory {
             sets: candidate.resolvedSets,
             repsTarget: candidate.resolvedRepsTarget,
             restSeconds: candidate.resolvedRestSeconds,
-            note: candidate.notes ?? ""
+            note: candidate.notes ?? "",
+            exerciseId: persistableExerciseId(candidate.exerciseId)
         )
         return Output(routine: routine, steps: [step])
     }
@@ -96,7 +109,8 @@ enum RoutineFactory {
                 sets: candidate.resolvedSets,
                 repsTarget: candidate.resolvedRepsTarget,
                 restSeconds: candidate.resolvedRestSeconds,
-                note: candidate.notes ?? ""
+                note: candidate.notes ?? "",
+                exerciseId: persistableExerciseId(candidate.exerciseId)
             )
         }
         return Output(routine: routine, steps: steps)

@@ -23,13 +23,13 @@ struct Pulse_CueApp: App {
     var sharedModelContainer: ModelContainer = {
         let isUITestFixture = ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV3.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV4.self),
             isStoredInMemoryOnly: isUITestFixture
         )
 
         do {
             return try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV3.self),
+                for: Schema(versionedSchema: PulseCueSchemaV4.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -92,13 +92,70 @@ enum PulseCueUITestSupport {
 // single new entity with no change to any existing model, so it is again
 // purely additive and lightweight — existing rows are not enumerated or
 // mutated. See Docs for the V3 schema / rollback note.
+//
+// V3 → V4 adds ONE optional attribute, `Step.exerciseId: String?`. Unlike
+// V1→V2 / V2→V3 (which added whole new *entities*), this changes an
+// existing entity's shape. Historical V1/V2/V3 must keep the pre-V4 `Step`
+// shape so their on-disk schema hashes stay identical to what already
+// shipped. Since every prior version referenced the same shared top-level
+// `Step`, adding a property there would silently mutate the historical
+// schemas too. To avoid that, V1/V2/V3 pin a version-specific legacy Step
+// (`PulseCueSchemaV1.Step`, same entity name "Step", pre-V4 attributes),
+// and only V4 uses the current top-level `Step` (with `exerciseId`). The
+// added attribute is optional, so V3 → V4 is `.lightweight`: existing rows
+// gain `exerciseId == nil` with no enumeration, transform, or title
+// backfill. Proven both by a synthetic historical-schema migration test and
+// by migrating a fixture generated with the actual pre-PR #132 source at
+// commit 1974ab87200d4f9e023e57b2815717885b0f6cc7.
 
 enum PulseCueSchemaV1: VersionedSchema {
     static var versionIdentifier = Schema.Version(1, 0, 0)
+
+    /// Version-specific historical `Step` (schemas V1–V3). Mirrors the
+    /// pre-V4 shipped `Step` exactly — same entity name "Step" and the same
+    /// attributes, with NO `exerciseId`. Referenced by V1/V2/V3 so their
+    /// schema shape remains compatible with already-shipped stores; V4 uses
+    /// the current top-level `Step`. Compatibility is guarded by an actual
+    /// pre-PR #132 source-generated V3 fixture. Not used by app code.
+    @Model
+    final class Step {
+        @Attribute(.unique) var id: UUID
+        var routineId: UUID
+        var order: Int
+        var title: String
+        var sets: Int
+        var repsTarget: Int
+        var restSeconds: Int
+        var note: String
+        var isWarmup: Bool
+
+        init(
+            id: UUID = UUID(),
+            routineId: UUID,
+            order: Int,
+            title: String,
+            sets: Int,
+            repsTarget: Int,
+            restSeconds: Int,
+            note: String = "",
+            isWarmup: Bool = false
+        ) {
+            self.id = id
+            self.routineId = routineId
+            self.order = order
+            self.title = title
+            self.sets = sets
+            self.repsTarget = repsTarget
+            self.restSeconds = restSeconds
+            self.note = note
+            self.isWarmup = isWarmup
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
             Routine.self,
-            Step.self,
+            PulseCueSchemaV1.Step.self,
             Session.self,
             StepResult.self,
             DayLog.self,
@@ -113,7 +170,7 @@ enum PulseCueSchemaV2: VersionedSchema {
     static var models: [any PersistentModel.Type] {
         [
             Routine.self,
-            Step.self,
+            PulseCueSchemaV1.Step.self,
             Session.self,
             StepResult.self,
             DayLog.self,
@@ -127,6 +184,24 @@ enum PulseCueSchemaV2: VersionedSchema {
 
 enum PulseCueSchemaV3: VersionedSchema {
     static var versionIdentifier = Schema.Version(3, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Routine.self,
+            PulseCueSchemaV1.Step.self,
+            Session.self,
+            StepResult.self,
+            DayLog.self,
+            MealEntry.self,
+            UserProfile.self,
+            Gym.self,
+            GymMachine.self,
+            CustomMachine.self
+        ]
+    }
+}
+
+enum PulseCueSchemaV4: VersionedSchema {
+    static var versionIdentifier = Schema.Version(4, 0, 0)
     static var models: [any PersistentModel.Type] {
         [
             Routine.self,
@@ -145,7 +220,12 @@ enum PulseCueSchemaV3: VersionedSchema {
 
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [PulseCueSchemaV1.self, PulseCueSchemaV2.self, PulseCueSchemaV3.self]
+        [
+            PulseCueSchemaV1.self,
+            PulseCueSchemaV2.self,
+            PulseCueSchemaV3.self,
+            PulseCueSchemaV4.self
+        ]
     }
 
     static var stages: [MigrationStage] {
@@ -157,6 +237,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV2.self,
                 toVersion: PulseCueSchemaV3.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV3.self,
+                toVersion: PulseCueSchemaV4.self
             )
         ]
     }

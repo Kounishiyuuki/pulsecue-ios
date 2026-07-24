@@ -455,3 +455,51 @@ Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full bod
 本 PR は schema/migration + Repository CRUD のみ。追加/編集/削除 UI、My Gym の
 統合表示、プランナー連携（標準 + カスタムの `AvailableEquipment` アダプタ）は
 後続 PR で行う。
+
+## Step への Exercise ID 永続化（SwiftData V4）
+
+保存済みルーティンから Exercise Library のメタデータ（フォームガイド等）を後で
+確実に引けるよう、`Step` に安定した Exercise 同一性を **任意の1文字列列**として
+持たせ、スキーマ版を **V3 → V4** に上げた。
+
+- **目的**: 保存済み `Step` → `exerciseId` → `ExerciseLibrary` → `ExerciseGuide`
+  の解決を可能にする永続化基盤（将来の Runner→フォームガイド/3D の前提）。
+- **追加フィールド**: `Step.exerciseId: String?`（optional・`ExerciseID.rawValue`
+  を素の文字列で保持）。**relationship でも enum/transformable でもない**ので、
+  ライブラリ型の変更や未知/廃止 ID があっても読み出せる。
+- **historical schema の保持**: V1〜V3 は共有の top-level `Step` を参照していた
+  ため、そこに列を足すと歴史的スキーマのハッシュも変わってしまう。これを避け、
+  V1/V2/V3 は **version 固有の legacy `PulseCueSchemaV1.Step`**（entity 名 "Step"・
+  `exerciseId` なし）を参照し、**V4 のみ** 現行 top-level `Step`（`exerciseId` あり）
+  を使う。entity 名は両者とも "Step" なので同一エンティティとして lightweight
+  移行できる。commit `1974ab87200d4f9e023e57b2815717885b0f6cc7` の実際の
+  top-level `Step` / `PulseCueSchemaV3` で生成した on-disk fixtureを、現行V4と
+  migration planで開き、全代表行・論理参照・nil追加・再open時の非重複を検証する。
+  現行legacy V3で生成するsynthetic migrationテストも別に維持する。
+- **migration**: `PulseCueMigrationPlan` に `.lightweight(V3 → V4)` を 1 段追加。
+  追加列は optional のため、**既存 V3 の各 `Step` は `exerciseId == nil` を得る**
+  だけ。行の列挙・変換・**日本語 title からの ID 推測（backfill）は一切しない**。
+- **保存境界**: `exerciseId` は **明示保存時のみ** 書き込まれる。既知の標準種目
+  だけ `ExerciseLibrary` で検証したうえで rawValue を保存し、custom / 未解決 /
+  無効な transient ID は `nil`。プラン生成・プレビュー・ガイド閲覧・再生成では
+  何も永続化しない。
+- **読み出し互換**: 未知/将来/廃止の raw ID はストア内に保持しつつ解決は `nil`
+  を返す（クラッシュしない）。`title` は従来どおり実行時/表示の値で、`exerciseId`
+  が `nil` でも Runner・履歴は従来どおり動作する（あくまで付加メタデータ）。
+- **編集時のidentity契約**: 保存済みStepの複製は、現在のLibraryで解決できない
+  未知/将来IDを含め、raw `exerciseId`をそのまま保存する。ユーザーが種目titleを
+  実際に変更した場合は古いガイドとの誤対応を避けるため`exerciseId = nil`にし、
+  新titleからの推論は行わない。同一titleの再代入、並べ替え、sets/reps/rest/note
+  の編集ではidentityを保持する。
+
+### rollback / downgrade 制約（V4）
+
+- migration 方向は **V3 → V4 のみ**。**V4 → V3 のダウングレードは未対応**（本 PR で
+  ダウングレードは検証していない）。
+- `Step.exerciseId` 列を持つ V4 ストアを旧 V3 ビルドで開くと **起動に失敗し得る**。
+- pre-release / TestFlight で戻す場合、**アプリ削除 + 再インストール**が必要になる
+  ことがあり、**削除するとローカルのみのデータは失われる**（クラウド復元なし）。
+- 広く配布する前に、**V3 ビルドを 1 本と実ストアのコピーを保持**し、実機で
+  V3 → V4 を検証してから展開すること。
+
+3D フォームガイド本体（RealityKit ビューア等）は本 PR には含めず、後続 PR で扱う。

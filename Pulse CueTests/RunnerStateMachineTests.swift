@@ -149,6 +149,28 @@ struct RunnerStateMachineTests {
     }
 
     @Test
+    func nilExerciseIdStepCompletesAndRemainsQueryableInHistoryData() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 1)
+        let step = try #require(try fx.context.fetch(FetchDescriptor<Step>()).first)
+        #expect(step.exerciseId == nil)
+
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.handle(action: .complete)
+
+        #expect(fx.viewModel.phase == .done)
+        let sessions = try fx.context.fetch(FetchDescriptor<Session>())
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(sessions.count == 1)
+        #expect(sessions.first?.routineId == fx.routine.id)
+        #expect(sessions.first?.status == .completed)
+        #expect(results.count == 1)
+        #expect(results.first?.stepId == step.id)
+        #expect(results.first?.done == true)
+        #expect(step.title == "Step 0")
+        #expect(step.exerciseId == nil)
+    }
+
+    @Test
     func skipFromExerciseSkipsCurrentStepEvenWithRemainingSets() async throws {
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 3, setsPerStep: 5)
         fx.viewModel.start(routine: fx.routine)

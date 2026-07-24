@@ -558,15 +558,9 @@ struct WorkoutView: View {
         )
         let steps = (try? modelContext.fetch(descriptor)) ?? []
         for step in steps {
-            let copy = Step(
+            let copy = step.duplicated(
                 routineId: newRoutine.id,
-                order: step.order,
-                title: step.title,
-                sets: step.sets,
-                repsTarget: step.repsTarget,
-                restSeconds: step.restSeconds,
-                note: step.note,
-                isWarmup: step.isWarmup
+                order: step.order
             )
             modelContext.insert(copy)
         }

@@ -111,15 +111,9 @@ struct RoutineEditorView: View {
     }
 
     private func duplicateStep(_ step: Step) {
-        let copy = Step(
+        let copy = step.duplicated(
             routineId: routine.id,
-            order: step.order + 1,
-            title: step.title,
-            sets: step.sets,
-            repsTarget: step.repsTarget,
-            restSeconds: step.restSeconds,
-            note: step.note,
-            isWarmup: step.isWarmup
+            order: step.order + 1
         )
         modelContext.insert(copy)
         reindexSteps()
@@ -149,7 +143,13 @@ private struct StepRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                TextField("種目名", text: $step.title)
+                TextField(
+                    "種目名",
+                    text: Binding(
+                        get: { step.title },
+                        set: { step.rename(to: $0) }
+                    )
+                )
                     .font(.headline)
                 Spacer()
                 Toggle(isOn: $step.isWarmup) {
@@ -188,11 +188,6 @@ private struct StepRowView: View {
         }
         .onChange(of: step.restSeconds) { _, newValue in
             step.restSeconds = Step.clampRest(newValue)
-        }
-        .onChange(of: step.title) { _, newValue in
-            if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                step.title = "無題"
-            }
         }
     }
 }
