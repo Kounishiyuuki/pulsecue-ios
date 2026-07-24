@@ -472,7 +472,10 @@ Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full bod
   V1/V2/V3 は **version 固有の legacy `PulseCueSchemaV1.Step`**（entity 名 "Step"・
   `exerciseId` なし）を参照し、**V4 のみ** 現行 top-level `Step`（`exerciseId` あり）
   を使う。entity 名は両者とも "Step" なので同一エンティティとして lightweight
-  移行できる（実 on-disk V3→V4 テストで実証）。
+  移行できる。commit `1974ab87200d4f9e023e57b2815717885b0f6cc7` の実際の
+  top-level `Step` / `PulseCueSchemaV3` で生成した on-disk fixtureを、現行V4と
+  migration planで開き、全代表行・論理参照・nil追加・再open時の非重複を検証する。
+  現行legacy V3で生成するsynthetic migrationテストも別に維持する。
 - **migration**: `PulseCueMigrationPlan` に `.lightweight(V3 → V4)` を 1 段追加。
   追加列は optional のため、**既存 V3 の各 `Step` は `exerciseId == nil` を得る**
   だけ。行の列挙・変換・**日本語 title からの ID 推測（backfill）は一切しない**。
@@ -483,6 +486,11 @@ Rules: `daysPerWeek` clamped 1...6; empty `targetBodyParts` -> balanced full bod
 - **読み出し互換**: 未知/将来/廃止の raw ID はストア内に保持しつつ解決は `nil`
   を返す（クラッシュしない）。`title` は従来どおり実行時/表示の値で、`exerciseId`
   が `nil` でも Runner・履歴は従来どおり動作する（あくまで付加メタデータ）。
+- **編集時のidentity契約**: 保存済みStepの複製は、現在のLibraryで解決できない
+  未知/将来IDを含め、raw `exerciseId`をそのまま保存する。ユーザーが種目titleを
+  実際に変更した場合は古いガイドとの誤対応を避けるため`exerciseId = nil`にし、
+  新titleからの推論は行わない。同一titleの再代入、並べ替え、sets/reps/rest/note
+  の編集ではidentityを保持する。
 
 ### rollback / downgrade 制約（V4）
 

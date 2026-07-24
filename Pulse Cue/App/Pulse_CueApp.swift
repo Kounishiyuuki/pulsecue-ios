@@ -104,7 +104,9 @@ enum PulseCueUITestSupport {
 // and only V4 uses the current top-level `Step` (with `exerciseId`). The
 // added attribute is optional, so V3 → V4 is `.lightweight`: existing rows
 // gain `exerciseId == nil` with no enumeration, transform, or title
-// backfill. Proven by an on-disk V3→V4 migration test.
+// backfill. Proven both by a synthetic historical-schema migration test and
+// by migrating a fixture generated with the actual pre-PR #132 source at
+// commit 1974ab87200d4f9e023e57b2815717885b0f6cc7.
 
 enum PulseCueSchemaV1: VersionedSchema {
     static var versionIdentifier = Schema.Version(1, 0, 0)
@@ -112,8 +114,9 @@ enum PulseCueSchemaV1: VersionedSchema {
     /// Version-specific historical `Step` (schemas V1–V3). Mirrors the
     /// pre-V4 shipped `Step` exactly — same entity name "Step" and the same
     /// attributes, with NO `exerciseId`. Referenced by V1/V2/V3 so their
-    /// schema hashes match already-shipped stores; V4 uses the current
-    /// top-level `Step`. Not used by app code — only schema/migration.
+    /// schema shape remains compatible with already-shipped stores; V4 uses
+    /// the current top-level `Step`. Compatibility is guarded by an actual
+    /// pre-PR #132 source-generated V3 fixture. Not used by app code.
     @Model
     final class Step {
         @Attribute(.unique) var id: UUID

@@ -59,4 +59,38 @@ final class Step {
     static func clampSets(_ value: Int) -> Int {
         min(max(value, 1), 20)
     }
+
+    /// Creates an exact semantic copy of this persisted exercise. Raw
+    /// `exerciseId` is preserved even when the current library cannot
+    /// resolve it; validation only applies when creating Steps from planner
+    /// candidates.
+    func duplicated(
+        id: UUID = UUID(),
+        routineId: UUID? = nil,
+        order: Int? = nil
+    ) -> Step {
+        Step(
+            id: id,
+            routineId: routineId ?? self.routineId,
+            order: order ?? self.order,
+            title: title,
+            sets: sets,
+            repsTarget: repsTarget,
+            restSeconds: restSeconds,
+            note: note,
+            isWarmup: isWarmup,
+            exerciseId: exerciseId
+        )
+    }
+
+    /// A manual movement-name change invalidates the previous identity.
+    /// No replacement is inferred from user-entered or localized text.
+    func rename(to newTitle: String) {
+        let resolvedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "無題"
+            : newTitle
+        guard resolvedTitle != title else { return }
+        title = resolvedTitle
+        exerciseId = nil
+    }
 }

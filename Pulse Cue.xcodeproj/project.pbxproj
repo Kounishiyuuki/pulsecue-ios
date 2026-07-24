@@ -88,6 +88,7 @@
 		D17104DB1A8E4001B0DA7001 /* AvailableEquipment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */; };
 		D17104DB1A8E4001B0DA9031 /* StepExerciseIdSaveBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9032 /* StepExerciseIdSaveBoundaryTests.swift */; };
 		D17104DB1A8E4001B0DA9021 /* StepExerciseIdMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9022 /* StepExerciseIdMigrationTests.swift */; };
+		D17104DB1A8E4001B0DA9041 /* StepExerciseIdMutationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9042 /* StepExerciseIdMutationTests.swift */; };
 		D17104DB1A8E4001B0DA9011 /* Step+ExerciseResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA9012 /* Step+ExerciseResolution.swift */; };
 		D17104DB1A8E4001B0DA8081 /* ExercisePlannerIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA8082 /* ExercisePlannerIntegrationTests.swift */; };
 		D17104DB1A8E4001B0DA8071 /* ExerciseGuideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA8072 /* ExerciseGuideTests.swift */; };
@@ -320,6 +321,7 @@
 		D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableEquipment.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA9032 /* StepExerciseIdSaveBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepExerciseIdSaveBoundaryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA9022 /* StepExerciseIdMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepExerciseIdMigrationTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DA9042 /* StepExerciseIdMutationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepExerciseIdMutationTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA9012 /* Step+ExerciseResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Step+ExerciseResolution.swift"; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA8082 /* ExercisePlannerIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExercisePlannerIntegrationTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA8072 /* ExerciseGuideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseGuideTests.swift; sourceTree = "<group>"; };
@@ -744,6 +746,7 @@
 				D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */,
 				D17104DB1A8E4001B0DA9032 /* StepExerciseIdSaveBoundaryTests.swift */,
 				D17104DB1A8E4001B0DA9022 /* StepExerciseIdMigrationTests.swift */,
+				D17104DB1A8E4001B0DA9042 /* StepExerciseIdMutationTests.swift */,
 				D17104DB1A8E4001B0DA8082 /* ExercisePlannerIntegrationTests.swift */,
 				D17104DB1A8E4001B0DA8072 /* ExerciseGuideTests.swift */,
 				D17104DB1A8E4001B0DA8062 /* ExerciseLibraryTests.swift */,
@@ -1142,6 +1145,7 @@
 				D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */,
 				D17104DB1A8E4001B0DA9031 /* StepExerciseIdSaveBoundaryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA9021 /* StepExerciseIdMigrationTests.swift in Sources */,
+				D17104DB1A8E4001B0DA9041 /* StepExerciseIdMutationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA8081 /* ExercisePlannerIntegrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA8071 /* ExerciseGuideTests.swift in Sources */,
 				D17104DB1A8E4001B0DA8061 /* ExerciseLibraryTests.swift in Sources */,
