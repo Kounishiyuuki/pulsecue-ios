@@ -166,7 +166,7 @@ struct RuleBasedWeeklyPlanGeneratorTests {
                 targetBodyParts: [.chest],
                 beginnerFriendlyOnly: true
             ),
-            catalog: catalog
+            equipment: AvailableEquipment.standardCatalog(catalog)
         )
         let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
         #expect(machineIds == ["bf_chest"])
@@ -199,7 +199,7 @@ struct RuleBasedWeeklyPlanGeneratorTests {
         ]
         let plan = RuleBasedWeeklyPlanGenerator.generate(
             request: TrainingPlanGenerationRequest(daysPerWeek: 2),
-            catalog: catalog
+            equipment: AvailableEquipment.standardCatalog(catalog)
         )
         let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
         #expect(machineIds.isSubset(of: ["only_a", "only_b"]))
@@ -210,7 +210,7 @@ struct RuleBasedWeeklyPlanGeneratorTests {
     func emptyCatalogYieldsEmptyExercisesWithWarning() {
         let plan = RuleBasedWeeklyPlanGenerator.generate(
             request: TrainingPlanGenerationRequest(daysPerWeek: 3),
-            catalog: []
+            equipment: []
         )
         #expect(plan.sessions.count == 3)
         #expect(plan.isEmpty)
@@ -258,7 +258,7 @@ struct RuleBasedWeeklyPlanGeneratorTests {
             let entry = MachineCatalog.entry(for: c.id)!
             let plan = RuleBasedWeeklyPlanGenerator.generate(
                 request: TrainingPlanGenerationRequest(daysPerWeek: 1, targetBodyParts: [c.part]),
-                catalog: [entry]
+                equipment: AvailableEquipment.standardCatalog([entry])
             )
             let machineIds = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
             #expect(machineIds.contains(c.id), "\(c.id) did not appear in a weekly plan")

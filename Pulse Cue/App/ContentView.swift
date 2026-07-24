@@ -59,6 +59,7 @@ struct ContentView: View {
         }
         .task {
             runnerViewModel.configure(modelContext: modelContext)
+            PulseCueUITestFixtureSeeder.seedIfNeeded(modelContext: modelContext)
             SampleDataSeeder.seedIfNeeded(modelContext: modelContext)
         }
         .fullScreenCover(isPresented: onboardingPresented) {
@@ -77,6 +78,20 @@ struct ContentView: View {
             get: { !settings.hasCompletedOnboarding },
             set: { _ in }
         )
+    }
+}
+
+@MainActor
+private enum PulseCueUITestFixtureSeeder {
+    static func seedIfNeeded(modelContext: ModelContext) {
+        guard ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) else {
+            return
+        }
+
+        let repository = GymRepository(modelContext: modelContext)
+        if repository.allGyms().isEmpty {
+            _ = repository.createGym(name: "UIテストジム", makeActive: true)
+        }
     }
 }
 

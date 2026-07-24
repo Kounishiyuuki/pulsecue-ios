@@ -36,6 +36,13 @@ struct WorkoutPlanGeneratorTests {
         )
     }
 
+    /// The same standard machine, as the unified value the generator now
+    /// takes. Goes through the real `GymMachine` adapter so these tests
+    /// still cover the saved-selection path.
+    private static func equipment(_ id: String, on gym: Gym) -> AvailableEquipment {
+        AvailableEquipment(machine: machine(id, on: gym))
+    }
+
     @Test
     func emptyMachinesYieldsEmptyPlanWithWarning() throws {
         let context = try Self.makeContext()
@@ -43,7 +50,7 @@ struct WorkoutPlanGeneratorTests {
         let plan = WorkoutPlanGenerator.generate(
             bodyPart: .chest,
             gym: gym,
-            availableMachines: []
+            availableEquipment: []
         )
         #expect(plan.isEmpty)
         #expect(plan.warnings.count == 1)
@@ -56,12 +63,12 @@ struct WorkoutPlanGeneratorTests {
         let available = [
             "bench_press", "chest_press", "dumbbells",
             "pec_deck", "cable_machine", "smith_machine",
-        ].map { Self.machine($0, on: gym) }
+        ].map { Self.equipment($0, on: gym) }
 
         let plan = WorkoutPlanGenerator.generate(
             bodyPart: .chest,
             gym: gym,
-            availableMachines: available
+            availableEquipment: available
         )
 
         #expect(!plan.isEmpty)
@@ -77,11 +84,11 @@ struct WorkoutPlanGeneratorTests {
         let context = try Self.makeContext()
         let gym = Self.makeGym(in: context)
         // Treadmill alone does not train back.
-        let available = [Self.machine("treadmill", on: gym)]
+        let available = [Self.equipment("treadmill", on: gym)]
         let plan = WorkoutPlanGenerator.generate(
             bodyPart: .back,
             gym: gym,
-            availableMachines: available
+            availableEquipment: available
         )
         #expect(plan.isEmpty)
         #expect(plan.warnings.count == 1)
@@ -92,11 +99,11 @@ struct WorkoutPlanGeneratorTests {
         let context = try Self.makeContext()
         let gym = Self.makeGym(in: context)
         // Only one back-machine present → plan exists but is short.
-        let available = [Self.machine("lat_pulldown", on: gym)]
+        let available = [Self.equipment("lat_pulldown", on: gym)]
         let plan = WorkoutPlanGenerator.generate(
             bodyPart: .back,
             gym: gym,
-            availableMachines: available
+            availableEquipment: available
         )
         #expect(plan.exercises.count == 1)
         #expect(plan.warnings.count == 1)
@@ -110,7 +117,7 @@ struct WorkoutPlanGeneratorTests {
         let plan = WorkoutPlanGenerator.generate(
             bodyPart: .legs,
             gym: gym,
-            availableMachines: [Self.machine("leg_press", on: gym)]
+            availableEquipment: [Self.equipment("leg_press", on: gym)]
         )
         #expect(plan.defaultTitle.contains("脚"))
         #expect(plan.defaultTitle.contains("Athletic Plus"))
@@ -161,7 +168,7 @@ struct WorkoutPlanGeneratorTests {
             let plan = WorkoutPlanGenerator.generate(
                 bodyPart: new.part,
                 gym: gym,
-                availableMachines: [Self.machine(new.id, on: gym)]
+                availableEquipment: [Self.equipment(new.id, on: gym)]
             )
             #expect(plan.exercises.contains { $0.machineId == new.id },
                     "\(new.id) did not appear in a \(new.part.rawValue) plan")

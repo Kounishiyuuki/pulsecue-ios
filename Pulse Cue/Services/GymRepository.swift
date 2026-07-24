@@ -244,6 +244,40 @@ struct GymRepository {
     func deleteCustomMachine(_ machine: CustomMachine) {
         modelContext.delete(machine)
     }
+
+    /// Looks a custom machine up by its persistent UUID. Returns `nil`
+    /// when the record has already been deleted, so callers can handle a
+    /// stale reference instead of crashing.
+    func customMachine(withId id: UUID) -> CustomMachine? {
+        ((try? modelContext.fetch(
+            FetchDescriptor<CustomMachine>(predicate: #Predicate { $0.id == id })
+        )) ?? []).first
+    }
+
+    /// Sets availability on a custom machine. Availability is what gates
+    /// a custom machine out of generated plans, so it is an explicit
+    /// write rather than a side effect of editing other fields.
+    func setCustomMachineAvailability(_ machine: CustomMachine, isAvailable: Bool, now: Date = Date()) {
+        guard machine.isAvailable != isAvailable else { return }
+        machine.isAvailable = isAvailable
+        machine.updatedAt = now
+    }
+
+    // MARK: - Unified equipment
+
+    /// The gym's equipment as one non-persistent list: saved standard
+    /// selections resolved against `MachineCatalog`, plus the gym's custom
+    /// machines. Nothing is written here.
+    ///
+    /// - Parameter availableOnly: when true (the planner's use), items
+    ///   marked unavailable are excluded. The management UI passes false
+    ///   so unavailable custom machines stay visible and editable.
+    func availableEquipment(for gym: Gym, availableOnly: Bool = false) -> [AvailableEquipment] {
+        let standard = machines(for: gym).map(AvailableEquipment.init(machine:))
+        let custom = customMachines(for: gym).map(AvailableEquipment.init(custom:))
+        let combined = standard + custom
+        return availableOnly ? combined.filter(\.isAvailable) : combined
+    }
 }
 
 /// Errors surfaced by the custom-machine repository APIs.

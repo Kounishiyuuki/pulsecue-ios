@@ -142,6 +142,9 @@ struct CustomMachineMigrationTests {
                 #expect(gym.officialUrl == "https://example.com")
                 #expect(gym.isActive == true)
                 #expect(abs(gym.createdAt.timeIntervalSince(Self.createdAt)) < 0.001)
+                // `updatedAt` drives gym ordering in the UI, so migration
+                // must not bump it.
+                #expect(abs(gym.updatedAt.timeIntervalSince(Self.createdAt)) < 0.001)
 
                 let machines = try context.fetch(FetchDescriptor<GymMachine>())
                 #expect(machines.count == 1)

@@ -51,11 +51,14 @@ final class GeneratedPlanViewModel: ObservableObject {
 
     func regenerate() {
         guard let repository else { return }
-        let machines = repository.machines(for: gym)
+        // Standard selections + the gym's custom machines, already
+        // narrowed to what is marked available. Pure read; nothing is
+        // written and no Routine/Step is created until the user saves.
+        let equipment = repository.availableEquipment(for: gym, availableOnly: true)
         plan = WorkoutPlanGenerator.generate(
             bodyPart: bodyPart,
             gym: gym,
-            availableMachines: machines
+            availableEquipment: equipment
         )
         state = .generated
     }

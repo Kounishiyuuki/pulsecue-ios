@@ -21,9 +21,10 @@ struct Pulse_CueApp: App {
     @StateObject private var authSession = AuthSessionStore()
 
     var sharedModelContainer: ModelContainer = {
+        let isUITestFixture = ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
         let modelConfiguration = ModelConfiguration(
             schema: Schema(versionedSchema: PulseCueSchemaV3.self),
-            isStoredInMemoryOnly: false
+            isStoredInMemoryOnly: isUITestFixture
         )
 
         do {
@@ -39,6 +40,9 @@ struct Pulse_CueApp: App {
 
     init() {
         let settings = SettingsStore()
+        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) {
+            settings.completeOnboarding()
+        }
         _settings = StateObject(wrappedValue: settings)
         _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: settings))
     }
@@ -65,6 +69,10 @@ struct Pulse_CueApp: App {
         GIDSignIn.sharedInstance.handle(url)
         #endif
     }
+}
+
+enum PulseCueUITestSupport {
+    static let customMachineFlowArgument = "-pulsecue-ui-test-custom-machine-flow"
 }
 
 // MARK: - SwiftData schema versioning
