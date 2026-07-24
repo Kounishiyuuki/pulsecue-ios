@@ -25,10 +25,11 @@ struct RoutineStepCandidate: Equatable {
     /// Canonical catalog id (e.g. `lat_pulldown`). Preserved so a future
     /// save step can re-resolve the source machine.
     let machineId: String
-    /// User-facing exercise name — the machine's `displayName`.
+    /// User-facing resolved exercise name, or the equipment display name
+    /// when no standard exercise identity is available.
     let exerciseName: String
-    /// Primary body parts in canonical `BodyPart.allCases` order so the
-    /// (unordered) source `Set` renders stably.
+    /// Resolved exercise body parts (primary first, then canonical
+    /// secondaries), or canonical equipment body parts for a fallback.
     let bodyParts: [BodyPart]
     /// Sets / reps / rest preview, reused from the detail screen so the
     /// numbers and fallback copy match exactly.
@@ -39,6 +40,10 @@ struct RoutineStepCandidate: Equatable {
     /// Where this candidate came from, surfaced in the preview so the
     /// user understands it is a suggestion, not a saved step.
     let sourceLabel: String
+    /// Stable movement identity for a resolved standard exercise; `nil` for
+    /// custom machines and any standard equipment with no library movement.
+    /// Transient only — never persisted onto a `Step`. Gates「フォームを見る」.
+    let exerciseId: ExerciseID?
 
     init(
         machineId: String,
@@ -46,7 +51,8 @@ struct RoutineStepCandidate: Equatable {
         bodyParts: [BodyPart],
         template: MachineExerciseTemplate,
         notes: String?,
-        sourceLabel: String
+        sourceLabel: String,
+        exerciseId: ExerciseID? = nil
     ) {
         self.machineId = machineId
         self.exerciseName = exerciseName
@@ -54,6 +60,7 @@ struct RoutineStepCandidate: Equatable {
         self.template = template
         self.notes = notes
         self.sourceLabel = sourceLabel
+        self.exerciseId = exerciseId
     }
 
     /// Builds a candidate from a catalog entry. This is the pure helper
@@ -78,9 +85,29 @@ struct RoutineStepCandidate: Equatable {
     /// authored sets/reps/rest, so it gets an empty template and the
     /// `resolved*` fallbacks below supply conservative values — we do not
     /// invent a prescription from a machine name.
-    init(equipment: AvailableEquipment, sourceLabel: String = "マシンカタログ") {
+    /// `resolvedExercise` is the `ExerciseLibrary` movement the caller chose
+    /// for this equipment + body-part context. When present (standard
+    /// equipment only), its display name becomes the candidate title and
+    /// its stable id is carried through — so a known machine yields a real
+    /// exercise name (e.g. ケーブルロー) instead of the raw machine name
+    /// (ケーブルマシン). Custom equipment passes `nil` and keeps the safe
+    /// fallback: machine display name, `exerciseId == nil`.
+    init(
+        equipment: AvailableEquipment,
+        resolvedExercise: Exercise? = nil,
+        sourceLabel: String = "マシンカタログ"
+    ) {
         if let entry = equipment.catalogEntry {
-            self.init(entry: entry, sourceLabel: sourceLabel)
+            self.init(
+                machineId: entry.id,
+                exerciseName: resolvedExercise?.displayName ?? entry.displayName,
+                bodyParts: resolvedExercise?.bodyParts
+                    ?? BodyPart.allCases.filter { entry.bodyParts.contains($0) },
+                template: MachineExerciseTemplate(entry: entry),
+                notes: entry.setupNotes ?? entry.safetyNotes,
+                sourceLabel: sourceLabel,
+                exerciseId: resolvedExercise?.id
+            )
         } else {
             self.init(
                 machineId: equipment.id,
@@ -88,7 +115,8 @@ struct RoutineStepCandidate: Equatable {
                 bodyParts: equipment.orderedBodyParts,
                 template: MachineExerciseTemplate(sets: nil, reps: nil, restSeconds: nil),
                 notes: nil,
-                sourceLabel: sourceLabel
+                sourceLabel: sourceLabel,
+                exerciseId: nil
             )
         }
     }

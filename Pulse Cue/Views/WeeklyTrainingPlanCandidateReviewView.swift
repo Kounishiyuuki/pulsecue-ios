@@ -36,6 +36,10 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var candidate: WeeklyTrainingPlanCandidate?
     @State private var saveState: WeeklyPlanSaveState = .idle
     @State private var equipmentNotice: String?
+    /// Non-nil while the text Form Guide sheet is shown. Local UI state
+    /// only — reading a guide persists nothing and does not touch the
+    /// candidate or repository.
+    @State private var guideExerciseId: ExerciseID?
 
     // Body-part filter order matches the catalog screen (胸/背中/肩/腕/脚/体幹/有酸素).
     private let bodyPartChoices: [BodyPart] = [
@@ -89,6 +93,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         }
         .navigationTitle("プラン候補")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $guideExerciseId) { id in
+            ExerciseGuideView(exerciseId: id)
+        }
     }
 
     // MARK: - Header
@@ -363,6 +370,22 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 if !ex.hasMenuDefaults {
                     metricChip(icon: "questionmark.circle", text: "目安なし")
                 }
+            }
+
+            // Only resolved standard movements with an authored guide show
+            // the action. Custom fallback candidates (`exerciseId == nil`)
+            // never do, so no misleading guide can appear.
+            if let guideId = ex.exerciseId, FormGuideLibrary.hasGuide(for: guideId) {
+                Button {
+                    guideExerciseId = guideId
+                } label: {
+                    Label("フォームを見る", systemImage: "figure.strengthtraining.traditional")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 2)
+                .accessibilityLabel("\(ex.exerciseName) のフォームを見る")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

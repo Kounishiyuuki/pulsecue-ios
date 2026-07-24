@@ -25,6 +25,9 @@ struct GeneratedPlanPreviewView: View {
 
     @StateObject private var viewModel: GeneratedPlanViewModel
     @State private var showMachineReview = false
+    /// Non-nil while the text Form Guide sheet is presented. Purely local
+    /// UI state — opening it reads static content and persists nothing.
+    @State private var guideExerciseId: ExerciseID?
 
     init(gym: Gym, bodyPart: BodyPart) {
         _viewModel = StateObject(wrappedValue: GeneratedPlanViewModel(gym: gym, bodyPart: bodyPart))
@@ -83,6 +86,9 @@ struct GeneratedPlanPreviewView: View {
             NavigationStack {
                 ManualMachineSelectionView(gym: viewModel.gym)
             }
+        }
+        .sheet(item: $guideExerciseId) { id in
+            ExerciseGuideView(exerciseId: id)
         }
         .task { viewModel.configure(modelContext: modelContext) }
     }
@@ -227,6 +233,11 @@ struct GeneratedPlanPreviewView: View {
                     metricBlock(value: "\(exercise.restSeconds)", label: "休憩(秒)")
                 }
                 .padding(.top, 2)
+
+                if let guideId = exercise.exerciseId, FormGuideLibrary.hasGuide(for: guideId) {
+                    formGuideButton(exerciseName: exercise.exerciseName, exerciseId: guideId)
+                        .padding(.top, 2)
+                }
             }
             .padding(14)
         }
@@ -238,6 +249,37 @@ struct GeneratedPlanPreviewView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
         )
+    }
+
+    /// Opens the text Form Guide for a supported standard exercise. Custom
+    /// fallback exercises (`exerciseId == nil`) never reach here, so the
+    /// action can never show a misleading guide. Tapping persists nothing.
+    private func formGuideButton(exerciseName: String, exerciseId: ExerciseID) -> some View {
+        Button {
+            guideExerciseId = exerciseId
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "figure.strengthtraining.traditional")
+                Text("フォームを見る")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.1))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(exerciseName) のフォームを見る")
     }
 
     private func metricBlock(value: String, label: String) -> some View {
