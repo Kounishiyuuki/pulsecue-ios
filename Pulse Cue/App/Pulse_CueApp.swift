@@ -21,10 +21,16 @@ struct Pulse_CueApp: App {
     @StateObject private var authSession = AuthSessionStore()
 
     var sharedModelContainer: ModelContainer = {
-        let isUITestFixture = ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
+        // In-memory (never opening the user's persistent V4 store) for the
+        // custom-machine UI fixture and, under DEBUG only, the isolated
+        // Form Guide route.
+        var inMemory = ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
+        #if DEBUG
+        if PulseCueUITestSupport.isFormGuideDebugRoute() { inMemory = true }
+        #endif
         let modelConfiguration = ModelConfiguration(
             schema: Schema(versionedSchema: PulseCueSchemaV4.self),
-            isStoredInMemoryOnly: isUITestFixture
+            isStoredInMemoryOnly: inMemory
         )
 
         do {
@@ -40,11 +46,9 @@ struct Pulse_CueApp: App {
 
     init() {
         let settings = SettingsStore()
-        let args = ProcessInfo.processInfo.arguments
-        if args.contains(PulseCueUITestSupport.customMachineFlowArgument)
-            || args.contains(PulseCueUITestSupport.formGuide3DArgument) {
-            // Test/dev fixtures skip onboarding so the deterministic route is
-            // not covered by the onboarding fullScreenCover.
+        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) {
+            // Custom-machine UI fixture skips onboarding. The Form Guide debug
+            // route does NOT write onboarding — it uses a separate root.
             settings.completeOnboarding()
         }
         _settings = StateObject(wrappedValue: settings)
@@ -53,10 +57,7 @@ struct Pulse_CueApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(settings)
-                .environmentObject(runnerViewModel)
-                .environmentObject(authSession)
+            rootView
                 .onOpenURL { url in
                     // GoogleSignIn URL callback only. No other app flow uses
                     // custom URL schemes, so this is scoped to the SDK.
@@ -64,6 +65,31 @@ struct Pulse_CueApp: App {
                 }
         }
         .modelContainer(sharedModelContainer)
+    }
+
+    @ViewBuilder
+    private var rootView: some View {
+        #if DEBUG
+        if let exerciseId = PulseCueUITestSupport.requestedFormGuideExerciseId() {
+            // Isolated debug root: no ContentView, no SampleDataSeeder, no
+            // onboarding, in-memory store only.
+            FormGuide3DDebugRoot(
+                exerciseId: exerciseId,
+                staticProgress: PulseCueUITestSupport.requestedFormGuideProgress()
+            )
+        } else {
+            normalRoot
+        }
+        #else
+        normalRoot
+        #endif
+    }
+
+    private var normalRoot: some View {
+        ContentView()
+            .environmentObject(settings)
+            .environmentObject(runnerViewModel)
+            .environmentObject(authSession)
     }
 
     /// Routes incoming URLs to GoogleSignIn only. Returns immediately when the
@@ -87,16 +113,35 @@ enum PulseCueUITestSupport {
     /// which of the 10 guided exercises to open (defaults to chest press).
     static let formGuide3DExerciseIdArgument = "-pulsecue-ui-test-exercise-id"
 
-    /// The requested exercise id for the deterministic guide route, or a
-    /// sensible default. Returns `nil` when the route argument is absent.
-    static func requestedFormGuideExerciseId() -> String? {
-        let args = ProcessInfo.processInfo.arguments
+    /// Optional companion: `-pulsecue-ui-test-progress <0..1>` freezes the
+    /// guide at a static cycle progress for deterministic screenshots.
+    static let formGuide3DProgressArgument = "-pulsecue-ui-test-progress"
+
+    /// Pure launch-mode selection (testable): the requested exercise id for
+    /// the deterministic guide route, or `nil` when the route argument is
+    /// absent. Whether this is honored is gated by `#if DEBUG` at the call
+    /// site — in Release the route has no effect.
+    static func requestedFormGuideExerciseId(_ args: [String] = ProcessInfo.processInfo.arguments) -> String? {
         guard args.contains(formGuide3DArgument) else { return nil }
-        if let i = args.firstIndex(of: formGuide3DExerciseIdArgument),
-           i + 1 < args.count {
+        if let i = args.firstIndex(of: formGuide3DExerciseIdArgument), i + 1 < args.count {
             return args[i + 1]
         }
         return "machine_chest_press"
+    }
+
+    /// Optional static progress for the guide route (`nil` = animate normally).
+    static func requestedFormGuideProgress(_ args: [String] = ProcessInfo.processInfo.arguments) -> Float? {
+        guard args.contains(formGuide3DArgument),
+              let i = args.firstIndex(of: formGuide3DProgressArgument), i + 1 < args.count,
+              let v = Float(args[i + 1]) else { return nil }
+        return min(max(v, 0), 1)
+    }
+
+    /// Whether launching straight into the isolated debug guide root. This is
+    /// the ONE predicate the app uses to fork startup — always evaluated
+    /// inside `#if DEBUG`, so Release never forks.
+    static func isFormGuideDebugRoute(_ args: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        args.contains(formGuide3DArgument)
     }
 }
 

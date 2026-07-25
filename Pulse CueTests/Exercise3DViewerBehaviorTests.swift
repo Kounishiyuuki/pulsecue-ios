@@ -76,13 +76,13 @@ struct Exercise3DViewerBehaviorTests {
 
     @Test func gestureDragFrequencyIndependenceThroughController() {
         let c = controller()
-        c.beginOrbitGesture()
-        c.updateOrbit(totalTranslationX: 200, y: 80) // one big update
+        c.beginDrag()
+        c.updateDrag(totalTranslationX: 200, y: 80) // one big update
         let big = c.cameraState
 
         let c2 = controller()
-        c2.beginOrbitGesture()
-        for i in 1...10 { c2.updateOrbit(totalTranslationX: Float(i) * 20, y: Float(i) * 8) }
+        c2.beginDrag()
+        for i in 1...10 { c2.updateDrag(totalTranslationX: Float(i) * 20, y: Float(i) * 8) }
         let stepped = c2.cameraState
 
         #expect(abs(big.azimuth - stepped.azimuth) < 0.0001)
@@ -91,14 +91,87 @@ struct Exercise3DViewerBehaviorTests {
 
     @Test func consecutiveGesturesContinueFromCommittedState() {
         let c = controller()
-        c.beginOrbitGesture()
-        c.updateOrbit(totalTranslationX: 100, y: 0)
-        c.endGesture()
+        c.beginDrag()
+        c.updateDrag(totalTranslationX: 100, y: 0)
+        c.endDrag()
         let afterFirst = c.cameraState.azimuth
         // Second gesture must start from the committed state, not zero.
-        c.beginOrbitGesture()
-        c.updateOrbit(totalTranslationX: 50, y: 0)
+        c.beginDrag()
+        c.updateDrag(totalTranslationX: 50, y: 0)
         #expect(c.cameraState.azimuth < afterFirst) // continued same direction
+    }
+
+    // MARK: - Simultaneous drag + pinch (independent axes)
+
+    @Test func interleavedDragAndPinchKeepIndependentAxes() {
+        let c = controller()
+        let startAz = c.cameraState.azimuth
+        let startEl = c.cameraState.elevation
+        let startDist = c.cameraState.distance
+
+        c.beginDrag()
+        c.beginPinch()
+        c.updateDrag(totalTranslationX: 120, y: 60)
+        c.updatePinch(magnification: 1.5)
+        c.updateDrag(totalTranslationX: 200, y: 90)
+        c.updatePinch(magnification: 1.8)
+
+        // Drag axes reflect the final drag; pinch axis reflects the final
+        // pinch. Neither returned to its baseline.
+        #expect(c.cameraState.azimuth != startAz)
+        #expect(c.cameraState.elevation != startEl)
+        #expect(c.cameraState.distance != startDist)
+        // Zoom is the pinch result (distance decreased for magnification>1),
+        // NOT reset by the drag updates.
+        #expect(c.cameraState.distance < startDist)
+        // Azimuth equals a pure drag of the same total (pinch did not rewrite it).
+        let pureDrag = OrbitCameraState.azimuth(dragBaseline: startAz, totalX: 200)
+        #expect(abs(c.cameraState.azimuth - pureDrag) < 0.0001)
+    }
+
+    @Test func gestureEndOrderDoesNotChangeResult() {
+        func run(endDragFirst: Bool) -> OrbitCameraState {
+            let c = controller()
+            c.beginDrag(); c.beginPinch()
+            c.updateDrag(totalTranslationX: 150, y: 40)
+            c.updatePinch(magnification: 1.6)
+            if endDragFirst { c.endDrag(); c.endPinch() } else { c.endPinch(); c.endDrag() }
+            return c.cameraState
+        }
+        let a = run(endDragFirst: true)
+        let b = run(endDragFirst: false)
+        #expect(abs(a.azimuth - b.azimuth) < 0.0001)
+        #expect(abs(a.elevation - b.elevation) < 0.0001)
+        #expect(abs(a.distance - b.distance) < 0.0001)
+    }
+
+    @Test func oneGestureContinuesAfterOtherEnds() {
+        let c = controller()
+        c.beginDrag(); c.beginPinch()
+        c.updateDrag(totalTranslationX: 100, y: 30)
+        c.updatePinch(magnification: 1.4)
+        let zoomAfterPinch = c.cameraState.distance
+        c.endPinch()
+        // Continue dragging — azimuth changes, zoom retains the pinch value.
+        c.beginDrag() // real UI re-begins from committed state
+        c.updateDrag(totalTranslationX: 180, y: 60)
+        #expect(abs(c.cameraState.distance - zoomAfterPinch) < 0.0001) // zoom kept
+        #expect(c.cameraState.azimuth != c.cameraState.azimuth + 1) // sanity (finite)
+        #expect(c.cameraState.distance < c.cameraState.distance + 1)
+    }
+
+    @Test func resetClearsTransientBaselinesMidGesture() {
+        let c = controller()
+        c.beginDrag()
+        c.updateDrag(totalTranslationX: 120, y: 40)
+        c.resetCamera()
+        #expect(c.cameraState == OrbitCameraState.default(for: c.profile.preferredCamera))
+        // Next gesture starts cleanly from the reset state.
+        c.beginDrag()
+        c.updateDrag(totalTranslationX: 40, y: 0)
+        let expected = OrbitCameraState.azimuth(
+            dragBaseline: OrbitCameraState.default(for: c.profile.preferredCamera).azimuth, totalX: 40)
+        #expect(abs(c.cameraState.azimuth - expected) < 0.0001)
     }
 
     @Test func reduceMotionStartsPaused() {

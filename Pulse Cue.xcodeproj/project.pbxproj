@@ -86,6 +86,9 @@
 		D17104DB1A8E4001B0DA57A1 /* MockAITrainingPlanChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA57A2 /* MockAITrainingPlanChatView.swift */; };
 		D17104DB1A8E4001B0DA5711 /* RoutineStepCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */; };
 		D17104DB1A8E4001B0DA7001 /* AvailableEquipment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */; };
+		D17104DB1A8E4001B0DAA0H1 /* FormGuide3DRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DAA0H2 /* FormGuide3DRouteTests.swift */; };
+		D17104DB1A8E4001B0DAA0G1 /* FormGuide3DDebugRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DAA0G2 /* FormGuide3DDebugRoot.swift */; };
+		D17104DB1A8E4001B0DAA0F1 /* EquipmentMotionBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DAA0F2 /* EquipmentMotionBinding.swift */; };
 		D17104DB1A8E4001B0DAA0E1 /* FormGuide3DUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DAA0E2 /* FormGuide3DUITests.swift */; };
 		D17104DB1A8E4001B0DAA0D1 /* EquipmentSceneContactTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DAA0D2 /* EquipmentSceneContactTests.swift */; };
 		D17104DB1A8E4001B0DAA0C1 /* OrbitCameraStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DAA0C2 /* OrbitCameraStateTests.swift */; };
@@ -334,6 +337,9 @@
 		D17104DB1A8E4001B0DA57A2 /* MockAITrainingPlanChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockAITrainingPlanChatView.swift; path = "Pulse Cue/Views/MockAITrainingPlanChatView.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5712 /* RoutineStepCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStepCandidate.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA7002 /* AvailableEquipment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableEquipment.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DAA0H2 /* FormGuide3DRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormGuide3DRouteTests.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DAA0G2 /* FormGuide3DDebugRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormGuide3DDebugRoot.swift; sourceTree = "<group>"; };
+		D17104DB1A8E4001B0DAA0F2 /* EquipmentMotionBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentMotionBinding.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DAA0E2 /* FormGuide3DUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormGuide3DUITests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DAA0D2 /* EquipmentSceneContactTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentSceneContactTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DAA0C2 /* OrbitCameraStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbitCameraStateTests.swift; sourceTree = "<group>"; };
@@ -678,6 +684,8 @@
 			isa = PBXGroup;
 			children = (
 				D17104DB1A8E4001B0DAA012 /* ExerciseJoint.swift */,
+				D17104DB1A8E4001B0DAA0G2 /* FormGuide3DDebugRoot.swift */,
+				D17104DB1A8E4001B0DAA0F2 /* EquipmentMotionBinding.swift */,
 				D17104DB1A8E4001B0DAA0B2 /* OrbitCameraState.swift */,
 				D17104DB1A8E4001B0DAA022 /* MannequinSkeleton.swift */,
 				D17104DB1A8E4001B0DAA032 /* ExerciseMotionProfile.swift */,
@@ -791,6 +799,7 @@
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
 				D17104DB1A8E4001B0DA6102 /* CustomMachineMigrationTests.swift */,
 				D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */,
+				D17104DB1A8E4001B0DAA0H2 /* FormGuide3DRouteTests.swift */,
 				D17104DB1A8E4001B0DAA0D2 /* EquipmentSceneContactTests.swift */,
 				D17104DB1A8E4001B0DAA0C2 /* OrbitCameraStateTests.swift */,
 				D17104DB1A8E4001B0DAA112 /* RunnerFormGuideTests.swift */,
@@ -1092,6 +1101,8 @@
 				D17104DB1A8E4001B0DA57A1 /* MockAITrainingPlanChatView.swift in Sources */,
 				D17104DB1A8E4001B0DA5711 /* RoutineStepCandidate.swift in Sources */,
 				D17104DB1A8E4001B0DA7001 /* AvailableEquipment.swift in Sources */,
+				D17104DB1A8E4001B0DAA0G1 /* FormGuide3DDebugRoot.swift in Sources */,
+				D17104DB1A8E4001B0DAA0F1 /* EquipmentMotionBinding.swift in Sources */,
 				D17104DB1A8E4001B0DAA0B1 /* OrbitCameraState.swift in Sources */,
 				D17104DB1A8E4001B0DAA081 /* Exercise3DViewer.swift in Sources */,
 				D17104DB1A8E4001B0DAA071 /* Exercise3DSceneController.swift in Sources */,
@@ -1205,6 +1216,7 @@
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA6101 /* CustomMachineMigrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */,
+				D17104DB1A8E4001B0DAA0H1 /* FormGuide3DRouteTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA0D1 /* EquipmentSceneContactTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA0C1 /* OrbitCameraStateTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA111 /* RunnerFormGuideTests.swift in Sources */,

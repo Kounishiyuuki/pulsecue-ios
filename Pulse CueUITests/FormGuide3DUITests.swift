@@ -46,7 +46,16 @@ final class FormGuide3DUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["基本の動き"].waitForExistence(timeout: 3),
                       "text guide section missing")
 
-        // Dismiss works.
+        // Dismiss works: closing returns to the isolated debug fixture root
+        // (mutable state, not a constant binding).
+        app.buttons["閉じる"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Form Guide 3D デバッグルート"].waitForExistence(timeout: 5),
+                      "did not return to debug fixture root after dismiss")
+
+        // Reopening works.
+        app.buttons["debug-open-form-guide"].tap()
+        XCTAssertTrue(app.navigationBars["フォームガイド"].waitForExistence(timeout: 5),
+                      "guide did not reopen")
         app.buttons["閉じる"].firstMatch.tap()
     }
 }

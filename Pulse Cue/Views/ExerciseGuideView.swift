@@ -21,6 +21,9 @@ struct ExerciseGuideView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let exerciseId: ExerciseID
+    /// DEBUG-only: freeze the 3D demo at a fixed progress for deterministic
+    /// screenshots. Always `nil` on production paths.
+    var debugStaticProgress: Float? = nil
 
     private var exercise: Exercise? { ExerciseLibrary.exercise(for: exerciseId) }
     private var guide: ExerciseGuide? { FormGuideLibrary.guide(for: exerciseId) }
@@ -55,7 +58,7 @@ struct ExerciseGuideView: View {
                 // 3D movement demo (additive). The text sections below remain
                 // the authoritative instruction and render even if 3D fails.
                 if let motionProfile {
-                    Guide3DSection(profile: motionProfile, reduceMotion: reduceMotion)
+                    Guide3DSection(profile: motionProfile, reduceMotion: reduceMotion, staticProgress: debugStaticProgress)
                 }
 
                 section(title: "基本の動き", systemImage: "figure.strengthtraining.traditional") {
@@ -195,11 +198,13 @@ private struct Guide3DSection: View {
     @Environment(\.accessibilityReduceMotion) private var envReduceMotion
     @StateObject private var controller: Exercise3DSceneController
 
-    init(profile: ExerciseMotionProfile, reduceMotion: Bool) {
+    init(profile: ExerciseMotionProfile, reduceMotion: Bool, staticProgress: Float? = nil) {
         self.profile = profile
         self.reduceMotion = reduceMotion
         _controller = StateObject(
-            wrappedValue: Exercise3DSceneController(profile: profile, reduceMotion: reduceMotion)
+            wrappedValue: Exercise3DSceneController(
+                profile: profile, reduceMotion: reduceMotion, staticProgress: staticProgress
+            )
         )
     }
 

@@ -71,6 +71,26 @@ struct OrbitCameraState: Equatable, Sendable {
         )
     }
 
+    // MARK: - Per-axis gesture math (independent drag / pinch)
+    //
+    // Drag owns azimuth+elevation; pinch owns distance. Each is computed
+    // from its OWN gesture-start baseline plus the cumulative gesture value,
+    // so simultaneous gestures never rewrite the other's axis and end order
+    // does not matter.
+
+    static func azimuth(dragBaseline: Float, totalX dx: Float) -> Float {
+        let nx = dx.isFinite ? dx : 0
+        return dragBaseline + (-nx) * dragToRadians
+    }
+    static func elevation(dragBaseline: Float, totalY dy: Float) -> Float {
+        let ny = dy.isFinite ? dy : 0
+        return clampElevation(dragBaseline + ny * dragToElevation)
+    }
+    static func distance(pinchBaseline: Float, magnification: Float) -> Float {
+        let m = (magnification.isFinite && magnification > 0.0001) ? magnification : 1
+        return clampDistance(pinchBaseline / m)
+    }
+
     /// Camera world position for a given look-at target.
     func position(target: SIMD3<Float>) -> SIMD3<Float> {
         SIMD3(

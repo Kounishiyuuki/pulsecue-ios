@@ -43,20 +43,28 @@ final class Exercise3DSceneController: ObservableObject {
 
     private weak var arView: ARView?
     private var joints: [ExerciseJoint: Entity] = [:]
+    private var equipmentContacts: [EquipmentContact] = []
     private var cameraEntity = PerspectiveCamera()
     private var updateSub: Cancellable?
 
     private(set) var progress: Float = 0   // 0...1 cycle position (test-readable)
     private let target = SIMD3<Float>(0, 1.15, 0)
 
-    // Orbit camera: `cameraState` is the committed state; the *Baseline
-    // fields hold the state captured at the start of an in-flight gesture so
-    // cumulative drag/pinch values are applied absolutely (no compounding).
+    // Orbit camera: `cameraState` is the committed state. Drag owns
+    // azimuth+elevation, pinch owns distance; each holds ONLY its own
+    // per-axis gesture-start baseline, so simultaneous drag+pinch never
+    // rewrite the other's axis and end order is irrelevant.
     private(set) var cameraState: OrbitCameraState
-    private var orbitBaseline: OrbitCameraState
-    private var zoomBaseline: OrbitCameraState
+    private var dragBaselineAzimuth: Float = 0
+    private var dragBaselineElevation: Float = 0
+    private var pinchBaselineDistance: Float = 2.4
 
-    init(profile: ExerciseMotionProfile, reduceMotion: Bool = false, simulateFailure: Bool = false) {
+    init(
+        profile: ExerciseMotionProfile,
+        reduceMotion: Bool = false,
+        simulateFailure: Bool = false,
+        staticProgress: Float? = nil
+    ) {
         self.profile = profile
         self.engine = ExerciseMotionEngine(profile: profile)
         self.reduceMotion = reduceMotion
@@ -64,12 +72,16 @@ final class Exercise3DSceneController: ObservableObject {
         self.camera = profile.preferredCamera
         let state = OrbitCameraState.default(for: profile.preferredCamera)
         self.cameraState = state
-        self.orbitBaseline = state
-        self.zoomBaseline = state
-        // Reduce Motion: do not auto-run continuous motion; show a clear
-        // static demonstration pose and let the user opt in.
-        self.isPlaying = !reduceMotion
-        self.progress = reduceMotion ? reduceMotionStaticProgress : cycleStartProgress
+        if let staticProgress {
+            // DEBUG screenshot mode: freeze at a fixed progress, paused.
+            self.isPlaying = false
+            self.progress = min(max(staticProgress, 0), 1)
+        } else {
+            // Reduce Motion: do not auto-run continuous motion; show a clear
+            // static demonstration pose and let the user opt in.
+            self.isPlaying = !reduceMotion
+            self.progress = reduceMotion ? reduceMotionStaticProgress : cycleStartProgress
+        }
     }
 
     // MARK: - Scene construction
@@ -94,8 +106,11 @@ final class Exercise3DSceneController: ObservableObject {
         joints = mannequin.joints
         anchor.addChild(mannequin.root)
 
-        // Equipment context (positions derived from this profile's FK).
-        anchor.addChild(EquipmentSceneFactory.makeEquipment(for: profile))
+        // Equipment: static structural parts + dynamic contact parts that
+        // follow the mannequin (updated each frame in `applyPose`).
+        let equipment = EquipmentSceneFactory.makeScene(for: profile)
+        equipmentContacts = equipment.contacts
+        anchor.addChild(equipment.root)
 
         // Lighting: key + fill so the silhouette reads. Shadows are disabled
         // — they are not needed for an MVP movement reference and cast-shadow
@@ -149,6 +164,8 @@ final class Exercise3DSceneController: ObservableObject {
         for (joint, entity) in joints {
             entity.orientation = pose[joint].quaternion
         }
+        // Same frame, same pose, same clock — dynamic equipment follows.
+        EquipmentMotionBinding.update(equipmentContacts, pose: pose)
     }
 
     // MARK: - Playback controls
@@ -191,43 +208,52 @@ final class Exercise3DSceneController: ObservableObject {
     func setCamera(_ preset: Exercise3DCamera) {
         camera = preset
         // Preserve current zoom distance; only reframe the angle.
+        let d = OrbitCameraState.default(for: preset)
+        cameraState = OrbitCameraState(azimuth: d.azimuth, elevation: d.elevation, distance: cameraState.distance)
+        updateCameraTransform()
+    }
+
+    // Drag lifecycle: owns azimuth+elevation only. Baseline is captured at
+    // beginDrag; each update recomputes those two axes from that baseline +
+    // cumulative translation while keeping the CURRENT distance (which a
+    // simultaneous pinch may be changing).
+    func beginDrag() {
+        dragBaselineAzimuth = cameraState.azimuth
+        dragBaselineElevation = cameraState.elevation
+    }
+    func updateDrag(totalTranslationX dx: Float, y dy: Float) {
         cameraState = OrbitCameraState(
-            azimuth: OrbitCameraState.default(for: preset).azimuth,
-            elevation: OrbitCameraState.default(for: preset).elevation,
+            azimuth: OrbitCameraState.azimuth(dragBaseline: dragBaselineAzimuth, totalX: dx),
+            elevation: OrbitCameraState.elevation(dragBaseline: dragBaselineElevation, totalY: dy),
             distance: cameraState.distance
         )
-        commitBaselines()
         updateCameraTransform()
     }
+    func endDrag() {} // nothing to commit; cameraState is already current
 
-    // Gesture lifecycle: capture the baseline once, then apply cumulative
-    // values against it so event frequency cannot compound the result.
-    func beginOrbitGesture() { orbitBaseline = cameraState }
-    func updateOrbit(totalTranslationX dx: Float, y dy: Float) {
-        cameraState = orbitBaseline.dragged(byTotalX: dx, y: dy)
+    // Pinch lifecycle: owns distance only. Keeps the CURRENT azimuth/elevation
+    // (which a simultaneous drag may be changing).
+    func beginPinch() {
+        pinchBaselineDistance = cameraState.distance
+    }
+    func updatePinch(magnification: Float) {
+        cameraState = OrbitCameraState(
+            azimuth: cameraState.azimuth,
+            elevation: cameraState.elevation,
+            distance: OrbitCameraState.distance(pinchBaseline: pinchBaselineDistance, magnification: magnification)
+        )
         updateCameraTransform()
     }
-
-    func beginZoomGesture() { zoomBaseline = cameraState }
-    func updateZoom(magnification: Float) {
-        cameraState = zoomBaseline.zoomed(byMagnification: magnification)
-        updateCameraTransform()
-    }
-
-    /// Commit final camera state at gesture end so the next gesture starts
-    /// from here (no snap-back).
-    func endGesture() { commitBaselines() }
+    func endPinch() {}
 
     func resetCamera() {
         camera = profile.preferredCamera
         cameraState = OrbitCameraState.default(for: profile.preferredCamera)
-        commitBaselines()
+        // Clear transient baselines so a following gesture starts clean.
+        dragBaselineAzimuth = cameraState.azimuth
+        dragBaselineElevation = cameraState.elevation
+        pinchBaselineDistance = cameraState.distance
         updateCameraTransform()
-    }
-
-    private func commitBaselines() {
-        orbitBaseline = cameraState
-        zoomBaseline = cameraState
     }
 
     private func updateCameraTransform() {
@@ -245,6 +271,7 @@ final class Exercise3DSceneController: ObservableObject {
         arView?.scene.anchors.removeAll()
         arView = nil
         joints.removeAll()
+        equipmentContacts.removeAll()
     }
 
     deinit {

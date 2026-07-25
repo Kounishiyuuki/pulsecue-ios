@@ -67,7 +67,6 @@ struct ContentView: View {
                 settings.completeOnboarding()
             }
         }
-        .modifier(FormGuide3DTestRoute())
     }
 
     /// Presents the first-launch onboarding until the user starts as a guest.
@@ -94,29 +93,6 @@ private enum PulseCueUITestFixtureSeeder {
             _ = repository.createGym(name: "UIテストジム", makeActive: true)
         }
     }
-}
-
-/// DEBUG-only deterministic route to the 3D Form Guide for visual review.
-/// In Release this modifier is a pure passthrough, so no normal-user route
-/// or debug menu is ever exposed. Presenting the guide persists nothing.
-private struct FormGuide3DTestRoute: ViewModifier {
-    func body(content: Content) -> some View {
-        #if DEBUG
-        content.fullScreenCover(isPresented: .constant(presentedId != nil)) {
-            if let presentedId {
-                ExerciseGuideView(exerciseId: ExerciseID(rawValue: presentedId))
-            }
-        }
-        #else
-        content
-        #endif
-    }
-
-    #if DEBUG
-    private var presentedId: String? {
-        PulseCueUITestSupport.requestedFormGuideExerciseId()
-    }
-    #endif
 }
 
 #Preview {

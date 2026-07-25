@@ -68,18 +68,18 @@ struct Exercise3DViewer: View {
                     .onChanged { value in
                         if !isOrbiting {
                             isOrbiting = true
-                            controller.beginOrbitGesture()
+                            controller.beginDrag()
                         }
-                        // `translation` is CUMULATIVE from gesture start; the
-                        // controller applies it against a captured baseline.
-                        controller.updateOrbit(
+                        // `translation` is CUMULATIVE from gesture start; drag
+                        // owns azimuth/elevation only.
+                        controller.updateDrag(
                             totalTranslationX: Float(value.translation.width),
                             y: Float(value.translation.height)
                         )
                     }
                     .onEnded { _ in
                         isOrbiting = false
-                        controller.endGesture()
+                        controller.endDrag()
                     }
             )
             .simultaneousGesture(
@@ -87,13 +87,13 @@ struct Exercise3DViewer: View {
                     .onChanged { scale in
                         if !isZooming {
                             isZooming = true
-                            controller.beginZoomGesture()
+                            controller.beginPinch()
                         }
-                        controller.updateZoom(magnification: Float(scale))
+                        controller.updatePinch(magnification: Float(scale)) // owns distance only
                     }
                     .onEnded { _ in
                         isZooming = false
-                        controller.endGesture()
+                        controller.endPinch()
                     }
             )
     }
