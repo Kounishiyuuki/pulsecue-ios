@@ -90,23 +90,24 @@ struct TodayView: View {
             backgroundLayer.ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 18) {
-                    heroCard
+                VStack(spacing: 28) {
+                    conditionCard
                     startWorkoutButton
                     TodayGymPlanCard()
-                    PulseSectionHeader("今日のサマリー", icon: "chart.bar.xaxis")
-                        .padding(.top, 2)
-                    metricsGrid
-                    nutritionLogLink
-                    balanceCard
-                    Color.clear.frame(height: 12)
+                    VStack(spacing: 16) {
+                        PulseSectionHeader("今日のサマリー", icon: "chart.bar.xaxis")
+                        metricsGrid
+                        nutritionLogLink
+                        balanceCard
+                    }
+                    Color.clear.frame(height: 8)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 4)
+                .padding(.top, 8)
             }
         }
         .navigationTitle("今日")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .sheet(item: $activeField) { field in
             if let dayLog = todayLog {
                 DayLogQuickInputSheet(field: field, dayLog: dayLog)
@@ -130,92 +131,35 @@ struct TodayView: View {
 
     // MARK: - Hero card
 
-    private var heroCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.accent)
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                Text("PulseCue")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "bell")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+    /// Calm daily-state summary. No app branding, bell, or decorative
+    /// gauge — just the state headline and a quiet progress line. Hierarchy
+    /// comes from type scale and whitespace, not a container.
+    private var conditionCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("今日の状態")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("今日の状態")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+            Text(conditionHeadline)
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
 
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(conditionHeadline)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(AppTheme.accent)
-                    Text(conditionSubhead)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("コンディション")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text("\(filledMetricCount)")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(.primary)
-                        Text("/ 4")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.regularMaterial)
-                )
-
-                Spacer()
-
-                ZStack {
-                    Circle()
-                        .stroke(AppTheme.accent, lineWidth: 4)
-                        .frame(width: 56, height: 56)
-                    Circle()
-                        .fill(AppTheme.accent.opacity(0.12))
-                        .frame(width: 48, height: 48)
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(AppTheme.accent)
-                }
-                .accessibilityHidden(true)
-            }
+            Text("\(conditionSubhead)・入力 \(filledMetricCount)/4")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .padding(20)
-        .background(glassBackground)
-        .overlay(glassStroke)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("今日の状態 \(conditionHeadline). コンディション \(filledMetricCount) / 4 入力済み")
+        .accessibilityLabel("今日の状態 \(conditionHeadline). \(conditionSubhead). 入力 \(filledMetricCount) / 4")
     }
 
     private var conditionHeadline: String {
         switch filledMetricCount {
-        case 4: return "Excellent"
-        case 3: return "Good"
-        case 2: return "Steady"
-        case 1: return "Starting"
-        default: return "—"
+        case 4: return "絶好調"
+        case 3: return "良好"
+        case 2: return "順調"
+        case 1: return "記録中"
+        default: return "今日をはじめよう"
         }
     }
 
@@ -278,11 +222,9 @@ struct TodayView: View {
     }
 
     private func workoutAction() {
-        if runnerViewModel.isRunning {
-            selectedTab = .runner
-        } else {
-            showRoutinePicker = true
-        }
+        // A running session is presented as a full-screen cover over the
+        // tabs, so here we only ever start a new one.
+        showRoutinePicker = true
     }
 
     // MARK: - Nutrition log shortcut

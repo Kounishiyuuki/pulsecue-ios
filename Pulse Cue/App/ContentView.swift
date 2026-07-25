@@ -34,14 +34,6 @@ struct ContentView: View {
             .tag(AppTab.workout)
 
             NavigationStack {
-                RunnerView()
-            }
-            .tabItem {
-                Label("ランナー", systemImage: "figure.strengthtraining.traditional")
-            }
-            .tag(AppTab.runner)
-
-            NavigationStack {
                 HistoryView()
             }
             .tabItem {
@@ -67,6 +59,27 @@ struct ContentView: View {
                 settings.completeOnboarding()
             }
         }
+        // Runner is a focused, full-screen workout mode rather than a
+        // persistent tab: it appears while a session is running and
+        // dismisses when the session ends. The RunnerViewModel state machine
+        // is unchanged — only its presentation moved off the tab bar.
+        .fullScreenCover(isPresented: runnerPresented) {
+            NavigationStack {
+                RunnerView()
+            }
+            .environmentObject(runnerViewModel)
+            .environmentObject(settings)
+        }
+    }
+
+    /// Driven solely by `runnerViewModel.isRunning`. The setter is a no-op:
+    /// the session is ended only from inside Runner (which flips the state
+    /// machine to `.done`), so the cover cannot be swiped away mid-workout.
+    private var runnerPresented: Binding<Bool> {
+        Binding(
+            get: { runnerViewModel.isRunning },
+            set: { _ in }
+        )
     }
 
     /// Presents the first-launch onboarding until the user starts as a guest.
