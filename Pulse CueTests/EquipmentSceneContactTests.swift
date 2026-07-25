@@ -77,18 +77,78 @@ struct EquipmentSceneContactTests {
 
     private let phases: [Float] = [0.0, 0.25, 0.5, 0.75]
 
-    // MARK: - Two-handed bars follow hands (chest / lat / row / triceps / arm curl)
+    private let barExercises: [ExerciseID] = [
+        "machine_chest_press", "lat_pulldown", "machine_seated_row",
+        "cable_triceps_pushdown", "machine_arm_curl",
+    ]
 
-    @Test func barFollowsHandsAcrossCycle() throws {
-        for id: ExerciseID in ["machine_chest_press", "lat_pulldown", "machine_seated_row",
-                               "cable_triceps_pushdown", "machine_arm_curl"] {
+    /// The bar's two world endpoints, derived from its ACTUAL rendered
+    /// transform (position + orientation + runtime scale). The local
+    /// endpoints are the canonical mesh ends ±L/2 on the X axis.
+    private func barEndpoints(_ e: ModelEntity) -> (SIMD3<Float>, SIMD3<Float>) {
+        let m = e.transformMatrix(relativeTo: nil)
+        let half = EquipmentMotionBinding.barCanonicalLength / 2
+        let a = m * SIMD4<Float>(half, 0, 0, 1)
+        let b = m * SIMD4<Float>(-half, 0, 0, 1)
+        return (SIMD3(a.x, a.y, a.z), SIMD3(b.x, b.y, b.z))
+    }
+
+    // MARK: - Two-handed bar: endpoints/segment actually reach both hands
+
+    @Test func barSegmentReachesBothHandsAndLengthTracksSpan() throws {
+        for id in barExercises {
             let rig = makeRig(id)
-            let b = try #require(bar(rig), "\(id) has no bar contact")
+            let bar = try #require(self.bar(rig), "\(id) has no bar contact")
             for p in phases {
                 apply(rig, p)
-                let d = simd_distance(b.position(relativeTo: nil), handMidWorld(rig))
-                #expect(d < 0.10, "\(id) bar↔hands \(d) at \(p)")
+                let (epA, epB) = barEndpoints(bar)
+                let center = bar.position(relativeTo: nil)
+                let axis = simd_normalize(epA - epB)
+                let halfLen = simd_distance(epA, center)
+                let lh = jointWorld(rig, .leftHand)
+                let rh = jointWorld(rig, .rightHand)
+
+                // Finite + positive length.
+                #expect(halfLen.isFinite && halfLen > 0.01, "\(id) bad bar length at \(p)")
+
+                // Actual rendered bar length ≈ hand separation + grip margin.
+                // Derived from the ACTUAL entity transform and ACTUAL hands —
+                // not from `barLength(...)` — so a fixed-width bar fails here.
+                let actualLen = simd_distance(epA, epB)
+                let sep = simd_distance(lh, rh)
+                let expected = min(max(sep + 2 * EquipmentMotionBinding.barGripMargin, 0.1), 1.2)
+                #expect(abs(actualLen - expected) < 0.04, "\(id) bar length \(actualLen) vs \(expected) at \(p)")
+
+                // Each hand lies ON the bar segment (within its span, close to
+                // the axis) — proves the bar REACHES the hands, not just its
+                // center is near the midpoint.
+                for (name, h) in [("L", lh), ("R", rh)] {
+                    let v = h - center
+                    let proj = simd_dot(v, axis)
+                    let perp = simd_length(v - proj * axis)
+                    #expect(abs(proj) <= halfLen + 0.03, "\(id) \(name) hand beyond bar end at \(p)")
+                    #expect(perp < 0.06, "\(id) \(name) hand off bar line at \(p)")
+                }
+
+                // Center still near hand midpoint.
+                #expect(simd_distance(center, (lh + rh) * 0.5) < 0.08, "\(id) bar center off midpoint at \(p)")
             }
+        }
+    }
+
+    @Test func barLengthChangesWithHandSpan() throws {
+        // Lat pulldown hand span differs between overhead start and pulled-down
+        // peak, so the dynamic bar length must differ too (would fail if width
+        // were fixed).
+        let rig = makeRig("lat_pulldown")
+        let bar = try #require(self.bar(rig))
+        apply(rig, 0.0); let lenStart = { let (a, b) = barEndpoints(bar); return simd_distance(a, b) }()
+        apply(rig, 0.5); let lenPeak = { let (a, b) = barEndpoints(bar); return simd_distance(a, b) }()
+        let spanStart = { apply(rig, 0.0); return simd_distance(jointWorld(rig, .leftHand), jointWorld(rig, .rightHand)) }()
+        let spanPeak = { apply(rig, 0.5); return simd_distance(jointWorld(rig, .leftHand), jointWorld(rig, .rightHand)) }()
+        // If the hand span meaningfully changes, so must the bar length.
+        if abs(spanStart - spanPeak) > 0.05 {
+            #expect(abs(lenStart - lenPeak) > 0.03, "bar length did not track span change")
         }
     }
 
@@ -171,13 +231,19 @@ struct EquipmentSceneContactTests {
         }
     }
 
-    @Test func structuralEquipmentStaysStatic() {
+    @Test func structuralEquipmentStaysStatic() throws {
+        // These exercises are expected to HAVE a seat + backrest — the test
+        // must fail (not silently skip) if that structural geometry vanishes.
         for id: ExerciseID in ["machine_chest_press", "leg_extension", "machine_shoulder_press"] {
             let rig = makeRig(id)
-            guard let seat = rig.scene.structural["seat"] else { continue }
-            apply(rig, 0.0); let a = seat.position(relativeTo: nil)
-            apply(rig, 0.5); let b = seat.position(relativeTo: nil)
-            #expect(simd_distance(a, b) < 0.0001, "\(id) seat moved")
+            let seat = try #require(rig.scene.structural["seat"], "\(id) missing seat")
+            let backrest = try #require(rig.scene.structural["backrest"], "\(id) missing backrest")
+            apply(rig, 0.0)
+            let seatA = seat.position(relativeTo: nil)
+            let backA = backrest.position(relativeTo: nil)
+            apply(rig, 0.5)
+            #expect(simd_distance(seatA, seat.position(relativeTo: nil)) < 0.0001, "\(id) seat moved")
+            #expect(simd_distance(backA, backrest.position(relativeTo: nil)) < 0.0001, "\(id) backrest moved")
         }
     }
 

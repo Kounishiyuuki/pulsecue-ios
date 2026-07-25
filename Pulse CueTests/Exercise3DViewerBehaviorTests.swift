@@ -145,19 +145,45 @@ struct Exercise3DViewerBehaviorTests {
         #expect(abs(a.distance - b.distance) < 0.0001)
     }
 
-    @Test func oneGestureContinuesAfterOtherEnds() {
+    // Case A: end pinch mid-way, keep dragging with NO new beginDrag (the
+    // drag gesture is still live).
+    @Test func dragContinuesAfterPinchEndsWithoutRebegin() {
         let c = controller()
         c.beginDrag(); c.beginPinch()
         c.updateDrag(totalTranslationX: 100, y: 30)
         c.updatePinch(magnification: 1.4)
         let zoomAfterPinch = c.cameraState.distance
+        let azAfterPinch = c.cameraState.azimuth
         c.endPinch()
-        // Continue dragging — azimuth changes, zoom retains the pinch value.
-        c.beginDrag() // real UI re-begins from committed state
+        // Continue the SAME drag (no beginDrag) with a larger cumulative value.
         c.updateDrag(totalTranslationX: 180, y: 60)
-        #expect(abs(c.cameraState.distance - zoomAfterPinch) < 0.0001) // zoom kept
-        #expect(c.cameraState.azimuth != c.cameraState.azimuth + 1) // sanity (finite)
-        #expect(c.cameraState.distance < c.cameraState.distance + 1)
+        c.endDrag()
+        #expect(abs(c.cameraState.distance - zoomAfterPinch) < 0.0001, "zoom not preserved")
+        #expect(c.cameraState.azimuth != azAfterPinch, "drag did not continue")
+        // Azimuth reflects the final cumulative drag from the original baseline.
+        let expectedAz = OrbitCameraState.azimuth(
+            dragBaseline: OrbitCameraState.default(for: c.profile.preferredCamera).azimuth, totalX: 180)
+        #expect(abs(c.cameraState.azimuth - expectedAz) < 0.0001)
+    }
+
+    // Case B (inverse): end drag mid-way, keep pinching with NO new beginPinch.
+    @Test func pinchContinuesAfterDragEndsWithoutRebegin() {
+        let c = controller()
+        c.beginDrag(); c.beginPinch()
+        c.updateDrag(totalTranslationX: 120, y: 40)
+        c.updatePinch(magnification: 1.3)
+        let azAfterDrag = c.cameraState.azimuth
+        let elAfterDrag = c.cameraState.elevation
+        c.endDrag()
+        // Continue the SAME pinch (no beginPinch) with a larger magnification.
+        c.updatePinch(magnification: 1.7)
+        c.endPinch()
+        #expect(abs(c.cameraState.azimuth - azAfterDrag) < 0.0001, "yaw not preserved")
+        #expect(abs(c.cameraState.elevation - elAfterDrag) < 0.0001, "elevation not preserved")
+        // Distance reflects the final cumulative pinch from the original baseline.
+        let expectedDist = OrbitCameraState.distance(
+            pinchBaseline: OrbitCameraState.default(for: c.profile.preferredCamera).distance, magnification: 1.7)
+        #expect(abs(c.cameraState.distance - expectedDist) < 0.0001)
     }
 
     @Test func resetClearsTransientBaselinesMidGesture() {

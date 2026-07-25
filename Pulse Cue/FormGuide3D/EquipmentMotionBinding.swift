@@ -21,6 +21,18 @@ import simd
 @MainActor
 enum EquipmentMotionBinding {
 
+    /// Base (unscaled) length of every two-hand bar mesh along its local X
+    /// axis. The bar is scaled at runtime — no mesh is regenerated.
+    static let barCanonicalLength: Float = 1.0
+    /// Bar extends this far beyond each hand center for a coherent grip.
+    static let barGripMargin: Float = 0.05
+
+    /// Target world length for a bar spanning `handSeparation` (clamped).
+    static func barLength(handSeparation: Float) -> Float {
+        let target = handSeparation + 2 * barGripMargin
+        return min(max(target, 0.1), 1.2)
+    }
+
     static func update(_ contacts: [EquipmentContact], pose: ExercisePose) {
         for contact in contacts {
             switch contact.kind {
@@ -29,10 +41,15 @@ enum EquipmentMotionBinding {
                 let r = MannequinSkeleton.worldPosition(of: .rightHand, pose: pose)
                 contact.entity.position = (l + r) * 0.5
                 let axis = l - r
-                if simd_length(axis) > 0.0001 {
+                let separation = simd_length(axis)
+                if separation > 0.0001 {
                     // Bar's long (X) axis aligns with the hand-to-hand line.
                     contact.entity.orientation = simd_quatf(from: SIMD3(1, 0, 0), to: simd_normalize(axis))
                 }
+                // Follow the actual hand span by scaling the base mesh's X
+                // axis (transform-only; no per-frame mesh/material creation).
+                let scaleX = max(barLength(handSeparation: separation) / barCanonicalLength, 0.001)
+                contact.entity.scale = SIMD3(scaleX, 1, 1)
 
             case .gripAtHand(let joint):
                 contact.entity.position = MannequinSkeleton.worldPosition(of: joint, pose: pose)

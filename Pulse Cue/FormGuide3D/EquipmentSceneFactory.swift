@@ -63,6 +63,13 @@ enum EquipmentSceneFactory {
         return e
     }
 
+    /// A two-hand bar at the canonical (unscaled) length. Its X axis is later
+    /// scaled by `EquipmentMotionBinding` to match the actual hand span, so
+    /// the mesh is created ONCE (never per frame).
+    private static func barMesh() -> ModelEntity {
+        box(SIMD3(EquipmentMotionBinding.barCanonicalLength, 0.05, 0.05), .zero, frameMaterial)
+    }
+
     /// Builds the equipment scene for a profile: static structural parts plus
     /// dynamic contact parts (positioned initially via the binding at the
     /// start pose).
@@ -89,13 +96,13 @@ enum EquipmentSceneFactory {
         case .chestPress, .seatedRow:
             addStructural("seat", box(SIMD3(0.42, 0.08, 0.42), SIMD3(0, 0.86, -0.02), padMaterial))
             addStructural("backrest", box(SIMD3(0.42, 0.5, 0.08), SIMD3(0, 1.12, -0.22), padMaterial))
-            addContact(box(SIMD3(0.5, 0.05, 0.05), .zero, frameMaterial), .barBetweenHands)
+            addContact(barMesh(), .barBetweenHands)
 
         case .armCurl:
             addStructural("seat", box(SIMD3(0.42, 0.08, 0.42), SIMD3(0, 0.86, -0.02), padMaterial))
             addStructural("backrest", box(SIMD3(0.42, 0.5, 0.08), SIMD3(0, 1.12, -0.22), padMaterial))
             addStructural("armpad", box(SIMD3(0.42, 0.06, 0.28), SIMD3(0, 1.02, 0.30), padMaterial))
-            addContact(box(SIMD3(0.4, 0.05, 0.05), .zero, frameMaterial), .barBetweenHands)
+            addContact(barMesh(), .barBetweenHands)
 
         case .shoulderPress:
             addStructural("seat", box(SIMD3(0.42, 0.08, 0.42), SIMD3(0, 0.86, -0.02), padMaterial))
@@ -110,7 +117,7 @@ enum EquipmentSceneFactory {
             // not up at chest height.
             addStructural("thighPad", box(SIMD3(0.36, 0.06, 0.16), SIMD3(0, 0.98, 0.30), padMaterial))
             // Bar follows the hands down through the pulldown (not fixed overhead).
-            addContact(box(SIMD3(0.7, 0.05, 0.05), .zero, frameMaterial), .barBetweenHands)
+            addContact(barMesh(), .barBetweenHands)
 
         case .legPress:
             addStructural("backrest", box(SIMD3(0.5, 0.5, 0.08), SIMD3(0, 1.0, -0.28), padMaterial))
@@ -128,7 +135,7 @@ enum EquipmentSceneFactory {
 
         case .tricepsPushdown:
             addStructural("tower", box(SIMD3(0.05, 1.6, 0.05), SIMD3(0, 1.6, -0.05), frameMaterial))
-            addContact(box(SIMD3(0.4, 0.04, 0.04), .zero, frameMaterial), .barBetweenHands)
+            addContact(barMesh(), .barBetweenHands)
         }
 
         return Scene(root: root, contacts: contacts, structural: structural)
