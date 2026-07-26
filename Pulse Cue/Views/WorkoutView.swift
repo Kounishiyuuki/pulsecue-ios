@@ -68,7 +68,7 @@ struct WorkoutView: View {
     private var brandHeader: some View {
         HStack {
             ZStack {
-                Circle().fill(AppTheme.accent).frame(width: 32, height: 32)
+                Circle().fill(AppTheme.accentFilled).frame(width: 32, height: 32)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -328,7 +328,7 @@ struct WorkoutView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 11)
-                    .background(Capsule().fill(AppTheme.accent))
+                    .background(Capsule().fill(AppTheme.accentFilled))
             }
             .buttonStyle(.plain)
         }
@@ -412,7 +412,7 @@ struct WorkoutView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(AppTheme.accent)
+                    .fill(AppTheme.accentFilled)
                     .frame(width: 56, height: 56)
                     .shadow(
                         color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.4),

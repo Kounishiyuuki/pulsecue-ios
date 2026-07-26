@@ -883,7 +883,7 @@ struct NutritionView: View {
                 .buttonStyle(.plain)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(AppTheme.accent)
+                        .fill(AppTheme.accentFilled)
                         .shadow(
                             color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.4),
                             radius: 12, y: 6

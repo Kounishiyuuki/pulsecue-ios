@@ -74,7 +74,7 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
             ZStack {
                 Circle()
-                    .fill(AppTheme.accent)
+                    .fill(AppTheme.accentFilled)
                     .frame(width: 56, height: 56)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 26, weight: .semibold))

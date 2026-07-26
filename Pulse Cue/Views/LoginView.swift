@@ -64,7 +64,7 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
             ZStack {
                 Circle()
-                    .fill(AppTheme.accent)
+                    .fill(AppTheme.accentFilled)
                     .frame(width: 56, height: 56)
                 Image(systemName: "person.crop.circle")
                     .font(.system(size: 26, weight: .semibold))

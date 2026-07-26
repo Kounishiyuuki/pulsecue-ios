@@ -152,7 +152,7 @@ struct PulseButtonBody: View {
             .padding(.vertical, AppTheme.Spacing.m)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .fill(effectiveEnabled ? AnyShapeStyle(AppTheme.accent) : AnyShapeStyle(Color.gray.opacity(0.35)))
+                    .fill(effectiveEnabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color.gray.opacity(0.35)))
                     .shadow(color: effectiveEnabled ? AppTheme.accent.opacity(0.22) : .clear,
                             radius: 8, x: 0, y: 4)
             )
