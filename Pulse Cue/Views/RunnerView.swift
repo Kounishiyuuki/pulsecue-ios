@@ -106,7 +106,7 @@ struct RunnerView: View {
     private var brandHeader: some View {
         HStack {
             ZStack {
-                Circle().fill(AppTheme.accent).frame(width: 32, height: 32)
+                Circle().fill(AppTheme.accentFilled).frame(width: 32, height: 32)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -184,7 +184,7 @@ struct RunnerView: View {
     private func chipBackground(isActive: Bool) -> some View {
         if isActive {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.accent)
+                .fill(AppTheme.accentFilled)
         } else {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(.regularMaterial)
@@ -410,7 +410,7 @@ struct RunnerView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(AppTheme.accent)
+                    .fill(AppTheme.accentFilled)
                     .shadow(
                         color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.35),
                         radius: 18, x: 0, y: 10
@@ -493,7 +493,7 @@ struct RunnerView: View {
             .frame(maxWidth: .infinity)
             .background(
                 Capsule()
-                    .fill(AppTheme.accent)
+                    .fill(AppTheme.accentFilled)
                     .shadow(color: AppTheme.accent.opacity(0.22), radius: 10, x: 0, y: 6)
             )
         }
@@ -543,7 +543,7 @@ struct RunnerView: View {
     @ViewBuilder
     private func iconButtonBackground(isAccent: Bool, isDisabled: Bool) -> some View {
         if isAccent && !isDisabled {
-            Circle().fill(AppTheme.accent)
+            Circle().fill(AppTheme.accentFilled)
         } else if isAccent && isDisabled {
             Circle().fill(Color(.systemGray5))
         } else {

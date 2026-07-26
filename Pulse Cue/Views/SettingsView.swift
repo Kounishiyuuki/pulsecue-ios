@@ -179,7 +179,7 @@ struct SettingsView: View {
     private var brandHeader: some View {
         HStack {
             ZStack {
-                Circle().fill(AppTheme.accent).frame(width: 32, height: 32)
+                Circle().fill(AppTheme.accentFilled).frame(width: 32, height: 32)
                 Image(systemName: "waveform.path.ecg")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
@@ -822,7 +822,7 @@ struct SettingsView: View {
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(AppTheme.accent)
+                        .fill(AppTheme.accentFilled)
                         .shadow(
                             color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.35),
                             radius: 18, x: 0, y: 10
@@ -866,7 +866,7 @@ struct SettingsView: View {
         .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(AppTheme.accent)
+                .fill(AppTheme.accentFilled)
                 .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         )
     }
