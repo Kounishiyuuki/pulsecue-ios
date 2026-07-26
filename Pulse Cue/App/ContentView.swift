@@ -50,6 +50,9 @@ struct ContentView: View {
             }
             .tag(AppTab.settings)
         }
+        .tint(AppTheme.accent)
+        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .task {
             runnerViewModel.configure(modelContext: modelContext)
             PulseCueUITestFixtureSeeder.seedIfNeeded(modelContext: modelContext)

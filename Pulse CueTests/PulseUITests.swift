@@ -32,10 +32,25 @@ struct PulseUITests {
         // Smoke check: the primitives build and are usable from outside the
         // module (catches access-level regressions).
         _ = PulseCard { Text("x") }
+        _ = PulseGlassPlate(level: .subtle)
+        _ = PulseGlassPlate(level: .functional, focused: true)
+        _ = PulseGlassPlate(level: .hero, cornerRadius: AppTheme.heroRadius)
         _ = PulseSectionHeader("Title", icon: "heart")
         _ = PulseSectionHeader("No icon")
         _ = PulseStatusBadge("ok", kind: .success)
         _ = PulseStatusBadge("info")
+    }
+
+    @Test
+    func glassLevelsIncreaseVisualEmphasis() {
+        let levels: [PulseGlassLevel] = [.subtle, .functional, .hero]
+        let tintOpacities = levels.map(\.tintOpacity)
+        let edgeWidths = levels.map(\.edgeWidth)
+
+        #expect(tintOpacities[0] < tintOpacities[1])
+        #expect(tintOpacities[1] < tintOpacities[2])
+        #expect(edgeWidths[0] < edgeWidths[1])
+        #expect(edgeWidths[1] < edgeWidths[2])
     }
 
     @Test

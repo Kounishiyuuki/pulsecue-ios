@@ -26,6 +26,7 @@ import SwiftData
 
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
 
@@ -140,45 +141,120 @@ struct TodayView: View {
     /// gauge — just the state headline and a quiet progress line. Hierarchy
     /// comes from type scale and whitespace, not a container.
     private var conditionCard: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 7) {
-                Text("今日の状態")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("今日の状態")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
 
-                Text(conditionHeadline)
-                    .font(.system(.title, design: .rounded).weight(.bold))
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Text(conditionHeadline)
+                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Text(conditionSubhead)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 70)
-            recordingDepth
+            Text(conditionSubhead)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            recordingSummary
         }
-        .pulseHeroGlass(padding: 20)
+        .padding(.horizontal, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("今日の状態 \(conditionHeadline). \(conditionSubhead). 記録 \(filledMetricCount) / 4")
     }
 
+    @ViewBuilder
+    private var recordingSummary: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                recordingCount
+                recordingDepth
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        } else {
+            HStack(alignment: .bottom) {
+                recordingCount
+                    .padding(.bottom, 10)
+                Spacer(minLength: 12)
+                recordingDepth
+            }
+            .frame(minHeight: 132)
+        }
+    }
+
+    private var recordingCount: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("今日の記録")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+            Text("\(filledMetricCount) / 4")
+                .font(.title3.weight(.bold))
+                .monospacedDigit()
+            Text("入力済み")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var recordingDepth: some View {
         ZStack {
+            Ellipse()
+                .fill(AppTheme.reflectedBlue.opacity(0.25))
+                .frame(width: 172, height: 44)
+                .blur(radius: 18)
+                .offset(y: 46)
+
             ForEach(0..<4, id: \.self) { index in
-                Circle()
-                    .fill(index < filledMetricCount ? AppTheme.accent : AppTheme.iceLight.opacity(0.28))
-                    .frame(width: CGFloat(72 - index * 10), height: CGFloat(72 - index * 10))
-                    .offset(y: CGFloat(index * 3))
-                    .opacity(index < filledMetricCount ? 0.30 + Double(index) * 0.12 : 0.34)
+                let isFilled = index < filledMetricCount
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.62),
+                                        (isFilled ? AppTheme.accent : AppTheme.iceLight)
+                                            .opacity(isFilled ? 0.30 : 0.16),
+                                        AppTheme.reflectedBlue.opacity(0.10)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.98),
+                                        AppTheme.iceLight.opacity(0.64),
+                                        Color.white.opacity(0.10)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: index == 3 ? 1.4 : 0.9
+                            )
+                    }
+                    .frame(width: CGFloat(158 - index * 4), height: 62)
+                    .rotation3DEffect(
+                        .degrees(58),
+                        axis: (x: 1, y: 0, z: 0),
+                        perspective: 0.35
+                    )
+                    .rotationEffect(.degrees(-5))
+                    .offset(x: CGFloat(index * 4), y: CGFloat(index * 17 - 34))
+                    .shadow(
+                        color: AppTheme.deepGlass.opacity(0.12 + Double(index) * 0.03),
+                        radius: 12,
+                        x: 0,
+                        y: 10
+                    )
             }
-            Text("\(filledMetricCount)/4")
-                .font(.caption.weight(.bold))
-                .monospacedDigit()
         }
-        .frame(width: 76, height: 76)
+        .frame(width: 190, height: 128)
         .accessibilityHidden(true)
     }
 

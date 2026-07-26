@@ -27,6 +27,7 @@ import SwiftData
 import UserNotifications
 
 struct SettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var authSession: AuthSessionStore
@@ -91,7 +92,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("設定")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .alert("通知が無効です", isPresented: $showNotificationAlert) {
             Button("了解", role: .cancel) {}
         } message: {
@@ -116,7 +117,6 @@ struct SettingsView: View {
         @Bindable var profile = profileObject
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                brandHeader
                 titleBlock
                 personalDataCard(profile: $profile)
                 HStack(spacing: 12) {
@@ -152,11 +152,9 @@ struct SettingsView: View {
 
     private var accentGradient: LinearGradient {
         LinearGradient(
-            colors: [
-                Color(red: 0.27, green: 0.62, blue: 0.95),
-                Color(red: 0.49, green: 0.51, blue: 0.97),
-                Color(red: 0.66, green: 0.45, blue: 0.95)
-            ],
+            colors: colorScheme == .dark
+                ? [AppTheme.iceLight, AppTheme.edgeBlue]
+                : [AppTheme.accentFilled, AppTheme.accent],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -164,10 +162,9 @@ struct SettingsView: View {
 
     private var tealGradient: LinearGradient {
         LinearGradient(
-            colors: [
-                Color(red: 0.15, green: 0.70, blue: 0.78),
-                Color(red: 0.27, green: 0.62, blue: 0.95)
-            ],
+            colors: colorScheme == .dark
+                ? [AppTheme.iceLight, AppTheme.reflectedBlue]
+                : [AppTheme.deepGlass, AppTheme.reflectedBlue],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -197,11 +194,12 @@ struct SettingsView: View {
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("設定")
-                .font(.system(size: 32, weight: .bold))
+        HStack(spacing: 9) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
             Text("パーソナルデータと目標の管理")
-                .font(.subheadline)
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
         }
     }
@@ -209,7 +207,7 @@ struct SettingsView: View {
     // MARK: - Personal data card
 
     private func personalDataCard(profile: Bindable<UserProfile>) -> some View {
-        glassCard {
+        featuredGlassCard {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader(icon: "person.fill", title: "パーソナルデータ")
 
@@ -925,6 +923,15 @@ struct SettingsView: View {
             .overlay(glassStroke)
     }
 
+    private func featuredGlassCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+            .background(
+                PulseGlassPlate(level: .functional, cornerRadius: 24)
+            )
+    }
+
     private func sectionHeader(icon: String, title: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
@@ -966,7 +973,18 @@ struct SettingsView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+                .fill(Color.white.opacity(0.09))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [.white.opacity(0.54), .white.opacity(0.06)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.6
+                        )
+                )
         )
     }
 
@@ -1004,7 +1022,11 @@ struct SettingsView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+                .fill(Color.white.opacity(0.09))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.white.opacity(0.30), lineWidth: 0.6)
+                )
         )
     }
 
@@ -1035,7 +1057,11 @@ struct SettingsView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+                .fill(Color.white.opacity(0.09))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.white.opacity(0.30), lineWidth: 0.6)
+                )
         )
     }
 
@@ -1054,21 +1080,12 @@ struct SettingsView: View {
     // MARK: - Glass surfaces
 
     private var glassBackground: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.regularMaterial)
-            .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 8)
+        PulseGlassPlate(level: .subtle, cornerRadius: 22)
     }
 
     private var glassStroke: some View {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.6
-            )
+            .strokeBorder(Color.clear, lineWidth: 0)
     }
 
     // MARK: - Formatting

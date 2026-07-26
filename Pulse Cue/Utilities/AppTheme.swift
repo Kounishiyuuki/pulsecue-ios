@@ -107,6 +107,7 @@ enum AppTheme {
     /// Corner radii.
     static let cardRadius: CGFloat = 22
     static let controlRadius: CGFloat = 14
+    static let glassRadius: CGFloat = 22
     static let heroRadius: CGFloat = 28
 
     /// Consistent spacing scale.

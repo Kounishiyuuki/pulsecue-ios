@@ -31,6 +31,7 @@ struct RunnerView: View {
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var showRoutinePicker = false
     @State private var showEndAlert = false
@@ -44,22 +45,30 @@ struct RunnerView: View {
         ZStack {
             backgroundLayer.ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    statusChips
-                    restTimerCard
-                    currentSetCard
-                    formGuideButton
-                    nextUpCard
-                    if runnerViewModel.isRunning {
-                        endSessionButton
-                    } else {
-                        startRoutineButton
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 16) {
+                        Color.clear
+                            .frame(height: 0)
+                            .id("runner-top")
+                        statusChips
+                        restTimerCard
+                        currentSetCard
+                        formGuideButton
+                        nextUpCard
+                        if runnerViewModel.isRunning {
+                            endSessionButton
+                        } else {
+                            startRoutineButton
+                        }
+                        Color.clear.frame(height: 8)
                     }
-                    Color.clear.frame(height: 8)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
+                .onChange(of: runnerViewModel.phase) { _, _ in
+                    proxy.scrollTo("runner-top", anchor: .top)
+                }
             }
         }
         .navigationTitle(runnerViewModel.currentStep?.title ?? "ワークアウト")
@@ -132,6 +141,7 @@ struct RunnerView: View {
             chip(label: "残り", value: remainingChipValue)
             chip(label: "次", value: nextChipValue)
         }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var nowChipValue: String {
@@ -163,7 +173,7 @@ struct RunnerView: View {
         VStack(spacing: 2) {
             Text(label)
                 .font(.caption2)
-                .foregroundStyle(isActive ? Color.white.opacity(0.85) : .secondary)
+                .foregroundStyle(isActive ? Color.white : .secondary)
             Text(value)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
@@ -176,7 +186,14 @@ struct RunnerView: View {
         .background(chipBackground(isActive: isActive))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(isActive ? 0.4 : 0.6), lineWidth: 0.6)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.84), AppTheme.iceLight.opacity(0.26), .white.opacity(0.08)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: isActive ? 0.9 : 0.7
+                )
         )
     }
 
@@ -186,8 +203,7 @@ struct RunnerView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(AppTheme.accentFilled)
         } else {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.regularMaterial)
+            PulseGlassPlate(level: .subtle, focused: true, cornerRadius: 12)
         }
     }
 
@@ -196,60 +212,112 @@ struct RunnerView: View {
     private var restTimerCard: some View {
         VStack(spacing: 4) {
             ZStack {
-                ForEach(0..<4, id: \.self) { layer in
-                    Circle()
-                        .fill(AppTheme.deepGlass.opacity(0.10 + Double(layer) * 0.055))
-                        .overlay(
-                            Circle()
-                                .stroke(AppTheme.iceLight.opacity(0.08 + Double(layer) * 0.035), lineWidth: 1)
+                Ellipse()
+                    .fill(AppTheme.iceLight.opacity(runnerViewModel.phase == .rest ? 0.24 : 0.10))
+                    .frame(width: 206, height: 86)
+                    .blur(radius: 28)
+                    .offset(y: 82)
+
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 204, height: 226)
+
+                GeometryReader { geometry in
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        AppTheme.iceLight.opacity(0.52),
+                                        AppTheme.reflectedBlue.opacity(0.34),
+                                        AppTheme.deepGlass.opacity(0.18)
+                                    ],
+                                    startPoint: .bottom,
+                                    endPoint: .top
+                                )
+                            )
+                            .frame(height: geometry.size.height * progressFraction)
+                    }
+                }
+                .frame(width: 204, height: 226)
+                .clipShape(Capsule())
+
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.24),
+                                Color.clear,
+                                AppTheme.deepGlass.opacity(0.22)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
-                        .frame(
-                            width: CGFloat(238 - layer * 30),
-                            height: CGFloat(238 - layer * 30)
+                    )
+                    .frame(width: 204, height: 226)
+
+                ForEach(0..<5, id: \.self) { layer in
+                    Ellipse()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.72 - Double(layer) * 0.09),
+                                    AppTheme.iceLight.opacity(0.34),
+                                    Color.white.opacity(0.04)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: layer == 0 ? 1.4 : 0.8
                         )
-                        .blur(radius: layer == 0 ? 0 : 0.4)
+                        .frame(width: CGFloat(198 - layer * 7), height: CGFloat(50 - layer * 2))
+                        .offset(y: CGFloat(layer * 40 - 80))
                 }
 
-                Circle()
-                    .trim(from: 0, to: progressFraction)
-                    .stroke(
+                Capsule()
+                    .strokeBorder(
                         LinearGradient(
-                            colors: [AppTheme.iceLight, AppTheme.reflectedBlue],
-                            startPoint: .top,
+                            colors: [.white.opacity(0.86), AppTheme.iceLight.opacity(0.38), .white.opacity(0.06)],
+                            startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                        lineWidth: 1.2
                     )
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 226, height: 226)
-                    .animation(.easeInOut(duration: 0.3), value: progressFraction)
+                    .frame(width: 204, height: 226)
 
                 VStack(spacing: 6) {
-                    Text("REST TIMER")
-                        .font(.caption2.weight(.semibold))
-                        .tracking(1.5)
-                        .foregroundStyle(.secondary)
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        Text("REST TIMER")
+                            .font(.caption2.weight(.semibold))
+                            .tracking(1.5)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(timerText)
-                        .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .font(.system(size: dynamicTypeSize.isAccessibilitySize ? 50 : 56, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .contentTransition(.numericText(countsDown: true))
                         .foregroundStyle(.primary)
+                        .shadow(color: AppTheme.deepSpace.opacity(0.42), radius: 10, y: 4)
                         .accessibilityLabel("残り \(runnerViewModel.remainingSeconds) 秒")
-                    if runnerViewModel.phase == .exercise && runnerViewModel.isRunning {
+                    if !dynamicTypeSize.isAccessibilitySize,
+                       runnerViewModel.phase == .exercise && runnerViewModel.isRunning {
                         Text("ステップ実行中")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else if runnerViewModel.phase == .done {
+                    } else if !dynamicTypeSize.isAccessibilitySize,
+                              runnerViewModel.phase == .done {
                         Text("ルーティン未開始")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
+            .frame(height: 252)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-        .background(glassBackground)
+        .padding(.vertical, 20)
+        .background(heroGlassBackground)
         .overlay(glassStroke)
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -486,12 +554,28 @@ struct RunnerView: View {
         .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.12), radius: 18, x: 0, y: 8)
+                .fill(.thinMaterial)
+                .overlay(
+                    LinearGradient(
+                        colors: [.white.opacity(0.18), .clear, AppTheme.deepGlass.opacity(0.18)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .clipShape(Capsule())
+                )
+                .shadow(color: AppTheme.deepGlass.opacity(0.60), radius: 24, x: 0, y: 12)
         )
         .overlay(
-            Capsule().strokeBorder(.white.opacity(0.5), lineWidth: 0.6)
+            Capsule().strokeBorder(
+                LinearGradient(
+                    colors: [.white.opacity(0.72), AppTheme.iceLight.opacity(0.28), .white.opacity(0.06)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
         )
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var primaryCompleteButton: some View {
@@ -540,8 +624,10 @@ struct RunnerView: View {
             VStack(spacing: 2) {
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .bold))
-                Text(label)
-                    .font(.caption2.weight(.semibold))
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
             }
             .frame(width: 52, height: 52)
             .foregroundStyle(iconButtonForeground(isAccent: isAccent, isDisabled: isDisabled))
@@ -562,29 +648,28 @@ struct RunnerView: View {
         if isAccent && !isDisabled {
             Circle().fill(AppTheme.accentFilled)
         } else if isAccent && isDisabled {
-            Circle().fill(Color(.systemGray5))
+            Circle().fill(.ultraThinMaterial)
         } else {
-            Circle().fill(Color(.systemGray6))
+            Circle()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.7)
+                )
         }
     }
 
     // MARK: - Glass surfaces
 
     private var glassBackground: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.regularMaterial)
-            .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 8)
+        PulseGlassPlate(level: .functional, focused: true, cornerRadius: 22)
+    }
+
+    private var heroGlassBackground: some View {
+        PulseGlassPlate(level: .hero, focused: true, cornerRadius: 28)
     }
 
     private var glassStroke: some View {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.6
-            )
+            .strokeBorder(Color.clear, lineWidth: 0)
     }
 }
