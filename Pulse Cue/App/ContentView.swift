@@ -14,11 +14,12 @@ struct ContentView: View {
     @EnvironmentObject var settings: SettingsStore
 
     @State private var selectedTab: AppTab = .today
+    @StateObject private var runnerPresenter = RunnerPresenter()
 
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                TodayView(selectedTab: $selectedTab)
+                TodayView(onResumeRunner: { runnerPresenter.resume(isRunning: runnerViewModel.isRunning) })
             }
             .tabItem {
                 Label("今日", systemImage: "sun.max")
@@ -53,6 +54,16 @@ struct ContentView: View {
             runnerViewModel.configure(modelContext: modelContext)
             PulseCueUITestFixtureSeeder.seedIfNeeded(modelContext: modelContext)
             SampleDataSeeder.seedIfNeeded(modelContext: modelContext)
+            // `configure` may recover a session persisted from a previous
+            // launch. `onChange` only fires on *transitions*, so mirror the
+            // recovered state once here to re-present the Runner if needed.
+            runnerPresenter.syncPresentation(isRunning: runnerViewModel.isRunning)
+        }
+        // Keep the cover's presentation in lock-step with the authoritative
+        // workout state: a workout becoming active presents it; ending it
+        // dismisses it. The workout is never started/ended from here.
+        .onChange(of: runnerViewModel.isRunning) { _, running in
+            runnerPresenter.syncPresentation(isRunning: running)
         }
         .fullScreenCover(isPresented: onboardingPresented) {
             OnboardingView {
@@ -61,25 +72,18 @@ struct ContentView: View {
         }
         // Runner is a focused, full-screen workout mode rather than a
         // persistent tab: it appears while a session is running and
-        // dismisses when the session ends. The RunnerViewModel state machine
-        // is unchanged — only its presentation moved off the tab bar.
-        .fullScreenCover(isPresented: runnerPresented) {
+        // dismisses when the session ends. Presentation is an explicit UI
+        // state (`RunnerPresenter`) synchronised to `isRunning`;
+        // `interactiveDismissDisabled` prevents an active workout from ever
+        // being left with no visible, recoverable Runner.
+        .fullScreenCover(isPresented: $runnerPresenter.isRunnerCovered) {
             NavigationStack {
                 RunnerView()
             }
             .environmentObject(runnerViewModel)
             .environmentObject(settings)
+            .interactiveDismissDisabled(runnerViewModel.isRunning)
         }
-    }
-
-    /// Driven solely by `runnerViewModel.isRunning`. The setter is a no-op:
-    /// the session is ended only from inside Runner (which flips the state
-    /// machine to `.done`), so the cover cannot be swiped away mid-workout.
-    private var runnerPresented: Binding<Bool> {
-        Binding(
-            get: { runnerViewModel.isRunning },
-            set: { _ in }
-        )
     }
 
     /// Presents the first-launch onboarding until the user starts as a guest.

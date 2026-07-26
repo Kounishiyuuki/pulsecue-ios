@@ -28,7 +28,10 @@ struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
-    @Binding var selectedTab: AppTab
+
+    /// Re-present the Runner cover for an already-active workout. Owned by
+    /// ContentView (`RunnerPresenter.resume`) so no new Session is created.
+    let onResumeRunner: () -> Void
 
     @Query private var recentLogs: [DayLog]
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
@@ -38,9 +41,12 @@ struct TodayView: View {
 
     @State private var activeField: DayLogField?
     @State private var showRoutinePicker = false
+    /// Routine chosen in the picker, started in the sheet's `onDismiss` so the
+    /// picker is fully gone before the Runner cover presents.
+    @State private var pendingRoutine: Routine?
 
-    init(selectedTab: Binding<AppTab>) {
-        self._selectedTab = selectedTab
+    init(onResumeRunner: @escaping () -> Void) {
+        self.onResumeRunner = onResumeRunner
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -13, to: today) ?? today
@@ -113,8 +119,8 @@ struct TodayView: View {
                 DayLogQuickInputSheet(field: field, dayLog: dayLog)
             }
         }
-        .sheet(isPresented: $showRoutinePicker) {
-            RoutinePickerSheet()
+        .sheet(isPresented: $showRoutinePicker, onDismiss: startPendingRoutine) {
+            RoutinePickerSheet(onSelect: { pendingRoutine = $0 })
         }
         .task {
             ensureTodayLogExists()
@@ -140,37 +146,32 @@ struct TodayView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
 
+            // Semantic large title (rounded) so it scales with Dynamic Type
+            // and wraps rather than clipping at accessibility sizes.
             Text(conditionHeadline)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.system(.largeTitle, design: .rounded).weight(.bold))
                 .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Text("\(conditionSubhead)・入力 \(filledMetricCount)/4")
+            Text(conditionSubhead)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("今日の状態 \(conditionHeadline). \(conditionSubhead). 入力 \(filledMetricCount) / 4")
+        .accessibilityLabel("今日の状態 \(conditionHeadline). \(conditionSubhead). 記録 \(filledMetricCount) / 4")
     }
 
+    // Copy describes *recording completeness only* — how much of today's log
+    // has been entered — never a health/physiological judgement. See
+    // `TodayConditionCopy`.
     private var conditionHeadline: String {
-        switch filledMetricCount {
-        case 4: return "絶好調"
-        case 3: return "良好"
-        case 2: return "順調"
-        case 1: return "記録中"
-        default: return "今日をはじめよう"
-        }
+        TodayConditionCopy.headline(filledCount: filledMetricCount)
     }
 
     private var conditionSubhead: String {
-        switch filledMetricCount {
-        case 4: return "本日の記録 完了"
-        case 3: return "あと 1 項目"
-        case 2: return "入力中"
-        case 1: return "入力を続けましょう"
-        default: return "今日の記録を始めましょう"
-        }
+        TodayConditionCopy.subhead(filledCount: filledMetricCount)
     }
 
     private var filledMetricCount: Int {
@@ -209,8 +210,8 @@ struct TodayView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(AppTheme.accent)
-                    .shadow(color: AppTheme.accent.opacity(0.22), radius: 10, x: 0, y: 6)
+                    .fill(AppTheme.accentFilled)
+                    .shadow(color: AppTheme.accentFilled.opacity(0.22), radius: 10, x: 0, y: 6)
             )
         }
         .buttonStyle(.plain)
@@ -222,9 +223,23 @@ struct TodayView: View {
     }
 
     private func workoutAction() {
-        // A running session is presented as a full-screen cover over the
-        // tabs, so here we only ever start a new one.
-        showRoutinePicker = true
+        if runnerViewModel.isRunning {
+            // Active workout: re-present the existing Runner cover. Never
+            // opens the picker and never starts a second Session.
+            onResumeRunner()
+        } else {
+            showRoutinePicker = true
+        }
+    }
+
+    /// Starts the routine chosen in the picker, invoked from the sheet's
+    /// `onDismiss` (i.e. once the picker is fully dismissed). Starting here —
+    /// not from inside the picker row — keeps the Session start and the
+    /// Runner cover presentation off the picker's modal transition.
+    private func startPendingRoutine() {
+        guard let routine = pendingRoutine else { return }
+        pendingRoutine = nil
+        runnerViewModel.start(routine: routine)
     }
 
     // MARK: - Nutrition log shortcut
@@ -252,7 +267,7 @@ struct TodayView: View {
                     Text("朝昼夕・間食を記録 / AI 推定を確認")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
@@ -753,5 +768,34 @@ struct TodayView: View {
     private func openField(_ field: DayLogField) {
         ensureTodayLogExists()
         activeField = field
+    }
+}
+
+/// Home "今日の状態" copy, derived purely from how many of today's four
+/// DayLog fields have been recorded (0...4).
+///
+/// This intentionally describes **recording completeness**, not health,
+/// readiness, or physiological quality — the app has no such signal. Kept as
+/// a standalone, pure mapping so it is unit-testable and so a future
+/// signature readiness visualisation can replace the presentation without
+/// reworking this text contract.
+enum TodayConditionCopy {
+    static func headline(filledCount: Int) -> String {
+        switch filledCount {
+        case ...0: return "今日をはじめよう"
+        case 1, 2: return "今日を記録中"
+        case 3: return "記録がそろってきました"
+        default: return "今日の記録がそろいました"
+        }
+    }
+
+    static func subhead(filledCount: Int) -> String {
+        switch filledCount {
+        case ...0: return "コンディションを記録して1日を始めましょう"
+        case 1: return "記録を続けましょう"
+        case 2: return "半分ほど記録できました"
+        case 3: return "あと1項目で今日の記録が完了します"
+        default: return "本日のコンディション記録は完了です"
+        }
     }
 }

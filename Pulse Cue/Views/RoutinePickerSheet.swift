@@ -22,9 +22,14 @@ import SwiftData
 struct RoutinePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject var runnerViewModel: RunnerViewModel
     @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)])
     private var routines: [Routine]
+
+    /// Records the chosen routine as a *pending intent* and dismisses. The
+    /// caller starts the workout in the sheet's `onDismiss`, so the Session
+    /// never starts (and the Runner cover never presents) while this sheet
+    /// still owns modal presentation — avoiding a modal-over-modal collision.
+    let onSelect: (Routine) -> Void
 
     @State private var searchText: String = ""
     @State private var orderStore = RoutineOrderStore()
@@ -78,7 +83,7 @@ struct RoutinePickerSheet: View {
 
     private func routineRow(_ routine: Routine) -> some View {
         Button {
-            runnerViewModel.start(routine: routine)
+            onSelect(routine)
             dismiss()
         } label: {
             HStack(alignment: .center, spacing: 10) {

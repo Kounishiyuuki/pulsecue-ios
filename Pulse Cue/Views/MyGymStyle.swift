@@ -113,18 +113,25 @@ private struct MyGymCardModifier: ViewModifier {
 // MARK: - Primary CTA button style
 
 struct MyGymPrimaryButtonStyle: ButtonStyle {
+    /// Call-site override (some screens gate appearance without `.disabled()`).
     var isEnabled: Bool = true
+    /// Also honour the environment so `.disabled(true)` reads as disabled.
+    @Environment(\.isEnabled) private var environmentEnabled
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let enabled = isEnabled && environmentEnabled
+        return configuration.label
             .font(.headline)
-            .foregroundStyle(.white)
+            // Enabled: white on the contrast-safe fill. Disabled: a muted,
+            // clearly-unavailable slab with secondary label — distinct by
+            // fill AND text weight/colour, not by opacity alone.
+            .foregroundStyle(enabled ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.secondary))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isEnabled ? AnyShapeStyle(AppTheme.accent) : AnyShapeStyle(Color(.systemGray4)))
+                    .fill(enabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color(.tertiarySystemFill)))
             )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .opacity(configuration.isPressed && enabled ? 0.85 : 1.0)
     }
 }

@@ -72,7 +72,7 @@ struct RunnerView: View {
             }
         }
         .sheet(isPresented: $showRoutinePicker) {
-            RoutinePickerSheet()
+            RoutinePickerSheet(onSelect: { runnerViewModel.start(routine: $0) })
         }
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)
