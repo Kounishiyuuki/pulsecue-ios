@@ -14,6 +14,35 @@
 
 import SwiftUI
 
+// MARK: - Atmosphere
+
+/// A quiet, static field of light. It creates depth without a live blur or
+/// continuous animation and deliberately leaves most of the canvas empty.
+struct PulseAtmosphericBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var focused = false
+
+    var body: some View {
+        ZStack {
+            (focused ? AppTheme.deepSpace : AppTheme.atmosphericBase)
+
+            Circle()
+                .fill((focused ? AppTheme.deepGlass : AppTheme.iceLight).opacity(focused ? 0.42 : 0.34))
+                .frame(width: 340, height: 340)
+                .blur(radius: 72)
+                .offset(x: 150, y: -250)
+
+            Circle()
+                .fill(AppTheme.reflectedBlue.opacity(focused ? 0.20 : 0.10))
+                .frame(width: 280, height: 280)
+                .blur(radius: 86)
+                .offset(x: -170, y: 310)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Card
 
 /// A soft, translucent white card with a subtle blue-gray border and a gentle
@@ -38,18 +67,51 @@ extension View {
             .padding(padding)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(.thinMaterial)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
-                    .strokeBorder(AppTheme.separator, lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [AppTheme.glassEdge, AppTheme.separator.opacity(0.55)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
             )
-            .shadow(color: AppTheme.softShadow, radius: 10, x: 0, y: 4)
+            .shadow(color: AppTheme.deepGlass.opacity(0.10), radius: 18, x: 0, y: 10)
     }
 
     /// Applies the airy app background, ignoring safe areas.
     func pulseScreenBackground() -> some View {
-        background(AppTheme.surface.ignoresSafeArea())
+        background(PulseAtmosphericBackground())
+    }
+}
+
+/// A restrained focal surface. Use at most once on a screen.
+extension View {
+    func pulseHeroGlass(padding: CGFloat = AppTheme.Spacing.xl) -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(padding)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.heroRadius, style: .continuous)
+                    .fill(.regularMaterial)
+                    .overlay(
+                        LinearGradient(
+                            colors: [AppTheme.iceLight.opacity(0.20), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: AppTheme.heroRadius, style: .continuous))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.heroRadius, style: .continuous)
+                    .strokeBorder(AppTheme.glassEdge, lineWidth: 1)
+            )
+            .shadow(color: AppTheme.deepGlass.opacity(0.16), radius: 24, x: 0, y: 14)
     }
 }
 

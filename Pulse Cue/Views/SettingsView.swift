@@ -147,8 +147,7 @@ struct SettingsView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        // Calm, airy Apple Health Light surface (adapts to dark mode).
-        AppTheme.surface
+        PulseAtmosphericBackground()
     }
 
     private var accentGradient: LinearGradient {

@@ -64,6 +64,7 @@ struct RunnerView: View {
         }
         .navigationTitle(runnerViewModel.currentStep?.title ?? "ワークアウト")
         .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
         .safeAreaInset(edge: .bottom) {
             if runnerViewModel.isRunning {
                 actionBar
@@ -97,8 +98,7 @@ struct RunnerView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        // Calm, airy Apple Health Light surface (adapts to dark mode).
-        AppTheme.surface
+        PulseAtmosphericBackground(focused: true)
     }
 
     // MARK: - Brand header
@@ -196,15 +196,32 @@ struct RunnerView: View {
     private var restTimerCard: some View {
         VStack(spacing: 4) {
             ZStack {
-                Circle()
-                    .stroke(Color(.systemGray5), style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                    .frame(width: 220, height: 220)
+                ForEach(0..<4, id: \.self) { layer in
+                    Circle()
+                        .fill(AppTheme.deepGlass.opacity(0.10 + Double(layer) * 0.055))
+                        .overlay(
+                            Circle()
+                                .stroke(AppTheme.iceLight.opacity(0.08 + Double(layer) * 0.035), lineWidth: 1)
+                        )
+                        .frame(
+                            width: CGFloat(238 - layer * 30),
+                            height: CGFloat(238 - layer * 30)
+                        )
+                        .blur(radius: layer == 0 ? 0 : 0.4)
+                }
 
                 Circle()
                     .trim(from: 0, to: progressFraction)
-                    .stroke(AppTheme.accent, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                    .stroke(
+                        LinearGradient(
+                            colors: [AppTheme.iceLight, AppTheme.reflectedBlue],
+                            startPoint: .top,
+                            endPoint: .bottomTrailing
+                        ),
+                        style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                    )
                     .rotationEffect(.degrees(-90))
-                    .frame(width: 220, height: 220)
+                    .frame(width: 226, height: 226)
                     .animation(.easeInOut(duration: 0.3), value: progressFraction)
 
                 VStack(spacing: 6) {
@@ -231,7 +248,7 @@ struct RunnerView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, 26)
         .background(glassBackground)
         .overlay(glassStroke)
         .overlay(

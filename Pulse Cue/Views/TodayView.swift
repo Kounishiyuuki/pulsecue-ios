@@ -131,8 +131,7 @@ struct TodayView: View {
     // MARK: - Background
 
     private var backgroundLayer: some View {
-        // Calm, airy Apple Health Light surface (adapts to dark mode).
-        AppTheme.surface
+        PulseAtmosphericBackground()
     }
 
     // MARK: - Hero card
@@ -141,26 +140,46 @@ struct TodayView: View {
     /// gauge — just the state headline and a quiet progress line. Hierarchy
     /// comes from type scale and whitespace, not a container.
     private var conditionCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("今日の状態")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("今日の状態")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
 
-            // Semantic large title (rounded) so it scales with Dynamic Type
-            // and wraps rather than clipping at accessibility sizes.
-            Text(conditionHeadline)
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(conditionHeadline)
+                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Text(conditionSubhead)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(conditionSubhead)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 70)
+            recordingDepth
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .pulseHeroGlass(padding: 20)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("今日の状態 \(conditionHeadline). \(conditionSubhead). 記録 \(filledMetricCount) / 4")
+    }
+
+    private var recordingDepth: some View {
+        ZStack {
+            ForEach(0..<4, id: \.self) { index in
+                Circle()
+                    .fill(index < filledMetricCount ? AppTheme.accent : AppTheme.iceLight.opacity(0.28))
+                    .frame(width: CGFloat(72 - index * 10), height: CGFloat(72 - index * 10))
+                    .offset(y: CGFloat(index * 3))
+                    .opacity(index < filledMetricCount ? 0.30 + Double(index) * 0.12 : 0.34)
+            }
+            Text("\(filledMetricCount)/4")
+                .font(.caption.weight(.bold))
+                .monospacedDigit()
+        }
+        .frame(width: 76, height: 76)
+        .accessibilityHidden(true)
     }
 
     // Copy describes *recording completeness only* — how much of today's log
