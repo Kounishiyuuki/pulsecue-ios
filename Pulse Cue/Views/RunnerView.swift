@@ -9,10 +9,8 @@
 //    2. Status chips: 今 (phase) / 残り (sets remaining in step) /
 //       次 (next step title). The active phase chip is filled with
 //       the accent gradient.
-//    3. Rest timer card: a large circular gauge with a monospaced,
-//       count-down digit transition. Becomes visually dominant while
-//       in `.rest` and shows `--:--` otherwise.
-//    4. 現在のセット / 目標 card.
+//    3. Phase signature: current set / target while exercising, and a
+//       count-down volume only while resting.
 //    5. NEXT UP card.
 //    6. While running, a "セッション終了" tertiary button. Otherwise a
 //       big "ルーティンを開始" CTA replaces the action bar.
@@ -52,8 +50,7 @@ struct RunnerView: View {
                             .frame(height: 0)
                             .id("runner-top")
                         statusChips
-                        restTimerCard
-                        currentSetCard
+                        phaseSignature
                         formGuideButton
                         nextUpCard
                         if runnerViewModel.isRunning {
@@ -135,13 +132,23 @@ struct RunnerView: View {
 
     // MARK: - Status chips
 
+    @ViewBuilder
     private var statusChips: some View {
-        HStack(spacing: 10) {
-            chip(label: "今", value: nowChipValue, isActive: true)
-            chip(label: "残り", value: remainingChipValue)
-            chip(label: "次", value: nextChipValue)
+        if dynamicTypeSize.isAccessibilitySize {
+            HStack(spacing: 8) {
+                chip(label: "今", value: nowChipValue, isActive: true)
+                chip(label: "残り", value: remainingChipValue)
+                chip(label: "次", value: nextChipValue)
+            }
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        } else {
+            HStack(spacing: 10) {
+                chip(label: "今", value: nowChipValue, isActive: true)
+                chip(label: "残り", value: remainingChipValue)
+                chip(label: "次", value: nextChipValue)
+            }
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var nowChipValue: String {
@@ -205,6 +212,133 @@ struct RunnerView: View {
         } else {
             PulseGlassPlate(level: .subtle, focused: true, cornerRadius: 12)
         }
+    }
+
+    // MARK: - Phase signature
+
+    @ViewBuilder
+    private var phaseSignature: some View {
+        if runnerViewModel.phase == .rest {
+            restTimerCard
+        } else {
+            activeExerciseCard
+        }
+    }
+
+    private var activeExerciseCard: some View {
+        VStack(alignment: .leading, spacing: dynamicTypeSize.isAccessibilitySize ? 14 : 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(runnerViewModel.isRunning ? "ACTIVE SET" : "READY")
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.5)
+                    .foregroundStyle(AppTheme.iceLight)
+                Text(runnerViewModel.currentStep?.title ?? "ルーティンを選択")
+                    .font(dynamicTypeSize.isAccessibilitySize ? .title2.weight(.bold) : .title3.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            currentSetContent
+                .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 12 : 16)
+                .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
+                .background {
+                    ZStack {
+                        ForEach(0..<3, id: \.self) { layer in
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .strokeBorder(
+                                            LinearGradient(
+                                                colors: [.white.opacity(0.72), AppTheme.iceLight.opacity(0.25), .white.opacity(0.05)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
+                                            lineWidth: 0.8
+                                        )
+                                )
+                                .offset(y: CGFloat(layer * -8))
+                                .scaleEffect(1 - CGFloat(layer) * 0.035)
+                                .opacity(1 - Double(layer) * 0.22)
+                        }
+                    }
+                    .accessibilityHidden(true)
+                }
+            .padding(.top, dynamicTypeSize.isAccessibilitySize ? 10 : 16)
+            .accessibilityElement(children: .contain)
+        }
+        .padding(dynamicTypeSize.isAccessibilitySize ? 16 : 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(heroGlassBackground)
+        .overlay(glassStroke)
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var currentSetContent: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            HStack(alignment: .center, spacing: 14) {
+                currentSetValue
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Divider()
+                    .overlay(.white.opacity(0.16))
+                    .frame(height: 62)
+                targetValue
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        } else {
+            HStack(spacing: 16) {
+                currentSetValue
+                Spacer()
+                targetValue
+            }
+        }
+    }
+
+    private var currentSetValue: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("現在のセット")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            if let step = runnerViewModel.currentStep {
+                HStack(alignment: .lastTextBaseline, spacing: 2) {
+                    Text("\(runnerViewModel.currentSetIndex + 1)")
+                        .font(.system(.title, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                    Text("/\(step.sets)")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("—")
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var targetValue: some View {
+        VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
+            Text("目標")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            if let step = runnerViewModel.currentStep {
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text("\(step.repsTarget)")
+                        .font(.system(.title, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                    Text("回")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("—")
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Rest timer card
@@ -300,17 +434,6 @@ struct RunnerView: View {
                         .foregroundStyle(.primary)
                         .shadow(color: AppTheme.deepSpace.opacity(0.42), radius: 10, y: 4)
                         .accessibilityLabel("残り \(runnerViewModel.remainingSeconds) 秒")
-                    if !dynamicTypeSize.isAccessibilitySize,
-                       runnerViewModel.phase == .exercise && runnerViewModel.isRunning {
-                        Text("ステップ実行中")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if !dynamicTypeSize.isAccessibilitySize,
-                              runnerViewModel.phase == .done {
-                        Text("ルーティン未開始")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
             .frame(height: 252)
@@ -338,59 +461,7 @@ struct RunnerView: View {
     }
 
     private var timerText: String {
-        if runnerViewModel.phase == .rest {
-            return DateUtils.formatDuration(seconds: runnerViewModel.remainingSeconds)
-        }
-        return "--:--"
-    }
-
-    // MARK: - Current set card
-
-    private var currentSetCard: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("現在のセット")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                if let step = runnerViewModel.currentStep {
-                    HStack(alignment: .lastTextBaseline, spacing: 2) {
-                        Text("\(runnerViewModel.currentSetIndex + 1)")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                        Text("/\(step.sets)")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("—")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text("目標")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                if let step = runnerViewModel.currentStep {
-                    HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text("\(step.repsTarget)")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                        Text("Reps")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("—")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(20)
-        .background(glassBackground)
-        .overlay(glassStroke)
+        DateUtils.formatDuration(seconds: runnerViewModel.remainingSeconds)
     }
 
     // MARK: - Form guide entry (observational)
@@ -431,7 +502,46 @@ struct RunnerView: View {
 
     // MARK: - Next up card
 
+    @ViewBuilder
     private var nextUpCard: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            HStack(alignment: .center, spacing: 12) {
+                nextUpIdentity
+                Spacer(minLength: 8)
+                if let step = runnerViewModel.nextStep {
+                    Text("\(step.sets) セット × \(step.repsTarget) 回")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(glassBackground)
+            .overlay(glassStroke)
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        } else {
+            HStack(spacing: 12) {
+                nextUpIdentity
+                Spacer()
+                if let step = runnerViewModel.nextStep {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(step.sets) セット")
+                            .font(.subheadline.weight(.semibold))
+                        Text("× \(step.repsTarget) 回")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(16)
+            .background(glassBackground)
+            .overlay(glassStroke)
+        }
+    }
+
+    private var nextUpIdentity: some View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -448,23 +558,9 @@ struct RunnerView: View {
                     .foregroundStyle(AppTheme.accent)
                 Text(nextStepTitle)
                     .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer()
-            if let step = runnerViewModel.nextStep {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(step.sets) セット")
-                        .font(.subheadline.weight(.semibold))
-                    Text("× \(step.repsTarget) 回")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
-        .background(glassBackground)
-        .overlay(glassStroke)
     }
 
     private var nextStepTitle: String {
@@ -532,50 +628,80 @@ struct RunnerView: View {
 
     // MARK: - Action bar
 
+    @ViewBuilder
     private var actionBar: some View {
-        HStack(spacing: 10) {
-            iconButton(label: "戻る", systemImage: "arrow.uturn.backward",
-                       a11y: "1 セット戻る") {
-                runnerViewModel.handle(action: .back)
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 10) {
+                primaryCompleteButton
+                HStack(spacing: 10) {
+                    backButton
+                    extendButton
+                    skipButton
+                }
+                .frame(maxWidth: .infinity)
             }
-            iconButton(label: "+10s", systemImage: "plus",
-                       a11y: "休憩を 10 秒延長",
-                       isAccent: true,
-                       isDisabled: runnerViewModel.phase != .rest) {
-                runnerViewModel.handle(action: .extend)
+            .padding(12)
+            .background(actionBarBackground(cornerRadius: 28))
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        } else {
+            HStack(spacing: 10) {
+                backButton
+                extendButton
+                primaryCompleteButton
+                skipButton
             }
-            primaryCompleteButton
-            iconButton(label: "スキップ", systemImage: "forward.end.fill",
-                       a11y: "このステップをスキップ") {
-                runnerViewModel.handle(action: .skip)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(actionBarBackground(cornerRadius: 40))
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            Capsule()
-                .fill(.thinMaterial)
-                .overlay(
-                    LinearGradient(
-                        colors: [.white.opacity(0.18), .clear, AppTheme.deepGlass.opacity(0.18)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(Capsule())
+    }
+
+    private var backButton: some View {
+        iconButton(label: "戻る", systemImage: "arrow.uturn.backward",
+                   a11y: "1 セット戻る") {
+            runnerViewModel.handle(action: .back)
+        }
+    }
+
+    private var extendButton: some View {
+        iconButton(label: "+10s", systemImage: "plus",
+                   a11y: "休憩を 10 秒延長",
+                   isAccent: true,
+                   isDisabled: runnerViewModel.phase != .rest) {
+            runnerViewModel.handle(action: .extend)
+        }
+    }
+
+    private var skipButton: some View {
+        iconButton(label: "スキップ", systemImage: "forward.end.fill",
+                   a11y: "このステップをスキップ") {
+            runnerViewModel.handle(action: .skip)
+        }
+    }
+
+    private func actionBarBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.thinMaterial)
+            .overlay(
+                LinearGradient(
+                    colors: [.white.opacity(0.18), .clear, AppTheme.deepGlass.opacity(0.18)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
-                .shadow(color: AppTheme.deepGlass.opacity(0.60), radius: 24, x: 0, y: 12)
-        )
-        .overlay(
-            Capsule().strokeBorder(
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(
                 LinearGradient(
                     colors: [.white.opacity(0.72), AppTheme.iceLight.opacity(0.28), .white.opacity(0.06)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
                 lineWidth: 1
+                )
             )
-        )
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            .shadow(color: AppTheme.deepGlass.opacity(0.60), radius: 24, x: 0, y: 12)
     }
 
     private var primaryCompleteButton: some View {
@@ -624,12 +750,12 @@ struct RunnerView: View {
             VStack(spacing: 2) {
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .bold))
-            Text(label)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
             }
-            .frame(width: 52, height: 52)
+            .frame(minWidth: 52, minHeight: 52)
+            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil)
             .foregroundStyle(iconButtonForeground(isAccent: isAccent, isDisabled: isDisabled))
             .background(iconButtonBackground(isAccent: isAccent, isDisabled: isDisabled))
         }
