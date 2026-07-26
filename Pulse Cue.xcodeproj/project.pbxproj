@@ -48,6 +48,7 @@
 		D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */; };
 		D17104DB1A8E4001B0DA1705 /* HealthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */; };
 		D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */; };
+		F38882727687487EB7D864ED /* AppThemeContrastTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076A30F79B5B4EABB354F624 /* AppThemeContrastTests.swift */; };
 		552B89A3F23845E2AB09FCE8 /* TodayHomeCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */; };
 		659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */; };
 		D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */; };
@@ -304,6 +305,7 @@
 		D17104DB1A8E4001B0DA1704 /* HealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSummary.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSummaryView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerStateMachineTests.swift; sourceTree = "<group>"; };
+		076A30F79B5B4EABB354F624 /* AppThemeContrastTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppThemeContrastTests.swift; sourceTree = "<group>"; };
 		7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayHomeCopyTests.swift; sourceTree = "<group>"; };
 		EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPresenterTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLogHealthSummaryTests.swift; sourceTree = "<group>"; };
@@ -777,6 +779,7 @@
 				AAB10C0000000000000001A2 /* APIIntegrationFoundationTests.swift */,
 				FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */,
 				D17104DB1A8E4001B0DA1802 /* RunnerStateMachineTests.swift */,
+				076A30F79B5B4EABB354F624 /* AppThemeContrastTests.swift */,
 				7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */,
 				EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */,
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
@@ -1181,6 +1184,7 @@
 			files = (
 				4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */,
+				F38882727687487EB7D864ED /* AppThemeContrastTests.swift in Sources */,
 				552B89A3F23845E2AB09FCE8 /* TodayHomeCopyTests.swift in Sources */,
 				659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,

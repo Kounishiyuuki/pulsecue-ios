@@ -145,7 +145,7 @@ struct CustomMachineFormView: View {
                 .padding(.vertical, 7)
                 .background(
                     Capsule().fill(
-                        isOn ? AnyShapeStyle(MyGymStyle.accentGradient)
+                        isOn ? AnyShapeStyle(AppTheme.accentFilled)
                              : AnyShapeStyle(Color.primary.opacity(0.06))
                     )
                 )

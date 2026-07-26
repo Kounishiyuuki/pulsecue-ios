@@ -199,7 +199,7 @@ struct ManualMachineSelectionView: View {
 
     private func chipBackground(isOn: Bool) -> some View {
         Capsule().fill(
-            isOn ? AnyShapeStyle(MyGymStyle.accentGradient)
+            isOn ? AnyShapeStyle(AppTheme.accentFilled)
                  : AnyShapeStyle(Color.primary.opacity(0.06))
         )
     }
@@ -371,7 +371,7 @@ struct ManualMachineSelectionView: View {
                 )
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isOn ? AnyShapeStyle(MyGymStyle.accentGradient) : AnyShapeStyle(Color.clear))
+                        .fill(isOn ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color.clear))
                 )
                 .frame(width: 22, height: 22)
             if isOn {
@@ -441,7 +441,7 @@ struct ManualMachineSelectionView: View {
                         )
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(viewModel.isSelected(entry) ? AnyShapeStyle(MyGymStyle.accentGradient) : AnyShapeStyle(Color.clear))
+                                .fill(viewModel.isSelected(entry) ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color.clear))
                         )
                         .frame(width: 22, height: 22)
                     if viewModel.isSelected(entry) {
