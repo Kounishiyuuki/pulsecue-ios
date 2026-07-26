@@ -84,7 +84,7 @@ struct TargetBodyPartSelectionView: View {
         .padding(.vertical, 18)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(isSelected ? AnyShapeStyle(MyGymStyle.accentGradient) : AnyShapeStyle(Color.secondary.opacity(0.08)))
+                .fill(isSelected ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color.secondary.opacity(0.08)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

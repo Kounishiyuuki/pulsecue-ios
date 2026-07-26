@@ -187,7 +187,7 @@ struct MyGymHomeView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(
-            Capsule().fill(MyGymStyle.accentGradient)
+            Capsule().fill(AppTheme.accentFilled)
         )
     }
 

@@ -53,6 +53,20 @@ enum AppTheme {
     /// Low-emphasis accent tint for secondary fills and badges.
     static let accentSoft = accent.opacity(0.12)
 
+    /// Solid fill for controls that carry **white** text/icons (filled
+    /// primary buttons, the Home CTA). `accent` alone is tuned as a *tint on
+    /// backgrounds* — its dark-mode value is bright enough that white text on
+    /// it fails contrast (~2.6:1). `accentFilled` is deliberately deeper in
+    /// both modes so white foreground clears WCAG AA (~4.5:1) on it:
+    ///   - light (0.14,0.45,0.84) → white ≈ 4.68:1
+    ///   - dark  (0.17,0.45,0.86) → white ≈ 4.59:1
+    /// Single-hue by design — no gradient. Use `accent` for tints/foreground,
+    /// `accentFilled` only where white sits *on top of* the color.
+    static let accentFilled = dynamicColor(
+        light: (0.14, 0.45, 0.84, 1.0),
+        dark: (0.17, 0.45, 0.86, 1.0)
+    )
+
     /// Calm, trustworthy status colors.
     static let success = dynamicColor(
         light: (0.18, 0.60, 0.36, 1.0),

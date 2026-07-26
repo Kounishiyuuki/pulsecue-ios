@@ -15,19 +15,19 @@ import SwiftUI
 
 enum MyGymStyle {
 
-    static let cornerRadius: CGFloat = 22
+    static let cornerRadius: CGFloat = 20
 
+    /// Unified with `AppTheme.accent` — the restrained single blue accent.
+    /// Kept as a (single-hue) `LinearGradient` only so existing
+    /// `foregroundStyle(accentGradient)` call sites compile unchanged; the
+    /// loud blue→purple gradient is intentionally gone for visual calm.
     static let accentGradient = LinearGradient(
-        colors: [
-            Color(red: 0.27, green: 0.62, blue: 0.95),
-            Color(red: 0.49, green: 0.51, blue: 0.97),
-            Color(red: 0.66, green: 0.45, blue: 0.95),
-        ],
+        colors: [AppTheme.accent, AppTheme.accent],
         startPoint: .leading,
         endPoint: .trailing
     )
 
-    static let accentSolid = Color(red: 0.49, green: 0.51, blue: 0.97)
+    static let accentSolid = AppTheme.accent
 
     /// Subtle radial background used behind hero screens (MyGymHome,
     /// TargetBodyPart, GeneratedPlanPreview). Adapts to color scheme.
@@ -113,24 +113,25 @@ private struct MyGymCardModifier: ViewModifier {
 // MARK: - Primary CTA button style
 
 struct MyGymPrimaryButtonStyle: ButtonStyle {
+    /// Call-site override (some screens gate appearance without `.disabled()`).
     var isEnabled: Bool = true
+    /// Also honour the environment so `.disabled(true)` reads as disabled.
+    @Environment(\.isEnabled) private var environmentEnabled
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let enabled = isEnabled && environmentEnabled
+        return configuration.label
             .font(.headline)
-            .foregroundStyle(.white)
+            // Enabled: white on the contrast-safe fill. Disabled: a muted,
+            // clearly-unavailable slab with secondary label — distinct by
+            // fill AND text weight/colour, not by opacity alone.
+            .foregroundStyle(enabled ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.secondary))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isEnabled ? AnyShapeStyle(MyGymStyle.accentGradient) : AnyShapeStyle(Color.gray.opacity(0.4)))
-                    .shadow(
-                        color: isEnabled
-                            ? Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.30)
-                            : .clear,
-                        radius: 12, x: 0, y: 6
-                    )
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(enabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color(.tertiarySystemFill)))
             )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .opacity(configuration.isPressed && enabled ? 0.85 : 1.0)
     }
 }

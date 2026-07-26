@@ -46,7 +46,6 @@ struct RunnerView: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-                    brandHeader
                     statusChips
                     restTimerCard
                     currentSetCard
@@ -63,7 +62,7 @@ struct RunnerView: View {
                 .padding(.top, 4)
             }
         }
-        .navigationTitle("ランナー")
+        .navigationTitle(runnerViewModel.currentStep?.title ?? "ワークアウト")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             if runnerViewModel.isRunning {
@@ -73,7 +72,7 @@ struct RunnerView: View {
             }
         }
         .sheet(isPresented: $showRoutinePicker) {
-            RoutinePickerSheet()
+            RoutinePickerSheet(onSelect: { runnerViewModel.start(routine: $0) })
         }
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)

@@ -7,10 +7,9 @@
 
 import Foundation
 
-enum AppTab: Hashable {
+enum AppTab: Hashable, CaseIterable {
     case today
     case workout
-    case runner
     case history
     case settings
 }
