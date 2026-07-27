@@ -43,17 +43,17 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            AppTheme.surface.ignoresSafeArea()
+            PulseAtmosphericBackground()
+                .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.xl) {
+                VStack(alignment: .leading, spacing: 30) {
                     header
                     actionsCard
-                    localFirstCard
                 }
-                .padding(.horizontal, AppTheme.Spacing.l)
-                .padding(.top, AppTheme.Spacing.xl)
-                .padding(.bottom, AppTheme.Spacing.xl)
+                .padding(.horizontal, 24)
+                .padding(.top, 36)
+                .padding(.bottom, 32)
             }
         }
     }
@@ -76,7 +76,7 @@ struct LoginView: View {
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(AppTheme.textPrimary)
 
-            Text("ログインすると、今後の同期・バックアップ機能に対応できます。")
+            Text("続ける方法を選んでください。ログインは任意です。")
                 .font(.body)
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -86,51 +86,46 @@ struct LoginView: View {
     // MARK: - Actions
 
     private var actionsCard: some View {
-        PulseCard {
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-                PulseSectionHeader("続ける方法を選ぶ", icon: "rectangle.portrait.and.arrow.right")
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
+            PulseSectionHeader("続ける方法", icon: "rectangle.portrait.and.arrow.right")
 
-                // Real Sign in with Apple. Only sanitized name/email is used;
-                // no token / code / user identifier is read or stored.
-                SignInWithAppleButton(.continue) { request in
-                    request.requestedScopes = [.fullName, .email]
-                } onCompletion: { result in
-                    handleAppleCompletion(result)
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
+            // Real Sign in with Apple. Only sanitized name/email is used;
+            // no token / code / user identifier is read or stored.
+            SignInWithAppleButton(.continue) { request in
+                request.requestedScopes = [.fullName, .email]
+            } onCompletion: { result in
+                handleAppleCompletion(result)
+            }
+            .signInWithAppleButtonStyle(.black)
+            .frame(height: 50)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
 
-                // Guest reflects real, local-only usage today.
-                Button("ゲストで続ける") {
-                    authSession.continueAsGuest()
-                    dismiss()
-                }
-                .buttonStyle(PulseSecondaryButtonStyle())
+            Button("ゲストで続ける") {
+                authSession.continueAsGuest()
+                dismiss()
+            }
+            .buttonStyle(PulseSecondaryButtonStyle())
 
-                // Real Google Sign-In when a real iOS OAuth client is
-                // configured; disabled with a note while the placeholder is in
-                // place. Only sanitized name/email is used; no token / code /
-                // user identifier is read or stored.
-                Button("Googleで続ける") {
-                    startGoogleSignIn()
-                }
-                .buttonStyle(PulseSecondaryButtonStyle())
-                .disabled(!googleConfig.isConfigured)
+            Button("Googleで続ける") {
+                startGoogleSignIn()
+            }
+            .buttonStyle(PulseSecondaryButtonStyle())
+            .disabled(!googleConfig.isConfigured)
 
-                if !googleConfig.isConfigured {
-                    Text("Googleログインは設定準備中です。Google Cloud の設定が完了すると利用できます。")
-                        .font(.caption2)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text("Apple でサインインできます（Google は設定準備中）。サインインしても現在のデータはこの端末内に保存され、同期・バックアップ・アカウント連携はまだ有効ではありません。")
+            if !googleConfig.isConfigured {
+                Label("Googleログインは設定準備中です", systemImage: "info.circle")
                     .font(.caption)
-                    .foregroundStyle(AppTheme.textSecondary)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
+                Text("現在のデータはこの端末内に保存されます。同期とバックアップはまだ有効ではありません。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .pulseGlass(level: .functional, padding: 18)
     }
 
     /// Handles the Apple authorization result. On success it extracts ONLY the
@@ -210,29 +205,6 @@ struct LoginView: View {
     private func presentGoogleSignIn() {}
 #endif
 
-    // MARK: - Local-first note
-
-    private var localFirstCard: some View {
-        PulseCard {
-            HStack(alignment: .top, spacing: AppTheme.Spacing.m) {
-                Image(systemName: "iphone")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                    Text("現在のデータはこの端末内に保存されます。")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textPrimary)
-                    Text("ログインしなくても、すべての機能をこの端末でそのまま利用できます。")
-                        .font(.footnote)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .accessibilityElement(children: .combine)
-        }
-    }
 }
 
 #if DEBUG

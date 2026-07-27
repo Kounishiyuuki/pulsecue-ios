@@ -1,204 +1,94 @@
-//
-//  OnboardingView.swift
-//  Pulse Cue
-//
-//  First-launch welcome / guest-entry screen. A single, calm "Apple Health
-//  Light" screen built only on `AppTheme` + `PulseUI` primitives — no model,
-//  persistence, networking, or auth dependencies.
-//
-//  This screen explains what PulseCue does and lets the user start
-//  immediately as a guest. There is no login here: account linking and sync
-//  are introduced in later phases. The only thing the flow persists (via the
-//  caller's `onPrimary` closure → `SettingsStore.completeOnboarding()`) is a
-//  single completion flag.
-//
-//  Reused in two contexts:
-//    1. First launch — gated by `ContentView` as a `fullScreenCover`; the
-//       primary button is "ゲストで始める" and marks onboarding complete.
-//    2. Settings replay — presented as a `.sheet`; the primary button is
-//       "閉じる" and simply dismisses.
-//
-
 import SwiftUI
 
+/// Calm first entry: understand local-first use, then start as a guest.
 struct OnboardingView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    /// A single highlighted capability row.
-    private struct Highlight: Identifiable {
-        let id = UUID()
-        let icon: String
-        let title: String
-    }
-
-    /// Label for the primary action button. Defaults to the first-launch
-    /// guest-entry wording; the Settings replay passes "閉じる".
     var primaryTitle: String = "ゲストで始める"
-
-    /// Invoked when the primary button is tapped. First launch passes
-    /// `settings.completeOnboarding`; Settings replay passes a dismiss.
     var onPrimary: () -> Void
-
-    private let highlights: [Highlight] = [
-        Highlight(icon: "sun.max", title: "今日の状態を確認"),
-        Highlight(icon: "fork.knife", title: "食事とカロリーを記録"),
-        Highlight(icon: "list.bullet.rectangle", title: "ルーティンを作成・実行"),
-        Highlight(icon: "clock.arrow.circlepath", title: "履歴で振り返り"),
-        Highlight(icon: "sparkles", title: "AI風プラン候補を保存して使う")
-    ]
 
     var body: some View {
         ZStack {
-            AppTheme.surface.ignoresSafeArea()
+            PulseAtmosphericBackground()
+                .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.xl) {
-                    header
-                    highlightsCard
-                    localFirstCard
+                VStack(alignment: .leading, spacing: 30) {
+                    hero
+                    localFirstMessage
+                    if dynamicTypeSize.isAccessibilitySize {
+                        primaryAction
+                    }
                 }
-                .padding(.horizontal, AppTheme.Spacing.l)
-                .padding(.top, AppTheme.Spacing.xl)
-                .padding(.bottom, AppTheme.Spacing.xl)
+                .padding(.horizontal, 24)
+                .padding(.top, 54)
+                .padding(.bottom, 32)
             }
-
-            VStack {
-                Spacer()
-                primaryButtonBar
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                primaryAction
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial)
             }
         }
     }
 
-    // MARK: - Header
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(Circle().fill(AppTheme.accentFilled))
+                .accessibilityHidden(true)
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.accentFilled)
-                    .frame(width: 56, height: 56)
-                Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .accessibilityHidden(true)
+            Text("今日の自分に、\nちょうどいい一歩を。")
+                .font(.largeTitle.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
 
-            Text("PulseCueへようこそ")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(AppTheme.textPrimary)
-
-            Text("トレーニング、食事、ルーティンをまとめて管理できます。")
+            Text("PulseCueは、トレーニングと日々の記録を静かに続けるためのアプリです。")
                 .font(.body)
-                .foregroundStyle(AppTheme.textSecondary)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    // MARK: - Highlights
-
-    private var highlightsCard: some View {
-        PulseCard {
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-                PulseSectionHeader("できること", icon: "checkmark.seal")
-
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-                    ForEach(highlights) { highlight in
-                        highlightRow(highlight)
-                    }
-                }
-            }
-        }
-    }
-
-    private func highlightRow(_ highlight: Highlight) -> some View {
-        HStack(spacing: AppTheme.Spacing.m) {
-            ZStack {
-                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .fill(AppTheme.accentSoft)
-                    .frame(width: 36, height: 36)
-                Image(systemName: highlight.icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-            }
-            Text(highlight.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AppTheme.textPrimary)
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: - Local-first / future-sync note
-
-    private var localFirstCard: some View {
-        PulseCard {
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-                noteRow(
-                    icon: "iphone",
-                    title: "データはこの端末内に保存されます",
-                    detail: "現在のデータはこの端末内に保存され、ログインなしでそのまま使えます。"
-                )
-                Divider().overlay(AppTheme.separator)
-                noteRow(
-                    icon: "icloud",
-                    title: "アカウント連携・同期は今後対応予定",
-                    detail: "アカウント連携やバックアップ・同期は、今後のアップデートで追加予定です。"
-                )
-            }
-        }
-    }
-
-    private func noteRow(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: AppTheme.Spacing.m) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
+    private var localFirstMessage: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "iphone")
+                .font(.headline)
                 .foregroundStyle(AppTheme.accent)
-                .frame(width: 24)
+                .frame(width: 28)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(AppTheme.textSecondary)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("ログインなしで始められます")
+                    .font(.headline)
+                Text("現在のデータはこの端末内に保存されます。アカウント連携と同期は今後対応予定です。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .pulseGlass(level: .subtle, padding: 18)
         .accessibilityElement(children: .combine)
     }
 
-    // MARK: - Primary action
-
-    private var primaryButtonBar: some View {
-        VStack(spacing: AppTheme.Spacing.s) {
-            Button(primaryTitle) {
-                onPrimary()
-            }
-            .buttonStyle(PulsePrimaryButtonStyle())
-
-            Text("ログインなしでそのまま使い始められます。")
+    private var primaryAction: some View {
+        VStack(spacing: 8) {
+            Button(primaryTitle, action: onPrimary)
+                .buttonStyle(PulsePrimaryButtonStyle())
+            Text("あとから設定を変更できます")
                 .font(.caption)
-                .foregroundStyle(AppTheme.textSecondary)
-                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, AppTheme.Spacing.l)
-        .padding(.top, AppTheme.Spacing.m)
-        .padding(.bottom, AppTheme.Spacing.l)
-        .background(
-            AppTheme.surface
-                .opacity(0.0)
-                .background(.regularMaterial)
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
 }
 
 #if DEBUG
-#Preview("First launch") {
+#Preview {
     OnboardingView {}
-}
-
-#Preview("Settings replay") {
-    OnboardingView(primaryTitle: "閉じる") {}
 }
 #endif

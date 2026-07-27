@@ -42,9 +42,13 @@ final class FormGuide3DUITests: XCTestCase {
         XCTAssertTrue(app.buttons["視点 正面"].exists || app.buttons["視点 側面"].exists,
                       "camera preset control missing")
 
-        // Text guide remains present.
+        // Text guide remains accessible through progressive disclosure.
+        let textGuide = app.buttons["テキストガイドを表示"]
+        XCTAssertTrue(textGuide.waitForExistence(timeout: 3),
+                      "text guide disclosure missing")
+        textGuide.tap()
         XCTAssertTrue(app.staticTexts["基本の動き"].waitForExistence(timeout: 3),
-                      "text guide section missing")
+                      "expanded text guide section missing")
 
         // Dismiss works: closing returns to the isolated debug fixture root
         // (mutable state, not a constant binding).

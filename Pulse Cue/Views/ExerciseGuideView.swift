@@ -21,9 +21,29 @@ struct ExerciseGuideView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let exerciseId: ExerciseID
+#if DEBUG
     /// DEBUG-only: freeze the 3D demo at a fixed progress for deterministic
     /// screenshots. Always `nil` on production paths.
     var debugStaticProgress: Float? = nil
+#endif
+    @State private var instructionsExpanded: Bool
+
+#if DEBUG
+    init(
+        exerciseId: ExerciseID,
+        debugStaticProgress: Float? = nil,
+        debugInstructionsExpanded: Bool = false
+    ) {
+        self.exerciseId = exerciseId
+        self.debugStaticProgress = debugStaticProgress
+        _instructionsExpanded = State(initialValue: debugInstructionsExpanded)
+    }
+#else
+    init(exerciseId: ExerciseID) {
+        self.exerciseId = exerciseId
+        _instructionsExpanded = State(initialValue: false)
+    }
+#endif
 
     private var exercise: Exercise? { ExerciseLibrary.exercise(for: exerciseId) }
     private var guide: ExerciseGuide? { FormGuideLibrary.guide(for: exerciseId) }
@@ -31,11 +51,16 @@ struct ExerciseGuideView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let exercise, let guide {
-                    content(exercise: exercise, guide: guide)
-                } else {
-                    unavailable
+            ZStack {
+                PulseAtmosphericBackground()
+                    .ignoresSafeArea()
+
+                Group {
+                    if let exercise, let guide {
+                        content(exercise: exercise, guide: guide)
+                    } else {
+                        unavailable
+                    }
                 }
             }
             .navigationTitle("フォームガイド")
@@ -52,36 +77,36 @@ struct ExerciseGuideView: View {
 
     private func content(exercise: Exercise, guide: ExerciseGuide) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 header(exercise: exercise)
 
-                // 3D movement demo (additive). The text sections below remain
-                // the authoritative instruction and render even if 3D fails.
                 if let motionProfile {
-                    Guide3DSection(profile: motionProfile, reduceMotion: reduceMotion, staticProgress: debugStaticProgress)
+                    Guide3DSection(
+                        profile: motionProfile,
+                        reduceMotion: reduceMotion,
+                        staticProgress: visualQAStaticProgress
+                    )
                 }
 
-                section(title: "基本の動き", systemImage: "figure.strengthtraining.traditional") {
-                    numberedList(guide.instructions)
-                }
-                section(title: "よくあるミス", systemImage: "exclamationmark.triangle") {
-                    bulletList(guide.commonMistakes, bullet: "•")
-                }
-                section(title: "チェックポイント", systemImage: "checkmark.circle") {
-                    bulletList(guide.safetyNotes, bullet: "✓")
-                }
-
-                disclaimer
+                instructionsDisclosure(guide)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    private var visualQAStaticProgress: Float? {
+#if DEBUG
+        debugStaticProgress
+#else
+        nil
+#endif
+    }
+
     private func header(exercise: Exercise) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(exercise.displayName)
-                .font(.largeTitle.weight(.bold))
+                .font(.title.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
 
@@ -99,6 +124,36 @@ struct ExerciseGuideView: View {
         }
     }
 
+    private func instructionsDisclosure(_ guide: ExerciseGuide) -> some View {
+        DisclosureGroup(isExpanded: $instructionsExpanded) {
+            VStack(alignment: .leading, spacing: 24) {
+                Divider()
+                section(title: "基本の動き", systemImage: "figure.strengthtraining.traditional") {
+                    numberedList(guide.instructions)
+                }
+                section(title: "よくあるミス", systemImage: "exclamationmark.triangle") {
+                    bulletList(guide.commonMistakes, bullet: "•")
+                }
+                section(title: "チェックポイント", systemImage: "checkmark.circle") {
+                    bulletList(guide.safetyNotes, bullet: "✓")
+                }
+                disclaimer
+            }
+            .padding(.top, 16)
+        } label: {
+            Label(
+                instructionsExpanded ? "テキストガイドを閉じる" : "テキストガイドを表示",
+                systemImage: "text.book.closed"
+            )
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .frame(minHeight: 44)
+        }
+        .tint(AppTheme.accent)
+        .pulseGlass(level: .functional, padding: 16)
+        .accessibilityHint("3Dの動きを文章でも確認できます")
+    }
+
     private func section<Content: View>(
         title: String,
         systemImage: String,
@@ -111,11 +166,6 @@ struct ExerciseGuideView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
-        )
     }
 
     private func numberedList(_ items: [String]) -> some View {
@@ -160,11 +210,7 @@ struct ExerciseGuideView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(.tertiarySystemBackground))
-            )
+            .padding(.top, 4)
     }
 
     private var unavailable: some View {
@@ -173,6 +219,7 @@ struct ExerciseGuideView: View {
             systemImage: "book.closed",
             description: Text("この種目のフォームガイドはまだ用意されていません。")
         )
+        .foregroundStyle(.primary)
     }
 
     // MARK: - Helpers

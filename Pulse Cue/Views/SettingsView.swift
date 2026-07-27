@@ -487,13 +487,36 @@ struct SettingsView: View {
     private var machineCatalogCard: some View {
         glassCard {
             VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "list.bullet.rectangle", title: "マシンカタログ")
+                sectionHeader(icon: "book.pages", title: "ライブラリ")
+                NavigationLink {
+                    ExerciseLibraryView()
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("種目のフォームを確認")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("種目を探して、3Dとテキストのフォームガイドを開きます。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Divider().opacity(0.4)
+
                 NavigationLink {
                     MachineCatalogListView()
                 } label: {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("アプリ内のマシン一覧を見る")
+                            Text("マシンカタログを見る")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Text("ローカル一覧から検索・部位で絞り込みできます。外部APIは使用しません。")
