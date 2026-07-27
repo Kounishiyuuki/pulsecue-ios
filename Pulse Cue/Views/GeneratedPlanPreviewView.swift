@@ -220,7 +220,6 @@ struct GeneratedPlanPreviewView: View {
                         .padding(.top, 2)
                 }
             }
-            .padding(14)
         }
         .padding(16)
         .background(PulseGlassPlate(level: .subtle, cornerRadius: 20))

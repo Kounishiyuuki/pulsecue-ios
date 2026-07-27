@@ -42,6 +42,16 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     /// candidate or repository.
     @State private var guideExerciseId: ExerciseID?
 
+    init() {}
+
+#if DEBUG
+    /// Seeds only local view state so screenshots can open the generated
+    /// review directly without saving or mutating production preferences.
+    init(debugCandidate: WeeklyTrainingPlanCandidate) {
+        _candidate = State(initialValue: debugCandidate)
+    }
+#endif
+
     // Body-part filter order matches the catalog screen (胸/背中/肩/腕/脚/体幹/有酸素).
     private let bodyPartChoices: [BodyPart] = [
         .chest, .back, .shoulders, .arms, .legs, .core, .fullBody
@@ -195,6 +205,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
+                            .frame(minHeight: 44)
                             .background(Capsule().fill(Color.primary.opacity(0.06)))
                             .foregroundStyle(.secondary)
                     }
@@ -214,6 +225,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .frame(minHeight: 44)
                 .background(
                     Capsule().fill(isOn ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06))
                 )
@@ -294,10 +306,17 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(candidate.title)
                     .font(.headline)
-                HStack(spacing: 6) {
-                    metaPill(text: candidate.goal.displayName)
-                    metaPill(text: "週 \(candidate.daysPerWeek) 日")
-                    metaPill(text: "\(candidate.sessions.count) セッション")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        metaPill(text: candidate.goal.displayName)
+                        metaPill(text: "週 \(candidate.daysPerWeek) 日")
+                        metaPill(text: "\(candidate.sessions.count) セッション")
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        metaPill(text: candidate.goal.displayName)
+                        metaPill(text: "週 \(candidate.daysPerWeek) 日")
+                        metaPill(text: "\(candidate.sessions.count) セッション")
+                    }
                 }
                 if !candidate.rationale.isEmpty {
                     Text(candidate.rationale)
@@ -373,15 +392,12 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            HStack(spacing: 6) {
-                if let setsReps = ex.setsAndRepsText {
-                    metricChip(icon: "repeat", text: setsReps)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    exerciseMetrics(ex)
                 }
-                if let rest = ex.restText {
-                    metricChip(icon: "timer", text: rest)
-                }
-                if !ex.hasMenuDefaults {
-                    metricChip(icon: "questionmark.circle", text: "目安なし")
+                VStack(alignment: .leading, spacing: 6) {
+                    exerciseMetrics(ex)
                 }
             }
 
@@ -408,6 +424,19 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
         )
+    }
+
+    @ViewBuilder
+    private func exerciseMetrics(_ ex: RoutineStepCandidate) -> some View {
+        if let setsReps = ex.setsAndRepsText {
+            metricChip(icon: "repeat", text: setsReps)
+        }
+        if let rest = ex.restText {
+            metricChip(icon: "timer", text: rest)
+        }
+        if !ex.hasMenuDefaults {
+            metricChip(icon: "questionmark.circle", text: "目安なし")
+        }
     }
 
     // MARK: - Save (review → confirm → save)
@@ -533,16 +562,26 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     }
 
     private func chipRow(_ items: [String]) -> some View {
-        HStack(spacing: 6) {
-            ForEach(items, id: \.self) { item in
-                Text(item)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-                    .foregroundStyle(Color.accentColor)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                chipLabels(items)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 6) {
+                chipLabels(items)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chipLabels(_ items: [String]) -> some View {
+        ForEach(items, id: \.self) { item in
+            Text(item)
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                .foregroundStyle(Color.accentColor)
         }
     }
 

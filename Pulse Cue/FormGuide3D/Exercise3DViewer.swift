@@ -114,21 +114,23 @@ struct Exercise3DViewer: View {
 
     private var controls: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 14) {
-                controlButton(
-                    controller.isPlaying ? "一時停止" : "再生",
-                    systemImage: controller.isPlaying ? "pause.fill" : "play.fill"
-                ) { controller.togglePlay() }
-
-                controlButton("最初から", systemImage: "arrow.counterclockwise") {
-                    controller.restart()
-                    if !reduceMotion { controller.play() }
+            ViewThatFits {
+                HStack(spacing: 14) {
+                    playbackButton
+                    restartButton
+                    speedControl
                 }
-
-                speedControl
+                VStack(spacing: 8) {
+                    playbackButton
+                    restartButton
+                    speedControl
+                }
             }
 
-            HStack(spacing: 10) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 72), spacing: 8)],
+                spacing: 8
+            ) {
                 ForEach(Exercise3DCamera.allCases, id: \.self) { preset in
                     cameraChip(preset)
                 }
@@ -144,10 +146,25 @@ struct Exercise3DViewer: View {
         }
     }
 
+    private var playbackButton: some View {
+        controlButton(
+            controller.isPlaying ? "一時停止" : "再生",
+            systemImage: controller.isPlaying ? "pause.fill" : "play.fill"
+        ) { controller.togglePlay() }
+    }
+
+    private var restartButton: some View {
+        controlButton("最初から", systemImage: "arrow.counterclockwise") {
+            controller.restart()
+            if !reduceMotion { controller.play() }
+        }
+    }
+
     private func controlButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
                 .frame(minHeight: 44)
                 .padding(.horizontal, 12)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.15)))
