@@ -33,27 +33,7 @@ enum MyGymStyle {
     /// TargetBodyPart, GeneratedPlanPreview). Adapts to color scheme.
     @ViewBuilder
     static func backgroundLayer(for colorScheme: ColorScheme) -> some View {
-        if colorScheme == .dark {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.07, green: 0.08, blue: 0.13),
-                    Color(red: 0.10, green: 0.12, blue: 0.20),
-                    Color(red: 0.07, green: 0.10, blue: 0.18),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.95, green: 0.96, blue: 1.00),
-                    Color(red: 0.92, green: 0.94, blue: 1.00),
-                    Color(red: 0.96, green: 0.93, blue: 1.00),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
+        PulseAtmosphericBackground()
     }
 
     @ViewBuilder
@@ -79,6 +59,10 @@ extension View {
     func myGymCard(padding: CGFloat = 18) -> some View {
         modifier(MyGymCardModifier(padding: padding))
     }
+
+    func myGymHeroCard(padding: CGFloat = 22) -> some View {
+        modifier(MyGymHeroCardModifier(padding: padding))
+    }
 }
 
 private struct MyGymCardModifier: ViewModifier {
@@ -93,20 +77,30 @@ private struct MyGymCardModifier: ViewModifier {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: MyGymStyle.cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
+        PulseGlassPlate(
+            level: .functional,
+            cornerRadius: MyGymStyle.cornerRadius
+        )
     }
 
     private var cardStroke: some View {
-        RoundedRectangle(cornerRadius: MyGymStyle.cornerRadius, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 1
-            )
+        EmptyView()
+    }
+}
+
+private struct MyGymHeroCardModifier: ViewModifier {
+    let padding: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(padding)
+            .background {
+                PulseGlassPlate(
+                    level: .hero,
+                    cornerRadius: MyGymStyle.cornerRadius
+                )
+            }
     }
 }
 
@@ -127,7 +121,8 @@ struct MyGymPrimaryButtonStyle: ButtonStyle {
             // fill AND text weight/colour, not by opacity alone.
             .foregroundStyle(enabled ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.secondary))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .frame(minHeight: 52)
+            .padding(.horizontal, 14)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(enabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color(.tertiarySystemFill)))

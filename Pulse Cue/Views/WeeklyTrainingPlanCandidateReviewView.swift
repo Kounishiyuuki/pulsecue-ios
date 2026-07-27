@@ -25,6 +25,7 @@ import SwiftData
 struct WeeklyTrainingPlanCandidateReviewView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     // Request inputs (mirror TrainingPlanGenerationRequest's main fields).
     @State private var goal: TrainingGoal = .consistency
@@ -65,11 +66,11 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
     var body: some View {
         ZStack {
-            backgroundLayer.ignoresSafeArea()
+            PulseAtmosphericBackground().ignoresSafeArea()
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 24) {
                     headerBlock
-                    controlsCard
+                    controlsFlow
                     generateButton
                     if let equipmentNotice {
                         equipmentNoticeCard(equipmentNotice)
@@ -101,60 +102,72 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     // MARK: - Header
 
     private var headerBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("週次プラン候補")
                 .font(.system(size: 28, weight: .bold))
-            Text("ローカルのマシンカタログをもとに、ルールベースで週次プラン候補を作成します。外部APIは使用していません。")
-                .font(.footnote)
+            Text("条件を選び、使えるマシンに合わせた一週間を組み立てます。")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Controls
 
-    private var controlsCard: some View {
-        card {
-            VStack(alignment: .leading, spacing: 16) {
-                pickerRow(title: "目標", selection: $goal)
-                pickerRow(title: "経験レベル", selection: $experience)
-                pickerRow(title: "分割法", selection: $split)
+    private var controlsFlow: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            pickerRow(title: "目標", selection: $goal)
+            pickerRow(title: "経験レベル", selection: $experience)
+            pickerRow(title: "分割法", selection: $split)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("週あたりの日数")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Stepper(value: $daysPerWeek, in: 1...6) {
-                        Text("週 \(daysPerWeek) 日")
-                            .font(.subheadline.weight(.semibold))
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                decisionLabel("週あたりの日数")
+                Stepper(value: $daysPerWeek, in: 1...6) {
+                    Text("週 \(daysPerWeek) 日")
+                        .font(.headline)
                 }
+                .frame(minHeight: 44)
+            }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("対象部位（任意）")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    bodyPartChips
-                    Text("未選択の場合はバランス重視の全身プランになります。")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                decisionLabel("対象部位（任意）")
+                bodyPartChips
+                Text("未選択の場合は、バランス重視の全身プランになります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(.horizontal, 4)
     }
 
     private func pickerRow<T>(title: String, selection: Binding<T>) -> some View
     where T: CaseIterable & Hashable & RawRepresentable, T.AllCases: RandomAccessCollection {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Picker(title, selection: selection) {
-                ForEach(Array(T.allCases), id: \.self) { option in
-                    Text(displayName(of: option)).tag(option)
+            decisionLabel(title)
+            if dynamicTypeSize.isAccessibilitySize {
+                Picker(title, selection: selection) {
+                    ForEach(Array(T.allCases), id: \.self) { option in
+                        Text(displayName(of: option)).tag(option)
+                    }
                 }
+                .pickerStyle(.menu)
+                .frame(minHeight: 44)
+            } else {
+                Picker(title, selection: selection) {
+                    ForEach(Array(T.allCases), id: \.self) { option in
+                        Text(displayName(of: option)).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(minHeight: 44)
             }
-            .pickerStyle(.segmented)
         }
+    }
+
+    private func decisionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(.primary)
     }
 
     /// Pulls the localized label off our request enums without forcing a
@@ -230,7 +243,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(PulsePrimaryButtonStyle())
     }
 
     private func generateCandidate() {
@@ -494,15 +507,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.regularMaterial)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
+            .pulseGlass(level: .functional, padding: 18)
     }
 
     private func metaPill(text: String) -> some View {

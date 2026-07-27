@@ -173,7 +173,7 @@ struct MyGymHomeView: View {
             .buttonStyle(MyGymPrimaryButtonStyle(isEnabled: viewModel.machineCount(for: gym) > 0))
             .disabled(viewModel.machineCount(for: gym) == 0)
         }
-        .myGymCard()
+        .myGymHeroCard()
     }
 
     private var activeBadge: some View {
@@ -214,11 +214,7 @@ struct MyGymHomeView: View {
                 }
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.secondary.opacity(0.08))
-        )
+        .padding(.vertical, 6)
     }
 
     // MARK: - Active gym secondary actions
@@ -234,17 +230,6 @@ struct MyGymHomeView: View {
                     subtitle: "このジムで使えるマシンを更新"
                 )
             }
-            Divider().opacity(0.4)
-            Button {
-                showRegistration = true
-            } label: {
-                actionRow(
-                    icon: "plus.circle",
-                    title: "別のジムを追加",
-                    subtitle: "出張先のジムや別店舗を登録"
-                )
-            }
-            .buttonStyle(.plain)
         }
         .myGymCard(padding: 14)
     }
@@ -373,7 +358,7 @@ struct MyGymHomeView: View {
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
-        .padding(.vertical, 6)
+        .frame(minHeight: 52)
     }
 
     private func otherGymRow(_ gym: Gym) -> some View {
@@ -402,7 +387,7 @@ struct MyGymHomeView: View {
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
-        .padding(.vertical, 8)
+        .frame(minHeight: 58)
     }
 
     // MARK: - Helpers
