@@ -33,6 +33,8 @@
 		5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910B6185D8234DA3924900CF /* TodayView.swift */; };
 		5AEBFF52ACB44904A23658E1 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF0ACB38DB845A4A9DF79AD /* SettingsStore.swift */; };
 		5BAEAE269491457F91CF3F92 /* Pulse_CueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6355ADBE9A944771A1BDA149 /* Pulse_CueApp.swift */; };
+		B134D9F025D84AA7A5B90001 /* GlassUIVisualQARoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B134D9F025D84AA7A5B90002 /* GlassUIVisualQARoot.swift */; };
+		B134D9F025D84AA7A5B90003 /* GlassUIVisualQARouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B134D9F025D84AA7A5B90004 /* GlassUIVisualQARouteTests.swift */; };
 		638FB5A70CDD43FB9BA7E758 /* RunnerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C6345AAB114B9B95FCCF6D /* RunnerView.swift */; };
 		6BF02A37870A447DA4527794 /* ScreenWakeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B33DB07E7349E7996C58DB /* ScreenWakeManager.swift */; };
 		747C04136B9B471D8C4D42DC /* AppTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42B362F210943269227ACCE /* AppTab.swift */; };
@@ -290,6 +292,8 @@
 		3F77E6342F35A07F0081D154 /* Pulse CueUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Pulse CueUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Routine.swift; sourceTree = "<group>"; };
 		6355ADBE9A944771A1BDA149 /* Pulse_CueApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pulse_CueApp.swift; sourceTree = "<group>"; };
+		B134D9F025D84AA7A5B90002 /* GlassUIVisualQARoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassUIVisualQARoot.swift; sourceTree = "<group>"; };
+		B134D9F025D84AA7A5B90004 /* GlassUIVisualQARouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassUIVisualQARouteTests.swift; sourceTree = "<group>"; };
 		69F02898313644D4B49487AE /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		6D29739D89D24F6689D06A6A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7F38FF5AE06247CA876EF7E0 /* InfoCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoCard.swift; sourceTree = "<group>"; };
@@ -658,6 +662,7 @@
 			children = (
 				878933A00815439D89930EBF /* ContentView.swift */,
 				6355ADBE9A944771A1BDA149 /* Pulse_CueApp.swift */,
+				B134D9F025D84AA7A5B90002 /* GlassUIVisualQARoot.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -815,6 +820,7 @@
 				D17104DB1A8E4001B0DA6102 /* CustomMachineMigrationTests.swift */,
 				D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */,
 				D17104DB1A8E4001B0DAA0H2 /* FormGuide3DRouteTests.swift */,
+				B134D9F025D84AA7A5B90004 /* GlassUIVisualQARouteTests.swift */,
 				D17104DB1A8E4001B0DAA0D2 /* EquipmentSceneContactTests.swift */,
 				D17104DB1A8E4001B0DAA0C2 /* OrbitCameraStateTests.swift */,
 				D17104DB1A8E4001B0DAA112 /* RunnerFormGuideTests.swift */,
@@ -1026,6 +1032,7 @@
 			files = (
 				54FDF3C3A4E240BDA4CED51E /* ContentView.swift in Sources */,
 				5BAEAE269491457F91CF3F92 /* Pulse_CueApp.swift in Sources */,
+				B134D9F025D84AA7A5B90001 /* GlassUIVisualQARoot.swift in Sources */,
 				2AB81DE242B545479F23C358 /* DayLog.swift in Sources */,
 				85E4A192F0384A03BBFC3C52 /* Enums.swift in Sources */,
 				11D66B1ADAFF48799ED94A65 /* Routine.swift in Sources */,
@@ -1237,6 +1244,7 @@
 				D17104DB1A8E4001B0DA6101 /* CustomMachineMigrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA0H1 /* FormGuide3DRouteTests.swift in Sources */,
+				B134D9F025D84AA7A5B90003 /* GlassUIVisualQARouteTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA0D1 /* EquipmentSceneContactTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA0C1 /* OrbitCameraStateTests.swift in Sources */,
 				D17104DB1A8E4001B0DAA111 /* RunnerFormGuideTests.swift in Sources */,

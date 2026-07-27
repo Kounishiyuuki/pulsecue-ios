@@ -22,6 +22,7 @@ import SwiftData
 struct GeneratedPlanPreviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @StateObject private var viewModel: GeneratedPlanViewModel
     @State private var showMachineReview = false
@@ -34,18 +35,17 @@ struct GeneratedPlanPreviewView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            MyGymStyle.backgroundLayer(for: .dark)
+        ZStack {
+            PulseAtmosphericBackground()
                 .ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    headerBlock
                     if let plan = viewModel.plan {
+                        heroSummary(plan)
                         if !plan.warnings.isEmpty {
                             warningBanner(plan.warnings)
                         }
-                        statGrid(plan: plan)
                         if !plan.isEmpty {
                             exercisesSection(plan: plan)
                         }
@@ -59,15 +59,22 @@ struct GeneratedPlanPreviewView: View {
                     if case .saved = viewModel.state {
                         successCard
                     }
-                    Color.clear.frame(height: 220)
+                    if dynamicTypeSize.isAccessibilitySize {
+                        ctaStack
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
+                .padding(.bottom, 16)
             }
 
-            ctaStack
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                ctaStack
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -81,7 +88,6 @@ struct GeneratedPlanPreviewView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .sheet(isPresented: $showMachineReview) {
             NavigationStack {
                 ManualMachineSelectionView(gym: viewModel.gym)
@@ -95,17 +101,32 @@ struct GeneratedPlanPreviewView: View {
 
     // MARK: - Header
 
-    private var headerBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func heroSummary(_ plan: GeneratedPlan) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("これから行うメニュー")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
             Text("\(viewModel.bodyPart.displayName) — \(viewModel.gym.name)")
-                .font(.largeTitle.weight(.bold))
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(.white)
-            Text("ワークアウトプランのプレビュー")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.6))
+                .font(.title.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
+            ViewThatFits {
+                HStack(spacing: 16) {
+                    summaryItem("\(plan.exercises.count) 種目", icon: "list.number")
+                    summaryItem("\(estimatedMinutes(plan)) 分", icon: "clock")
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    summaryItem("\(plan.exercises.count) 種目", icon: "list.number")
+                    summaryItem("\(estimatedMinutes(plan)) 分", icon: "clock")
+                }
+            }
         }
+        .pulseGlass(level: .hero, cornerRadius: AppTheme.heroRadius, padding: 20)
+    }
+
+    private func summaryItem(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 
     // MARK: - Warning banner
@@ -119,7 +140,7 @@ struct GeneratedPlanPreviewView: View {
                         .foregroundStyle(.orange)
                     Text(warning)
                         .font(.subheadline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                 }
             }
         }
@@ -135,48 +156,6 @@ struct GeneratedPlanPreviewView: View {
         )
     }
 
-    // MARK: - Stat grid
-
-    private func statGrid(plan: GeneratedPlan) -> some View {
-        let columns = [
-            GridItem(.flexible(), spacing: 10),
-            GridItem(.flexible(), spacing: 10),
-        ]
-        return LazyVGrid(columns: columns, spacing: 10) {
-            statTile(label: "ジム", value: plan.gymName, systemImage: "building.2.fill")
-            statTile(label: "ターゲット", value: plan.bodyPart.displayName, systemImage: "target")
-            statTile(label: "推定時間", value: "\(estimatedMinutes(plan)) 分", systemImage: "clock.fill")
-            statTile(label: "種目数", value: "\(plan.exercises.count) 種目", systemImage: "list.bullet.rectangle.fill")
-        }
-    }
-
-    private func statTile(label: String, value: String, systemImage: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage)
-                    .font(.caption2)
-                Text(label)
-                    .font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(.white.opacity(0.55))
-            Text(value)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-        )
-    }
-
     // MARK: - Exercises
 
     private func exercisesSection(plan: GeneratedPlan) -> some View {
@@ -188,44 +167,46 @@ struct GeneratedPlanPreviewView: View {
                     .cornerRadius(2)
                 Text("メニュー")
                     .font(.headline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
             }
             VStack(spacing: 12) {
                 ForEach(Array(plan.exercises.enumerated()), id: \.offset) { index, exercise in
-                    exerciseCard(exercise, accentHue: hue(forIndex: index))
+                    exerciseCard(exercise, number: index + 1)
                 }
             }
         }
     }
 
-    private func exerciseCard(_ exercise: GeneratedExercise, accentHue: Color) -> some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(accentHue)
-                .frame(width: 4)
+    private func exerciseCard(_ exercise: GeneratedExercise, number: Int) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text("\(number)")
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(AppTheme.accentSoft))
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Text(exercise.exerciseName)
                         .font(.headline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                     Text("マシン")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(AppTheme.accent)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                        .background(Capsule().fill(AppTheme.accentSoft))
                     Spacer()
                 }
                 if let body = bodyPartLine(for: exercise) {
                     Text(body)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
+                        .foregroundStyle(.secondary)
                 }
                 if !exercise.cue.isEmpty {
                     Text("“\(exercise.cue)”")
                         .font(.caption)
                         .italic()
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 8) {
                     metricBlock(value: "\(exercise.sets)", label: "セット")
@@ -241,14 +222,8 @@ struct GeneratedPlanPreviewView: View {
             }
             .padding(14)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
-        )
+        .padding(16)
+        .background(PulseGlassPlate(level: .subtle, cornerRadius: 20))
     }
 
     /// Opens the text Form Guide for a supported standard exercise. Custom
@@ -266,15 +241,15 @@ struct GeneratedPlanPreviewView: View {
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(AppTheme.accent)
             .frame(maxWidth: .infinity, minHeight: 44)
             .padding(.horizontal, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.1))
+                    .fill(AppTheme.accentSoft)
             )
             .contentShape(Rectangle())
         }
@@ -283,20 +258,15 @@ struct GeneratedPlanPreviewView: View {
     }
 
     private func metricBlock(value: String, label: String) -> some View {
-        VStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(value)
-                .font(.title3.weight(.heavy))
-                .foregroundStyle(.white)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.primary)
             Text(label)
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Loading / error / success
@@ -304,16 +274,15 @@ struct GeneratedPlanPreviewView: View {
     private var loadingCard: some View {
         HStack(spacing: 12) {
             ProgressView()
-                .tint(.white)
+                .tint(AppTheme.accent)
             Text("メニューを組み立てています…")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(.secondary)
             Spacer()
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.06))
+            PulseGlassPlate(level: .subtle, cornerRadius: 14)
         )
     }
 
@@ -371,25 +340,39 @@ struct GeneratedPlanPreviewView: View {
                 ))
                 .disabled(!canSave)
 
-                HStack(spacing: 8) {
-                    secondaryButton(label: "部位を変更", systemImage: "arrow.left.arrow.right") {
-                        dismiss()
-                    }
-                    secondaryButton(label: "マシン選択を見直す", systemImage: "pencil") {
-                        showMachineReview = true
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(spacing: 8) {
+                            changeBodyPartButton
+                            reviewMachinesButton
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            changeBodyPartButton
+                            reviewMachinesButton
+                        }
                     }
                 }
             }
             .padding(10)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.black.opacity(0.55))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+                PulseGlassPlate(
+                    level: .functional,
+                    cornerRadius: 18
+                )
             )
+        }
+    }
+
+    private var changeBodyPartButton: some View {
+        secondaryButton(label: "部位を変更", systemImage: "arrow.left.arrow.right") {
+            dismiss()
+        }
+    }
+
+    private var reviewMachinesButton: some View {
+        secondaryButton(label: "マシン選択を見直す", systemImage: "pencil") {
+            showMachineReview = true
         }
     }
 
@@ -398,25 +381,22 @@ struct GeneratedPlanPreviewView: View {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
                 Text(label)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(AppTheme.accent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                    .fill(AppTheme.accentSoft)
             )
         }
         .buttonStyle(.plain)
     }
 
     private var stickyBackground: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color.black.opacity(0.55))
-            .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
+        PulseGlassPlate(level: .functional, cornerRadius: 16)
             .padding(-6)
     }
 

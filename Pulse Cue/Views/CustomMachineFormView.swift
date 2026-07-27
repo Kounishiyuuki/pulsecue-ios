@@ -88,14 +88,15 @@ struct CustomMachineFormView: View {
 
     private var bodyPartSection: some View {
         Section {
-            // Wrapping chip rows rather than a horizontal scroll so no
-            // option can hide off-screen at large Dynamic Type sizes.
-            ForEach(chipRows, id: \.self) { row in
-                HStack(spacing: 8) {
-                    ForEach(row) { part in
-                        bodyPartChip(part)
-                    }
-                    Spacer(minLength: 0)
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 88, maximum: 160), spacing: 8)
+                ],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(viewModel.bodyPartChoices) { part in
+                    bodyPartChip(part)
                 }
             }
             if let error = viewModel.bodyPartsError {
@@ -142,7 +143,7 @@ struct CustomMachineFormView: View {
             Text(chipLabel(for: part))
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(minHeight: 44)
                 .background(
                     Capsule().fill(
                         isOn ? AnyShapeStyle(AppTheme.accentFilled)
@@ -154,14 +155,6 @@ struct CustomMachineFormView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(chipLabel(for: part))
         .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
-    }
-
-    /// Three chips per row keeps every option reachable without a
-    /// horizontal scroll, including at accessibility text sizes.
-    private var chipRows: [[BodyPart]] {
-        stride(from: 0, to: viewModel.bodyPartChoices.count, by: 3).map { start in
-            Array(viewModel.bodyPartChoices[start..<min(start + 3, viewModel.bodyPartChoices.count)])
-        }
     }
 
     private func chipLabel(for part: BodyPart) -> String {

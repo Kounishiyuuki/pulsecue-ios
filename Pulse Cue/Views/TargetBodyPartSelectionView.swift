@@ -12,50 +12,59 @@ import SwiftUI
 
 struct TargetBodyPartSelectionView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let gym: Gym
     @State private var selection: BodyPart = .chest
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-    ]
+    private let columns = [GridItem(.adaptive(minimum: 132), spacing: 12)]
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            MyGymStyle.backgroundLayer(for: colorScheme)
+        ZStack {
+            PulseAtmosphericBackground()
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 24) {
                     summaryCard
                     gridCard
-                    Color.clear.frame(height: 88)
+                    if dynamicTypeSize.isAccessibilitySize {
+                        ctaBar
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
+                .padding(.bottom, 16)
             }
-
-            ctaBar
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                ctaBar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(PulseGlassPlate(level: .functional, cornerRadius: 20))
+            }
         }
         .navigationTitle("部位を選択")
         .navigationBarTitleDisplayMode(.inline)
     }
 
     private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MyGymStyle.sectionHeader(icon: "building.2.fill", title: gym.name)
-            Text("選んだ部位に合わせて、このジムにあるマシンからメニューを自動で組み立てます。")
-                .font(.footnote)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("今日はどこを鍛えますか？")
+                .font(.title2.weight(.bold))
+            Label(gym.name, systemImage: "building.2.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
+            Text("選んだ部位と、このジムで使えるマシンから今日のメニューを組み立てます。")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .myGymCard()
+        .pulseGlass(level: .hero, cornerRadius: AppTheme.heroRadius, padding: 20)
     }
 
     private var gridCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            MyGymStyle.sectionHeader(icon: "target", title: "鍛えたい部位")
+            PulseSectionHeader("鍛えたい部位", icon: "target")
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(BodyPart.allCases) { part in
                     Button {
@@ -67,21 +76,27 @@ struct TargetBodyPartSelectionView: View {
                 }
             }
         }
-        .myGymCard()
+        .pulseGlass(level: .functional, padding: 18)
     }
 
     private func gridTile(for part: BodyPart, isSelected: Bool) -> some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: bodyPartIcon(part))
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(MyGymStyle.accentGradient))
-                .frame(height: 30)
+                .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(AppTheme.accent))
+                .frame(width: 30)
             Text(part.displayName)
                 .font(.headline)
                 .foregroundStyle(isSelected ? .white : .primary)
+            Spacer(minLength: 0)
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.white)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
+        .frame(minHeight: 56)
+        .padding(.horizontal, 14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(isSelected ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color.secondary.opacity(0.08)))
@@ -91,6 +106,7 @@ struct TargetBodyPartSelectionView: View {
                 .strokeBorder(isSelected ? Color.clear : Color.secondary.opacity(0.18), lineWidth: 1)
         )
         .contentShape(Rectangle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var ctaBar: some View {
@@ -98,14 +114,9 @@ struct TargetBodyPartSelectionView: View {
             GeneratedPlanPreviewView(gym: gym, bodyPart: selection)
         } label: {
             Label("\(selection.displayName)のメニューを生成", systemImage: "sparkles")
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .buttonStyle(MyGymPrimaryButtonStyle())
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
-                .padding(-6)
-        )
+        .buttonStyle(PulsePrimaryButtonStyle())
     }
 
     private func bodyPartIcon(_ part: BodyPart) -> String {

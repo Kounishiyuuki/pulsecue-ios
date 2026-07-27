@@ -26,7 +26,10 @@ struct Pulse_CueApp: App {
         // Form Guide route.
         var inMemory = ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
         #if DEBUG
-        if PulseCueUITestSupport.isFormGuideDebugRoute() { inMemory = true }
+        if PulseCueUITestSupport.isFormGuideDebugRoute()
+            || PulseCueUITestSupport.requestedGlassUIRoute() != nil {
+            inMemory = true
+        }
         #endif
         let modelConfiguration = ModelConfiguration(
             schema: Schema(versionedSchema: PulseCueSchemaV4.self),
@@ -46,7 +49,7 @@ struct Pulse_CueApp: App {
 
     init() {
         let settings = SettingsStore()
-        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) {
+        if PulseCueUITestSupport.shouldCompleteCustomMachineOnboarding() {
             // Custom-machine UI fixture skips onboarding. The Form Guide debug
             // route does NOT write onboarding — it uses a separate root.
             settings.completeOnboarding()
@@ -70,7 +73,9 @@ struct Pulse_CueApp: App {
     @ViewBuilder
     private var rootView: some View {
         #if DEBUG
-        if let exerciseId = PulseCueUITestSupport.requestedFormGuideExerciseId() {
+        if let route = PulseCueUITestSupport.requestedGlassUIRoute() {
+            GlassUIVisualQARoot(route: route)
+        } else if let exerciseId = PulseCueUITestSupport.requestedFormGuideExerciseId() {
             // Isolated debug root: no ContentView, no SampleDataSeeder, no
             // onboarding, in-memory store only.
             FormGuide3DDebugRoot(
@@ -104,6 +109,20 @@ struct Pulse_CueApp: App {
 enum PulseCueUITestSupport {
     static let customMachineFlowArgument = "-pulsecue-ui-test-custom-machine-flow"
 
+    /// The custom-machine fixture is the only launch mode allowed to update
+    /// onboarding. Isolated DEBUG roots win when arguments are accidentally
+    /// combined, preserving their no-UserDefaults-write guarantee.
+    static func shouldCompleteCustomMachineOnboarding(
+        _ args: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        guard args.contains(customMachineFlowArgument) else { return false }
+        #if DEBUG
+        return requestedGlassUIRoute(args) == nil && !isFormGuideDebugRoute(args)
+        #else
+        return true
+        #endif
+    }
+
     /// Test/development-only: opens a deterministic 3D Form Guide directly at
     /// launch for visual/screenshot review. Recognized only in DEBUG builds
     /// (see `ContentView`); it presents an existing guide, persists nothing,
@@ -116,6 +135,21 @@ enum PulseCueUITestSupport {
     /// Optional companion: `-pulsecue-ui-test-progress <0..1>` freezes the
     /// guide at a static cycle progress for deterministic screenshots.
     static let formGuide3DProgressArgument = "-pulsecue-ui-test-progress"
+
+    #if DEBUG
+    /// Opens one isolated, deterministic Glass UI state. The argument and
+    /// route values are compiled out of Release builds.
+    static let glassUIRouteArgument = "-pulsecue-debug-glass-ui-route"
+
+    static func requestedGlassUIRoute(
+        _ args: [String] = ProcessInfo.processInfo.arguments
+    ) -> GlassUIVisualQARoute? {
+        guard let index = args.firstIndex(of: glassUIRouteArgument),
+              args.indices.contains(index + 1)
+        else { return nil }
+        return GlassUIVisualQARoute(rawValue: args[index + 1])
+    }
+    #endif
 
     /// Pure launch-mode selection (testable): the requested exercise id for
     /// the deterministic guide route, or `nil` when the route argument is

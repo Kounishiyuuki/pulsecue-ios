@@ -23,6 +23,7 @@ struct ManualMachineSelectionView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @StateObject private var viewModel: ManualMachineSelectionViewModel
 
@@ -37,13 +38,13 @@ struct ManualMachineSelectionView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             MyGymStyle.backgroundLayer(for: colorScheme)
                 .ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    headerCard
+                    headerBlock
                     filterChips
 
                     if viewModel.hiddenSelectedCount > 0 {
@@ -66,17 +67,21 @@ struct ManualMachineSelectionView: View {
                     if case .error(let message) = viewModel.state {
                         errorCard(message: message)
                     }
-                    // Spacer so the sticky save bar doesn't cover the
-                    // last card.
-                    Color.clear.frame(height: 88)
+                    if dynamicTypeSize.isAccessibilitySize {
+                        saveBar
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
+                .padding(.bottom, 16)
             }
-
-            saveBar
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                saveBar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
         }
         .navigationTitle("マシンを選択")
         .navigationBarTitleDisplayMode(.inline)
@@ -119,14 +124,14 @@ struct ManualMachineSelectionView: View {
 
     // MARK: - Cards
 
-    private var headerCard: some View {
+    private var headerBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             MyGymStyle.sectionHeader(icon: "building.2.fill", title: viewModel.gym.name)
             Text("このジムで使えるマシンにチェックを入れてください。あとからいつでも変更できます。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
-        .myGymCard()
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Filter chips (compact, horizontal)
@@ -157,7 +162,7 @@ struct ManualMachineSelectionView: View {
                 .font(.caption.weight(.semibold))
                 .labelStyle(.titleAndIcon)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(minHeight: 44)
                 .background(chipBackground(isOn: isOn))
                 .foregroundStyle(isOn ? .white : .primary)
         }
@@ -174,7 +179,7 @@ struct ManualMachineSelectionView: View {
             Text(chipLabel(for: part))
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(minHeight: 44)
                 .background(chipBackground(isOn: isOn))
                 .foregroundStyle(isOn ? .white : .primary)
         }
@@ -189,7 +194,7 @@ struct ManualMachineSelectionView: View {
             Text("すべて")
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .frame(minHeight: 44)
                 .background(Capsule().fill(Color.primary.opacity(0.06)))
                 .foregroundStyle(.secondary)
         }
@@ -231,7 +236,8 @@ struct ManualMachineSelectionView: View {
                 machineToggle(entry)
             }
         }
-        .myGymCard()
+        .padding(.horizontal, 4)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Custom machines
@@ -261,7 +267,8 @@ struct ManualMachineSelectionView: View {
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 44)
                 .accessibilityLabel("カスタムマシンを追加")
             }
 
@@ -282,7 +289,8 @@ struct ManualMachineSelectionView: View {
                 }
             }
         }
-        .myGymCard()
+        .padding(.horizontal, 4)
+        .padding(.vertical, 8)
     }
 
     private func customRow(_ machine: CustomMachine) -> some View {
@@ -312,6 +320,7 @@ struct ManualMachineSelectionView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(customAccessibilityLabel(machine, isOn: isOn))
             .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+            .frame(minHeight: 52)
 
             Menu {
                 Button {
@@ -461,45 +470,62 @@ struct ManualMachineSelectionView: View {
                 Spacer()
             }
             .contentShape(Rectangle())
-            .padding(.vertical, 4)
+            .frame(minHeight: 52)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(viewModel.isSelected(entry) ? .isSelected : [])
     }
 
     private var saveBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("選択済み")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                // Standard + custom, so the number matches what will
-                // actually be saved and used for plan generation.
-                Text("\(viewModel.totalSelectedCount) 台")
-                    .font(.headline.weight(.bold))
-            }
-            Spacer()
-            Button {
-                viewModel.save()
-            } label: {
-                if viewModel.state == .saving {
-                    ProgressView()
-                        .frame(maxWidth: 140)
-                } else {
-                    Label("プランを保存", systemImage: "tray.and.arrow.down.fill")
-                        .frame(maxWidth: 160)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) {
+                    selectionSummary
+                    saveButton
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    selectionSummary
+                    Spacer()
+                    saveButton
+                        .frame(maxWidth: 200)
                 }
             }
-            .buttonStyle(MyGymPrimaryButtonStyle())
-            .disabled(viewModel.state == .saving)
-            .frame(maxWidth: 200)
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+            PulseGlassPlate(level: .functional, cornerRadius: 18)
         )
+    }
+
+    private var selectionSummary: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("選択済み")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            // Standard + custom, so the number matches what will
+            // actually be saved and used for plan generation.
+            Text("\(viewModel.totalSelectedCount) 台")
+                .font(.headline.weight(.bold))
+        }
+    }
+
+    private var saveButton: some View {
+        Button {
+            viewModel.save()
+        } label: {
+            if viewModel.state == .saving {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            } else {
+                Label("プランを保存", systemImage: "tray.and.arrow.down.fill")
+                    .frame(maxWidth: .infinity)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .buttonStyle(MyGymPrimaryButtonStyle())
+        .disabled(viewModel.state == .saving)
     }
 
     // MARK: - Catalog helpers

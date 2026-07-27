@@ -41,9 +41,9 @@ struct MachineRoutineStepCandidatePreviewView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                backgroundLayer.ignoresSafeArea()
+                PulseAtmosphericBackground().ignoresSafeArea()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 24) {
                         headerCard
                         menuCard
                         if let notes = candidate.notes {
@@ -252,15 +252,7 @@ struct MachineRoutineStepCandidatePreviewView: View {
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.regularMaterial)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
+            .pulseGlass(level: .functional, padding: 18)
     }
 
     private func chipRow(_ items: [String]) -> some View {
