@@ -59,8 +59,7 @@ struct WorkoutView: View {
     // MARK: - Background / accent
 
     private var backgroundLayer: some View {
-        // Calm, airy Apple Health Light surface (adapts to dark mode).
-        AppTheme.surface
+        PulseAtmosphericBackground()
     }
 
     // MARK: - Header / search / title
@@ -108,12 +107,7 @@ struct WorkoutView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(
-            Capsule()
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
-        )
-        .overlay(
-            Capsule().strokeBorder(.white.opacity(0.6), lineWidth: 0.6)
+            PulseGlassPlate(level: .functional, cornerRadius: 40)
         )
     }
 
@@ -143,7 +137,7 @@ struct WorkoutView: View {
                     Text("ピン留め \(pinnedRoutines.count) 件を優先表示中")
                         .font(.caption.weight(.semibold))
                 }
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppTheme.accent)
             } else if !routines.isEmpty {
                 Text("よく使うルーティンはピン留めすると上に固定されます。")
                     .font(.caption)
@@ -176,10 +170,6 @@ struct WorkoutView: View {
                 }
             }
 
-            newRoutineCard
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -257,8 +247,8 @@ struct WorkoutView: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.orange.opacity(colorScheme == .dark ? 0.22 : 0.16),
-                                    Color(red: 0.95, green: 0.28, blue: 0.18).opacity(colorScheme == .dark ? 0.14 : 0.08),
+                                    Color.white.opacity(colorScheme == .dark ? 0.10 : 0.28),
+                                    AppTheme.iceLight.opacity(colorScheme == .dark ? 0.14 : 0.20),
                                     Color.clear
                                 ],
                                 startPoint: .topLeading,
@@ -268,7 +258,6 @@ struct WorkoutView: View {
                 }
             }
         )
-        .overlay(cardStroke(isPinned: routine.isPinned))
         .accessibilityLabel("\(routine.name) \(routine.isPinned ? "ピン留め" : "")")
     }
 
@@ -295,9 +284,7 @@ struct WorkoutView: View {
         .foregroundStyle(emphasized ? .primary : .secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(
-            Capsule().fill(emphasized ? Color.orange.opacity(0.13) : Color.primary.opacity(0.06))
-        )
+        .background(Capsule().fill(emphasized ? AppTheme.accent.opacity(0.12) : Color.primary.opacity(0.05)))
     }
 
     // MARK: - Empty state / new-routine card / FAB
@@ -335,10 +322,8 @@ struct WorkoutView: View {
         .frame(maxWidth: .infinity)
         .padding(28)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.regularMaterial)
+            PulseGlassPlate(level: .hero, cornerRadius: 24)
         )
-        .overlay(glassStroke)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
@@ -359,51 +344,11 @@ struct WorkoutView: View {
         .frame(maxWidth: .infinity)
         .padding(28)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.regularMaterial)
+            PulseGlassPlate(level: .functional, cornerRadius: 24)
         )
-        .overlay(glassStroke)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-    }
-
-    private var newRoutineCard: some View {
-        Button {
-            createRoutine()
-        } label: {
-            VStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.accent.opacity(0.12))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AppTheme.accent)
-                }
-                Text("新規作成")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.primary)
-                Text("カスタムルーティンを追加")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.regularMaterial)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(
-                        AppTheme.accent.opacity(0.4),
-                        style: StrokeStyle(lineWidth: 1.2, dash: [5])
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("新規ルーティンを作成")
     }
 
     private var floatingCreateButton: some View {
@@ -427,49 +372,11 @@ struct WorkoutView: View {
         .accessibilityLabel("新規ルーティンを作成")
     }
 
-    // MARK: - Glass surfaces
-
-    private var glassBackground: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.regularMaterial)
-            .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 8)
-    }
-
-    private var glassStroke: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.6
-            )
-    }
-
     private func cardBackground(isPinned: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.regularMaterial)
-            .shadow(
-                color: isPinned ? Color.orange.opacity(0.18) : Color.black.opacity(0.05),
-                radius: isPinned ? 18 : 14,
-                x: 0,
-                y: isPinned ? 10 : 8
-            )
-    }
-
-    private func cardStroke(isPinned: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: isPinned
-                        ? [Color.orange.opacity(0.78), Color.white.opacity(0.26)]
-                        : [Color.white.opacity(0.7), Color.white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: isPinned ? 1.2 : 0.6
-            )
+        PulseGlassPlate(
+            level: isPinned ? .hero : .subtle,
+            cornerRadius: 22
+        )
     }
 
     // MARK: - Derived data

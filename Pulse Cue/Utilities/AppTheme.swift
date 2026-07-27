@@ -67,6 +67,25 @@ enum AppTheme {
         dark: (0.17, 0.45, 0.86, 1.0)
     )
 
+    // MARK: - PulseCue Glass palette
+
+    /// Atmospheric colors inspired by the product's calm blue identity.
+    /// These are background/light roles, never replacements for semantic text.
+    static let deepSpace = Color(red: 0.008, green: 0.063, blue: 0.141)
+    static let deepGlass = Color(red: 0.020, green: 0.149, blue: 0.349)
+    static let reflectedBlue = Color(red: 0.329, green: 0.514, blue: 0.702)
+    static let edgeBlue = Color(red: 0.490, green: 0.627, blue: 0.792)
+    static let iceLight = Color(red: 0.757, green: 0.910, blue: 1.000)
+
+    static let atmosphericBase = dynamicColor(
+        light: (0.955, 0.976, 0.995, 1.0),
+        dark: (0.008, 0.035, 0.080, 1.0)
+    )
+    static let glassEdge = dynamicColor(
+        light: (1.0, 1.0, 1.0, 0.78),
+        dark: (0.76, 0.91, 1.0, 0.20)
+    )
+
     /// Calm, trustworthy status colors.
     static let success = dynamicColor(
         light: (0.18, 0.60, 0.36, 1.0),
@@ -86,8 +105,10 @@ enum AppTheme {
     static let softShadow = Color.black.opacity(0.05)
 
     /// Corner radii.
-    static let cardRadius: CGFloat = 18
+    static let cardRadius: CGFloat = 22
     static let controlRadius: CGFloat = 14
+    static let glassRadius: CGFloat = 22
+    static let heroRadius: CGFloat = 28
 
     /// Consistent spacing scale.
     enum Spacing {

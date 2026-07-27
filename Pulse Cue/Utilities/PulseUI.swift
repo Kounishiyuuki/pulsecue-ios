@@ -14,6 +14,59 @@
 
 import SwiftUI
 
+// MARK: - Atmosphere
+
+/// A quiet, static field of light. It creates depth without a live blur or
+/// continuous animation and deliberately leaves most of the canvas empty.
+struct PulseAtmosphericBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var focused = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let darkField = focused || colorScheme == .dark
+            ZStack {
+                LinearGradient(
+                    colors: darkField
+                        ? [AppTheme.deepSpace, Color(red: 0.01, green: 0.08, blue: 0.17), AppTheme.deepSpace]
+                        : [Color.white, AppTheme.atmosphericBase, Color.white],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Ellipse()
+                    .fill((darkField ? AppTheme.deepGlass : AppTheme.iceLight).opacity(darkField ? 0.72 : 0.46))
+                    .frame(width: size.width * 0.92, height: size.height * 0.34)
+                    .blur(radius: darkField ? 54 : 42)
+                    .position(x: size.width * 0.82, y: size.height * 0.18)
+
+                Capsule()
+                    .fill((darkField ? AppTheme.edgeBlue : Color.white).opacity(darkField ? 0.22 : 0.84))
+                    .frame(width: size.width * 0.84, height: 86)
+                    .rotationEffect(.degrees(-18))
+                    .blur(radius: 18)
+                    .position(x: size.width * 0.24, y: size.height * 0.40)
+
+                Ellipse()
+                    .fill(AppTheme.reflectedBlue.opacity(darkField ? 0.34 : 0.18))
+                    .frame(width: size.width * 0.76, height: size.height * 0.28)
+                    .blur(radius: darkField ? 62 : 54)
+                    .position(x: size.width * 0.12, y: size.height * 0.72)
+
+                Capsule()
+                    .fill(AppTheme.iceLight.opacity(darkField ? 0.14 : 0.34))
+                    .frame(width: size.width * 0.62, height: 44)
+                    .rotationEffect(.degrees(24))
+                    .blur(radius: 12)
+                    .position(x: size.width * 0.82, y: size.height * 0.60)
+            }
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Card
 
 /// A soft, translucent white card with a subtle blue-gray border and a gentle
@@ -38,18 +91,144 @@ extension View {
             .padding(padding)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(.thinMaterial)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
-                    .strokeBorder(AppTheme.separator, lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [AppTheme.glassEdge, AppTheme.separator.opacity(0.55)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
             )
-            .shadow(color: AppTheme.softShadow, radius: 10, x: 0, y: 4)
+            .shadow(color: AppTheme.deepGlass.opacity(0.10), radius: 18, x: 0, y: 10)
     }
 
     /// Applies the airy app background, ignoring safe areas.
     func pulseScreenBackground() -> some View {
-        background(AppTheme.surface.ignoresSafeArea())
+        background(PulseAtmosphericBackground())
+    }
+}
+
+// MARK: - Art-directed Glass
+
+enum PulseGlassLevel {
+    case subtle
+    case functional
+    case hero
+
+    var material: Material {
+        switch self {
+        case .subtle: return .ultraThinMaterial
+        case .functional: return .thinMaterial
+        case .hero: return .regularMaterial
+        }
+    }
+
+    var tintOpacity: Double {
+        switch self {
+        case .subtle: return 0.06
+        case .functional: return 0.11
+        case .hero: return 0.16
+        }
+    }
+
+    var edgeWidth: CGFloat {
+        switch self {
+        case .subtle: return 0.6
+        case .functional: return 0.9
+        case .hero: return 1.2
+        }
+    }
+}
+
+/// Physical-looking glass plate with one consistent light direction:
+/// cool white from the upper-left and a cyan reflection at lower-right.
+struct PulseGlassPlate: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let level: PulseGlassLevel
+    var focused = false
+    var cornerRadius: CGFloat = AppTheme.glassRadius
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let darkPlate = focused || colorScheme == .dark
+
+        shape
+            .fill(level.material)
+            .overlay {
+                shape.fill(
+                    darkPlate
+                        ? AppTheme.deepGlass.opacity(level.tintOpacity + 0.08)
+                        : Color.white.opacity(level.tintOpacity)
+                )
+            }
+            .overlay {
+                shape.fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.white.opacity(darkPlate ? 0.20 : 0.52), location: 0),
+                            .init(color: Color.white.opacity(0.04), location: 0.32),
+                            .init(color: Color.clear, location: 0.58),
+                            .init(color: AppTheme.iceLight.opacity(darkPlate ? 0.12 : 0.18), location: 1)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            }
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [.clear, Color.white.opacity(darkPlate ? 0.54 : 0.92), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: level == .hero ? 1.5 : 1)
+                .padding(.horizontal, cornerRadius)
+                .padding(.top, 1)
+            }
+            .overlay {
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(darkPlate ? 0.72 : 0.98),
+                            AppTheme.iceLight.opacity(darkPlate ? 0.42 : 0.66),
+                            Color.white.opacity(0.08)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: level.edgeWidth
+                )
+            }
+            .shadow(
+                color: darkPlate
+                    ? AppTheme.deepGlass.opacity(level == .hero ? 0.54 : 0.34)
+                    : AppTheme.reflectedBlue.opacity(level == .hero ? 0.22 : 0.12),
+                radius: level == .hero ? 28 : 16,
+                x: 0,
+                y: level == .hero ? 18 : 10
+            )
+    }
+}
+
+extension View {
+    func pulseGlass(
+        level: PulseGlassLevel = .functional,
+        focused: Bool = false,
+        cornerRadius: CGFloat = AppTheme.glassRadius,
+        padding: CGFloat = AppTheme.Spacing.l
+    ) -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(padding)
+            .background {
+                PulseGlassPlate(level: level, focused: focused, cornerRadius: cornerRadius)
+            }
     }
 }
 
