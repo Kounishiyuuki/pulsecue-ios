@@ -73,7 +73,8 @@ struct LoginView: View {
             .accessibilityHidden(true)
 
             Text("PulseCueにログイン")
-                .font(.system(size: 30, weight: .bold))
+                .font(.title.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(AppTheme.textPrimary)
 
             Text("続ける方法を選んでください。ログインは任意です。")

@@ -1,6 +1,57 @@
 import SwiftData
 import SwiftUI
 
+/// History-detail presentation derived from persisted `StepResult` records.
+///
+/// `StepResult` is the historical source of truth: a completed workout's
+/// results are preserved even after its original `Step`/`Routine` is deleted
+/// (deletion does not cascade to `StepResult`). Current `Step`s only *enrich*
+/// the display with the exercise title when still resolvable — they are never
+/// required for a result to remain visible.
+enum SessionHistoryPresentation {
+    /// One exercise's worth of performed sets. `isOrphaned` is true when the
+    /// originating `Step` no longer exists, so no truthful title is available.
+    struct ExerciseResultGroup: Identifiable {
+        let id: UUID            // the historical stepId
+        let title: String
+        let isOrphaned: Bool
+        let results: [StepResult]
+    }
+
+    /// Fallback heading when the original `Step` was deleted. No exercise name
+    /// is persisted on `StepResult`, so we never guess one.
+    static let orphanedTitle = "削除された種目"
+
+    /// Groups every persisted `StepResult` by its historical `stepId`.
+    /// Resolvable steps come first in `Step.order`; orphaned groups follow in
+    /// stable first-appearance order. Nothing is ever dropped.
+    static func groupedResults(results: [StepResult], steps: [Step]) -> [ExerciseResultGroup] {
+        guard !results.isEmpty else { return [] }
+
+        var order: [UUID] = []
+        var seen = Set<UUID>()
+        // Resolvable steps first, honouring the routine's step order.
+        for step in steps where results.contains(where: { $0.stepId == step.id }) {
+            if seen.insert(step.id).inserted { order.append(step.id) }
+        }
+        // Then orphaned stepIds, in the order they first appear in results.
+        for result in results where !seen.contains(result.stepId) {
+            if seen.insert(result.stepId).inserted { order.append(result.stepId) }
+        }
+
+        return order.map { stepId in
+            let groupResults = results
+                .filter { $0.stepId == stepId }
+                .sorted { $0.setIndex < $1.setIndex }
+            if let step = steps.first(where: { $0.id == stepId }) {
+                return ExerciseResultGroup(id: stepId, title: step.title, isOrphaned: false, results: groupResults)
+            } else {
+                return ExerciseResultGroup(id: stepId, title: orphanedTitle, isOrphaned: true, results: groupResults)
+            }
+        }
+    }
+}
+
 /// One completed workout, ordered as identity → exercises → performed sets.
 struct SessionDetailView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -33,7 +84,7 @@ struct SessionDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     identity
 
-                    if stepsWithResults.isEmpty {
+                    if resultGroups.isEmpty {
                         emptyState
                     } else {
                         Text("実施した種目")
@@ -41,9 +92,9 @@ struct SessionDetailView: View {
                             .accessibilityAddTraits(.isHeader)
 
                         VStack(spacing: 0) {
-                            ForEach(stepsWithResults, id: \.id) { step in
-                                exerciseResult(step)
-                                if step.id != stepsWithResults.last?.id {
+                            ForEach(resultGroups) { group in
+                                exerciseGroup(group)
+                                if group.id != resultGroups.last?.id {
                                     Divider()
                                 }
                             }
@@ -95,15 +146,16 @@ struct SessionDetailView: View {
         }
     }
 
-    private func exerciseResult(_ step: Step) -> some View {
-        let stepResults = results.filter { $0.stepId == step.id }
-        return VStack(alignment: .leading, spacing: 12) {
-            Text(step.title)
+    private func exerciseGroup(_ group: SessionHistoryPresentation.ExerciseResultGroup) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(group.title)
                 .font(.body.weight(.semibold))
+                .foregroundStyle(group.isOrphaned ? .secondary : .primary)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(group.isOrphaned ? "\(group.title)（元の種目は削除されています）" : group.title)
 
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(stepResults) { result in
+                ForEach(group.results) { result in
                     Group {
                         if dynamicTypeSize.isAccessibilitySize {
                             VStack(alignment: .leading, spacing: 6) {
@@ -153,8 +205,10 @@ struct SessionDetailView: View {
         )
     }
 
-    private var stepsWithResults: [Step] {
-        steps.filter { step in results.contains(where: { $0.stepId == step.id }) }
+    /// History rows derived from persisted `StepResult` (source of truth),
+    /// enriched with the current `Step` title when it still resolves.
+    private var resultGroups: [SessionHistoryPresentation.ExerciseResultGroup] {
+        SessionHistoryPresentation.groupedResults(results: results, steps: steps)
     }
 
     private var routineName: String {
