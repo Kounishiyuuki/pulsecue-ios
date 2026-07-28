@@ -19,6 +19,7 @@ struct GlassUIVisualQARouteTests {
             "machine-selection",
             "planner",
             "preview-single",
+            "preview-weekly-before-generation",
             "preview-weekly",
             "history-populated",
             "history-detail",

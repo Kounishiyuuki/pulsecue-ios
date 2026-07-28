@@ -22,6 +22,33 @@
 import SwiftUI
 import SwiftData
 
+/// The complete set of inputs that can make a generated weekly candidate stale.
+/// Watching this single value keeps production invalidation wiring exhaustive
+/// without duplicating the same callback across five independent controls.
+struct WeeklyPlanGenerationInputs: Equatable {
+    let goal: TrainingGoal
+    let experience: ExperienceLevel
+    let split: TrainingSplit
+    let daysPerWeek: Int
+    let bodyParts: Set<BodyPart>
+
+    static func production(
+        goal: TrainingGoal,
+        experience: ExperienceLevel,
+        split: TrainingSplit,
+        daysPerWeek: Int,
+        bodyParts: Set<BodyPart>
+    ) -> Self {
+        Self(
+            goal: goal,
+            experience: experience,
+            split: split,
+            daysPerWeek: daysPerWeek,
+            bodyParts: bodyParts
+        )
+    }
+}
+
 struct WeeklyTrainingPlanCandidateReviewView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -37,6 +64,10 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var candidate: WeeklyTrainingPlanCandidate?
     @State private var saveState: WeeklyPlanSaveState = .idle
     @State private var equipmentNotice: String?
+    /// Generation conditions are the primary purpose before a candidate
+    /// exists (expanded); once a candidate is generated the review/save
+    /// becomes primary, so the conditions collapse to a "生成条件" disclosure.
+    @State private var conditionsExpanded = true
     /// Non-nil while the text Form Guide sheet is shown. Local UI state
     /// only — reading a guide persists nothing and does not touch the
     /// candidate or repository.
@@ -47,8 +78,21 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 #if DEBUG
     /// Seeds only local view state so screenshots can open the generated
     /// review directly without saving or mutating production preferences.
-    init(debugCandidate: WeeklyTrainingPlanCandidate) {
+    /// `debugRequest` is the request that produced `debugCandidate`, so the
+    /// visible input controls stay internally consistent with the shown
+    /// candidate (goal / level / split / days / body parts all match), and the
+    /// conditions start collapsed like a real post-generation state.
+    init(
+        debugCandidate: WeeklyTrainingPlanCandidate,
+        debugRequest: TrainingPlanGenerationRequest
+    ) {
         _candidate = State(initialValue: debugCandidate)
+        _goal = State(initialValue: debugRequest.goal)
+        _experience = State(initialValue: debugRequest.experienceLevel)
+        _split = State(initialValue: debugRequest.preferredSplit)
+        _daysPerWeek = State(initialValue: debugRequest.daysPerWeek)
+        _selectedBodyParts = State(initialValue: Set(debugRequest.targetBodyParts))
+        _conditionsExpanded = State(initialValue: false)
     }
 #endif
 
@@ -67,6 +111,16 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         )
     }
 
+    private var generationInputs: WeeklyPlanGenerationInputs {
+        .production(
+            goal: goal,
+            experience: experience,
+            split: split,
+            daysPerWeek: daysPerWeek,
+            bodyParts: selectedBodyParts
+        )
+    }
+
     /// Number of routines a save would create — one per non-empty session.
     /// Derived purely from the candidate; it does NOT build any
     /// `Routine`/`Step` before the user explicitly saves.
@@ -80,8 +134,10 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     headerBlock
-                    controlsFlow
-                    generateButton
+                    conditionsSection
+                    if candidate == nil {
+                        generateButton
+                    }
                     if let equipmentNotice {
                         equipmentNoticeCard(equipmentNotice)
                     }
@@ -107,6 +163,46 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)
         }
+        // Every generation-affecting input participates in this fingerprint.
+        // Any change invalidates the old candidate; regeneration stays explicit.
+        .onChange(of: generationInputs) { _, _ in invalidateStaleCandidate() }
+    }
+
+    /// Clears a stale candidate (and any save/equipment state) when the
+    /// conditions change after generation. No-op when nothing is shown.
+    private func invalidateStaleCandidate() {
+        guard WeeklyPlanInputChange.invalidatesCandidate(
+            hasCandidate: candidate != nil,
+            saveState: saveState,
+            hasEquipmentNotice: equipmentNotice != nil
+        ) else { return }
+        candidate = nil
+        saveState = .idle
+        equipmentNotice = nil
+        conditionsExpanded = true
+    }
+
+    // MARK: - Conditions (state-dependent hierarchy)
+
+    /// Before a candidate exists the conditions are the primary task and stay
+    /// expanded. Once a candidate exists they collapse into a "生成条件"
+    /// disclosure so the generated candidate becomes the dominant content;
+    /// tapping it back open lets the user change conditions (which invalidates
+    /// the stale candidate above).
+    @ViewBuilder
+    private var conditionsSection: some View {
+        if candidate == nil {
+            controlsFlow
+        } else {
+            DisclosureGroup(isExpanded: $conditionsExpanded) {
+                controlsFlow
+                    .padding(.top, 8)
+            } label: {
+                Label("生成条件", systemImage: "slider.horizontal.3")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .tint(.primary)
+        }
     }
 
     // MARK: - Header
@@ -114,7 +210,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     private var headerBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("週次プラン候補")
-                .font(.system(size: 28, weight: .bold))
+                .font(.title.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
             Text("条件を選び、使えるマシンに合わせた一週間を組み立てます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -270,6 +367,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             // Regenerating clears any prior save so the new candidate is
             // inert again until the user confirms.
             saveState = .idle
+            // Candidate is now the primary content: collapse the conditions
+            // so review/save dominates the screen.
+            conditionsExpanded = false
         case .activeGymHasNoAvailableEquipment:
             candidate = nil
             saveState = .idle
@@ -594,6 +694,20 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             : [Color(red: 0.93, green: 0.96, blue: 1.00),
                Color(red: 0.99, green: 0.96, blue: 1.00)]
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+/// Decides whether a change to a generation-affecting input must invalidate a
+/// previously shown weekly-plan candidate. Extracted so the "stale candidate
+/// cannot survive an input change" contract is unit-testable without driving
+/// the SwiftUI view (the view calls this directly). Pure.
+enum WeeklyPlanInputChange {
+    static func invalidatesCandidate(
+        hasCandidate: Bool,
+        saveState: WeeklyPlanSaveState,
+        hasEquipmentNotice: Bool
+    ) -> Bool {
+        hasCandidate || saveState != .idle || hasEquipmentNotice
     }
 }
 

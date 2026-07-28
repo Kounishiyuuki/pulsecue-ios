@@ -16,6 +16,20 @@
 
 import SwiftUI
 
+/// Presentation decisions for the Form Guide's "3D first" composition.
+/// Pure and top-level so the fallback/discoverability rules are unit-testable
+/// without constructing the SwiftUI view or a RealityKit scene.
+enum FormGuidePresentation {
+    /// Whether the text guide should start expanded. When there is no 3D demo
+    /// to lead with, the text is the only instruction, so it opens immediately
+    /// instead of hiding behind a collapsed disclosure. When a 3D demo exists,
+    /// the text stays collapsed to keep the calm "3D first" one-purpose screen
+    /// (it is auto-expanded at runtime only if the scene fails to render).
+    static func instructionsInitiallyExpanded(hasMotionProfile: Bool) -> Bool {
+        !hasMotionProfile
+    }
+}
+
 struct ExerciseGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -36,12 +50,19 @@ struct ExerciseGuideView: View {
     ) {
         self.exerciseId = exerciseId
         self.debugStaticProgress = debugStaticProgress
-        _instructionsExpanded = State(initialValue: debugInstructionsExpanded)
+        let noThreeD = ExerciseMotionLibrary.profile(for: exerciseId) == nil
+        _instructionsExpanded = State(
+            initialValue: debugInstructionsExpanded
+                || FormGuidePresentation.instructionsInitiallyExpanded(hasMotionProfile: !noThreeD)
+        )
     }
 #else
     init(exerciseId: ExerciseID) {
         self.exerciseId = exerciseId
-        _instructionsExpanded = State(initialValue: false)
+        let hasThreeD = ExerciseMotionLibrary.profile(for: exerciseId) != nil
+        _instructionsExpanded = State(
+            initialValue: FormGuidePresentation.instructionsInitiallyExpanded(hasMotionProfile: hasThreeD)
+        )
     }
 #endif
 
@@ -84,7 +105,13 @@ struct ExerciseGuideView: View {
                     Guide3DSection(
                         profile: motionProfile,
                         reduceMotion: reduceMotion,
-                        staticProgress: visualQAStaticProgress
+                        staticProgress: visualQAStaticProgress,
+                        onSceneFailedChange: { failed in
+                            // When the 3D demo can't render, the text guide is
+                            // the only usable instruction — surface it at once
+                            // instead of leaving it collapsed.
+                            if failed { instructionsExpanded = true }
+                        }
                     )
                 }
 
@@ -176,7 +203,7 @@ struct ExerciseGuideView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(Color.accentColor))
+                        .background(Circle().fill(AppTheme.accentFilled))
                         .accessibilityHidden(true)
                     Text(item)
                         .font(.body)
@@ -242,12 +269,21 @@ struct ExerciseGuideView: View {
 private struct Guide3DSection: View {
     let profile: ExerciseMotionProfile
     let reduceMotion: Bool
+    /// Reports the 3D scene's failure state to the parent so it can reveal the
+    /// text guide when the demo cannot render. Called on appear and on change.
+    let onSceneFailedChange: (Bool) -> Void
     @Environment(\.accessibilityReduceMotion) private var envReduceMotion
     @StateObject private var controller: Exercise3DSceneController
 
-    init(profile: ExerciseMotionProfile, reduceMotion: Bool, staticProgress: Float? = nil) {
+    init(
+        profile: ExerciseMotionProfile,
+        reduceMotion: Bool,
+        staticProgress: Float? = nil,
+        onSceneFailedChange: @escaping (Bool) -> Void = { _ in }
+    ) {
         self.profile = profile
         self.reduceMotion = reduceMotion
+        self.onSceneFailedChange = onSceneFailedChange
         _controller = StateObject(
             wrappedValue: Exercise3DSceneController(
                 profile: profile, reduceMotion: reduceMotion, staticProgress: staticProgress
@@ -268,6 +304,10 @@ private struct Guide3DSection: View {
         .onChange(of: envReduceMotion) { _, newValue in
             controller.setReduceMotion(newValue)
         }
+        .onChange(of: controller.sceneFailed) { _, failed in
+            onSceneFailedChange(failed)
+        }
+        .onAppear { onSceneFailedChange(controller.sceneFailed) }
         .onDisappear { controller.teardown() }
     }
 

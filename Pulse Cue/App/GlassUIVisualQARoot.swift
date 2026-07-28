@@ -8,6 +8,7 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case machineSelection = "machine-selection"
     case planner
     case previewSingle = "preview-single"
+    case previewWeeklyBeforeGeneration = "preview-weekly-before-generation"
     case previewWeekly = "preview-weekly"
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
@@ -64,9 +65,12 @@ struct GlassUIVisualQARoot: View {
                 TargetBodyPartSelectionView(gym: gym)
             case .previewSingle:
                 GeneratedPlanPreviewView(gym: gym, bodyPart: .chest)
+            case .previewWeeklyBeforeGeneration:
+                WeeklyTrainingPlanCandidateReviewView()
             case .previewWeekly:
                 WeeklyTrainingPlanCandidateReviewView(
-                    debugCandidate: GlassUIVisualQAFixture.weeklyCandidate
+                    debugCandidate: GlassUIVisualQAFixture.weeklyCandidate,
+                    debugRequest: GlassUIVisualQAFixture.weeklyRequest
                 )
             case .historyPopulated:
                 HistoryView()
@@ -136,14 +140,19 @@ enum GlassUIVisualQAFixture {
         "treadmill",
     ]
 
+    /// The request that produces `weeklyCandidate`. Kept as the single source
+    /// of truth so the DEBUG review screen can seed its input controls to match
+    /// the shown candidate (no input/candidate mismatch).
+    static let weeklyRequest = TrainingPlanGenerationRequest(
+        goal: .hypertrophy,
+        daysPerWeek: 3,
+        targetBodyParts: [.chest, .back, .legs],
+        experienceLevel: .intermediate,
+        preferredSplit: .upperLower
+    )
+
     static let weeklyCandidate = RuleBasedWeeklyPlanGenerator.generate(
-        request: TrainingPlanGenerationRequest(
-            goal: .hypertrophy,
-            daysPerWeek: 3,
-            targetBodyParts: [.chest, .back, .legs],
-            experienceLevel: .intermediate,
-            preferredSplit: .upperLower
-        )
+        request: weeklyRequest
     )
 
     @MainActor
