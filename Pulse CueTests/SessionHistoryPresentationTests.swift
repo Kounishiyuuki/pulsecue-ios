@@ -80,6 +80,34 @@ struct SessionHistoryPresentationTests {
         #expect(groups[1].title == SessionHistoryPresentation.orphanedTitle)
     }
 
+    @Test func orphanOrderingIsDeterministicAcrossFetchOrdersAndSetIndexTies() {
+        let sessionId = UUID()
+        let earlierStepId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let laterStepId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let earlierResultId = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+        let laterResultId = UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
+        let later = StepResult(
+            id: laterResultId, sessionId: sessionId, stepId: laterStepId,
+            setIndex: 0, done: true, actualReps: 8
+        )
+        let earlier = StepResult(
+            id: earlierResultId, sessionId: sessionId, stepId: earlierStepId,
+            setIndex: 0, done: true, actualReps: 10
+        )
+
+        let forward = SessionHistoryPresentation.groupedResults(
+            results: [later, earlier], steps: []
+        )
+        let reversed = SessionHistoryPresentation.groupedResults(
+            results: [earlier, later], steps: []
+        )
+
+        #expect(forward.map(\.id) == [earlierStepId, laterStepId])
+        #expect(reversed.map(\.id) == [earlierStepId, laterStepId])
+        #expect(forward.flatMap(\.results).map(\.actualReps) == [10, 8])
+        #expect(reversed.flatMap(\.results).map(\.actualReps) == [10, 8])
+    }
+
     // MARK: - Real deletion semantics (integration)
 
     @Test func stepDeletionKeepsHistoricalResultVisible() throws {

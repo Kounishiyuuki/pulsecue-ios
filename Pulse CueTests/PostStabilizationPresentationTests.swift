@@ -24,7 +24,44 @@ struct FormGuidePresentationTests {
     }
 }
 
+@MainActor
 struct WeeklyPlanInputChangeTests {
+
+    private let baseline = WeeklyPlanGenerationInputs.production(
+        goal: .consistency,
+        experience: .beginner,
+        split: .fullBody,
+        daysPerWeek: 3,
+        bodyParts: []
+    )
+
+    @Test(arguments: [
+        WeeklyPlanGenerationInputs.production(
+            goal: .hypertrophy, experience: .beginner, split: .fullBody,
+            daysPerWeek: 3, bodyParts: []
+        ),
+        WeeklyPlanGenerationInputs.production(
+            goal: .consistency, experience: .intermediate, split: .fullBody,
+            daysPerWeek: 3, bodyParts: []
+        ),
+        WeeklyPlanGenerationInputs.production(
+            goal: .consistency, experience: .beginner, split: .upperLower,
+            daysPerWeek: 3, bodyParts: []
+        ),
+        WeeklyPlanGenerationInputs.production(
+            goal: .consistency, experience: .beginner, split: .fullBody,
+            daysPerWeek: 4, bodyParts: []
+        ),
+        WeeklyPlanGenerationInputs.production(
+            goal: .consistency, experience: .beginner, split: .fullBody,
+            daysPerWeek: 3, bodyParts: [.chest]
+        ),
+    ])
+    func everyProductionGenerationInputChangesTheFingerprint(
+        changed: WeeklyPlanGenerationInputs
+    ) {
+        #expect(changed != baseline)
+    }
 
     @Test func noCandidateNothingToInvalidate() {
         #expect(

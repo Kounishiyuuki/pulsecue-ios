@@ -203,7 +203,7 @@ struct ExerciseGuideView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(Color.accentColor))
+                        .background(Circle().fill(AppTheme.accentFilled))
                         .accessibilityHidden(true)
                     Text(item)
                         .font(.body)

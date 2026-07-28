@@ -8,6 +8,7 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case machineSelection = "machine-selection"
     case planner
     case previewSingle = "preview-single"
+    case previewWeeklyBeforeGeneration = "preview-weekly-before-generation"
     case previewWeekly = "preview-weekly"
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
@@ -64,6 +65,8 @@ struct GlassUIVisualQARoot: View {
                 TargetBodyPartSelectionView(gym: gym)
             case .previewSingle:
                 GeneratedPlanPreviewView(gym: gym, bodyPart: .chest)
+            case .previewWeeklyBeforeGeneration:
+                WeeklyTrainingPlanCandidateReviewView()
             case .previewWeekly:
                 WeeklyTrainingPlanCandidateReviewView(
                     debugCandidate: GlassUIVisualQAFixture.weeklyCandidate,

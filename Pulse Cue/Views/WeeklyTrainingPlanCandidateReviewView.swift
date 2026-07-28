@@ -22,6 +22,33 @@
 import SwiftUI
 import SwiftData
 
+/// The complete set of inputs that can make a generated weekly candidate stale.
+/// Watching this single value keeps production invalidation wiring exhaustive
+/// without duplicating the same callback across five independent controls.
+struct WeeklyPlanGenerationInputs: Equatable {
+    let goal: TrainingGoal
+    let experience: ExperienceLevel
+    let split: TrainingSplit
+    let daysPerWeek: Int
+    let bodyParts: Set<BodyPart>
+
+    static func production(
+        goal: TrainingGoal,
+        experience: ExperienceLevel,
+        split: TrainingSplit,
+        daysPerWeek: Int,
+        bodyParts: Set<BodyPart>
+    ) -> Self {
+        Self(
+            goal: goal,
+            experience: experience,
+            split: split,
+            daysPerWeek: daysPerWeek,
+            bodyParts: bodyParts
+        )
+    }
+}
+
 struct WeeklyTrainingPlanCandidateReviewView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -84,6 +111,16 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         )
     }
 
+    private var generationInputs: WeeklyPlanGenerationInputs {
+        .production(
+            goal: goal,
+            experience: experience,
+            split: split,
+            daysPerWeek: daysPerWeek,
+            bodyParts: selectedBodyParts
+        )
+    }
+
     /// Number of routines a save would create — one per non-empty session.
     /// Derived purely from the candidate; it does NOT build any
     /// `Routine`/`Step` before the user explicitly saves.
@@ -98,7 +135,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     headerBlock
                     conditionsSection
-                    generateButton
+                    if candidate == nil {
+                        generateButton
+                    }
                     if let equipmentNotice {
                         equipmentNoticeCard(equipmentNotice)
                     }
@@ -124,14 +163,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)
         }
-        // A change to any generation-affecting input invalidates a previously
-        // generated candidate, so what's shown can never disagree with the
-        // conditions a save would use. The user regenerates explicitly.
-        .onChange(of: goal) { _, _ in invalidateStaleCandidate() }
-        .onChange(of: experience) { _, _ in invalidateStaleCandidate() }
-        .onChange(of: split) { _, _ in invalidateStaleCandidate() }
-        .onChange(of: daysPerWeek) { _, _ in invalidateStaleCandidate() }
-        .onChange(of: selectedBodyParts) { _, _ in invalidateStaleCandidate() }
+        // Every generation-affecting input participates in this fingerprint.
+        // Any change invalidates the old candidate; regeneration stays explicit.
+        .onChange(of: generationInputs) { _, _ in invalidateStaleCandidate() }
     }
 
     /// Clears a stale candidate (and any save/equipment state) when the

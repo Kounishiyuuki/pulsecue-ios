@@ -24,25 +24,43 @@ enum SessionHistoryPresentation {
 
     /// Groups every persisted `StepResult` by its historical `stepId`.
     /// Resolvable steps come first in `Step.order`; orphaned groups follow in
-    /// stable first-appearance order. Nothing is ever dropped.
+    /// deterministic persisted-data order. Nothing is ever dropped.
     static func groupedResults(results: [StepResult], steps: [Step]) -> [ExerciseResultGroup] {
         guard !results.isEmpty else { return [] }
 
         var order: [UUID] = []
         var seen = Set<UUID>()
-        // Resolvable steps first, honouring the routine's step order.
-        for step in steps where results.contains(where: { $0.stepId == step.id }) {
+        // Resolvable steps first, honouring Step.order and using the persisted
+        // Step UUID only as a deterministic tie-break for duplicate order values.
+        let orderedSteps = steps.sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        for step in orderedSteps where results.contains(where: { $0.stepId == step.id }) {
             if seen.insert(step.id).inserted { order.append(step.id) }
         }
-        // Then orphaned stepIds, in the order they first appear in results.
-        for result in results where !seen.contains(result.stepId) {
-            if seen.insert(result.stepId).inserted { order.append(result.stepId) }
+        // Orphans have no remaining Step.order. Sort by their lowest persisted
+        // setIndex, then historical stepId, so database fetch order cannot
+        // affect presentation and no invented metadata is implied.
+        let orphanedStepIDs = Set(results.map(\.stepId))
+            .subtracting(seen)
+            .sorted { lhs, rhs in
+                let lhsSet = results.lazy.filter { $0.stepId == lhs }.map(\.setIndex).min() ?? 0
+                let rhsSet = results.lazy.filter { $0.stepId == rhs }.map(\.setIndex).min() ?? 0
+                if lhsSet != rhsSet { return lhsSet < rhsSet }
+                return lhs.uuidString < rhs.uuidString
+            }
+        for stepId in orphanedStepIDs {
+            if seen.insert(stepId).inserted { order.append(stepId) }
         }
 
         return order.map { stepId in
             let groupResults = results
                 .filter { $0.stepId == stepId }
-                .sorted { $0.setIndex < $1.setIndex }
+                .sorted {
+                    if $0.setIndex != $1.setIndex { return $0.setIndex < $1.setIndex }
+                    return $0.id.uuidString < $1.id.uuidString
+                }
             if let step = steps.first(where: { $0.id == stepId }) {
                 return ExerciseResultGroup(id: stepId, title: step.title, isOrphaned: false, results: groupResults)
             } else {
