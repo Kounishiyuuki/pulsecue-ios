@@ -37,9 +37,29 @@ struct LoginView: View {
     @Environment(\.dismiss) private var dismiss
 
     /// Google sign-in configuration read from Info.plist. While this holds the
-    /// documented placeholder, `isConfigured` is false and the Google button
-    /// stays disabled.
+    /// documented placeholder, `isConfigured` is false.
     private let googleConfig = GoogleSignInConfig.fromMainBundle()
+
+    /// Compile-time build flavour, surfaced as a value so the presentation
+    /// decision below stays unit-testable without `#if` in the test.
+    private var isDebugBuild: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Whether to render the Google control at all. Release users never see an
+    /// unavailable / "設定準備中" control — the button appears only when a real
+    /// client is configured. Debug keeps the unavailable state visible for
+    /// development. Centralised so no other view re-derives this.
+    private var showsGoogleSignIn: Bool {
+        GoogleSignInPresentation.showsControl(
+            isConfigured: googleConfig.isConfigured,
+            isDebugBuild: isDebugBuild
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -107,16 +127,21 @@ struct LoginView: View {
             }
             .buttonStyle(PulseSecondaryButtonStyle())
 
-            Button("Googleで続ける") {
-                startGoogleSignIn()
-            }
-            .buttonStyle(PulseSecondaryButtonStyle())
-            .disabled(!googleConfig.isConfigured)
+            // Shown only where the control is meaningful (see
+            // `showsGoogleSignIn`): a configured client, or any DEBUG build.
+            // Release with the placeholder config shows nothing here.
+            if showsGoogleSignIn {
+                Button("Googleで続ける") {
+                    startGoogleSignIn()
+                }
+                .buttonStyle(PulseSecondaryButtonStyle())
+                .disabled(!googleConfig.isConfigured)
 
-            if !googleConfig.isConfigured {
-                Label("Googleログインは設定準備中です", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if !googleConfig.isConfigured {
+                    Label("Googleログインは設定準備中です", systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
@@ -206,6 +231,18 @@ struct LoginView: View {
     private func presentGoogleSignIn() {}
 #endif
 
+}
+
+/// Centralised decision for whether the Google Sign-In control is presented.
+///
+/// Product rule: Release users must never see an unavailable / "設定準備中"
+/// Google control — it appears only when a real client is configured. DEBUG
+/// keeps the (explicitly unavailable) state visible for development. Pure and
+/// top-level so both branches are unit-testable without `#if` in the test.
+enum GoogleSignInPresentation {
+    static func showsControl(isConfigured: Bool, isDebugBuild: Bool) -> Bool {
+        isDebugBuild || isConfigured
+    }
 }
 
 #if DEBUG
