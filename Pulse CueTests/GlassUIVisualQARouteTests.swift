@@ -16,6 +16,7 @@ struct GlassUIVisualQARouteTests {
 
     @Test func everyRepresentativeRouteParsesDeterministically() {
         #expect(Set(GlassUIVisualQARoute.allCases.map(\.rawValue)) == [
+            "home",
             "mygym-active",
             "machine-selection",
             "planner",
@@ -99,6 +100,33 @@ struct GlassUIVisualQARouteTests {
         #expect(candidate.daysPerWeek == 3)
         #expect(candidate.sessions.count == 3)
         #expect(!candidate.isEmpty)
+    }
+
+    /// The Home screenshot route renders `TodayView` over this fixture. It must
+    /// present a polished, active gym with machines — never the UI-test
+    /// "UIテストジム" empty-machine state that the review rejected.
+    @Test func homeScreenshotFixtureUsesPolishedActiveGymWithMachines() throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seed(into: context)
+
+        let gyms = try context.fetch(FetchDescriptor<Gym>())
+        #expect(gyms.count == 1)
+        let gym = try #require(gyms.first)
+        #expect(gym.name == "Pulse Fitness 渋谷")
+        #expect(gym.name != "UIテストジム")
+        #expect(gym.isActive)
+
+        let gymID = gym.id
+        let machines = try context.fetch(FetchDescriptor<GymMachine>(
+            predicate: #Predicate { $0.gymId == gymID }
+        ))
+        #expect(machines.count == GlassUIVisualQAFixture.machineIDs.count)
+        #expect(machines.count > 0)
     }
 
     /// Drives a RunnerViewModel exactly like the DEBUG screenshot host so the

@@ -17,7 +17,7 @@ PROJECT="Pulse Cue.xcodeproj"
 SCHEME="Pulse Cue"
 BUNDLE_ID="com.kounishiyuuki.pulsecue"
 ROUTE_ARG="-pulsecue-debug-glass-ui-route"
-HOME_ARG="-pulsecue-ui-test-custom-machine-flow"
+SCREENSHOT_DEFAULTS_DOMAIN="com.pulsecue.screenshot-visualqa"
 
 DEVICE=""
 OUTPUT="build/app-store-screenshots"
@@ -49,6 +49,15 @@ fi
 [ -n "$DEVICE" ] || fail "no --device UDID and no booted simulator"
 xcrun simctl bootstatus "$DEVICE" -b >/dev/null 2>&1 || xcrun simctl boot "$DEVICE" 2>/dev/null
 info "Device: $DEVICE"
+
+# Cleanup runs on BOTH success and failure: restore the status bar, stop the
+# app, and remove the throwaway screenshot preferences domain (best-effort).
+cleanup() {
+  xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl status_bar "$DEVICE" clear >/dev/null 2>&1 || true
+  xcrun simctl spawn "$DEVICE" defaults delete "$SCREENSHOT_DEFAULTS_DOMAIN" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 # 3. Build + install Debug
 info "Building Debug app…"
@@ -86,7 +95,7 @@ capture() {
 }
 
 info "Capturing…"
-capture "01-home.png"           "$HOME_ARG"
+capture "01-home.png"           "$ROUTE_ARG" "home"
 capture "02-weekly-plan.png"    "$ROUTE_ARG" "preview-weekly"
 capture "03-runner-active.png"  "$ROUTE_ARG" "runner-active"
 capture "04-runner-rest.png"    "$ROUTE_ARG" "runner-rest"
@@ -94,8 +103,6 @@ capture "05-history-detail.png" "$ROUTE_ARG" "history-detail"
 capture "06-my-gym.png"         "$ROUTE_ARG" "mygym-active"
 capture "07-form-guide.png"     "$ROUTE_ARG" "form-guide"
 
-xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" >/dev/null 2>&1 || true
-xcrun simctl status_bar "$DEVICE" clear >/dev/null 2>&1 || true
-
+# Status-bar/pref cleanup happens in the EXIT trap (success or failure).
 info "Done. Output: $OUTPUT"
 echo "Review each image manually before use (see Docs/app-store-screenshot-plan.md checklist)."

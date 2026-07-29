@@ -4,6 +4,7 @@ import SwiftUI
 
 /// DEBUG-only launch destinations used for deterministic visual QA.
 enum GlassUIVisualQARoute: String, CaseIterable {
+    case home
     case myGymActive = "mygym-active"
     case machineSelection = "machine-selection"
     case planner
@@ -59,6 +60,8 @@ struct GlassUIVisualQARoot: View {
     private func destination(gym: Gym) -> some View {
         NavigationStack {
             switch route {
+            case .home:
+                ScreenshotHomeHost(modelContext: modelContext)
             case .myGymActive:
                 MyGymHomeView()
             case .machineSelection:
@@ -120,6 +123,19 @@ struct GlassUIVisualQARoot: View {
 /// context; settings use an ephemeral, throwaway UserDefaults suite so the
 /// user's real preferences are never read or written. `start()` is
 /// authoritative, so the shown state does not depend on any restored session.
+/// Fixed, throwaway UserDefaults suite for screenshot hosts. A *fixed* name
+/// (not per-UUID) is reused across launches, so it can never accumulate an
+/// unbounded number of orphan preference files. It is never `.standard`, so
+/// the user's real preferences are untouched. The capture script also clears
+/// this domain after a run (see Docs/app-store-screenshot-plan.md).
+private let screenshotDefaultsSuite = "com.pulsecue.screenshot-visualqa"
+
+private func makeScreenshotSettings() -> SettingsStore {
+    let store = SettingsStore(defaults: UserDefaults(suiteName: screenshotDefaultsSuite)!)
+    store.notificationsEnabled = false
+    return store
+}
+
 private struct ScreenshotRunnerHost: View {
     enum Target { case exercise, rest }
 
@@ -132,11 +148,7 @@ private struct ScreenshotRunnerHost: View {
     init(modelContext: ModelContext, target: Target) {
         self.modelContext = modelContext
         self.target = target
-        let ephemeral = SettingsStore(
-            defaults: UserDefaults(suiteName: "screenshot.runner.\(UUID().uuidString)")!
-        )
-        // No rest notifications so nothing is scheduled during capture.
-        ephemeral.notificationsEnabled = false
+        let ephemeral = makeScreenshotSettings()
         _settings = StateObject(wrappedValue: ephemeral)
         _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: ephemeral))
     }
@@ -161,6 +173,30 @@ private struct ScreenshotRunnerHost: View {
                     runnerViewModel.handle(action: .complete)
                 }
             }
+    }
+}
+
+/// DEBUG-only host for the App Store **Home** screenshot. Renders the real
+/// production `TodayView` over the seeded fixture (active gym
+/// "Pulse Fitness 渋谷" with machines), so the image shows a polished,
+/// truthful current-main Home — never the UI-test "UIテストジム" empty state.
+/// No production Home logic is changed; only presentation env is provided.
+private struct ScreenshotHomeHost: View {
+    let modelContext: ModelContext
+    @StateObject private var settings: SettingsStore
+    @StateObject private var runnerViewModel: RunnerViewModel
+
+    init(modelContext: ModelContext) {
+        self.modelContext = modelContext
+        let ephemeral = makeScreenshotSettings()
+        _settings = StateObject(wrappedValue: ephemeral)
+        _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: ephemeral))
+    }
+
+    var body: some View {
+        TodayView(onResumeRunner: {})
+            .environmentObject(runnerViewModel)
+            .environmentObject(settings)
     }
 }
 
