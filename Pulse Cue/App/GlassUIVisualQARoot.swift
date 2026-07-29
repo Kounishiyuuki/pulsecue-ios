@@ -12,6 +12,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case previewWeekly = "preview-weekly"
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
+    case runnerActive = "runner-active"
+    case runnerRest = "runner-rest"
     case exerciseLibrary = "exercise-library"
     case formGuide = "form-guide"
     case formGuideInstructionsExpanded = "form-guide-instructions-expanded"
@@ -85,6 +87,10 @@ struct GlassUIVisualQARoot: View {
                         systemImage: "exclamationmark.triangle"
                     )
                 }
+            case .runnerActive:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .exercise)
+            case .runnerRest:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .rest)
             case .exerciseLibrary:
                 ExerciseLibraryView()
             case .formGuide:
@@ -107,11 +113,64 @@ struct GlassUIVisualQARoot: View {
     }
 }
 
+/// DEBUG-only host that drives a `RunnerViewModel` into a deterministic
+/// ACTIVE (exercise) or REST state for App Store screenshots, using the seeded
+/// fixture routine. It uses ONLY the existing public Runner API — it does not
+/// change the Runner state machine. Storage is the isolated in-memory QA
+/// context; settings use an ephemeral, throwaway UserDefaults suite so the
+/// user's real preferences are never read or written. `start()` is
+/// authoritative, so the shown state does not depend on any restored session.
+private struct ScreenshotRunnerHost: View {
+    enum Target { case exercise, rest }
+
+    let modelContext: ModelContext
+    let target: Target
+    @StateObject private var settings: SettingsStore
+    @StateObject private var runnerViewModel: RunnerViewModel
+    @State private var started = false
+
+    init(modelContext: ModelContext, target: Target) {
+        self.modelContext = modelContext
+        self.target = target
+        let ephemeral = SettingsStore(
+            defaults: UserDefaults(suiteName: "screenshot.runner.\(UUID().uuidString)")!
+        )
+        // No rest notifications so nothing is scheduled during capture.
+        ephemeral.notificationsEnabled = false
+        _settings = StateObject(wrappedValue: ephemeral)
+        _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: ephemeral))
+    }
+
+    var body: some View {
+        RunnerView()
+            .environmentObject(runnerViewModel)
+            .environmentObject(settings)
+            .task {
+                guard !started else { return }
+                started = true
+                runnerViewModel.configure(modelContext: modelContext)
+                let routineID = GlassUIVisualQAFixture.routineID
+                let descriptor = FetchDescriptor<Routine>(
+                    predicate: #Predicate { $0.id == routineID }
+                )
+                guard let routine = try? modelContext.fetch(descriptor).first else { return }
+                // ACTIVE = exercise phase (static, no ticking timer). REST =
+                // one Complete to enter the rest hero. Existing public API only.
+                runnerViewModel.start(routine: routine)
+                if target == .rest {
+                    runnerViewModel.handle(action: .complete)
+                }
+            }
+    }
+}
+
 enum GlassUIVisualQAFixture {
     static let gymID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54E10")!
     static let featuredSessionID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB55001")!
     private static let timestamp = Date(timeIntervalSince1970: 1_735_689_600)
-    private static let routineID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54001")!
+    /// Exposed (not private) so the DEBUG screenshot Runner host can start the
+    /// seeded routine deterministically.
+    static let routineID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54001")!
     private static let stepIDs = [
         UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54101")!,
         UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54102")!,
