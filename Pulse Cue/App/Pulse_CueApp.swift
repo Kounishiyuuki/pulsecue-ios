@@ -22,11 +22,13 @@ struct Pulse_CueApp: App {
 
     var sharedModelContainer: ModelContainer = {
         // In-memory (never opening the user's persistent V4 store) for the
-        // custom-machine UI fixture and, under DEBUG only, the isolated
-        // Form Guide route.
-        var inMemory = ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
+        // deterministic UI-test / QA fixtures. These are ALL DEBUG-only launch
+        // arguments: Release never honours them, so a production build always
+        // opens the real persistent store regardless of any argument.
+        var inMemory = false
         #if DEBUG
-        if PulseCueUITestSupport.isFormGuideDebugRoute()
+        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
+            || PulseCueUITestSupport.isFormGuideDebugRoute()
             || PulseCueUITestSupport.requestedGlassUIRoute() != nil {
             inMemory = true
         }
@@ -115,11 +117,13 @@ enum PulseCueUITestSupport {
     static func shouldCompleteCustomMachineOnboarding(
         _ args: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
-        guard args.contains(customMachineFlowArgument) else { return false }
+        // DEBUG-only fixture: Release never skips onboarding via a launch
+        // argument, so a production build always shows the real first-run flow.
         #if DEBUG
+        guard args.contains(customMachineFlowArgument) else { return false }
         return requestedGlassUIRoute(args) == nil && !isFormGuideDebugRoute(args)
         #else
-        return true
+        return false
         #endif
     }
 
