@@ -24,6 +24,21 @@ warn() { printf '  \033[33mWARN\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
 hdr()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+FULL=0
+[ "${1:-}" = "--full" ] && FULL=1
+
+hdr "0. Prerequisites"
+# fail-closed: the secret and QA-gating scans rely on ripgrep. If it is missing
+# those scans cannot run, so we FAIL loudly rather than treat an empty (unrun)
+# result as a pass.
+HAVE_RG=1
+if command -v rg >/dev/null 2>&1; then
+  pass "ripgrep (rg) available"
+else
+  HAVE_RG=0
+  bad "ripgrep (rg) not installed — secret & QA-gating scans cannot run (fail-closed)"
+fi
+
 hdr "1. Project parses"
 if xcodebuild -list -project "$PROJECT" >/dev/null 2>&1; then
   pass "xcodebuild -list"
@@ -58,33 +73,41 @@ hdr "4. DEBUG QA fixtures are #if DEBUG gated in app source"
 # a file that also compiles it under DEBUG. Heuristic: flag any *.swift under
 # the app source that uses a fixture argument constant without a nearby #if
 # DEBUG in the same file.
-qa_leak=0
-while IFS= read -r sfile; do
-  if rg -q "customMachineFlowArgument|glassUIRouteArgument|formGuide3DArgument|requestedGlassUIRoute|isFormGuideDebugRoute" "$sfile"; then
-    if ! rg -q "#if DEBUG" "$sfile"; then
-      bad "QA fixture referenced without #if DEBUG in: $sfile"
-      qa_leak=1
+if [ "$HAVE_RG" -eq 0 ]; then
+  bad "QA-gating scan not run (ripgrep missing)"
+else
+  qa_leak=0
+  while IFS= read -r sfile; do
+    if rg -q "customMachineFlowArgument|glassUIRouteArgument|formGuide3DArgument|requestedGlassUIRoute|isFormGuideDebugRoute" "$sfile"; then
+      if ! rg -q "#if DEBUG" "$sfile"; then
+        bad "QA fixture referenced without #if DEBUG in: $sfile"
+        qa_leak=1
+      fi
     fi
-  fi
-done < <(git ls-files "$APP_SRC" | rg '\.swift$')
-[ "$qa_leak" -eq 0 ] && pass "no ungated QA fixture usage in app source"
+  done < <(git ls-files "$APP_SRC" | rg '\.swift$')
+  [ "$qa_leak" -eq 0 ] && pass "no ungated QA fixture usage in app source"
+fi
 
 hdr "5. Secret / endpoint scan (application-owned, excluding DEBUG + tests + docs)"
 # Application source only. Loopback + fake tokens live in #if DEBUG blocks and
 # are excluded by design; a hit here is a real finding.
-SECRET_HITS=$(git ls-files "$APP_SRC" | rg '\.(swift|plist|entitlements|xcprivacy)$' \
-  | tr '\n' '\0' \
-  | xargs -0 rg -n --no-heading \
-      -e 'sk-[A-Za-z0-9]{20,}' \
-      -e 'AIza[0-9A-Za-z_-]{30,}' \
-      -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
-      -e '[a-z0-9]+\.workers\.dev' \
-      2>/dev/null | rg -v 'YOUR_IOS_CLIENT_ID' || true)
-if [ -z "$SECRET_HITS" ]; then
-  pass "no hardcoded keys / private keys / workers.dev endpoints"
+if [ "$HAVE_RG" -eq 0 ]; then
+  bad "secret/endpoint scan not run (ripgrep missing)"
 else
-  bad "possible secret/endpoint (inspect manually, do not paste):"
-  echo "$SECRET_HITS" | sed 's/=.*/= <redacted>/' | head -5
+  SECRET_HITS=$(git ls-files "$APP_SRC" | rg '\.(swift|plist|entitlements|xcprivacy)$' \
+    | tr '\n' '\0' \
+    | xargs -0 rg -n --no-heading \
+        -e 'sk-[A-Za-z0-9]{20,}' \
+        -e 'AIza[0-9A-Za-z_-]{30,}' \
+        -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
+        -e '[a-z0-9]+\.workers\.dev' \
+        2>/dev/null | rg -v 'YOUR_IOS_CLIENT_ID' || true)
+  if [ -z "$SECRET_HITS" ]; then
+    pass "no hardcoded keys / private keys / workers.dev endpoints"
+  else
+    bad "possible secret/endpoint (inspect manually, do not paste):"
+    echo "$SECRET_HITS" | sed 's/=.*/= <redacted>/' | head -5
+  fi
 fi
 
 hdr "6. Working tree hygiene"
@@ -94,7 +117,7 @@ else
   bad "git diff --check reported issues"
 fi
 
-if [ "${1:-}" = "--full" ]; then
+if [ "$FULL" -eq 1 ]; then
   DEST="${PULSECUE_SIM_DEST:-platform=iOS Simulator,name=iPhone 16 Pro}"
   hdr "7. Debug build"
   if xcodebuild build -project "$PROJECT" -scheme "$SCHEME" \
@@ -116,7 +139,11 @@ fi
 
 hdr "Result"
 if [ "$fail" -eq 0 ]; then
-  printf '\033[32mAll release-readiness checks passed.\033[0m\n'
+  if [ "$FULL" -eq 1 ]; then
+    printf '\033[32mAll release-readiness checks passed.\033[0m\n'
+  else
+    printf '\033[32mStatic release-readiness checks passed. Build checks were skipped; run with --full for complete verification.\033[0m\n'
+  fi
   exit 0
 else
   printf '\033[31mOne or more checks failed — see FAIL lines above.\033[0m\n'
