@@ -104,6 +104,10 @@ struct ContentView: View {
 @MainActor
 private enum PulseCueUITestFixtureSeeder {
     static func seedIfNeeded(modelContext: ModelContext) {
+        // DEBUG-only: the custom-machine UI fixture seeds a throwaway gym into
+        // the in-memory store. Compiled out of Release so no launch argument
+        // can ever seed fixture data into a production build.
+        #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) else {
             return
         }
@@ -112,6 +116,7 @@ private enum PulseCueUITestFixtureSeeder {
         if repository.allGyms().isEmpty {
             _ = repository.createGym(name: "UIテストジム", makeActive: true)
         }
+        #endif
     }
 }
 
