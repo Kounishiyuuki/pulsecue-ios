@@ -14,7 +14,7 @@ PulseCue v1.0（Pre-API・ローカルファースト MVP）の提出準備監�
 
 TestFlight 配信・App Store 提出に対する**コード/設定側の技術的ブロッカーは検出されなかった**。残るのは主に **App Store Connect 上の手動作業**（メタデータ、スクリーンショット、App Privacy 回答、テスター設定）と **アーカイブ/署名/アップロードの実機作業**。
 
-このリリースは意図的に「ローカルファースト・実API/実認証なし」。Sign in with Apple のみ有効、Google Sign-In はプレースホルダで**無効**（ボタン非活性）。
+このリリースは意図的に「ローカルファースト・実API/実認証なし」。Sign in with Apple のみ有効、Google Sign-In はプレースホルダで**無効**。**Release UI では Google コントロールを表示しない**（未提供機能を出さない・「設定準備中」も非表示）。Debug では明示的な unavailable 状態を開発用に残す。
 
 ## 2. アプリ識別情報（検証済み）
 
@@ -53,7 +53,7 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 
 `Pulse Cue/Pulse_Cue.entitlements`:
 - **有効**: Sign in with Apple（`com.apple.developer.applesignin = [Default]`）→ `LoginView` の `SignInWithAppleButton` と一致。
-- **意図的に不在**: Push / iCloud・CloudKit / App Groups / Keychain sharing / Associated Domains / Background Modes（`UIBackgroundModes` は空配列）。
+- **意図的に不在**: Push / iCloud・CloudKit / App Groups / Keychain sharing / Associated Domains / Background Modes（空だった `UIBackgroundModes` は削除済み）。
 - **後で必要**: 実API/認証フェーズで Associated Domains 等が必要になる可能性（現フェーズ対象外）。
 - **外部ブロッカー**: Sign in with Apple の App ID capability 有効化は Apple Developer で設定要（署名時に自動処理される想定・**手動要**）。
 
@@ -91,7 +91,7 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 **非ブロッキング follow-up**
 - Google Sign-In の実クライアントID設定（プレースホルダのまま提出可・ボタンは無効表示）
 - レガシー `PulseCue/`（スペース無し）ディレクトリはビルドターゲット外の旧 scaffold（トラッキングされているが未コンパイル）。別PRでの削除を推奨。
-- `UIBackgroundModes` 空配列は削除しても良い（無害）。
+- （対応済み）空だった `UIBackgroundModes` は削除。
 
 ## 10. 関連ドキュメント
 
@@ -99,6 +99,10 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 - `Docs/device-qa-matrix.md` — 実機QAマトリクス（**未実施**フィールドあり）
 - `Docs/release-process.md` — アーカイブ/アップロード/ロールバック手順
 - `Docs/testflight-readiness-baseline.md` — PR #110 の基盤整備記録（重複回避のため本書は差分/現況に集中）
+- `Docs/app-store-listing-draft.md` — 掲載情報ドラフト＋製品クレーム監査
+- `Docs/app-store-privacy-answers.md` — App Privacy 回答ドラフト
+- `Docs/app-review-notes-draft.md` — 審査メモドラフト
+- `Docs/app-store-screenshot-plan.md` — スクリーンショット計画（既存DEBUGルート再利用）
 - `Scripts/verify-release-readiness.sh` — ローカル自動チェック（`--full` でビルドも実行）
 
 ## 11. 未検証（正直な明示）

@@ -711,7 +711,7 @@ struct SettingsView: View {
                             Text("ログイン・アカウント設定")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text("ゲストのまま使えます。Apple でサインインでき、Google は設定準備中です。")
+                            Text("ゲストのまま使えます。Apple でサインインすることもできます。データはこの端末内にのみ保存されます。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
