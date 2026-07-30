@@ -58,6 +58,40 @@ PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デ�
 - **Settings**: Settings root/認証導線/外観/オンボ再生/ローカルデータ文言=**未ルート（QAルート無し）**。Slice後続で検討。
 - **System states**: カメラ/位置の権限説明=**OS権限ダイアログで非決定的（撮影対象外）** / network unavailable=**現状専用UIの有無を要確認** / loading=ユーザー可視の恒常的ローディングは基本無し。
 
+## Slice 2: Runner 状態監査（本番の実挙動に基づく）
+
+依頼された5状態をリポジトリで監査。**存在しない/独立画面でないものは捏造せず omit**。
+
+| 依頼状態 | 本番に存在? | 判定 | 理由 |
+|---|---|---|---|
+| ACTIVE later set | ✅ | **新ルート追加** | exercise相を後半セットへ進めて撮影可（静的・決定的） |
+| paused | ❌ | **omit** | `RunnerAction` は complete/skip/extend/back のみ。**一時停止アクション/UIは存在しない** |
+| completion（完了サマリ） | ❌ | **omit** | 完了で `phase=.done`→`isRunning=false`→cover 自動 dismiss。**独立した完了サマリ画面は無い**。偽メトリクスは作らない |
+| session-finished 確認 | 部分 | **omit（独立撮影不可）** | 唯一の終了系UIは `.alert("セッションを終了しますか？…中断として保存")`（RunnerView内 @State・host注入不可）。iOS標準alertでデザイン価値低・本番View改変を避け omit |
+| resume existing session | ❌（非独立） | **omit** | `RunnerPresenter` が同じ active Runner を再提示するだけで、**runner-active と視覚的に同一**。独立画面なし |
+
+→ **Slice 2 の新ルートは `runner-active-later-set` の1件のみ**（他4は上記理由で omit）。
+
+### Slice 2 新ルート
+
+| route ID | 画面 | 状態 | 主目的 | 決定性 | fixture | 本番可視 | ファイル | 直接目視 | 視覚懸念 |
+|---|---|---|---|---|---|---|---|---|---|
+| runner-active-later-set | Runner ACTIVE | 2セット目(2/3) | 進行中の記録 | **完全決定的**（exercise相・timer非稼働） | 上半身プッシュ（start+complete×2） | ✅ | 06-runner/runner-active-later-set.png | **YES（本セッション）** | 良好。runner-active(1/3)と明確に区別 |
+
+### Runner 決定性分類（全Runnerルート）
+- `runner-active` = **完全決定的**（exercise相・静的）
+- `runner-active-later-set` = **完全決定的**（exercise相・2/3・静的）
+- `runner-rest` = **相は決定的・可視秒はライブ**（本番rest timer・bounded timing-dependent）
+
+### Runner 固有 UI 懸念（本PRでは未修正）
+- Runner 系は atmospheric 背景が深い青（light撮影でも濃色）。light/dark 一貫性は Slice 5 の dark 撮影で評価。
+- 主CTA「完了」がボトム action bar 中央で明確（primary CTA clarity 良好）。「セッション終了」は赤字tertiaryで destructive として適切に控えめ。
+- 下部（NEXT UP と action bar の間）に余白あり（calm 意図）。
+
+### 直接目視の記録（Slice 2）
+- 本セッションで直接目視: `runner-active-later-set`（1枚・新規）。既存 `runner-active` / `runner-rest` は再撮影・変更なし（Slice 1 で目視済み・本Sliceで挙動不変）。
+- **新規生成画像を全数直接目視。未確認を PASS 扱いしていない。**
+
 ## 撮影・コンタクトシート手順
 
 ```

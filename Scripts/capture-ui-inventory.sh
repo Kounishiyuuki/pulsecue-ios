@@ -88,6 +88,7 @@ ROUTES="
 05-planner|weekly-before-generation|preview-weekly-before-generation
 05-planner|weekly-candidate|preview-weekly
 06-runner|runner-active|runner-active
+06-runner|runner-active-later-set|runner-active-later-set
 06-runner|runner-rest|runner-rest
 07-history|history-populated|history-populated
 07-history|history-detail|history-detail

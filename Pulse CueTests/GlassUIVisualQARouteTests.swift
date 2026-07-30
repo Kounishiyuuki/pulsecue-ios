@@ -26,6 +26,7 @@ struct GlassUIVisualQARouteTests {
             "history-populated",
             "history-detail",
             "runner-active",
+            "runner-active-later-set",
             "runner-rest",
             "exercise-library",
             "form-guide",
@@ -165,6 +166,38 @@ struct GlassUIVisualQARouteTests {
         vm.handle(action: .complete)
         #expect(vm.phase == .rest)
         #expect(vm.isRunning)
+    }
+
+    /// LATER SET: two Completes (record set 1 → rest → finish rest) land on a
+    /// static exercise phase advanced past the first set — visually distinct
+    /// from `runner-active`. Uses only the public Runner API.
+    @Test func screenshotRunnerLaterSetIsDeterministicAndAdvanced() throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seed(into: context)
+        let routineID = GlassUIVisualQAFixture.routineID
+        let routine = try #require(
+            context.fetch(FetchDescriptor<Routine>(predicate: #Predicate { $0.id == routineID })).first
+        )
+
+        RunnerPersistence.clear()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.screenshot.later.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let vm = RunnerViewModel(settings: settings)
+        vm.configure(modelContext: context)
+
+        vm.start(routine: routine)
+        vm.handle(action: .complete)   // set 1 done → rest
+        vm.handle(action: .complete)   // finish rest → next set exercise
+
+        #expect(vm.phase == .exercise)
+        #expect(vm.isRunning)
+        // Advanced past the very first set (later set of same step, or next step).
+        #expect(vm.currentSetIndex >= 1 || vm.currentStepIndex >= 1)
     }
 }
 #endif

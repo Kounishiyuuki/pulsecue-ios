@@ -14,6 +14,7 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
     case runnerActive = "runner-active"
+    case runnerActiveLaterSet = "runner-active-later-set"
     case runnerRest = "runner-rest"
     case exerciseLibrary = "exercise-library"
     case formGuide = "form-guide"
@@ -92,6 +93,8 @@ struct GlassUIVisualQARoot: View {
                 }
             case .runnerActive:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .exercise)
+            case .runnerActiveLaterSet:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .laterSet)
             case .runnerRest:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .rest)
             case .exerciseLibrary:
@@ -137,7 +140,7 @@ private func makeScreenshotSettings() -> SettingsStore {
 }
 
 private struct ScreenshotRunnerHost: View {
-    enum Target { case exercise, rest }
+    enum Target { case exercise, rest, laterSet }
 
     let modelContext: ModelContext
     let target: Target
@@ -166,10 +169,19 @@ private struct ScreenshotRunnerHost: View {
                     predicate: #Predicate { $0.id == routineID }
                 )
                 guard let routine = try? modelContext.fetch(descriptor).first else { return }
-                // ACTIVE = exercise phase (static, no ticking timer). REST =
-                // one Complete to enter the rest hero. Existing public API only.
+                // Existing public API only — no state-machine change.
+                // ACTIVE first set = exercise phase (static, no ticking timer).
+                // REST = one Complete → rest hero. LATER SET = Complete (record
+                // set 1 → rest) then Complete (finish rest → set 2 exercise),
+                // yielding a static exercise phase advanced past the first set.
                 runnerViewModel.start(routine: routine)
-                if target == .rest {
+                switch target {
+                case .exercise:
+                    break
+                case .rest:
+                    runnerViewModel.handle(action: .complete)
+                case .laterSet:
+                    runnerViewModel.handle(action: .complete)
                     runnerViewModel.handle(action: .complete)
                 }
             }
