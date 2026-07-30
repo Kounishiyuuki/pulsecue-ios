@@ -2,11 +2,16 @@
 
 PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デザインレビュー/Stitch への入力とするための台帳。**本番UIは再設計しない**。撮影は `Scripts/capture-ui-inventory.sh`、コンタクトシートは `Scripts/build-ui-inventory-contact-sheet.py`。生成画像は `build/ui-inventory/`（`.gitignore` 済み・**commitしない**）。
 
-- 作成日: 2026-07-30 / 対象: `main`（PR #143 反映済み）
-- 撮影 sim: iPhone 17 Pro / iOS 26.5 / Portrait / @3x / light / 標準 Dynamic Type / クリーンステータスバー
-- 本書は**分割実装**の一部。**Slice 1（本セッション）= 既存ルートで撮れる 16 画面**。Runner追加状態/My Gym追加/Planner追加/Library追加/dark・narrow・全体コンタクトシートは Slice 2–5。
+- 作成日: 2026-07-30 / 対象: `main`（PR #143 反映済み）/ 完成: Slice 5
+- 撮影 sim（canonical・dark）: iPhone 17 Pro / iOS 26.5 / Portrait / @3x / 標準 Dynamic Type / クリーンステータスバー
+- 撮影 sim（narrow）: iPhone SE (3rd gen) / iOS 18.3 / @2x / 375pt幅（deployment target iOS 17.0 と互換）
+- **最終インベントリ = 35枚**（canonical 25 + dark 5 + narrow 5）/ 全数直接目視済み（Slice 5 のクリーン再撮影で再確認）。
+- 本書は**分割実装（Slice 1–5）**の完成台帳。Slice 1=撮影基盤+16画面 / Slice 2=Runner / Slice 3=My Gym・Machine / Slice 4=Planner・Library / **Slice 5=light/dark/narrow variant・最終監査・コンタクトシート**。
 
 判定: PASS=直接目視で問題なし / 注記=真実だが監査観点あり。
+
+> **外観アーキテクチャ（Slice 5 監査）**: アプリに**アプリ全体の外観設定・永続化はなく、全画面がシステム外観に追従**する。例外は **Runner のみ `.preferredColorScheme(.dark)` を強制**（`RunnerView.swift:73`）。したがって dark variant は非Runner画面でのみ意味があり、Runner の dark variant は light run と同一になるため除外した。
+> **narrow の OS caveat**: narrow は iPhone SE (iOS 18.3) で撮影。iOS 26 の Liquid Glass は効かず背景/サーフェスがフラットに見える。narrow variant は**幅レイアウト監査専用**（CTA到達性・truncation・コントロール収まり）であり、外観の視覚参照ではない。
 
 ---
 
@@ -184,15 +189,128 @@ PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デ�
 - 撮影後の監査で `planner-weekly-saved` は successCard が fold下で単一スクショに写らず `preview-weekly` と視覚同一と判明したため、**ルートごと削除**（enum/switch/capture script/テスト/DEBUG init param・生成 PNG も削除）。
 - **未確認を PASS 扱いしていない。**
 
+## Slice 5: 外観/端末 variant・最終監査
+
+### インベントリサマリ
+- **最終合計 35枚** = canonical 25 + dark 5 + narrow 5
+- route数 25（enum `GlassUIVisualQARoute` の全ケース。variant は同一routeを別外観/別端末で撮影したもので route増ではない）
+- 全35枚を Slice 5 のクリーン再撮影（`build/ui-inventory` 削除→`--variant all`）で生成し、**全数を本セッションで直接目視**（全PASS・失敗0）
+- omit した依頼 variant / 状態は各Slice監査表に記録済み（Slice 2–4 参照）
+- current-main 制約: Form Guide は簡易capsule 3D（PR #140 未マージ）/ narrow は iOS 18.3（Liquid Glass 非適用）/ Runner は常時dark
+
+### 選定した variant と理由
+dark（5・primary 17 Pro・非Runner中心。Glass/PulseUI/MyGymStyle が colorScheme 依存で実際に差が出る画面）:
+
+| variant | route | 理由 |
+|---|---|---|
+| home-dark | home | 低密度ダッシュボード・Glassカードの dark 表現 |
+| weekly-candidate-dark | preview-weekly | 高密度プランニング・多数カードの dark |
+| mygym-multiple-dark | mygym-multiple | 管理リストの dark・サーフェス分離 |
+| custom-machine-edit-dark | custom-machine-edit | フォーム（PulseUI フィールドプレートが dark で変化） |
+| exercise-library-dark | exercise-library | リスト行の dark 可読性 |
+
+narrow（5・iPhone SE 375pt・幅レイアウトが最も影響する画面）:
+
+| variant | route | 理由 |
+|---|---|---|
+| onboarding-narrow | onboarding | hero + 下部CTA到達性 |
+| home-narrow | home | ダッシュボードカードの reflow |
+| weekly-candidate-narrow | preview-weekly | 密なカードの truncation/scroll |
+| runner-active-narrow | runner-active | 下部 action bar（戻る/+10s/完了/スキップ）の収まり |
+| machine-selection-narrow | machine-selection | フィルタchip横スクロール・カウント・保存バーの収まり |
+
+**除外した variant**: Runner の dark（常時darkのため冗長）/ Form Guide の narrow・dark（3Dシーンの照明は固定で幅/外観差の情報価値が低い）/ 全routeの網羅的 light/dark/narrow（視覚差の無い画面を増やさない方針）。
+
+### 最終画像インベントリ（35枚）
+外部サービス依存: 全画像 **なし**（ネット/AI/実API不使用）。fixture は全て isolated in-memory。決定性: 特記なき限り**完全決定的**。
+
+| # | filename | route | 画面/状態 | 外観 | 端末 | fixture | 目的 | 決定性 | 目視 | 懸念 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 01-onboarding/onboarding.png | onboarding | 初回・ゲスト導線 | Light | 17 Pro | 静的 | ログイン不要で開始 | 完全 | PASS | 下部余白多 |
+| 2 | 01-onboarding/onboarding-narrow.png | onboarding | 同上 | Light | SE | 静的 | 幅監査 | 完全 | PASS | iOS18でフラット(caveat) |
+| 3 | 02-auth/login.png | login | 続ける方法選択 | Light | 17 Pro | AuthSessionStore(空) | 任意ログイン | 完全 | PASS | DEBUGでGoogle「準備中」可視(Release非表示) |
+| 4 | 03-home/home.png | home | 0/4・ジム準備済 | Light | 17 Pro | 渋谷11台 | 今日を始める | 完全 | PASS | ✨装飾(AI非主張) |
+| 5 | 03-home/home-dark.png | home | 同上 | Dark | 17 Pro | 渋谷11台 | dark表現 | 完全 | PASS | 良好 |
+| 6 | 03-home/home-narrow.png | home | 同上 | Light | SE | 渋谷11台 | 幅監査 | 完全 | PASS | 良好 |
+| 7 | 05-planner/target-body-part.png | planner | 胸選択済 | Light | 17 Pro | 渋谷 | 部位選択 | 完全 | PASS | 下部余白 |
+| 8 | 05-planner/preview-single.png | preview-single | 単発生成(目安あり) | Light | 17 Pro | 渋谷+chest | 確認して保存 | 完全 | PASS | 良好(実値) |
+| 9 | 05-planner/weekly-before-generation.png | preview-weekly-before-generation | 週次入力(生成前) | Light | 17 Pro | 入力のみ | 生成条件選択 | 完全 | PASS | 良好 |
+| 10 | 05-planner/weekly-candidate.png | preview-weekly | 週次候補(生成済) | Light | 17 Pro | weeklyCandidate | 候補確認 | 完全 | PASS | 目安なし×4(empty-state品質) |
+| 11 | 05-planner/weekly-candidate-dark.png | preview-weekly | 同上 | Dark | 17 Pro | weeklyCandidate | dark表現 | 完全 | PASS | 目安なしchipがdarkで低コントラスト |
+| 12 | 05-planner/weekly-candidate-narrow.png | preview-weekly | 同上 | Light | SE | weeklyCandidate | 幅監査 | 完全 | PASS | 良好(密でも正常wrap) |
+| 13 | 05-planner/unavailable-target.png | planner-unavailable-target | 生成不可(ジム未選択) | Light | 17 Pro | equipmentNotice | 前提欠如提示 | 完全 | PASS | 良好 |
+| 14 | 06-runner/runner-active.png | runner-active | exercise 1/3 | Dark(強制) | 17 Pro | 上半身プッシュ | 記録 | 完全 | PASS | 良好 |
+| 15 | 06-runner/runner-active-later-set.png | runner-active-later-set | exercise 2/3 | Dark(強制) | 17 Pro | 上半身プッシュ | 進行中記録 | 完全 | PASS | 良好(1/3と区別) |
+| 16 | 06-runner/runner-active-narrow.png | runner-active | exercise 1/3 | Dark(強制) | SE | 上半身プッシュ | 幅監査 | 完全 | PASS | action bar収まりOK |
+| 17 | 06-runner/runner-rest.png | runner-rest | 休憩 | Dark(強制) | 17 Pro | 上半身プッシュ | 休憩管理 | 相決定的・秒ライブ | PASS | 可視秒はライブ |
+| 18 | 07-history/history-populated.png | history-populated | 3セッション | Light | 17 Pro | 3 sessions | 履歴確認 | 完全 | PASS | 下部余白多 |
+| 19 | 07-history/history-detail.png | history-detail | 3種目全解決 | Light | 17 Pro | featuredSession | 実施記録 | 完全 | PASS | 良好 |
+| 20 | 08-my-gym/mygym-active.png | mygym-active | アクティブ | Light | 17 Pro | 渋谷(url=nil) | ジム管理 | 完全 | PASS | ✨装飾 |
+| 21 | 08-my-gym/mygym-empty.png | mygym-empty | ジムなし | Light | 17 Pro | 空container | 登録誘導 | 完全 | PASS | 下部余白多 |
+| 22 | 08-my-gym/mygym-multiple.png | mygym-multiple | 複数ジム | Light | 17 Pro | 2gym | 切替管理 | 完全 | PASS | 「同期済み」既存コピー |
+| 23 | 08-my-gym/mygym-multiple-dark.png | mygym-multiple | 同上 | Dark | 17 Pro | 2gym | dark表現 | 完全 | PASS | 良好 |
+| 24 | 08-my-gym/machine-selection.png | machine-selection | 一部選択(11台) | Light | 17 Pro | 渋谷+11 | マシン更新 | 完全 | PASS | 良好 |
+| 25 | 08-my-gym/machine-selection-narrow.png | machine-selection | 同上 | Light | SE | 渋谷+11 | 幅監査 | 完全 | PASS | フィルタchip横スクロール(仕様) |
+| 26 | 08-my-gym/machine-selection-none-selected.png | machine-selection-none-selected | 0選択 | Light | 17 Pro | 0選択gym | 空選択状態 | 完全 | PASS | 良好 |
+| 27 | 08-my-gym/custom-machine-add.png | custom-machine-add | 追加(空) | Light | 17 Pro | gymのみ | 器具登録 | 完全 | PASS | 追加する無効まで |
+| 28 | 08-my-gym/custom-machine-edit.png | custom-machine-edit | 編集(populate) | Light | 17 Pro | CustomMachine | 器具編集 | 完全 | PASS | navタイトルtruncation(既存) |
+| 29 | 08-my-gym/custom-machine-edit-dark.png | custom-machine-edit | 同上 | Dark | 17 Pro | CustomMachine | dark表現 | 完全 | PASS | フォームfieldネイティブ |
+| 30 | 09-library/exercise-library.png | exercise-library | 一覧 | Light | 17 Pro | ExerciseLibrary | フォーム確認 | 完全 | PASS | 部位アイコン汎用 |
+| 31 | 09-library/exercise-library-dark.png | exercise-library | 同上 | Dark | 17 Pro | ExerciseLibrary | dark表現 | 完全 | PASS | 良好 |
+| 32 | 09-library/search-results.png | exercise-library-search-results | 検索一致「プレス」3件 | Light | 17 Pro | debugInitialSearch | 検索結果 | 完全 | PASS | キーボードなし・fake行なし |
+| 33 | 09-library/search-no-results.png | exercise-library-no-results | 検索0件「スイム」 | Light | 17 Pro | debugInitialSearch | 空状態 | 完全 | PASS | 実empty copy |
+| 34 | 10-form-guide/form-guide.png | form-guide | 3D側面(折畳) | Light | 17 Pro | machine_chest_press | 動き確認 | 完全(static0.35) | PASS | **main現状capsule**(視覚品質参照は非推奨) |
+| 35 | 10-form-guide/form-guide-instructions-expanded.png | form-guide-instructions-expanded | テキスト展開 | Light | 17 Pro | 同上 | 手順テキスト | 完全 | PASS | 同上 |
+
+### プロダクト全体 UI 監査（発見のみ・本PRでは未修正）
+- **情報階層**: 概ね明確（大タイトル→説明→カード→CTA）。Planner候補は生成条件が折り畳まれ候補が主になる遷移が良好。
+- **whitespace**: onboarding / login / planner / history-populated / mygym-empty で中央〜下部余白が大きく sparse に見える。calm 意図か過剰かは要デザイン判断。
+- **typography**: largeTitle 中心で一貫。長い nav inline タイトル（カスタムマシン編集）は truncation。
+- **CTA competition**: home で青CTA（ワークアウト開始）とジムカード青ボタンが併存（既知・許容済み）。
+- **excess card usage**: 概ね適切。Planner候補は情報量が多くカードが縦に長い。
+- **Glass consistency**: light/dark とも Glass 表現は一貫（PulseUI/MyGymStyle が colorScheme 対応）。ただし narrow は iOS18 で Glass 非適用のためフラット。
+- **light/dark identity**: 全画面 dark で製品同一性を維持。Runner は常時dark。
+- **navigation clarity**: 明確。閉じる/キャンセル/戻るが一貫。
+- **empty-state quality**: mygym-empty は良好だが余白大。**weekly 候補の「目安なし」×4** は真実だが未完成に見えやすい（最大の監査観点。dark で更に低コントラスト）。
+- **form density**: Custom Machine フォームは適切な密度。
+- **component consistency**: カード/チップ/セグメントは一貫。
+- **icon consistency**: **Exercise Library の部位アイコンが汎用**（歩行アイコン等）で識別性が弱い。
+- **narrow-layout behavior**: 375pt で CTA到達性・truncation・下部コントロール収まりに致命的問題なし。フィルタchipは横スクロール（仕様）。
+- **perceived product maturity**: 全体に整っているが、(1)「目安なし」多発、(2)部位アイコン汎用、(3)一部画面の余白過多、が「未完成感」を与えうる主因。
+
+### Stitch 受け渡し
+- **アップロード順**: まずグループ別コンタクトシート（`build/ui-inventory/<NN-group>/_contact.html`）と全体 `index.html` を開き、各カードの外観/端末ラベルで俯瞰 → 下記6枚を最優先アップロード。
+- **推奨する最初の6枚（代表）**:
+  1. Light 低密度: `03-home/home.png`（ダッシュボード）
+  2. Light 高密度: `05-planner/preview-single.png`（生成プラン・実値の情報密度）
+  3. Dark インタラクティブ: `06-runner/runner-active.png`（常時dark・操作系）
+  4. プランニング: `05-planner/weekly-candidate.png`（週次候補）
+  5. 管理: `08-my-gym/machine-selection.png`（マシン選択・チェック/カウント）
+  6. 履歴/読み取り: `07-history/history-detail.png`（実施記録）
+- **視覚参照にしない画面**: `10-form-guide/*`（**現状は簡易capsule 3D**。PR #140 の rigged model 未マージのため、フォームガイドの3D品質を Stitch のデザイン基準にしない）。narrow 画像（iOS18でGlass非適用のため外観参照に不適・幅監査専用）。
+- **現在のプロダクト能力境界**: ローカルのみ（同期/バックアップ未実装・「今後対応予定」）/ プラン生成はルールベース（AI/サーバー/クラウド非該当）/ Google ログインは未設定（Release非表示）/ Form Guide は限定10種目・簡易3D。
+- **グループ構成**: `01-onboarding` `02-auth` `03-home` `05-planner` `06-runner` `07-history` `08-my-gym` `09-library` `10-form-guide` の9グループ。各 `_contact.html` に外観/端末ラベル付き。
+
+### 直接目視の記録（Slice 5・最終）
+- 本セッションで **35枚全数を直接目視**（canonical 25 + dark 5 + narrow 5）。全PASS・失敗0。前Slice目視に依存せず、クリーン再撮影の実画像で再確認。
+- コンタクトシートは HTML（`index.html` + 9グループ `_contact.html`）を生成。img参照35件すべて実在・欠落0・重複0・グループ合計35一致を構造検証。PNG atlas は新規依存（PIL等）が必要なため HTML を採用。
+- **未確認画像を PASS 扱いしていない。**
+
 ## 撮影・コンタクトシート手順
 
 ```
-./Scripts/capture-ui-inventory.sh --device <UDID> --variant light --force
+# 最終フルキャプチャ（canonical + dark + narrow）
+./Scripts/capture-ui-inventory.sh \
+  --device <PRIMARY_UDID> \
+  --narrow-device <NARROW_UDID> \
+  --variant all --force
 python3 Scripts/build-ui-inventory-contact-sheet.py --output build/ui-inventory
 # build/ui-inventory/index.html（全体）＋ 各グループ/_contact.html
 ```
 
-- `--variant light|dark|all`、`--group <NN>`、`--force`（未指定は非上書き）。部分失敗は nonzero、EXIT trap でステータスバー/pref domain 掃除。
+- `--variant light|dark|narrow|all`。`light`=canonical 25（primary/light）、`dark`=選択5（primary/dark）、`narrow`=選択5（narrow端末/light）、`all`=35枚全部。
+- `--narrow-device <UDID>` は narrow/all で必須（未指定時は iPhone SE を名前解決）。UUIDは常に完全指定・prefix依存しない。`--group <NN>`、`--force`（未指定は非上書き）。
+- 部分失敗は nonzero、EXIT trap で両端末のステータスバー/pref domain/外観を掃除（macOSホスト外観は変更しない）。
 - 生成 PNG / HTML は `build/ui-inventory/`（`.gitignore`）。**commitしない**。
 - Apple 必要デバイスセット/寸法は提出時に公式で**手動確認**。
 

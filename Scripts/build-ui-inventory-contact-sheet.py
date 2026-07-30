@@ -41,16 +41,31 @@ def groups(root):
     return out
 
 
-def card(rel_img, label):
+def variant_label(png):
+    """Human-readable appearance/device tag derived from the filename suffix.
+
+    Canonical images are Light on the primary device (iPhone 17 Pro); `-dark`
+    is a dark-appearance variant on the primary device; `-narrow` is a
+    narrow-device variant (iPhone SE, iOS 18) captured in Light.
+    """
+    stem = png[:-4] if png.lower().endswith(".png") else png
+    if stem.endswith("-dark"):
+        return "Dark · iPhone 17 Pro"
+    if stem.endswith("-narrow"):
+        return "Light · iPhone SE (narrow)"
+    return "Light · iPhone 17 Pro"
+
+
+def card(rel_img, label, png):
     return (
         f'<div class="card"><a href="{html.escape(rel_img)}">'
         f'<img src="{html.escape(rel_img)}" loading="lazy"></a>'
-        f'<div class="cap">{html.escape(label)}</div></div>'
+        f'<div class="cap">{html.escape(label)}<br><b>{html.escape(variant_label(png))}</b></div></div>'
     )
 
 
 def write_group_sheet(root, name, pngs):
-    cards = "\n".join(card(p, f"{name} / {p}") for p in pngs)
+    cards = "\n".join(card(p, f"{name} / {p}", p) for p in pngs)
     doc = f"<!doctype html><meta charset=utf-8><title>{html.escape(name)}</title><style>{CSS}</style>" \
           f"<h1>UI Inventory — {html.escape(name)}</h1><div class=grid>{cards}</div>"
     with open(os.path.join(root, name, "_contact.html"), "w") as f:
@@ -60,7 +75,7 @@ def write_group_sheet(root, name, pngs):
 def write_index(root, gs):
     sections = []
     for name, pngs in gs:
-        cards = "\n".join(card(os.path.join(name, p), f"{name} / {p}") for p in pngs)
+        cards = "\n".join(card(os.path.join(name, p), f"{name} / {p}", p) for p in pngs)
         sections.append(
             f'<h2>{html.escape(name)} '
             f'(<a href="{html.escape(name)}/_contact.html">group sheet</a>) '
