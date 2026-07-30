@@ -4,6 +4,10 @@ import SwiftData
 import Testing
 @testable import Pulse_Cue
 
+// Serialized so the many in-memory `ModelContainer` fixtures aren't all built
+// concurrently (parallel SwiftData container creation is flaky under the test
+// runner). Test-only; does not affect app behavior.
+@Suite(.serialized)
 @MainActor
 struct GlassUIVisualQARouteTests {
     private let argument = "-pulsecue-debug-glass-ui-route"
@@ -18,7 +22,12 @@ struct GlassUIVisualQARouteTests {
         #expect(Set(GlassUIVisualQARoute.allCases.map(\.rawValue)) == [
             "home",
             "mygym-active",
+            "mygym-empty",
+            "mygym-multiple",
             "machine-selection",
+            "machine-selection-none-selected",
+            "custom-machine-add",
+            "custom-machine-edit",
             "planner",
             "preview-single",
             "preview-weekly-before-generation",
@@ -94,6 +103,64 @@ struct GlassUIVisualQARouteTests {
         #expect(results.allSatisfy {
             sessionIDs.contains($0.sessionId) && stepIDs.contains($0.stepId)
         })
+    }
+
+    /// Returns a retained in-memory container (the caller MUST keep it alive —
+    /// `mainContext` dangles if the container deallocates).
+    private func inventoryContainer() throws -> ModelContainer {
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        return try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+    }
+
+    @Test func screenshotGymFixturesHaveNoExampleComAndNilURL() throws {
+        // The shared fixture gym must not expose example.com in any screenshot.
+        let container = try inventoryContainer()
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seed(into: context)
+        for gym in try context.fetch(FetchDescriptor<Gym>()) {
+            #expect(gym.officialUrl == nil)
+        }
+    }
+
+    @Test func emptyGymInventoryModeSeedsNoGym() throws {
+        let container = try inventoryContainer()
+        let context = container.mainContext
+        GlassUIVisualQAFixture.seedGymInventory(mode: .empty, into: context)
+        #expect(try context.fetch(FetchDescriptor<Gym>()).isEmpty)
+    }
+
+    @Test func multipleGymInventoryModeIsDeterministic() throws {
+        let container = try inventoryContainer()
+        let context = container.mainContext
+        GlassUIVisualQAFixture.seedGymInventory(mode: .multiple, into: context)
+        let gyms = try context.fetch(FetchDescriptor<Gym>())
+        #expect(gyms.count == 2)
+        #expect(gyms.allSatisfy { $0.officialUrl == nil })
+        #expect(gyms.contains { $0.name == "Pulse Fitness 渋谷" && $0.isActive })
+        #expect(gyms.contains { $0.name == "Central Training Lab" && !$0.isActive })
+        #expect(gyms.allSatisfy { !$0.name.contains("UIテスト") && !$0.name.contains("テスト用") })
+    }
+
+    @Test func noneSelectedInventoryModeHasGymWithoutMachines() throws {
+        let container = try inventoryContainer()
+        let context = container.mainContext
+        GlassUIVisualQAFixture.seedGymInventory(mode: .noneSelected, into: context)
+        #expect(try context.fetch(FetchDescriptor<Gym>()).count == 1)
+        #expect(try context.fetch(FetchDescriptor<GymMachine>()).isEmpty)
+    }
+
+    @Test func customEditInventoryModeSeedsPopulatedCustomMachine() throws {
+        let container = try inventoryContainer()
+        let context = container.mainContext
+        GlassUIVisualQAFixture.seedGymInventory(mode: .customEdit, into: context)
+        let machine = try #require(try context.fetch(FetchDescriptor<CustomMachine>()).first)
+        #expect(machine.displayName == "ケーブルロー")
+        #expect(machine.bodyParts == [BodyPart.back.rawValue])
+        #expect(machine.equipmentType == EquipmentType.cable.rawValue)
+        #expect(machine.notes == "フォーム確認用")
     }
 
     @Test func weeklyPreviewFixtureIsGeneratedAndNonEmpty() {

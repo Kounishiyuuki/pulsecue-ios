@@ -93,7 +93,12 @@ ROUTES="
 07-history|history-populated|history-populated
 07-history|history-detail|history-detail
 08-my-gym|mygym-active|mygym-active
+08-my-gym|mygym-empty|mygym-empty
+08-my-gym|mygym-multiple|mygym-multiple
 08-my-gym|machine-selection|machine-selection
+08-my-gym|machine-selection-none-selected|machine-selection-none-selected
+08-my-gym|custom-machine-add|custom-machine-add
+08-my-gym|custom-machine-edit|custom-machine-edit
 09-library|exercise-library|exercise-library
 10-form-guide|form-guide|form-guide
 10-form-guide|form-guide-instructions-expanded|form-guide-instructions-expanded

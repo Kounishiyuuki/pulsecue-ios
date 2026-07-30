@@ -92,6 +92,48 @@ PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デ�
 - 本セッションで直接目視: `runner-active-later-set`（1枚・新規）。既存 `runner-active` / `runner-rest` は再撮影・変更なし（Slice 1 で目視済み・本Sliceで挙動不変）。
 - **新規生成画像を全数直接目視。未確認を PASS 扱いしていない。**
 
+## Slice 3: My Gym / Machine / Custom Machine 状態監査
+
+依頼10状態をリポジトリ監査。既存Viewを isolated in-memory container で再現（本番store非書込み）。捏造せず、不可/冗長は omit。
+
+| 依頼状態 | 判定 | 理由 |
+|---|---|---|
+| no gym | **新ルート** `mygym-empty` | MyGymHomeView の空状態（`gyms.isEmpty`）を空containerで再現 |
+| active gym | **既存 regenerate** `mygym-active` | fixture officialUrl を nil 化し example.com を除去して再撮影 |
+| multiple gyms | **新ルート** `mygym-multiple` | 渋谷(active)＋Central Training Lab(inactive・6台) |
+| body-part filtered | **omit** | フィルタは viewModel の @State（chipタップ）で、注入不可。production-state injection なしに到達不可 |
+| selected-only | **omit** | 同上（`showSelectedOnly` @State） |
+| no machines selected | **新ルート** `machine-selection-none-selected` | 0選択のジムで 0/8・選択済み0台 |
+| many selected | **omit（冗長）** | 既存 `machine-selection`（11台選択）が many を既にカバー |
+| custom add | **新ルート** `custom-machine-add` | `CustomMachineFormView(gym:)` 空フォーム |
+| custom edit | **新ルート** `custom-machine-edit` | `CustomMachineFormView(gym:, editing:)` populate |
+| delete confirmation | **omit** | GYM/CustomMachine 削除は `pendingDeletion`/`editingCustomMachine` 等の @State 依存の alert/sheet。**not independently capturable without production-state injection**。偽確認画面は作らない |
+
+→ **Slice 3 = 新ルート5 ＋ regenerate 1**（他4は上記理由で omit）。
+
+### Slice 3 ルート
+
+| route ID | 画面 | 状態 | 主目的 | 決定性 | fixture | 永続化隔離 | ファイル | 直接目視 | 懸念 |
+|---|---|---|---|---|---|---|---|---|---|
+| mygym-active（regen） | My Gym | アクティブ | ジム/マシン管理 | 決定的 | 共有fixture(officialUrl=nil) | in-memory | 08-my-gym/mygym-active.png | **YES** | ✨装飾（既存） |
+| mygym-empty | My Gym | ジムなし | ジム登録誘導 | 決定的 | 空container | 独立in-memory | 08-my-gym/mygym-empty.png | **YES** | 下部余白多／「自動生成」はルールベース |
+| mygym-multiple | My Gym | 複数ジム | 切替・管理 | 決定的 | 2gym container | 独立in-memory | 08-my-gym/mygym-multiple.png | **YES** | 「同期済み」は既存コピー（cloud非該当） |
+| machine-selection-none-selected | マシン選択 | 0選択 | 使えるマシン更新 | 決定的 | 0選択gym | 独立in-memory | 08-my-gym/machine-selection-none-selected.png | **YES** | 良好 |
+| custom-machine-add | Custom Machine | 追加(空) | 器具を登録 | 決定的 | gymのみ | 独立in-memory・自動insert無し | 08-my-gym/custom-machine-add.png | **YES** | 良好（追加する は無効まで） |
+| custom-machine-edit | Custom Machine | 編集(populate) | 器具を編集 | 決定的 | CustomMachine(ケーブルロー/背中/ケーブル/フォーム確認用) | 独立in-memory | 08-my-gym/custom-machine-edit.png | **YES** | 良好（変更を保存 で edit明確） |
+
+### officialUrl / example.com 修正
+- 共有 fixture `Gym.officialUrl` を `"https://example.com/..."` → **`nil`** に修正（**DEBUG fixture のみ**・本番URL描画挙動不変）。My Gym の URL 行が自然に非表示。regenerate した `mygym-active` で **example.com 不在を直接目視確認**。架空の実在風URLは導入せず。
+
+### Slice 3 UI 懸念（本PRでは未修正）
+- **empty-state品質**: mygym-empty の下部余白が大きい。
+- **copy/component一貫性**: 「メニューを自動生成」「同期済み」等の既存コピーが auto/cloud を弱く示唆（実際はルールベース/ローカル）。将来コピー検討。
+- **destructive prominence**: 削除確認は本監査で撮影不可（@State依存）だが、コード上は alert/confirmationDialog で cancel/削除(destructive) の階層あり。
+
+### 直接目視の記録（Slice 3）
+- 本セッションで直接目視: mygym-active(regen) / mygym-empty / mygym-multiple / machine-selection-none-selected / custom-machine-add / custom-machine-edit（**6枚全数**）。
+- **未確認を PASS 扱いしていない。**
+
 ## 撮影・コンタクトシート手順
 
 ```
