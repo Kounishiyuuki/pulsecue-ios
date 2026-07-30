@@ -63,3 +63,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# App Store screenshot capture output (generated, not committed)
+/build/app-store-screenshots/

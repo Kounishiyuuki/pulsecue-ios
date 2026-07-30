@@ -4,6 +4,7 @@ import SwiftUI
 
 /// DEBUG-only launch destinations used for deterministic visual QA.
 enum GlassUIVisualQARoute: String, CaseIterable {
+    case home
     case myGymActive = "mygym-active"
     case machineSelection = "machine-selection"
     case planner
@@ -12,6 +13,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case previewWeekly = "preview-weekly"
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
+    case runnerActive = "runner-active"
+    case runnerRest = "runner-rest"
     case exerciseLibrary = "exercise-library"
     case formGuide = "form-guide"
     case formGuideInstructionsExpanded = "form-guide-instructions-expanded"
@@ -57,6 +60,8 @@ struct GlassUIVisualQARoot: View {
     private func destination(gym: Gym) -> some View {
         NavigationStack {
             switch route {
+            case .home:
+                ScreenshotHomeHost(modelContext: modelContext)
             case .myGymActive:
                 MyGymHomeView()
             case .machineSelection:
@@ -85,6 +90,10 @@ struct GlassUIVisualQARoot: View {
                         systemImage: "exclamationmark.triangle"
                     )
                 }
+            case .runnerActive:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .exercise)
+            case .runnerRest:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .rest)
             case .exerciseLibrary:
                 ExerciseLibraryView()
             case .formGuide:
@@ -107,11 +116,97 @@ struct GlassUIVisualQARoot: View {
     }
 }
 
+/// DEBUG-only host that drives a `RunnerViewModel` into a deterministic
+/// ACTIVE (exercise) or REST state for App Store screenshots, using the seeded
+/// fixture routine. It uses ONLY the existing public Runner API — it does not
+/// change the Runner state machine. Storage is the isolated in-memory QA
+/// context; settings use an ephemeral, throwaway UserDefaults suite so the
+/// user's real preferences are never read or written. `start()` is
+/// authoritative, so the shown state does not depend on any restored session.
+/// Fixed, throwaway UserDefaults suite for screenshot hosts. A *fixed* name
+/// (not per-UUID) is reused across launches, so it can never accumulate an
+/// unbounded number of orphan preference files. It is never `.standard`, so
+/// the user's real preferences are untouched. The capture script also clears
+/// this domain after a run (see Docs/app-store-screenshot-plan.md).
+private let screenshotDefaultsSuite = "com.pulsecue.screenshot-visualqa"
+
+private func makeScreenshotSettings() -> SettingsStore {
+    let store = SettingsStore(defaults: UserDefaults(suiteName: screenshotDefaultsSuite)!)
+    store.notificationsEnabled = false
+    return store
+}
+
+private struct ScreenshotRunnerHost: View {
+    enum Target { case exercise, rest }
+
+    let modelContext: ModelContext
+    let target: Target
+    @StateObject private var settings: SettingsStore
+    @StateObject private var runnerViewModel: RunnerViewModel
+    @State private var started = false
+
+    init(modelContext: ModelContext, target: Target) {
+        self.modelContext = modelContext
+        self.target = target
+        let ephemeral = makeScreenshotSettings()
+        _settings = StateObject(wrappedValue: ephemeral)
+        _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: ephemeral))
+    }
+
+    var body: some View {
+        RunnerView()
+            .environmentObject(runnerViewModel)
+            .environmentObject(settings)
+            .task {
+                guard !started else { return }
+                started = true
+                runnerViewModel.configure(modelContext: modelContext)
+                let routineID = GlassUIVisualQAFixture.routineID
+                let descriptor = FetchDescriptor<Routine>(
+                    predicate: #Predicate { $0.id == routineID }
+                )
+                guard let routine = try? modelContext.fetch(descriptor).first else { return }
+                // ACTIVE = exercise phase (static, no ticking timer). REST =
+                // one Complete to enter the rest hero. Existing public API only.
+                runnerViewModel.start(routine: routine)
+                if target == .rest {
+                    runnerViewModel.handle(action: .complete)
+                }
+            }
+    }
+}
+
+/// DEBUG-only host for the App Store **Home** screenshot. Renders the real
+/// production `TodayView` over the seeded fixture (active gym
+/// "Pulse Fitness 渋谷" with machines), so the image shows a polished,
+/// truthful current-main Home — never the UI-test "UIテストジム" empty state.
+/// No production Home logic is changed; only presentation env is provided.
+private struct ScreenshotHomeHost: View {
+    let modelContext: ModelContext
+    @StateObject private var settings: SettingsStore
+    @StateObject private var runnerViewModel: RunnerViewModel
+
+    init(modelContext: ModelContext) {
+        self.modelContext = modelContext
+        let ephemeral = makeScreenshotSettings()
+        _settings = StateObject(wrappedValue: ephemeral)
+        _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: ephemeral))
+    }
+
+    var body: some View {
+        TodayView(onResumeRunner: {})
+            .environmentObject(runnerViewModel)
+            .environmentObject(settings)
+    }
+}
+
 enum GlassUIVisualQAFixture {
     static let gymID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54E10")!
     static let featuredSessionID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB55001")!
     private static let timestamp = Date(timeIntervalSince1970: 1_735_689_600)
-    private static let routineID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54001")!
+    /// Exposed (not private) so the DEBUG screenshot Runner host can start the
+    /// seeded routine deterministically.
+    static let routineID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54001")!
     private static let stepIDs = [
         UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54101")!,
         UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54102")!,

@@ -1,4 +1,5 @@
 #if DEBUG
+import Foundation
 import SwiftData
 import Testing
 @testable import Pulse_Cue
@@ -15,6 +16,7 @@ struct GlassUIVisualQARouteTests {
 
     @Test func everyRepresentativeRouteParsesDeterministically() {
         #expect(Set(GlassUIVisualQARoute.allCases.map(\.rawValue)) == [
+            "home",
             "mygym-active",
             "machine-selection",
             "planner",
@@ -23,6 +25,8 @@ struct GlassUIVisualQARouteTests {
             "preview-weekly",
             "history-populated",
             "history-detail",
+            "runner-active",
+            "runner-rest",
             "exercise-library",
             "form-guide",
             "form-guide-instructions-expanded",
@@ -96,6 +100,71 @@ struct GlassUIVisualQARouteTests {
         #expect(candidate.daysPerWeek == 3)
         #expect(candidate.sessions.count == 3)
         #expect(!candidate.isEmpty)
+    }
+
+    /// The Home screenshot route renders `TodayView` over this fixture. It must
+    /// present a polished, active gym with machines — never the UI-test
+    /// "UIテストジム" empty-machine state that the review rejected.
+    @Test func homeScreenshotFixtureUsesPolishedActiveGymWithMachines() throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seed(into: context)
+
+        let gyms = try context.fetch(FetchDescriptor<Gym>())
+        #expect(gyms.count == 1)
+        let gym = try #require(gyms.first)
+        #expect(gym.name == "Pulse Fitness 渋谷")
+        #expect(gym.name != "UIテストジム")
+        #expect(gym.isActive)
+
+        let gymID = gym.id
+        let machines = try context.fetch(FetchDescriptor<GymMachine>(
+            predicate: #Predicate { $0.gymId == gymID }
+        ))
+        #expect(machines.count == GlassUIVisualQAFixture.machineIDs.count)
+        #expect(machines.count > 0)
+    }
+
+    /// Drives a RunnerViewModel exactly like the DEBUG screenshot host so the
+    /// runner-active / runner-rest routes are deterministic from the fixture.
+    /// Uses only the existing public Runner API (no state-machine change).
+    @Test func screenshotRunnerRoutesAreDeterministicFromFixture() throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seed(into: context)
+
+        let routineID = GlassUIVisualQAFixture.routineID
+        let routine = try #require(
+            context.fetch(FetchDescriptor<Routine>(
+                predicate: #Predicate { $0.id == routineID }
+            )).first
+        )
+
+        RunnerPersistence.clear()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.screenshot.runner.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let vm = RunnerViewModel(settings: settings)
+        vm.configure(modelContext: context)
+
+        // ACTIVE (exercise phase) — first step, first set, static.
+        vm.start(routine: routine)
+        #expect(vm.phase == .exercise)
+        #expect(vm.isRunning)
+        #expect(vm.currentStep?.title == "チェストプレス")
+        #expect(vm.currentSetIndex == 0)
+
+        // REST — one Complete enters the rest hero.
+        vm.handle(action: .complete)
+        #expect(vm.phase == .rest)
+        #expect(vm.isRunning)
     }
 }
 #endif

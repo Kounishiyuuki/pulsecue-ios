@@ -113,10 +113,54 @@ Runner の実行中/休憩は決定的ルートが**無い**（実セッショ�
 - 意図しない空/エラー状態
 - PR #140 の未完成 3D 作業
 
-## 撮影手順（再現可能）
+## 自動撮影（`Scripts/capture-app-store-screenshots.sh`）
+
+7画面を DEBUG ルートから決定的に一括取得する。生成 PNG はローカル成果物（`build/app-store-screenshots/`・`.gitignore` 済み、**リポジトリに commit しない**）。
+
+```
+./Scripts/capture-app-store-screenshots.sh --device <UDID> --output build/app-store-screenshots
+# 上書きは --force。UDID 省略時は booted simulator を使用。
+```
+
+スクリプトの動作: 前提確認 → Debug ビルド/install → light 外観・標準 Dynamic Type・クリーンステータスバー（9:41/満充電/電波）設定 → 各ルートを個別 launch → bounded settle（Form Guide のみ RealityKit 用に追加待機）→ 取得 → 決定的ファイル名保存 → 失敗時 nonzero 終了。既存ファイルは `--force` なしで上書きしない。
+
+### ルート → ファイル対応
+
+| ファイル | 画面 | 起動引数 |
+|---|---|---|
+| `01-home.png` | Home/Today | `-pulsecue-debug-glass-ui-route home` |
+| `02-weekly-plan.png` | 週次プラン候補 | `-pulsecue-debug-glass-ui-route preview-weekly` |
+| `03-runner-active.png` | Runner 実行中 | `-pulsecue-debug-glass-ui-route runner-active` |
+| `04-runner-rest.png` | Runner 休憩 | `-pulsecue-debug-glass-ui-route runner-rest` |
+| `05-history-detail.png` | 履歴詳細 | `-pulsecue-debug-glass-ui-route history-detail` |
+| `06-my-gym.png` | My Gym | `-pulsecue-debug-glass-ui-route mygym-active` |
+| `07-form-guide.png` | フォームガイド | `-pulsecue-debug-glass-ui-route form-guide` |
+
+Home は DEBUG ルート `home`（`ScreenshotHomeHost` が本番 `TodayView` を fixture の**アクティブジム「Pulse Fitness 渋谷」＋11マシン**上で描画）。UIテスト用の `-pulsecue-ui-test-custom-machine-flow`（「UIテストジム」空状態）は **App Store 用には使用しない**。Runner active/rest は DEBUG ルート（`ScreenshotRunnerHost`・in-memory・fixture routine「上半身プッシュ」を既存 Runner 公開APIで駆動）。**Runner 状態機械は不変**。
+
+スクリーンショットホストの設定は固定名の使い捨て UserDefaults suite `com.pulsecue.screenshot-visualqa`（`.standard` 非使用・固定名のため orphan plist が無制限に増えない）。撮影スクリプトは EXIT trap で当ドメインを best-effort 削除する。
+
+### 使用シミュレータ（今回の取得）
+
+- iPhone 17 Pro（UDID `A8C1142A-...`）/ iOS 26.5 / 1206×2622 px / @3x / Portrait
+- 外観 light / 言語ロケール（端末設定）/ 標準 Dynamic Type / クリーンステータスバー
+
+### 既知の制限
+
+- **Runner 休憩の可視秒は「決定的ではない」**。決定的なのは **相（REST phase）とルート/状態** のみで、表示される残り時間は本番 rest timer による**ライブカウント**（`01:27` 等）。起動→撮影の間に減少し、連続撮影で PNG の秒（ピクセル）は変わり得る。どのフレームも妥当な休憩状態で真実。可視秒の固定には本番 RunnerView/状態機械への DEBUG フック追加が必要で、**本番 Runner 非改変を優先**し本PRでは見送った（bounded but timing-dependent）。
+- Form Guide の 3D は RealityKit のため取得直前に追加 settle（`PULSECUE_FORMGUIDE_DELAY`）。**main 現状の capsule モデル**であり PR #140 の改良は含まない。
+- weekly は一部種目が「目安なし」（カタログにセット/レップ既定が無い種目の**真実の製品表示**）。generator/カタログは非改変。より洗練させたい場合は、既定を持つマシン中心の対象部位で fixture request を組む（任意・別途）。
+- iOS 26 系 sim は外観トグルが反映されにくい場合あり（`appearance` は best-effort）。
+- App Store Connect の必要デバイスセット/寸法は Apple 公式で**手動確認**（本書では確定しない）。
+
+### 最終マーケティング合成（後工程）
+
+取得画像は**アプリUIのみのクリーンなソース**。headline やフレーム合成は App Store 用の別デザイン工程で行い、アプリ本体には埋め込まない。
+
+## 撮影手順（手動・個別）
 
 1. Debug ビルドをシミュレータへインストール。
 2. 上表の route（または custom-machine-flow）を launch 引数で起動。
 3. `xcrun simctl io <sim> screenshot` で取得。
-4. ステータスバーを整える（手動またはクリーン化）。
+4. ステータスバーを整える（`xcrun simctl status_bar ... override`）。
 5. App Store Connect の必要サイズにトリミング/フレーム（Apple 現行仕様を要確認）。
