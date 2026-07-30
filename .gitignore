@@ -66,3 +66,6 @@ fastlane/test_output
 
 # App Store screenshot capture output (generated, not committed)
 /build/app-store-screenshots/
+
+# UI inventory capture output (generated, not committed)
+/build/ui-inventory/
