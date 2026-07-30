@@ -32,6 +32,9 @@ struct GlassUIVisualQARouteTests {
             "preview-single",
             "preview-weekly-before-generation",
             "preview-weekly",
+            "planner-unavailable-target",
+            "exercise-library-search-results",
+            "exercise-library-no-results",
             "history-populated",
             "history-detail",
             "runner-active",
@@ -161,6 +164,26 @@ struct GlassUIVisualQARouteTests {
         #expect(machine.bodyParts == [BodyPart.back.rawValue])
         #expect(machine.equipmentType == EquipmentType.cable.rawValue)
         #expect(machine.notes == "フォーム確認用")
+    }
+
+    @Test func exerciseLibrarySearchFixtureQueriesAreMeaningful() {
+        // The library lists only guided exercises. The inventory search route
+        // "プレス" must match ≥1, and the no-results route "スイム" must match 0,
+        // using the real current catalog (no fixture rows fabricated).
+        let guided = ExerciseLibrary.all.filter { FormGuideLibrary.hasGuide(for: $0.id) }
+        #expect(guided.contains { $0.displayName.contains("プレス") })
+        #expect(!guided.contains { $0.displayName.contains("スイム") })
+    }
+
+    @Test func formGuideSupportMappingIsUnchanged() {
+        // Every guided exercise has a 3D motion profile in current main, so
+        // there is no "guide without 3D" (unsupported) state to capture. This
+        // pins that mapping so a regression would be caught.
+        let guidedIDs = Set(ExerciseLibrary.all.map(\.id).filter { FormGuideLibrary.hasGuide(for: $0) })
+        for id in guidedIDs {
+            #expect(ExerciseMotionLibrary.hasProfile(for: id))
+        }
+        #expect(guidedIDs.count == 10)
     }
 
     @Test func weeklyPreviewFixtureIsGeneratedAndNonEmpty() {

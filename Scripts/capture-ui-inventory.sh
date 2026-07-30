@@ -87,6 +87,7 @@ ROUTES="
 05-planner|preview-single|preview-single
 05-planner|weekly-before-generation|preview-weekly-before-generation
 05-planner|weekly-candidate|preview-weekly
+05-planner|unavailable-target|planner-unavailable-target
 06-runner|runner-active|runner-active
 06-runner|runner-active-later-set|runner-active-later-set
 06-runner|runner-rest|runner-rest
@@ -100,6 +101,8 @@ ROUTES="
 08-my-gym|custom-machine-add|custom-machine-add
 08-my-gym|custom-machine-edit|custom-machine-edit
 09-library|exercise-library|exercise-library
+09-library|search-results|exercise-library-search-results
+09-library|search-no-results|exercise-library-no-results
 10-form-guide|form-guide|form-guide
 10-form-guide|form-guide-instructions-expanded|form-guide-instructions-expanded
 "

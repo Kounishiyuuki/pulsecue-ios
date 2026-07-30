@@ -16,6 +16,9 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case previewSingle = "preview-single"
     case previewWeeklyBeforeGeneration = "preview-weekly-before-generation"
     case previewWeekly = "preview-weekly"
+    case plannerUnavailableTarget = "planner-unavailable-target"
+    case exerciseLibrarySearchResults = "exercise-library-search-results"
+    case exerciseLibraryNoResults = "exercise-library-no-results"
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
     case runnerActive = "runner-active"
@@ -93,6 +96,14 @@ struct GlassUIVisualQARoot: View {
                     debugCandidate: GlassUIVisualQAFixture.weeklyCandidate,
                     debugRequest: GlassUIVisualQAFixture.weeklyRequest
                 )
+            case .plannerUnavailableTarget:
+                WeeklyTrainingPlanCandidateReviewView(
+                    debugEquipmentNotice: WeeklyPlanEquipmentProvider.needsActiveGymMessage
+                )
+            case .exerciseLibrarySearchResults:
+                ExerciseLibraryView(debugInitialSearch: "プレス")
+            case .exerciseLibraryNoResults:
+                ExerciseLibraryView(debugInitialSearch: "スイム")
             case .historyPopulated:
                 HistoryView()
             case .historyDetail:

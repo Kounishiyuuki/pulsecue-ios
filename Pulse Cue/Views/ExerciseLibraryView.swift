@@ -6,6 +6,18 @@ struct ExerciseLibraryView: View {
     @State private var searchText = ""
     @State private var presentedExercise: ExerciseID?
 
+    init() {}
+
+#if DEBUG
+    /// DEBUG-only: opens the library with a preset search query for
+    /// deterministic inventory screenshots (search-results / no-results).
+    /// Does not change normal production behavior — the field is still fully
+    /// editable and defaults to empty on the production path.
+    init(debugInitialSearch: String) {
+        _searchText = State(initialValue: debugInitialSearch)
+    }
+#endif
+
     private var guidedExercises: [Exercise] {
         ExerciseLibrary.all.filter { FormGuideLibrary.hasGuide(for: $0.id) }
     }

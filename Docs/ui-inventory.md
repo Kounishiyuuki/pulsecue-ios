@@ -49,11 +49,11 @@ PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デ�
 - **Onboarding/Auth**: onboarding(✅Slice1) / login(✅) / Apple可(login内) / ゲスト継続(login内) / 認証エラー・キャンセル提示=**明示的な専用画面は無し**（キャンセルで状態不変・ゲスト継続）。
 - **Home/Today**: 0/4準備済(✅) / 部分入力・完了入力=**未ルート(Slice後続・DayLog seed要)** / ジム未設定=**未ルート**。
 - **Workout(ルート)**: WorkoutView ルート=**未実装（既存QAルートに無し）**。Slice後続で検討。
-- **Planner**: 部位選択(✅) / 単発候補・preview(✅ preview-single) / 週次条件(✅) / 週次候補(✅) / 保存済・invalidation=**未ルート(Slice4)**。
+- **Planner**: 部位選択(✅) / 単発候補・preview(✅ preview-single) / 週次条件(✅) / 週次候補(✅) / 生成不可(✅ planner-unavailable-target・Slice4) / 保存済・invalidation=**omit（Slice4監査: 遷移のみ/視覚同一）**。
 - **Runner**: ACTIVE 1set(✅) / REST(✅) / later set・paused・completion・session-finished・resume=**未ルート(Slice2)**。
 - **History**: populated(✅) / detail(✅) / empty・deleted-exercise fallback・long-session=**未ルート(Slice後続)**。
 - **My Gym**: active(✅) / machine-selection(✅) / no-gym・multiple・filtered・selected-only・custom add/edit/delete確認・many selected=**未ルート(Slice3)**。
-- **Exercise Library**: list(✅) / 検索結果・no result・部位フィルタ・detail・text guide・unsupported 3D=**未ルート(Slice4)**。
+- **Exercise Library**: list(✅) / 検索結果(✅ search-results・Slice4) / no result(✅ search-no-results・Slice4) / 部位フィルタ=**omit（独立UI無し）** / detail・text guide=**omit（form-guide と冗長）** / unsupported 3D=**omit（存在しない）**。
 - **Form Guide**: 3D成功/側面(✅) / instructions expanded(✅) / 正面・斜め・3D不可fallback・Reduce Motion=**未ルート(Slice後続)**。main現状のみ・PR#140非使用。
 - **Settings**: Settings root/認証導線/外観/オンボ再生/ローカルデータ文言=**未ルート（QAルート無し）**。Slice後続で検討。
 - **System states**: カメラ/位置の権限説明=**OS権限ダイアログで非決定的（撮影対象外）** / network unavailable=**現状専用UIの有無を要確認** / loading=ユーザー可視の恒常的ローディングは基本無し。
@@ -132,6 +132,56 @@ PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デ�
 
 ### 直接目視の記録（Slice 3）
 - 本セッションで直接目視: mygym-active(regen) / mygym-empty / mygym-multiple / machine-selection-none-selected / custom-machine-add / custom-machine-edit（**6枚全数**）。
+- **未確認を PASS 扱いしていない。**
+
+## Slice 4: Planner / Exercise Library 状態監査
+
+依頼13状態をリポジトリ監査。本番View（`WeeklyTrainingPlanCandidateReviewView` / `ExerciseLibraryView`）を DEBUG 限定 init で再現（本番挙動・永続化・生成ルール不変）。捏造せず、冗長/不可/存在しないものは omit。
+
+### Planner
+
+| 依頼状態 | 判定 | 理由 |
+|---|---|---|
+| saved single-plan | **omit** | 単発保存は保存後に前画面へ**遷移**するだけで、安定した専用「保存済み」画面が無い。偽バッジは作らない |
+| saved weekly-plan | **omit（撮影冗長）** | `.saved` は successCard に変わるが、その card は day cards の**後（fold下）**にあり、単一スクショの可視領域は `preview-weekly` と同一。決定的な単一撮影で視覚差が出ないため omit |
+| generation invalidated | **omit（視覚同一）** | 入力変更で候補は**クリア**され、通常の入力前画面（`preview-weekly-before-generation`）と視覚的に同一。挙動として記録し重複画像は作らない |
+| single-plan input（未撮影） | **omit（冗長）** | 単発入力は既存 `planner`（部位選択）と実質同じ入力階層。新規視覚情報なし |
+| generated candidate/preview（未撮影） | **omit（冗長）** | `preview-single` / `preview-weekly` で既にカバー |
+| invalid/unavailable generation | **新ルート** `planner-unavailable-target` | ジム未選択時の実 `equipmentNotice`（「使用するジムを My Gym で選択してください。」）を表示。生成不可の本番可視状態で視覚的に明確 |
+
+### Exercise Library
+
+| 依頼状態 | 判定 | 理由 |
+|---|---|---|
+| search result | **新ルート** `exercise-library-search-results` | 実カタログ検索「プレス」で3件（チェスト/レッグ/ショルダープレス）。`searchText` を DEBUG init で初期化（本番の空既定・編集可挙動は不変） |
+| no search result | **新ルート** `exercise-library-no-results` | 「スイム」で実 empty-state（「一致する種目がありません」）。捏造クエリ・テスト語なし |
+| body-part filter | **omit** | ライブラリに独立した部位フィルタ UI は無し（検索のみ）。ルート名だけの重複は作らない |
+| exercise detail | **omit（冗長）** | detail は `.sheet` → `ExerciseGuideView`（＝Form Guide）。既存 `form-guide` ルートと同一 |
+| text guide | **omit（冗長）** | テキスト手順は既存 `form-guide-instructions-expanded` が同一情報をカバー |
+| unsupported 3D / fallback | **omit（存在しない）** | ライブラリは `FormGuideLibrary.hasGuide` の10種目のみ表示し、その10種目すべてに `ExerciseMotionLibrary` の3Dプロファイルが存在。「ガイドあり・3Dなし」状態は current-main に存在しない（`formGuideSupportMappingIsUnchanged` テストで固定） |
+| supported Form Guide entry | **omit（冗長）** | 既存 `form-guide` が supported エントリを既にカバー |
+
+→ **Slice 4 = 新ルート3件**（`planner-unavailable-target` / `exercise-library-search-results` / `exercise-library-no-results`）。他10状態は上記理由で omit。依頼リストは監査対象であり、1ラベル=1ルートを強制しない方針に従い、視覚的に真に distinct なもののみ採用。
+
+### Slice 4 新ルート
+
+| route ID | 画面 | 状態 | 主目的 | 決定性 | fixture/入力 | 永続化隔離 | ファイル | 直接目視 | 懸念 |
+|---|---|---|---|---|---|---|---|---|---|
+| planner-unavailable-target | 週次候補レビュー | 生成不可(ジム未選択) | 生成前提の欠如提示 | 決定的（静的 notice） | `debugEquipmentNotice`（実 `needsActiveGymMessage`） | 永続化なし（候補・保存なし） | 05-planner/unavailable-target.png | **YES（本セッション）** | 良好。下部に notice、生成ルール不変 |
+| exercise-library-search-results | Exercise Library | 検索一致(「プレス」3件) | 種目検索→フォーム確認 | 決定的（固定クエリ・実カタログ・安定順） | `debugInitialSearch: "プレス"` | なし（読み取りのみ） | 09-library/search-results.png | **YES** | キーボード非表示・fake行なし・実フィルタ結果 |
+| exercise-library-no-results | Exercise Library | 検索0件(「スイム」) | 空状態提示 | 決定的（固定クエリ） | `debugInitialSearch: "スイム"` | なし | 09-library/search-no-results.png | **YES** | 実 empty copy・stale行なし・テスト語なし |
+
+### Slice 4 DEBUG init（本番挙動不変）
+- `WeeklyTrainingPlanCandidateReviewView(debugEquipmentNotice:)` — `equipmentNotice` の初期値のみ設定。候補生成・保存・永続化は行わない。
+- `ExerciseLibraryView(debugInitialSearch:)` — `searchText` の初期値のみ設定。本番の空既定・編集可・検索ロジックは不変。
+- いずれも `#if DEBUG`・本番ナビゲーション/persistence/生成ルールに変更なし。
+
+### Form Guide 制約メモ（PR #140 非依存）
+- ライブラリの表示対象＝ガイド10種目＝3Dモーションプロファイル10種目（`machine_*` / `lat_pulldown` / `leg_*` / `cable_triceps_pushdown`）。**ガイドあり・3Dなしの unsupported 状態は current-main に存在しない**。PR #140 の rigged model は未マージのため「将来3D対応」を実装済みとして扱わない。
+
+### 直接目視の記録（Slice 4）
+- 本セッションで直接目視: `planner-unavailable-target` / `exercise-library-search-results` / `exercise-library-no-results`（**3枚全数**）。
+- 撮影後の監査で `planner-weekly-saved` は successCard が fold下で単一スクショに写らず `preview-weekly` と視覚同一と判明したため、**ルートごと削除**（enum/switch/capture script/テスト/DEBUG init param・生成 PNG も削除）。
 - **未確認を PASS 扱いしていない。**
 
 ## 撮影・コンタクトシート手順

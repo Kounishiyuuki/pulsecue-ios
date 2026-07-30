@@ -94,6 +94,12 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         _selectedBodyParts = State(initialValue: Set(debugRequest.targetBodyParts))
         _conditionsExpanded = State(initialValue: false)
     }
+
+    /// DEBUG-only: opens the review showing the real equipment-unavailable
+    /// notice (no candidate, no generation, no persistence).
+    init(debugEquipmentNotice notice: String) {
+        _equipmentNotice = State(initialValue: notice)
+    }
 #endif
 
     // Body-part filter order matches the catalog screen (胸/背中/肩/腕/脚/体幹/有酸素).
