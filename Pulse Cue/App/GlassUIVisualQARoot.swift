@@ -6,14 +6,23 @@ import SwiftUI
 enum GlassUIVisualQARoute: String, CaseIterable {
     case home
     case myGymActive = "mygym-active"
+    case myGymEmpty = "mygym-empty"
+    case myGymMultiple = "mygym-multiple"
     case machineSelection = "machine-selection"
+    case machineSelectionNoneSelected = "machine-selection-none-selected"
+    case customMachineAdd = "custom-machine-add"
+    case customMachineEdit = "custom-machine-edit"
     case planner
     case previewSingle = "preview-single"
     case previewWeeklyBeforeGeneration = "preview-weekly-before-generation"
     case previewWeekly = "preview-weekly"
+    case plannerUnavailableTarget = "planner-unavailable-target"
+    case exerciseLibrarySearchResults = "exercise-library-search-results"
+    case exerciseLibraryNoResults = "exercise-library-no-results"
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
     case runnerActive = "runner-active"
+    case runnerActiveLaterSet = "runner-active-later-set"
     case runnerRest = "runner-rest"
     case exerciseLibrary = "exercise-library"
     case formGuide = "form-guide"
@@ -64,6 +73,16 @@ struct GlassUIVisualQARoot: View {
                 ScreenshotHomeHost(modelContext: modelContext)
             case .myGymActive:
                 MyGymHomeView()
+            case .myGymEmpty:
+                ScreenshotGymHost(mode: .empty)
+            case .myGymMultiple:
+                ScreenshotGymHost(mode: .multiple)
+            case .machineSelectionNoneSelected:
+                ScreenshotGymHost(mode: .noneSelected)
+            case .customMachineAdd:
+                ScreenshotGymHost(mode: .customAdd)
+            case .customMachineEdit:
+                ScreenshotGymHost(mode: .customEdit)
             case .machineSelection:
                 ManualMachineSelectionView(gym: gym)
             case .planner:
@@ -77,6 +96,14 @@ struct GlassUIVisualQARoot: View {
                     debugCandidate: GlassUIVisualQAFixture.weeklyCandidate,
                     debugRequest: GlassUIVisualQAFixture.weeklyRequest
                 )
+            case .plannerUnavailableTarget:
+                WeeklyTrainingPlanCandidateReviewView(
+                    debugEquipmentNotice: WeeklyPlanEquipmentProvider.needsActiveGymMessage
+                )
+            case .exerciseLibrarySearchResults:
+                ExerciseLibraryView(debugInitialSearch: "プレス")
+            case .exerciseLibraryNoResults:
+                ExerciseLibraryView(debugInitialSearch: "スイム")
             case .historyPopulated:
                 HistoryView()
             case .historyDetail:
@@ -92,6 +119,8 @@ struct GlassUIVisualQARoot: View {
                 }
             case .runnerActive:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .exercise)
+            case .runnerActiveLaterSet:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .laterSet)
             case .runnerRest:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .rest)
             case .exerciseLibrary:
@@ -137,7 +166,7 @@ private func makeScreenshotSettings() -> SettingsStore {
 }
 
 private struct ScreenshotRunnerHost: View {
-    enum Target { case exercise, rest }
+    enum Target { case exercise, rest, laterSet }
 
     let modelContext: ModelContext
     let target: Target
@@ -166,10 +195,19 @@ private struct ScreenshotRunnerHost: View {
                     predicate: #Predicate { $0.id == routineID }
                 )
                 guard let routine = try? modelContext.fetch(descriptor).first else { return }
-                // ACTIVE = exercise phase (static, no ticking timer). REST =
-                // one Complete to enter the rest hero. Existing public API only.
+                // Existing public API only — no state-machine change.
+                // ACTIVE first set = exercise phase (static, no ticking timer).
+                // REST = one Complete → rest hero. LATER SET = Complete (record
+                // set 1 → rest) then Complete (finish rest → set 2 exercise),
+                // yielding a static exercise phase advanced past the first set.
                 runnerViewModel.start(routine: routine)
-                if target == .rest {
+                switch target {
+                case .exercise:
+                    break
+                case .rest:
+                    runnerViewModel.handle(action: .complete)
+                case .laterSet:
+                    runnerViewModel.handle(action: .complete)
                     runnerViewModel.handle(action: .complete)
                 }
             }
@@ -197,6 +235,66 @@ private struct ScreenshotHomeHost: View {
         TodayView(onResumeRunner: {})
             .environmentObject(runnerViewModel)
             .environmentObject(settings)
+    }
+}
+
+/// DEBUG-only host for the My Gym / machine / Custom Machine inventory states.
+/// Builds its OWN isolated in-memory container per mode and renders the real
+/// production views — no production store write, no `UserDefaults.standard`.
+private struct ScreenshotGymHost: View {
+    let mode: GlassUIVisualQAFixture.GymInventoryMode
+    @State private var container: ModelContainer
+
+    init(mode: GlassUIVisualQAFixture.GymInventoryMode) {
+        self.mode = mode
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let built = try! ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        GlassUIVisualQAFixture.seedGymInventory(mode: mode, into: built.mainContext)
+        _container = State(initialValue: built)
+    }
+
+    var body: some View {
+        content.modelContainer(container)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch mode {
+        case .empty, .multiple:
+            MyGymHomeView()
+        case .noneSelected:
+            if let gym = firstGym {
+                ManualMachineSelectionView(gym: gym)
+            } else {
+                unavailable
+            }
+        case .customAdd:
+            if let gym = firstGym {
+                CustomMachineFormView(gym: gym)
+            } else {
+                unavailable
+            }
+        case .customEdit:
+            if let gym = firstGym, let machine = firstCustomMachine {
+                CustomMachineFormView(gym: gym, editing: machine)
+            } else {
+                unavailable
+            }
+        }
+    }
+
+    private var unavailable: some View {
+        ContentUnavailableView("Inventory fixture unavailable", systemImage: "exclamationmark.triangle")
+    }
+
+    private var firstGym: Gym? {
+        try? container.mainContext.fetch(FetchDescriptor<Gym>()).first
+    }
+    private var firstCustomMachine: CustomMachine? {
+        try? container.mainContext.fetch(FetchDescriptor<CustomMachine>()).first
     }
 }
 
@@ -255,7 +353,7 @@ enum GlassUIVisualQAFixture {
         let gym = Gym(
             id: gymID,
             name: "Pulse Fitness 渋谷",
-            officialUrl: "https://example.com/pulse-fitness-shibuya",
+            officialUrl: nil,
             isActive: true,
             createdAt: timestamp,
             updatedAt: timestamp
@@ -378,6 +476,57 @@ enum GlassUIVisualQAFixture {
 
     private static func stableMachineID(index: Int) -> UUID {
         UUID(uuidString: String(format: "B134D9F0-25D8-4AA7-A5B9-%012X", index + 1))!
+    }
+
+    // MARK: - My Gym inventory (Slice 3)
+
+    static let secondGymID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54E20")!
+    static let customMachineID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB54E30")!
+
+    enum GymInventoryMode { case empty, multiple, noneSelected, customAdd, customEdit }
+
+    /// Seeds deterministic Gym / GymMachine / CustomMachine data for the My Gym
+    /// inventory routes. All gyms use `officialUrl == nil` (no example.com).
+    /// In-memory only; the caller provides an isolated container's context.
+    @MainActor
+    static func seedGymInventory(mode: GymInventoryMode, into context: ModelContext) {
+        func makeGym(_ id: UUID, _ name: String, active: Bool) -> Gym {
+            Gym(id: id, name: name, officialUrl: nil, isActive: active,
+                createdAt: timestamp, updatedAt: timestamp)
+        }
+        func addMachines(_ gymId: UUID, count: Int, indexOffset: Int) {
+            for (i, machineID) in machineIDs.prefix(count).enumerated() {
+                guard let entry = MachineCatalog.entry(for: machineID) else { continue }
+                context.insert(GymMachine(
+                    id: stableMachineID(index: indexOffset + i),
+                    gymId: gymId, machineId: entry.id, displayName: entry.displayName,
+                    isAvailable: true, addedAt: timestamp
+                ))
+            }
+        }
+        switch mode {
+        case .empty:
+            break
+        case .multiple:
+            context.insert(makeGym(gymID, "Pulse Fitness 渋谷", active: true))
+            addMachines(gymID, count: 11, indexOffset: 0)
+            context.insert(makeGym(secondGymID, "Central Training Lab", active: false))
+            addMachines(secondGymID, count: 6, indexOffset: 100)
+        case .noneSelected:
+            context.insert(makeGym(gymID, "Pulse Fitness 渋谷", active: true))
+        case .customAdd:
+            context.insert(makeGym(gymID, "Pulse Fitness 渋谷", active: true))
+        case .customEdit:
+            context.insert(makeGym(gymID, "Pulse Fitness 渋谷", active: true))
+            context.insert(CustomMachine(
+                id: customMachineID, gymId: gymID, displayName: "ケーブルロー",
+                bodyParts: [BodyPart.back.rawValue],
+                equipmentType: EquipmentType.cable.rawValue,
+                notes: "フォーム確認用", isAvailable: true,
+                createdAt: timestamp, updatedAt: timestamp
+            ))
+        }
+        try? context.save()
     }
 
     private static func stableResultID(
