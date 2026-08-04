@@ -36,6 +36,16 @@ struct RunnerRestorationTests {
         let context: ModelContext
     }
 
+    private struct LegacyPersistentState: Codable {
+        var sessionId: UUID
+        var routineId: UUID
+        var phase: RunnerPhase
+        var stepIndex: Int
+        var setIndex: Int
+        var restDeadline: Date?
+        var lastUpdatedAt: Date
+    }
+
     /// Builds an in-memory SwiftData container with a routine, N
     /// steps, and an in-progress Session. The fixture does **not**
     /// call `viewModel.configure(...)` — the caller decides when to
@@ -190,6 +200,7 @@ struct RunnerRestorationTests {
             phase: .rest,
             stepIndex: 2,
             setIndex: 1,
+            currentReps: 7,
             restDeadline: deadline,
             lastUpdatedAt: savedAt,
         )
@@ -201,8 +212,33 @@ struct RunnerRestorationTests {
         #expect(loaded.phase == .rest)
         #expect(loaded.stepIndex == 2)
         #expect(loaded.setIndex == 1)
+        #expect(loaded.currentReps == 7)
         #expect(loaded.restDeadline?.timeIntervalSince1970 == deadline.timeIntervalSince1970)
         #expect(loaded.lastUpdatedAt.timeIntervalSince1970 == savedAt.timeIntervalSince1970)
+    }
+
+    @Test
+    func legacyStateWithoutCurrentRepsDecodesAndFallsBackToTarget() throws {
+        let fixture = try Self.makeFixture(stepCount: 1, setsPerStep: 2)
+        let legacyState = LegacyPersistentState(
+            sessionId: fixture.session.id,
+            routineId: fixture.routine.id,
+            phase: .exercise,
+            stepIndex: 0,
+            setIndex: 0,
+            restDeadline: nil,
+            lastUpdatedAt: Date()
+        )
+        let data = try JSONEncoder().encode(legacyState)
+        UserDefaults.standard.set(data, forKey: "runner.persistent.state")
+
+        let decoded = try #require(RunnerPersistence.load())
+        #expect(decoded.currentReps == nil)
+
+        fixture.viewModel.configure(modelContext: fixture.context)
+
+        #expect(fixture.viewModel.phase == .exercise)
+        #expect(fixture.viewModel.currentReps == 10)
     }
 
     @Test

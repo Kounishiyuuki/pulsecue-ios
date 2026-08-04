@@ -103,6 +103,54 @@ struct RunnerStateMachineTests {
     }
 
     @Test
+    func adjustedRepsAreRecordedWhenSetCompletes() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 1)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.adjustCurrentReps(by: -2)
+        fx.viewModel.adjustCurrentReps(by: 1)
+        #expect(fx.viewModel.currentReps == 9)
+
+        fx.viewModel.handle(action: .complete)
+
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(results.count == 1)
+        #expect(results.first?.done == true)
+        #expect(results.first?.actualReps == 9)
+    }
+
+    @Test
+    func completingAgainAfterBackUpdatesTheSameSetResult() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 1)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.adjustCurrentReps(by: -2)
+        fx.viewModel.handle(action: .complete)
+
+        fx.viewModel.handle(action: .back)
+        fx.viewModel.adjustCurrentReps(by: 3)
+        fx.viewModel.handle(action: .complete)
+
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(results.count == 1)
+        #expect(results.first?.done == true)
+        #expect(results.first?.actualReps == 11)
+    }
+
+    @Test
+    func repsAdjustmentStopsAtZeroAndResetsForNextSet() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.adjustCurrentReps(by: -20)
+        #expect(fx.viewModel.currentReps == 0)
+        fx.viewModel.handle(action: .complete)
+
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentSetIndex == 1)
+        #expect(fx.viewModel.currentReps == 10)
+    }
+
+    @Test
     func restCompletionAdvancesToNextSet() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 3)
         fx.viewModel.start(routine: fx.routine)
@@ -233,6 +281,52 @@ struct RunnerStateMachineTests {
     }
 
     @Test
+    func backAtFirstSetIsANoOpAndKeepsAdjustedReps() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.adjustCurrentReps(by: -3)
+
+        fx.viewModel.handle(action: .back)
+
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.currentReps == 7)
+    }
+
+    @Test
+    func backToPreviousSetRestoresItsRecordedActualReps() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.adjustCurrentReps(by: -3)
+        fx.viewModel.handle(action: .complete)
+        #expect(fx.viewModel.currentSetIndex == 1)
+        #expect(fx.viewModel.currentReps == 10)
+
+        fx.viewModel.handle(action: .back)
+
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.currentReps == 7)
+    }
+
+    @Test
+    func backAcrossExerciseBoundaryRestoresPreviousExercisesLastRecordedReps() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 2, setsPerStep: 1)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.adjustCurrentReps(by: -4)
+        fx.viewModel.handle(action: .complete)
+        #expect(fx.viewModel.currentStepIndex == 1)
+        #expect(fx.viewModel.currentSetIndex == 0)
+
+        fx.viewModel.handle(action: .back)
+
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.currentReps == 6)
+    }
+
+    @Test
     func plus10HasNoEffectDuringExercise() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
@@ -260,12 +354,43 @@ struct RunnerStateMachineTests {
     }
 
     @Test
+    func minus10ShortensDeadlineWithoutGoingNegative() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.handle(action: .complete)
+
+        let before = try #require(fx.viewModel.restDeadline)
+        fx.viewModel.shortenRest()
+        let after = try #require(fx.viewModel.restDeadline)
+
+        #expect(abs(after.timeIntervalSince(before) + 10.0) < 0.1)
+        #expect(fx.viewModel.phase == .rest)
+        #expect(fx.viewModel.remainingSeconds >= 0)
+    }
+
+    @Test
+    func minus10AtEndOfShortRestUsesNormalCompletionTransition() async throws {
+        let fx = try Self.makeFixture(restSeconds: 5, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.handle(action: .complete)
+
+        fx.viewModel.shortenRest()
+
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentSetIndex == 1)
+        #expect(fx.viewModel.restDeadline == nil)
+        #expect(fx.viewModel.remainingSeconds == 0)
+    }
+
+    @Test
     func recoveryRestoresInProgressSession() async throws {
         // Build fixture and run it forward by one set, then drop the VM.
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 2, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         fx.viewModel.handle(action: .complete) // step 0 set 0 → set 1 (rest=0)
         #expect(fx.viewModel.currentSetIndex == 1)
+        fx.viewModel.adjustCurrentReps(by: -3)
+        #expect(fx.viewModel.currentReps == 7)
 
         let savedSessionId = try #require(fx.viewModel.sessionId)
 
@@ -280,6 +405,7 @@ struct RunnerStateMachineTests {
         #expect(recovered.sessionId == savedSessionId)
         #expect(recovered.currentStepIndex == 0)
         #expect(recovered.currentSetIndex == 1)
+        #expect(recovered.currentReps == 7)
         #expect(recovered.phase == .exercise)
         #expect(recovered.isRunning)
     }

@@ -13,6 +13,7 @@ struct RunnerPersistentState: Codable {
     var phase: RunnerPhase
     var stepIndex: Int
     var setIndex: Int
+    var currentReps: Int? = nil
     var restDeadline: Date?
     var lastUpdatedAt: Date
 }
