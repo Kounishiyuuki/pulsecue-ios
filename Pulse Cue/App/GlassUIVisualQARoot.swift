@@ -195,7 +195,7 @@ private struct ScreenshotRunnerHost: View {
                     predicate: #Predicate { $0.id == routineID }
                 )
                 guard let routine = try? modelContext.fetch(descriptor).first else { return }
-                // Existing public API only — no state-machine change.
+                // Phase-bound public API only — no state-machine change.
                 // ACTIVE first set = exercise phase (static, no ticking timer).
                 // REST = one Complete → rest hero. LATER SET = Complete (record
                 // set 1 → rest) then Complete (finish rest → set 2 exercise),
@@ -205,10 +205,16 @@ private struct ScreenshotRunnerHost: View {
                 case .exercise:
                     break
                 case .rest:
-                    runnerViewModel.handle(action: .complete)
+                    if let context = runnerViewModel.completeContext {
+                        runnerViewModel.handle(action: .complete, context: context)
+                    }
                 case .laterSet:
-                    runnerViewModel.handle(action: .complete)
-                    runnerViewModel.handle(action: .complete)
+                    if let exerciseContext = runnerViewModel.completeContext {
+                        runnerViewModel.handle(action: .complete, context: exerciseContext)
+                    }
+                    if let restContext = runnerViewModel.completeContext {
+                        runnerViewModel.handle(action: .complete, context: restContext)
+                    }
                 }
             }
     }

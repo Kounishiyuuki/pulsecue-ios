@@ -9,81 +9,67 @@ import SwiftUI
 import UIKit
 
 enum AppTheme {
-    static let background = Color(.systemGroupedBackground)
-    static let cardBackground = Color(.systemBackground)
-    static let cardBorder = Color(.systemGray5)
-    static let shadow = Color.black.opacity(0.06)
-    static let highlight = Color.orange
+    /// Midnight Pulse foundation. The aliases at the top are intentionally
+    /// kept because older screens still use them directly.
+    static let background = Color(red: 0.027, green: 0.063, blue: 0.067)
+    static let cardBackground = Color(red: 0.055, green: 0.118, blue: 0.122)
+    static let cardBorder = Color.white.opacity(0.08)
+    static let shadow = Color.black.opacity(0.28)
+    static let highlight = Color(red: 0.322, green: 0.820, blue: 0.820)
 
-    // MARK: - Apple Health Light foundation
-    //
-    // A calmer, "Apple Health / Fitness" inspired palette: light and airy,
-    // a restrained blue accent, soft translucent cards, and subtle blue-gray
-    // borders. Additive — the keys above are kept for existing call sites.
-    // Colors adapt to dark mode via dynamic `UIColor` so no asset catalog
-    // entries are required.
+    // MARK: - Midnight Pulse foundation
 
-    /// App background — off-white / very pale blue-gray (light), near-black
-    /// (dark). Airy and low-contrast so cards float above it.
+    /// Deep blue-green app background. Both appearances deliberately resolve
+    /// to the same dark family so presented sheets do not flash white.
     static let surface = dynamicColor(
-        light: (0.96, 0.97, 0.985, 1.0),
-        dark: (0.07, 0.08, 0.10, 1.0)
+        light: (0.027, 0.063, 0.067, 1.0),
+        dark: (0.027, 0.063, 0.067, 1.0)
     )
 
-    /// Soft, translucent white card fill. Pair with `.regularMaterial` via
-    /// `PulseCard` for the frosted look, or use directly for a flat card.
+    /// Flat elevated surface for ordinary cards.
     static let surfaceCard = dynamicColor(
-        light: (1.0, 1.0, 1.0, 0.85),
-        dark: (1.0, 1.0, 1.0, 0.06)
+        light: (0.055, 0.118, 0.122, 1.0),
+        dark: (0.055, 0.118, 0.122, 1.0)
     )
 
-    /// Subtle blue-gray hairline border for cards and dividers.
+    /// Quiet teal-gray hairline border for structure without glow.
     static let separator = dynamicColor(
-        light: (0.60, 0.66, 0.74, 0.30),
-        dark: (0.40, 0.45, 0.52, 0.45)
+        light: (0.35, 0.49, 0.49, 0.24),
+        dark: (0.35, 0.49, 0.49, 0.24)
     )
 
-    /// Restrained blue accent for primary actions and key highlights —
-    /// deliberately less saturated than the legacy cyan/purple gradient.
+    /// Restrained teal reserved for actions, selection and important values.
     static let accent = dynamicColor(
-        light: (0.16, 0.47, 0.86, 1.0),
-        dark: (0.40, 0.64, 0.96, 1.0)
+        light: (0.322, 0.820, 0.820, 1.0),
+        dark: (0.322, 0.820, 0.820, 1.0)
     )
 
     /// Low-emphasis accent tint for secondary fills and badges.
     static let accentSoft = accent.opacity(0.12)
 
-    /// Solid fill for controls that carry **white** text/icons (filled
-    /// primary buttons, the Home CTA). `accent` alone is tuned as a *tint on
-    /// backgrounds* — its dark-mode value is bright enough that white text on
-    /// it fails contrast (~2.6:1). `accentFilled` is deliberately deeper in
-    /// both modes so white foreground clears WCAG AA (~4.5:1) on it:
-    ///   - light (0.14,0.45,0.84) → white ≈ 4.68:1
-    ///   - dark  (0.17,0.45,0.86) → white ≈ 4.59:1
-    /// Single-hue by design — no gradient. Use `accent` for tints/foreground,
-    /// `accentFilled` only where white sits *on top of* the color.
+    /// Deeper teal for filled controls carrying white labels.
     static let accentFilled = dynamicColor(
-        light: (0.14, 0.45, 0.84, 1.0),
-        dark: (0.17, 0.45, 0.86, 1.0)
+        light: (0.075, 0.439, 0.451, 1.0),
+        dark: (0.075, 0.439, 0.451, 1.0)
     )
 
     // MARK: - PulseCue Glass palette
 
-    /// Atmospheric colors inspired by the product's calm blue identity.
+    /// Atmospheric colors inspired by the product's calm teal identity.
     /// These are background/light roles, never replacements for semantic text.
-    static let deepSpace = Color(red: 0.008, green: 0.063, blue: 0.141)
-    static let deepGlass = Color(red: 0.020, green: 0.149, blue: 0.349)
-    static let reflectedBlue = Color(red: 0.329, green: 0.514, blue: 0.702)
-    static let edgeBlue = Color(red: 0.490, green: 0.627, blue: 0.792)
-    static let iceLight = Color(red: 0.757, green: 0.910, blue: 1.000)
+    static let deepSpace = Color(red: 0.012, green: 0.035, blue: 0.039)
+    static let deepGlass = Color(red: 0.035, green: 0.157, blue: 0.165)
+    static let reflectedBlue = Color(red: 0.180, green: 0.390, blue: 0.396)
+    static let edgeBlue = Color(red: 0.290, green: 0.570, blue: 0.570)
+    static let iceLight = Color(red: 0.690, green: 0.900, blue: 0.890)
 
     static let atmosphericBase = dynamicColor(
-        light: (0.955, 0.976, 0.995, 1.0),
-        dark: (0.008, 0.035, 0.080, 1.0)
+        light: (0.027, 0.063, 0.067, 1.0),
+        dark: (0.027, 0.063, 0.067, 1.0)
     )
     static let glassEdge = dynamicColor(
-        light: (1.0, 1.0, 1.0, 0.78),
-        dark: (0.76, 0.91, 1.0, 0.20)
+        light: (0.60, 0.90, 0.88, 0.16),
+        dark: (0.60, 0.90, 0.88, 0.16)
     )
 
     /// Calm, trustworthy status colors.
@@ -97,12 +83,12 @@ enum AppTheme {
     )
     static let info = accent
 
-    /// Readable text roles (semantic system colors keep contrast correct).
-    static let textPrimary = Color.primary
-    static let textSecondary = Color.secondary
+    /// Explicit text roles remain readable even inside UIKit-backed surfaces.
+    static let textPrimary = Color(red: 0.902, green: 0.941, blue: 0.929)
+    static let textSecondary = Color(red: 0.596, green: 0.690, blue: 0.675)
 
     /// Softer shadow than the legacy card shadow.
-    static let softShadow = Color.black.opacity(0.05)
+    static let softShadow = Color.black.opacity(0.20)
 
     /// Corner radii.
     static let cardRadius: CGFloat = 22

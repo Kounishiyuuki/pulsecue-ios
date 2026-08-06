@@ -253,12 +253,13 @@ struct GlassUIVisualQARouteTests {
         #expect(vm.currentSetIndex == 0)
 
         // REST — one Complete enters the rest hero.
-        vm.handle(action: .complete)
+        let exerciseContext = try #require(vm.completeContext)
+        vm.handle(action: .complete, context: exerciseContext)
         #expect(vm.phase == .rest)
         #expect(vm.isRunning)
     }
 
-    /// LATER SET: two Completes (record set 1 → rest → finish rest) land on a
+    /// LATER SET: phase-bound Completes (record set 1 → rest → finish rest) land on a
     /// static exercise phase advanced past the first set — visually distinct
     /// from `runner-active`. Uses only the public Runner API.
     @Test func screenshotRunnerLaterSetIsDeterministicAndAdvanced() throws {
@@ -281,8 +282,10 @@ struct GlassUIVisualQARouteTests {
         vm.configure(modelContext: context)
 
         vm.start(routine: routine)
-        vm.handle(action: .complete)   // set 1 done → rest
-        vm.handle(action: .complete)   // finish rest → next set exercise
+        let exerciseContext = try #require(vm.completeContext)
+        vm.handle(action: .complete, context: exerciseContext) // set 1 done → rest
+        let restContext = try #require(vm.completeContext)
+        vm.handle(action: .complete, context: restContext) // finish rest → next set exercise
 
         #expect(vm.phase == .exercise)
         #expect(vm.isRunning)

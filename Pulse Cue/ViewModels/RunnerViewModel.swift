@@ -12,9 +12,19 @@ import UserNotifications
 
 @MainActor
 final class RunnerViewModel: ObservableObject {
+    struct CompleteContext: Equatable {
+        fileprivate let sessionId: UUID
+        fileprivate let phase: RunnerPhase
+        fileprivate let stepId: UUID
+        fileprivate let stepIndex: Int
+        fileprivate let setIndex: Int
+        fileprivate let generation: UInt
+    }
+
     @Published private(set) var phase: RunnerPhase = .done
     @Published private(set) var currentStepIndex: Int = 0
     @Published private(set) var currentSetIndex: Int = 0
+    @Published private(set) var currentReps: Int = 0
     @Published private(set) var restDeadline: Date?
     @Published private(set) var remainingSeconds: Int = 0
     @Published var needsAttention: Bool = false
@@ -27,11 +37,19 @@ final class RunnerViewModel: ObservableObject {
     private var steps: [Step] = []
     private var session: Session?
     private var timer: Timer?
+    private var restNotificationGeneration = 0
+    private var attentionGeneration = 0
+    private var completeGeneration: UInt = 0
+    private let notificationManager: any RunnerNotificationManaging
 
     let settings: SettingsStore
 
-    init(settings: SettingsStore) {
+    init(
+        settings: SettingsStore,
+        notificationManager: (any RunnerNotificationManaging)? = nil
+    ) {
         self.settings = settings
+        self.notificationManager = notificationManager ?? NotificationManager.shared
     }
 
     func configure(modelContext: ModelContext) {
@@ -43,14 +61,17 @@ final class RunnerViewModel: ObservableObject {
 
     func start(routine: Routine) {
         guard let modelContext else { return }
+        invalidateCompleteContext()
         stopTimer()
-        needsAttention = false
+        invalidateAttention()
+        cancelRestNotification()
 
         self.routine = routine
         self.routineId = routine.id
         self.steps = fetchSteps(routineId: routine.id)
         self.currentStepIndex = 0
         self.currentSetIndex = 0
+        self.currentReps = steps.first?.repsTarget ?? 0
         self.phase = .exercise
         self.restDeadline = nil
         self.remainingSeconds = 0
@@ -59,6 +80,7 @@ final class RunnerViewModel: ObservableObject {
         modelContext.insert(session)
         self.session = session
         self.sessionId = session.id
+        cancelRestNotification(for: session.id)
 
         if steps.isEmpty {
             finishSession(completed: true)
@@ -68,10 +90,26 @@ final class RunnerViewModel: ObservableObject {
         saveState()
     }
 
+    var completeContext: CompleteContext? {
+        guard let sessionId, let stepId = currentStep?.id, phase != .done else { return nil }
+        return CompleteContext(
+            sessionId: sessionId,
+            phase: phase,
+            stepId: stepId,
+            stepIndex: currentStepIndex,
+            setIndex: currentSetIndex,
+            generation: completeGeneration
+        )
+    }
+
     func handle(action: RunnerAction) {
         switch action {
         case .complete:
-            completeCurrent()
+            // Complete must be bound to the phase and position rendered by the
+            // caller. Re-reading current state here would turn a duplicate
+            // exercise Complete into a rest completion (or complete a zero-rest
+            // next set), so context-free Complete is intentionally ignored.
+            return
         case .skip:
             skipCurrent()
         case .extend:
@@ -81,8 +119,27 @@ final class RunnerViewModel: ObservableObject {
         }
     }
 
+    func handle(action: RunnerAction, context: CompleteContext) {
+        guard case .complete = action, context == completeContext else { return }
+        invalidateCompleteContext()
+        completeCurrent()
+    }
+
     func endSessionEarly() {
+        invalidateCompleteContext()
         finishSession(completed: false)
+    }
+
+    func adjustCurrentReps(by adjustment: Int) {
+        guard phase == .exercise, isRunning else { return }
+        let (adjustedReps, overflowed) = currentReps.addingReportingOverflow(adjustment)
+        guard !overflowed else { return }
+        currentReps = max(0, adjustedReps)
+        saveState()
+    }
+
+    func shortenRest() {
+        adjustRest(by: -10)
     }
 
     func appDidBecomeActive() {
@@ -93,6 +150,7 @@ final class RunnerViewModel: ObservableObject {
         } else {
             restDeadline = nil
             phase = .exercise
+            cancelRestNotification()
             signalAttentionIfNeeded()
             advanceAfterRest()
         }
@@ -128,15 +186,17 @@ final class RunnerViewModel: ObservableObject {
             return
         }
 
-        recordStepResult(done: true)
+        recordStepResult(done: true, actualReps: currentReps)
         startRest(for: step)
     }
 
     private func skipCurrent() {
         guard phase != .done else { return }
+        invalidateCompleteContext()
+        invalidateAttention()
+        cancelRestNotification()
         if phase == .rest {
             stopTimer()
-            NotificationManager.shared.removeAllPending()
             restDeadline = nil
             advanceToNextStepSkippingSets()
             return
@@ -145,39 +205,60 @@ final class RunnerViewModel: ObservableObject {
             finishSession(completed: true)
             return
         }
-        recordStepResult(done: false)
+        recordStepResult(done: false, actualReps: nil)
         advanceToNextStepSkippingSets()
     }
 
     private func extendRest() {
+        adjustRest(by: 10)
+    }
+
+    private func adjustRest(by adjustment: Int) {
         guard phase == .rest, let deadline = restDeadline else { return }
-        restDeadline = deadline.addingTimeInterval(10)
+        let adjustedRemaining = max(0, deadline.timeIntervalSinceNow + TimeInterval(adjustment))
+        restDeadline = Date().addingTimeInterval(adjustedRemaining)
+        tick()
+        guard phase == .rest else { return }
         scheduleRestNotification()
         saveState()
-        tick()
     }
 
     private func goBack() {
         guard phase != .done else { return }
         if phase == .rest {
+            invalidateCompleteContext()
+            invalidateAttention()
+            cancelRestNotification()
             phase = .exercise
             restDeadline = nil
             stopTimer()
+            currentReps = restoredRepsForCurrentPosition()
             saveState()
             return
         }
 
+        guard currentSetIndex > 0 || currentStepIndex > 0 else { return }
+        invalidateAttention()
+        cancelRestNotification()
+        var moved = false
         if currentSetIndex > 0 {
             currentSetIndex -= 1
+            moved = true
         } else if currentStepIndex > 0 {
             currentStepIndex -= 1
             currentSetIndex = max(0, (currentStep?.sets ?? 1) - 1)
+            moved = true
         }
+        guard moved else { return }
+        invalidateCompleteContext()
+        currentReps = restoredRepsForCurrentPosition()
         saveState()
     }
 
     private func startRest(for step: Step) {
+        invalidateAttention()
         if step.restSeconds <= 0 {
+            cancelRestNotification()
             advanceAfterRest()
             return
         }
@@ -189,8 +270,10 @@ final class RunnerViewModel: ObservableObject {
     }
 
     private func finishRest() {
+        invalidateAttention()
         restDeadline = nil
         stopTimer()
+        cancelRestNotification()
         advanceAfterRest()
     }
 
@@ -213,6 +296,7 @@ final class RunnerViewModel: ObservableObject {
         }
 
         phase = .exercise
+        currentReps = currentStep?.repsTarget ?? 0
         saveState()
     }
 
@@ -226,6 +310,7 @@ final class RunnerViewModel: ObservableObject {
         }
 
         phase = .exercise
+        currentReps = currentStep?.repsTarget ?? 0
         saveState()
     }
 
@@ -244,10 +329,12 @@ final class RunnerViewModel: ObservableObject {
 
     private func resetState() {
         stopTimer()
-        NotificationManager.shared.removeAllPending()
+        cancelRestNotification()
+        invalidateAttention()
         phase = .done
         currentStepIndex = 0
         currentSetIndex = 0
+        currentReps = 0
         restDeadline = nil
         remainingSeconds = 0
         needsAttention = false
@@ -259,10 +346,43 @@ final class RunnerViewModel: ObservableObject {
         RunnerPersistence.clear()
     }
 
-    private func recordStepResult(done: Bool) {
+    private func recordStepResult(done: Bool, actualReps: Int?) {
         guard let modelContext, let sessionId, let step = currentStep else { return }
-        let result = StepResult(sessionId: sessionId, stepId: step.id, setIndex: currentSetIndex, done: done)
+        let stepId = step.id
+        let setIndex = currentSetIndex
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> {
+                $0.sessionId == sessionId && $0.stepId == stepId && $0.setIndex == setIndex
+            }
+        )
+        if let existing = try? modelContext.fetch(descriptor).first {
+            existing.done = done
+            existing.actualReps = actualReps
+            return
+        }
+        let result = StepResult(
+            sessionId: sessionId,
+            stepId: step.id,
+            setIndex: currentSetIndex,
+            done: done,
+            actualReps: actualReps
+        )
         modelContext.insert(result)
+    }
+
+    private func restoredRepsForCurrentPosition() -> Int {
+        guard let modelContext, let sessionId, let step = currentStep else {
+            return currentStep?.repsTarget ?? 0
+        }
+        let stepId = step.id
+        let setIndex = currentSetIndex
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> {
+                $0.sessionId == sessionId && $0.stepId == stepId && $0.setIndex == setIndex
+            }
+        )
+        let recordedReps = (try? modelContext.fetch(descriptor).first)?.actualReps
+        return max(0, recordedReps ?? step.repsTarget)
     }
 
     private func fetchSteps(routineId: UUID) -> [Step] {
@@ -306,7 +426,7 @@ final class RunnerViewModel: ObservableObject {
 
     private func onRestFinished() {
         stopTimer()
-        NotificationManager.shared.removeAllPending()
+        cancelRestNotification()
         phase = .exercise
         restDeadline = nil
         signalAttentionIfNeeded()
@@ -314,10 +434,19 @@ final class RunnerViewModel: ObservableObject {
     }
 
     private func signalAttentionIfNeeded() {
-        NotificationManager.shared.getAuthorizationStatus { [weak self] status in
-            guard let self else { return }
-            let authorized = (status == .authorized || status == .provisional)
-            if !authorized || !self.settings.notificationsEnabled {
+        guard let sessionId else { return }
+        attentionGeneration &+= 1
+        let generation = attentionGeneration
+        notificationManager.getAuthorizationStatus { [weak self] status in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      generation == self.attentionGeneration,
+                      self.phase == .exercise,
+                      self.sessionId == sessionId
+                else { return }
+                let authorized = (status == .authorized || status == .provisional)
+                guard !authorized || !self.settings.notificationsEnabled else { return }
+
                 self.needsAttention = true
                 if self.settings.soundEnabled {
                     SoundHapticManager.playBeep()
@@ -326,20 +455,81 @@ final class RunnerViewModel: ObservableObject {
                     SoundHapticManager.playHaptic()
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                    self?.needsAttention = false
+                    guard let self,
+                          generation == self.attentionGeneration,
+                          self.phase == .exercise,
+                          self.sessionId == sessionId
+                    else { return }
+                    self.needsAttention = false
                 }
             }
         }
     }
 
     private func scheduleRestNotification() {
-        guard settings.notificationsEnabled, let deadline = restDeadline else { return }
-        let sessionUUID = sessionId?.uuidString ?? UUID().uuidString
-        NotificationManager.shared.getAuthorizationStatus { status in
-            guard status == .authorized || status == .provisional else { return }
-            let identifier = "rest.\(sessionUUID)"
-            NotificationManager.shared.scheduleRestNotification(deadline: deadline, identifier: identifier)
+        guard let sessionId else { return }
+        cancelRestNotification(for: sessionId)
+        guard settings.notificationsEnabled, restDeadline != nil else { return }
+        let generation = restNotificationGeneration
+        notificationManager.getAuthorizationStatus { [weak self] status in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      generation == self.restNotificationGeneration,
+                      self.phase == .rest,
+                      self.sessionId == sessionId,
+                      let deadline = self.restDeadline,
+                      deadline > Date(),
+                      self.settings.notificationsEnabled,
+                      status == .authorized || status == .provisional
+                else { return }
+                self.notificationManager.scheduleRestNotification(
+                    deadline: deadline,
+                    identifier: self.restNotificationIdentifier(for: sessionId)
+                ) { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        let registrationIsCurrent =
+                            generation == self.restNotificationGeneration &&
+                            self.phase == .rest &&
+                            self.sessionId == sessionId &&
+                            self.restDeadline == deadline &&
+                            self.settings.notificationsEnabled
+                        guard !registrationIsCurrent else { return }
+
+                        self.notificationManager.removeNotification(
+                            identifier: self.restNotificationIdentifier(for: sessionId)
+                        )
+                        let newerScheduleOwnsIdentifier =
+                            self.phase == .rest &&
+                            self.sessionId == sessionId &&
+                            self.settings.notificationsEnabled &&
+                            (self.restDeadline ?? .distantPast) > Date()
+                        if newerScheduleOwnsIdentifier {
+                            self.scheduleRestNotification()
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private func cancelRestNotification(for sessionId: UUID? = nil) {
+        restNotificationGeneration &+= 1
+        guard let sessionId = sessionId ?? self.sessionId else { return }
+        notificationManager.removeNotification(identifier: restNotificationIdentifier(for: sessionId))
+    }
+
+    private func invalidateCompleteContext() {
+        completeGeneration &+= 1
+    }
+
+    private func restNotificationIdentifier(for sessionId: UUID) -> String {
+        "rest.\(sessionId.uuidString)"
+    }
+
+    private func invalidateAttention() {
+        attentionGeneration &+= 1
+        needsAttention = false
     }
 
     private func saveState() {
@@ -350,6 +540,7 @@ final class RunnerViewModel: ObservableObject {
             phase: phase,
             stepIndex: currentStepIndex,
             setIndex: currentSetIndex,
+            currentReps: currentReps,
             restDeadline: restDeadline,
             lastUpdatedAt: Date()
         )
@@ -364,11 +555,13 @@ final class RunnerViewModel: ObservableObject {
 
         guard let session = try? modelContext.fetch(sessionDescriptor).first,
               let routine = try? modelContext.fetch(routineDescriptor).first else {
+            cancelRestNotification(for: state.sessionId)
             RunnerPersistence.clear()
             return
         }
 
         if session.status != .inProgress {
+            cancelRestNotification(for: state.sessionId)
             RunnerPersistence.clear()
             return
         }
@@ -380,6 +573,7 @@ final class RunnerViewModel: ObservableObject {
         self.steps = fetchSteps(routineId: routine.id)
         self.currentStepIndex = min(state.stepIndex, max(0, steps.count - 1))
         self.currentSetIndex = max(0, state.setIndex)
+        self.currentReps = max(0, state.currentReps ?? currentStep?.repsTarget ?? 0)
         self.phase = state.phase
         self.restDeadline = state.restDeadline
         self.remainingSeconds = 0
@@ -391,6 +585,7 @@ final class RunnerViewModel: ObservableObject {
             } else {
                 restDeadline = nil
                 phase = .exercise
+                cancelRestNotification(for: session.id)
                 advanceAfterRest()
             }
         }

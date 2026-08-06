@@ -6,7 +6,8 @@
 //  generated plan preview screens. Mirrors the glass-card aesthetic
 //  established by `SettingsView`'s private helpers but exposed as
 //  reusable modifiers so PR #20 / #21 / #22 screens can stay
-//  cohesive without each view re-implementing the recipe.
+//  cohesive without each view re-implementing the recipe. Ordinary cards are
+//  flat and dark; glass is reserved for the hero surface.
 //
 //  Layout-only. No model, repository, or networking dependencies.
 //
@@ -17,7 +18,7 @@ enum MyGymStyle {
 
     static let cornerRadius: CGFloat = 20
 
-    /// Unified with `AppTheme.accent` — the restrained single blue accent.
+    /// Unified with `AppTheme.accent` — the restrained single teal accent.
     /// Kept as a (single-hue) `LinearGradient` only so existing
     /// `foregroundStyle(accentGradient)` call sites compile unchanged; the
     /// loud blue→purple gradient is intentionally gone for visual calm.
@@ -29,8 +30,8 @@ enum MyGymStyle {
 
     static let accentSolid = AppTheme.accent
 
-    /// Subtle radial background used behind hero screens (MyGymHome,
-    /// TargetBodyPart, GeneratedPlanPreview). Adapts to color scheme.
+    /// Subtle dark background used behind hero screens (MyGymHome,
+    /// TargetBodyPart, GeneratedPlanPreview).
     @ViewBuilder
     static func backgroundLayer(for colorScheme: ColorScheme) -> some View {
         PulseAtmosphericBackground()
@@ -53,7 +54,7 @@ enum MyGymStyle {
 // MARK: - Card modifier
 
 extension View {
-    /// Wraps content in the standard frosted card used across the
+    /// Wraps content in the standard flat dark card used across the
     /// My Gym surface. Internal padding + corner radius are fixed so
     /// every screen looks the same.
     func myGymCard(padding: CGFloat = 18) -> some View {
@@ -77,14 +78,13 @@ private struct MyGymCardModifier: ViewModifier {
     }
 
     private var cardBackground: some View {
-        PulseGlassPlate(
-            level: .functional,
-            cornerRadius: MyGymStyle.cornerRadius
-        )
+        RoundedRectangle(cornerRadius: MyGymStyle.cornerRadius, style: .continuous)
+            .fill(AppTheme.surfaceCard)
     }
 
     private var cardStroke: some View {
-        EmptyView()
+        RoundedRectangle(cornerRadius: MyGymStyle.cornerRadius, style: .continuous)
+            .strokeBorder(AppTheme.separator, lineWidth: 0.75)
     }
 }
 
@@ -119,14 +119,20 @@ struct MyGymPrimaryButtonStyle: ButtonStyle {
             // Enabled: white on the contrast-safe fill. Disabled: a muted,
             // clearly-unavailable slab with secondary label — distinct by
             // fill AND text weight/colour, not by opacity alone.
-            .foregroundStyle(enabled ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.secondary))
+            .foregroundStyle(enabled ? AnyShapeStyle(Color.white) : AnyShapeStyle(AppTheme.textSecondary))
             .frame(maxWidth: .infinity)
             .frame(minHeight: 52)
             .padding(.horizontal, 14)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(enabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color(.tertiarySystemFill)))
+                    .fill(enabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(AppTheme.surfaceCard))
             )
+            .overlay {
+                if !enabled {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(AppTheme.separator, lineWidth: 0.75)
+                }
+            }
             .opacity(configuration.isPressed && enabled ? 0.85 : 1.0)
     }
 }

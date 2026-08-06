@@ -2,9 +2,9 @@
 //  PulseUI.swift
 //  Pulse Cue
 //
-//  Reusable "Apple Health Light" visual primitives built on `AppTheme`.
-//  These give future UI PRs a shared, calmer tone — soft translucent cards,
-//  subtle blue-gray borders, softer shadows, and a clear Primary / Secondary
+//  Reusable "Midnight Pulse" visual primitives built on `AppTheme`.
+//  These give the app a calm dark tone — flat blue-green cards, restrained
+//  teal accents, soft shadows, and a clear Primary / Secondary
 //  / Tertiary action hierarchy — without redesigning any existing screen.
 //
 //  Layout-only. No model / persistence / networking dependencies. Applying
@@ -16,50 +16,34 @@ import SwiftUI
 
 // MARK: - Atmosphere
 
-/// A quiet, static field of light. It creates depth without a live blur or
-/// continuous animation and deliberately leaves most of the canvas empty.
+/// A quiet, static dark field. Its low-contrast teal wash adds depth without
+/// the glow or visual noise of a neon treatment.
 struct PulseAtmosphericBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     var focused = false
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let darkField = focused || colorScheme == .dark
             ZStack {
                 LinearGradient(
-                    colors: darkField
-                        ? [AppTheme.deepSpace, Color(red: 0.01, green: 0.08, blue: 0.17), AppTheme.deepSpace]
-                        : [Color.white, AppTheme.atmosphericBase, Color.white],
+                    colors: focused
+                        ? [AppTheme.deepSpace, Color(red: 0.018, green: 0.055, blue: 0.059), AppTheme.deepSpace]
+                        : [AppTheme.surface, Color(red: 0.025, green: 0.082, blue: 0.084), AppTheme.surface],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
 
                 Ellipse()
-                    .fill((darkField ? AppTheme.deepGlass : AppTheme.iceLight).opacity(darkField ? 0.72 : 0.46))
-                    .frame(width: size.width * 0.92, height: size.height * 0.34)
-                    .blur(radius: darkField ? 54 : 42)
-                    .position(x: size.width * 0.82, y: size.height * 0.18)
-
-                Capsule()
-                    .fill((darkField ? AppTheme.edgeBlue : Color.white).opacity(darkField ? 0.22 : 0.84))
-                    .frame(width: size.width * 0.84, height: 86)
-                    .rotationEffect(.degrees(-18))
-                    .blur(radius: 18)
-                    .position(x: size.width * 0.24, y: size.height * 0.40)
+                    .fill(AppTheme.deepGlass.opacity(focused ? 0.18 : 0.24))
+                    .frame(width: size.width * 0.90, height: size.height * 0.30)
+                    .blur(radius: 72)
+                    .position(x: size.width * 0.82, y: size.height * 0.12)
 
                 Ellipse()
-                    .fill(AppTheme.reflectedBlue.opacity(darkField ? 0.34 : 0.18))
+                    .fill(AppTheme.reflectedBlue.opacity(focused ? 0.08 : 0.12))
                     .frame(width: size.width * 0.76, height: size.height * 0.28)
-                    .blur(radius: darkField ? 62 : 54)
-                    .position(x: size.width * 0.12, y: size.height * 0.72)
-
-                Capsule()
-                    .fill(AppTheme.iceLight.opacity(darkField ? 0.14 : 0.34))
-                    .frame(width: size.width * 0.62, height: 44)
-                    .rotationEffect(.degrees(24))
-                    .blur(radius: 12)
-                    .position(x: size.width * 0.82, y: size.height * 0.60)
+                    .blur(radius: 80)
+                    .position(x: size.width * 0.10, y: size.height * 0.78)
             }
         }
         .ignoresSafeArea()
@@ -69,9 +53,8 @@ struct PulseAtmosphericBackground: View {
 
 // MARK: - Card
 
-/// A soft, translucent white card with a subtle blue-gray border and a gentle
-/// shadow. The Apple Health Light counterpart to the heavier frosted
-/// `myGymCard`.
+/// The standard flat dark card. Glass is reserved for hero and operation
+/// surfaces, so ordinary content stays calm and easy to scan.
 struct PulseCard<Content: View>: View {
     var padding: CGFloat = AppTheme.Spacing.l
     @ViewBuilder var content: Content
@@ -91,23 +74,19 @@ extension View {
             .padding(padding)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
-                    .fill(.thinMaterial)
+                    .fill(AppTheme.surfaceCard)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
                     .strokeBorder(
-                        LinearGradient(
-                            colors: [AppTheme.glassEdge, AppTheme.separator.opacity(0.55)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
+                        AppTheme.separator,
+                        lineWidth: 0.75
                     )
             )
-            .shadow(color: AppTheme.deepGlass.opacity(0.10), radius: 18, x: 0, y: 10)
+            .shadow(color: AppTheme.shadow, radius: 12, x: 0, y: 7)
     }
 
-    /// Applies the airy app background, ignoring safe areas.
+    /// Applies the atmospheric app background, ignoring safe areas.
     func pulseScreenBackground() -> some View {
         background(PulseAtmosphericBackground())
     }
@@ -123,95 +102,69 @@ enum PulseGlassLevel {
     var material: Material {
         switch self {
         case .subtle: return .ultraThinMaterial
-        case .functional: return .thinMaterial
+        case .functional: return .ultraThinMaterial
         case .hero: return .regularMaterial
         }
     }
 
     var tintOpacity: Double {
         switch self {
-        case .subtle: return 0.06
-        case .functional: return 0.11
-        case .hero: return 0.16
+        case .subtle: return 0.02
+        case .functional: return 0.05
+        case .hero: return 0.10
         }
     }
 
     var edgeWidth: CGFloat {
         switch self {
-        case .subtle: return 0.6
-        case .functional: return 0.9
-        case .hero: return 1.2
+        case .subtle: return 0.5
+        case .functional: return 0.7
+        case .hero: return 0.9
         }
     }
 }
 
-/// Physical-looking glass plate with one consistent light direction:
-/// cool white from the upper-left and a cyan reflection at lower-right.
+/// Restrained glass plate for hero surfaces and a flat plate for lower levels.
 struct PulseGlassPlate: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     let level: PulseGlassLevel
     var focused = false
     var cornerRadius: CGFloat = AppTheme.glassRadius
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let darkPlate = focused || colorScheme == .dark
+        let isHero = level == .hero
 
         shape
-            .fill(level.material)
+            .fill(isHero ? AnyShapeStyle(level.material) : AnyShapeStyle(AppTheme.surfaceCard))
             .overlay {
                 shape.fill(
-                    darkPlate
-                        ? AppTheme.deepGlass.opacity(level.tintOpacity + 0.08)
-                        : Color.white.opacity(level.tintOpacity)
+                    AppTheme.deepGlass.opacity(level.tintOpacity + (focused ? 0.08 : 0.02))
                 )
             }
             .overlay {
                 shape.fill(
                     LinearGradient(
                         stops: [
-                            .init(color: Color.white.opacity(darkPlate ? 0.20 : 0.52), location: 0),
-                            .init(color: Color.white.opacity(0.04), location: 0.32),
-                            .init(color: Color.clear, location: 0.58),
-                            .init(color: AppTheme.iceLight.opacity(darkPlate ? 0.12 : 0.18), location: 1)
+                            .init(color: Color.white.opacity(isHero ? 0.07 : 0.025), location: 0),
+                            .init(color: Color.clear, location: 0.48),
+                            .init(color: AppTheme.accent.opacity(isHero ? 0.035 : 0.015), location: 1)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
             }
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    colors: [.clear, Color.white.opacity(darkPlate ? 0.54 : 0.92), .clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(height: level == .hero ? 1.5 : 1)
-                .padding(.horizontal, cornerRadius)
-                .padding(.top, 1)
-            }
             .overlay {
                 shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(darkPlate ? 0.72 : 0.98),
-                            AppTheme.iceLight.opacity(darkPlate ? 0.42 : 0.66),
-                            Color.white.opacity(0.08)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
+                    isHero ? AppTheme.glassEdge : AppTheme.separator,
                     lineWidth: level.edgeWidth
                 )
             }
             .shadow(
-                color: darkPlate
-                    ? AppTheme.deepGlass.opacity(level == .hero ? 0.54 : 0.34)
-                    : AppTheme.reflectedBlue.opacity(level == .hero ? 0.22 : 0.12),
-                radius: level == .hero ? 28 : 16,
+                color: AppTheme.shadow.opacity(level == .hero ? 1 : 0.7),
+                radius: level == .hero ? 20 : 10,
                 x: 0,
-                y: level == .hero ? 18 : 10
+                y: level == .hero ? 12 : 6
             )
     }
 }
@@ -326,14 +279,19 @@ struct PulseButtonBody: View {
     private var primary: some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(effectiveEnabled ? Color.white : AppTheme.textSecondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppTheme.Spacing.m)
+            .frame(minHeight: 48)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .fill(effectiveEnabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(Color.gray.opacity(0.35)))
-                    .shadow(color: effectiveEnabled ? AppTheme.accent.opacity(0.22) : .clear,
-                            radius: 8, x: 0, y: 4)
+                    .fill(effectiveEnabled ? AnyShapeStyle(AppTheme.accentFilled) : AnyShapeStyle(AppTheme.surfaceCard))
+                    .shadow(color: effectiveEnabled ? AppTheme.shadow : .clear,
+                            radius: 6, x: 0, y: 3)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                    .strokeBorder(effectiveEnabled ? Color.clear : AppTheme.separator, lineWidth: 1)
             )
             .opacity(configuration.isPressed ? 0.9 : 1.0)
     }
@@ -344,9 +302,10 @@ struct PulseButtonBody: View {
             .foregroundStyle(effectiveEnabled ? AppTheme.accent : Color.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppTheme.Spacing.m)
+            .frame(minHeight: 48)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .fill(AppTheme.accentSoft)
+                    .fill(effectiveEnabled ? AppTheme.accentSoft : AppTheme.surfaceCard)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
@@ -361,6 +320,7 @@ struct PulseButtonBody: View {
             .foregroundStyle(effectiveEnabled ? AppTheme.accent : Color.secondary)
             .padding(.vertical, AppTheme.Spacing.s)
             .padding(.horizontal, AppTheme.Spacing.s)
+            .frame(minHeight: 44)
             .opacity(configuration.isPressed ? 0.55 : 1.0)
     }
 }
@@ -419,7 +379,7 @@ struct PulseStatusBadge: View {
 #Preview("Pulse UI foundation") {
     ScrollView {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.l) {
-            PulseSectionHeader("Apple Health Light", icon: "heart.text.square")
+            PulseSectionHeader("Midnight Pulse", icon: "heart.text.square")
 
             PulseCard {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {

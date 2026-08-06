@@ -51,8 +51,9 @@ struct ContentView: View {
             .tag(AppTab.settings)
         }
         .tint(AppTheme.accent)
-        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(AppTheme.cardBackground.opacity(0.96), for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
+        .preferredColorScheme(.dark)
         .task {
             runnerViewModel.configure(modelContext: modelContext)
             PulseCueUITestFixtureSeeder.seedIfNeeded(modelContext: modelContext)
