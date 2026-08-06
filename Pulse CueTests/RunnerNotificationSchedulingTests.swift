@@ -136,6 +136,11 @@ struct RunnerNotificationSchedulingTests {
         await Task.yield()
     }
 
+    private static func complete(_ viewModel: RunnerViewModel) throws {
+        let context = try #require(viewModel.completeContext)
+        viewModel.handle(action: .complete, context: context)
+    }
+
     private static func scheduledEvents(in events: [RunnerNotificationManagerSpy.Event]) -> [(String, Date)] {
         events.compactMap { event in
             guard case let .scheduled(identifier, deadline) = event else { return nil }
@@ -155,7 +160,7 @@ struct RunnerNotificationSchedulingTests {
         let fx = try Self.makeFixture()
         fx.spy.clearEvents()
 
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         #expect(fx.spy.pendingAuthorizationCount == 1)
         #expect(Self.scheduledEvents(in: fx.spy.events).isEmpty)
@@ -172,9 +177,34 @@ struct RunnerNotificationSchedulingTests {
     }
 
     @Test
+    func doubleCompleteSchedulesOnlyOneRestNotification() async throws {
+        let fx = try Self.makeFixture(setsPerStep: 2)
+        fx.spy.clearEvents()
+        let context = try #require(fx.viewModel.completeContext)
+
+        let first = Task { @MainActor in
+            fx.viewModel.handle(action: .complete, context: context)
+        }
+        let second = Task { @MainActor in
+            fx.viewModel.handle(action: .complete, context: context)
+        }
+        await first.value
+        await second.value
+
+        #expect(fx.viewModel.phase == .rest)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.spy.pendingAuthorizationCount == 1)
+        fx.spy.resolveAuthorization()
+        await Self.flushMainActorTasks()
+
+        #expect(Self.scheduledEvents(in: fx.spy.events).count == 1)
+        #expect(fx.spy.activeRequests.count == 1)
+    }
+
+    @Test
     func plusTenCancelsThenReschedulesAtTheExtendedDeadline() async throws {
         let fx = try Self.makeFixture()
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         let originalDeadline = try #require(fx.viewModel.restDeadline)
@@ -206,7 +236,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func minusTenCancelsThenReschedulesAtTheShortenedDeadline() async throws {
         let fx = try Self.makeFixture()
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         let originalDeadline = try #require(fx.viewModel.restDeadline)
@@ -228,7 +258,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func repeatedAdjustmentsAllowOnlyTheLatestAuthorizationCallbackToSchedule() async throws {
         let fx = try Self.makeFixture()
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.viewModel.handle(action: .extend)
         fx.viewModel.shortenRest()
         fx.viewModel.handle(action: .extend)
@@ -253,13 +283,13 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func finishingRestCancelsTheActiveNotification() async throws {
         let fx = try Self.makeFixture()
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         #expect(fx.spy.activeRequests.count == 1)
         fx.spy.clearEvents()
 
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         #expect(fx.viewModel.phase == .exercise)
         #expect(fx.spy.activeRequests.isEmpty)
@@ -270,7 +300,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func endingSessionDuringRestCancelsTheActiveNotification() async throws {
         let fx = try Self.makeFixture()
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         fx.spy.clearEvents()
@@ -286,7 +316,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func skippingRestCancelsTheActiveNotification() async throws {
         let fx = try Self.makeFixture(stepCount: 2)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         fx.spy.clearEvents()
@@ -303,7 +333,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func shorteningToZeroCancelsWithoutRescheduling() async throws {
         let fx = try Self.makeFixture(restSeconds: 5)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         fx.spy.clearEvents()
@@ -320,10 +350,10 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func staleAuthorizationCallbackCannotScheduleOverANewerRest() async throws {
         let fx = try Self.makeFixture(setsPerStep: 3)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         #expect(fx.spy.pendingAuthorizationCount == 1)
-        fx.viewModel.handle(action: .complete)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
         #expect(fx.viewModel.phase == .rest)
         #expect(fx.viewModel.currentSetIndex == 1)
         #expect(fx.spy.pendingAuthorizationCount == 2)
@@ -345,7 +375,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func staleAttentionAuthorizationCannotMutateANewSession() async throws {
         let fx = try Self.makeFixture(restSeconds: 5, setsPerStep: 2)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
 
@@ -366,13 +396,13 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func staleScheduleCompletionCannotCancelANewerRestNotification() async throws {
         let fx = try Self.makeFixture(setsPerStep: 3)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         #expect(fx.spy.pendingScheduleCompletionCount == 1)
 
-        fx.viewModel.handle(action: .complete)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         let newestDeadline = try #require(fx.viewModel.restDeadline)
@@ -394,7 +424,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func foregroundWithFutureDeadlineCancelsThenReschedulesLatestNotification() async throws {
         let fx = try Self.makeFixture()
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()
         fx.spy.clearEvents()
@@ -413,7 +443,7 @@ struct RunnerNotificationSchedulingTests {
     @Test
     func foregroundWithExpiredDeadlineCancelsWithoutRescheduling() throws {
         let fx = try Self.makeFixture(restSeconds: 1)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         // Keep the main actor blocked so the timer cannot consume the expiry
         // before appDidBecomeActive exercises its foreground reconciliation.
         Thread.sleep(forTimeInterval: 1.05)

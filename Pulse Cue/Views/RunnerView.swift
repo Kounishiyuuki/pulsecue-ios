@@ -28,6 +28,7 @@ struct RunnerView: View {
 
     @State private var showRoutinePicker = false
     @State private var showEndAlert = false
+    @State private var isCompleteActionPending = false
     /// Non-nil while the Form Guide sheet is shown for the current step.
     /// Resolved ONLY from the persisted `Step.exerciseId` (never from title
     /// or equipment). Presenting it is observational — no workout state,
@@ -626,8 +627,15 @@ struct RunnerView: View {
     }
 
     private var primaryCompleteButton: some View {
-        Button {
-            runnerViewModel.handle(action: .complete)
+        let context = runnerViewModel.completeContext
+        return Button {
+            guard !isCompleteActionPending, let context else { return }
+            isCompleteActionPending = true
+            runnerViewModel.handle(action: .complete, context: context)
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                isCompleteActionPending = false
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark")
@@ -646,6 +654,7 @@ struct RunnerView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(isCompleteActionPending || context == nil)
         .accessibilityLabel(completeAccessibility)
     }
 

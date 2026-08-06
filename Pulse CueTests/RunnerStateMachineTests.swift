@@ -75,6 +75,11 @@ struct RunnerStateMachineTests {
         return Fixture(viewModel: viewModel, routine: routine, context: context, defaults: defaults)
     }
 
+    private static func complete(_ viewModel: RunnerViewModel) throws {
+        let context = try #require(viewModel.completeContext)
+        viewModel.handle(action: .complete, context: context)
+    }
+
     // MARK: - Tests
 
     @Test
@@ -94,12 +99,157 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
 
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         #expect(fx.viewModel.phase == .rest)
         #expect(fx.viewModel.currentStepIndex == 0)
         #expect(fx.viewModel.currentSetIndex == 0)
         #expect(fx.viewModel.restDeadline != nil)
+    }
+
+    @Test
+    func contextFreeCompleteIsIgnored() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.handle(action: .complete)
+
+        #expect(try fx.context.fetch(FetchDescriptor<StepResult>()).isEmpty)
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.restDeadline == nil)
+    }
+
+    @Test
+    func synchronousDoubleCompleteForSameContextIsIdempotent() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.adjustCurrentReps(by: -2)
+        let context = try #require(fx.viewModel.completeContext)
+
+        fx.viewModel.handle(action: .complete, context: context)
+        let firstDeadline = try #require(fx.viewModel.restDeadline)
+        let firstReps = fx.viewModel.currentReps
+        let firstStepIndex = fx.viewModel.currentStepIndex
+        let firstSetIndex = fx.viewModel.currentSetIndex
+        let firstResults = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(firstResults.count == 1)
+
+        fx.viewModel.handle(action: .complete, context: context)
+        let secondResults = try fx.context.fetch(FetchDescriptor<StepResult>())
+
+        #expect(secondResults.count == 1)
+        #expect(secondResults.first?.id == firstResults.first?.id)
+        #expect(secondResults.first?.actualReps == 8)
+        #expect(fx.viewModel.phase == .rest)
+        #expect(fx.viewModel.currentStepIndex == firstStepIndex)
+        #expect(fx.viewModel.currentSetIndex == firstSetIndex)
+        #expect(fx.viewModel.currentReps == firstReps)
+        #expect(fx.viewModel.restDeadline == firstDeadline)
+    }
+
+    @Test
+    func nearConcurrentDoubleCompleteForSameContextIsIdempotent() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        let context = try #require(fx.viewModel.completeContext)
+
+        let first = Task { @MainActor in
+            fx.viewModel.handle(action: .complete, context: context)
+        }
+        let second = Task { @MainActor in
+            fx.viewModel.handle(action: .complete, context: context)
+        }
+        await first.value
+        await second.value
+
+        let deadline = try #require(fx.viewModel.restDeadline)
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(results.count == 1)
+        #expect(results.first?.actualReps == 10)
+        #expect(fx.viewModel.phase == .rest)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.currentReps == 10)
+
+        fx.viewModel.handle(action: .complete, context: context)
+        #expect(try fx.context.fetch(FetchDescriptor<StepResult>()).count == 1)
+        #expect(fx.viewModel.phase == .rest)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.currentReps == 10)
+        #expect(fx.viewModel.restDeadline == deadline)
+    }
+
+    @Test
+    func zeroRestSynchronousDoubleCompleteDoesNotCompleteTheNextSet() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        let context = try #require(fx.viewModel.completeContext)
+
+        fx.viewModel.handle(action: .complete, context: context)
+        fx.viewModel.handle(action: .complete, context: context)
+
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(results.count == 1)
+        #expect(results.first?.setIndex == 0)
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 1)
+    }
+
+    @Test
+    func zeroRestNearConcurrentDoubleCompleteDoesNotCompleteTheNextSet() async throws {
+        let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        let context = try #require(fx.viewModel.completeContext)
+
+        let first = Task { @MainActor in
+            fx.viewModel.handle(action: .complete, context: context)
+        }
+        let second = Task { @MainActor in
+            fx.viewModel.handle(action: .complete, context: context)
+        }
+        await first.value
+        await second.value
+
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(results.count == 1)
+        #expect(results.first?.setIndex == 0)
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 1)
+    }
+
+    @Test
+    func skipThenBackRejectsTheStaleCompleteContext() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 1)
+        fx.viewModel.start(routine: fx.routine)
+        let staleContext = try #require(fx.viewModel.completeContext)
+
+        fx.viewModel.handle(action: .skip)
+        fx.viewModel.handle(action: .back)
+        let resultsBeforeStaleComplete = try fx.context.fetch(FetchDescriptor<StepResult>())
+        let skippedResult = try #require(resultsBeforeStaleComplete.first)
+        #expect(resultsBeforeStaleComplete.count == 1)
+        #expect(skippedResult.done == false)
+        #expect(skippedResult.actualReps == nil)
+
+        fx.viewModel.handle(action: .complete, context: staleContext)
+
+        let resultsAfterStaleComplete = try fx.context.fetch(FetchDescriptor<StepResult>())
+        #expect(resultsAfterStaleComplete.count == 1)
+        #expect(resultsAfterStaleComplete.first?.id == skippedResult.id)
+        #expect(resultsAfterStaleComplete.first?.done == false)
+        #expect(resultsAfterStaleComplete.first?.actualReps == nil)
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+
+        try Self.complete(fx.viewModel)
+        #expect(try fx.context.fetch(FetchDescriptor<StepResult>()).count == 1)
+        #expect(fx.viewModel.phase == .rest)
     }
 
     @Test
@@ -111,7 +261,7 @@ struct RunnerStateMachineTests {
         fx.viewModel.adjustCurrentReps(by: 1)
         #expect(fx.viewModel.currentReps == 9)
 
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         let results = try fx.context.fetch(FetchDescriptor<StepResult>())
         #expect(results.count == 1)
@@ -124,11 +274,11 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 1)
         fx.viewModel.start(routine: fx.routine)
         fx.viewModel.adjustCurrentReps(by: -2)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         fx.viewModel.handle(action: .back)
         fx.viewModel.adjustCurrentReps(by: 3)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         let results = try fx.context.fetch(FetchDescriptor<StepResult>())
         #expect(results.count == 1)
@@ -143,7 +293,7 @@ struct RunnerStateMachineTests {
 
         fx.viewModel.adjustCurrentReps(by: -20)
         #expect(fx.viewModel.currentReps == 0)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         #expect(fx.viewModel.phase == .exercise)
         #expect(fx.viewModel.currentSetIndex == 1)
@@ -155,8 +305,8 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 3)
         fx.viewModel.start(routine: fx.routine)
 
-        fx.viewModel.handle(action: .complete) // exercise → rest
-        fx.viewModel.handle(action: .complete) // finish rest → next set
+        try Self.complete(fx.viewModel) // exercise → rest
+        try Self.complete(fx.viewModel) // finish rest → next set
 
         #expect(fx.viewModel.phase == .exercise)
         #expect(fx.viewModel.currentStepIndex == 0)
@@ -169,11 +319,11 @@ struct RunnerStateMachineTests {
         fx.viewModel.start(routine: fx.routine)
 
         // step 0 / set 0 → rest → set 1
-        fx.viewModel.handle(action: .complete)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
         // step 0 / set 1 (last set of step 0) → rest → step 1 / set 0
-        fx.viewModel.handle(action: .complete)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
 
         #expect(fx.viewModel.phase == .exercise)
         #expect(fx.viewModel.currentStepIndex == 1)
@@ -186,10 +336,10 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 1)
         fx.viewModel.start(routine: fx.routine)
 
-        fx.viewModel.handle(action: .complete) // exercise → rest
+        try Self.complete(fx.viewModel) // exercise → rest
         #expect(fx.viewModel.phase == .rest)
 
-        fx.viewModel.handle(action: .complete) // finish rest → done
+        try Self.complete(fx.viewModel) // finish rest → done
 
         #expect(fx.viewModel.phase == .done)
         #expect(fx.viewModel.sessionId == nil)
@@ -203,7 +353,7 @@ struct RunnerStateMachineTests {
         #expect(step.exerciseId == nil)
 
         fx.viewModel.start(routine: fx.routine)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         #expect(fx.viewModel.phase == .done)
         let sessions = try fx.context.fetch(FetchDescriptor<Session>())
@@ -235,7 +385,7 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 4)
         fx.viewModel.start(routine: fx.routine)
 
-        fx.viewModel.handle(action: .complete) // step 0 / set 0 → rest
+        try Self.complete(fx.viewModel) // step 0 / set 0 → rest
         #expect(fx.viewModel.phase == .rest)
 
         fx.viewModel.handle(action: .skip)
@@ -252,7 +402,7 @@ struct RunnerStateMachineTests {
         fx.viewModel.start(routine: fx.routine)
 
         // restSeconds=0 → Complete short-circuits past rest and moves to next set.
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         #expect(fx.viewModel.currentSetIndex == 1)
 
         fx.viewModel.handle(action: .back)
@@ -268,8 +418,8 @@ struct RunnerStateMachineTests {
         fx.viewModel.start(routine: fx.routine)
 
         // step 0 / set 0 → set 1 → step 1 / set 0
-        fx.viewModel.handle(action: .complete)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
         #expect(fx.viewModel.currentStepIndex == 1)
         #expect(fx.viewModel.currentSetIndex == 0)
 
@@ -285,6 +435,7 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         fx.viewModel.adjustCurrentReps(by: -3)
+        let contextBeforeBack = try #require(fx.viewModel.completeContext)
 
         fx.viewModel.handle(action: .back)
 
@@ -292,6 +443,10 @@ struct RunnerStateMachineTests {
         #expect(fx.viewModel.currentStepIndex == 0)
         #expect(fx.viewModel.currentSetIndex == 0)
         #expect(fx.viewModel.currentReps == 7)
+        #expect(fx.viewModel.completeContext == contextBeforeBack)
+
+        fx.viewModel.handle(action: .complete, context: contextBeforeBack)
+        #expect(fx.viewModel.currentSetIndex == 1)
     }
 
     @Test
@@ -299,7 +454,7 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         fx.viewModel.adjustCurrentReps(by: -3)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         #expect(fx.viewModel.currentSetIndex == 1)
         #expect(fx.viewModel.currentReps == 10)
 
@@ -315,7 +470,7 @@ struct RunnerStateMachineTests {
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 2, setsPerStep: 1)
         fx.viewModel.start(routine: fx.routine)
         fx.viewModel.adjustCurrentReps(by: -4)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
         #expect(fx.viewModel.currentStepIndex == 1)
         #expect(fx.viewModel.currentSetIndex == 0)
 
@@ -342,7 +497,7 @@ struct RunnerStateMachineTests {
     func plus10ExtendsDeadlineDuringRest() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
-        fx.viewModel.handle(action: .complete) // → rest
+        try Self.complete(fx.viewModel) // → rest
 
         let before = try #require(fx.viewModel.restDeadline)
         fx.viewModel.handle(action: .extend)
@@ -357,7 +512,7 @@ struct RunnerStateMachineTests {
     func minus10ShortensDeadlineWithoutGoingNegative() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         let before = try #require(fx.viewModel.restDeadline)
         fx.viewModel.shortenRest()
@@ -372,7 +527,7 @@ struct RunnerStateMachineTests {
     func minus10AtEndOfShortRestUsesNormalCompletionTransition() async throws {
         let fx = try Self.makeFixture(restSeconds: 5, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
-        fx.viewModel.handle(action: .complete)
+        try Self.complete(fx.viewModel)
 
         fx.viewModel.shortenRest()
 
@@ -387,7 +542,7 @@ struct RunnerStateMachineTests {
         // Build fixture and run it forward by one set, then drop the VM.
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 2, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
-        fx.viewModel.handle(action: .complete) // step 0 set 0 → set 1 (rest=0)
+        try Self.complete(fx.viewModel) // step 0 set 0 → set 1 (rest=0)
         #expect(fx.viewModel.currentSetIndex == 1)
         fx.viewModel.adjustCurrentReps(by: -3)
         #expect(fx.viewModel.currentReps == 7)
@@ -415,7 +570,7 @@ struct RunnerStateMachineTests {
         // Run the routine to completion, then verify a fresh VM starts idle.
         let fx = try Self.makeFixture(restSeconds: 0, stepCount: 1, setsPerStep: 1)
         fx.viewModel.start(routine: fx.routine)
-        fx.viewModel.handle(action: .complete) // 1×1 with rest=0 → done
+        try Self.complete(fx.viewModel) // 1×1 with rest=0 → done
 
         #expect(fx.viewModel.phase == .done)
 

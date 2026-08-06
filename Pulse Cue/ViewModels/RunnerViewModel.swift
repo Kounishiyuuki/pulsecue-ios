@@ -12,6 +12,15 @@ import UserNotifications
 
 @MainActor
 final class RunnerViewModel: ObservableObject {
+    struct CompleteContext: Equatable {
+        fileprivate let sessionId: UUID
+        fileprivate let phase: RunnerPhase
+        fileprivate let stepId: UUID
+        fileprivate let stepIndex: Int
+        fileprivate let setIndex: Int
+        fileprivate let generation: UInt
+    }
+
     @Published private(set) var phase: RunnerPhase = .done
     @Published private(set) var currentStepIndex: Int = 0
     @Published private(set) var currentSetIndex: Int = 0
@@ -30,6 +39,7 @@ final class RunnerViewModel: ObservableObject {
     private var timer: Timer?
     private var restNotificationGeneration = 0
     private var attentionGeneration = 0
+    private var completeGeneration: UInt = 0
     private let notificationManager: any RunnerNotificationManaging
 
     let settings: SettingsStore
@@ -51,6 +61,7 @@ final class RunnerViewModel: ObservableObject {
 
     func start(routine: Routine) {
         guard let modelContext else { return }
+        invalidateCompleteContext()
         stopTimer()
         invalidateAttention()
         cancelRestNotification()
@@ -79,10 +90,26 @@ final class RunnerViewModel: ObservableObject {
         saveState()
     }
 
+    var completeContext: CompleteContext? {
+        guard let sessionId, let stepId = currentStep?.id, phase != .done else { return nil }
+        return CompleteContext(
+            sessionId: sessionId,
+            phase: phase,
+            stepId: stepId,
+            stepIndex: currentStepIndex,
+            setIndex: currentSetIndex,
+            generation: completeGeneration
+        )
+    }
+
     func handle(action: RunnerAction) {
         switch action {
         case .complete:
-            completeCurrent()
+            // Complete must be bound to the phase and position rendered by the
+            // caller. Re-reading current state here would turn a duplicate
+            // exercise Complete into a rest completion (or complete a zero-rest
+            // next set), so context-free Complete is intentionally ignored.
+            return
         case .skip:
             skipCurrent()
         case .extend:
@@ -92,7 +119,14 @@ final class RunnerViewModel: ObservableObject {
         }
     }
 
+    func handle(action: RunnerAction, context: CompleteContext) {
+        guard case .complete = action, context == completeContext else { return }
+        invalidateCompleteContext()
+        completeCurrent()
+    }
+
     func endSessionEarly() {
+        invalidateCompleteContext()
         finishSession(completed: false)
     }
 
@@ -158,6 +192,7 @@ final class RunnerViewModel: ObservableObject {
 
     private func skipCurrent() {
         guard phase != .done else { return }
+        invalidateCompleteContext()
         invalidateAttention()
         cancelRestNotification()
         if phase == .rest {
@@ -191,6 +226,7 @@ final class RunnerViewModel: ObservableObject {
     private func goBack() {
         guard phase != .done else { return }
         if phase == .rest {
+            invalidateCompleteContext()
             invalidateAttention()
             cancelRestNotification()
             phase = .exercise
@@ -214,6 +250,7 @@ final class RunnerViewModel: ObservableObject {
             moved = true
         }
         guard moved else { return }
+        invalidateCompleteContext()
         currentReps = restoredRepsForCurrentPosition()
         saveState()
     }
@@ -480,6 +517,10 @@ final class RunnerViewModel: ObservableObject {
         restNotificationGeneration &+= 1
         guard let sessionId = sessionId ?? self.sessionId else { return }
         notificationManager.removeNotification(identifier: restNotificationIdentifier(for: sessionId))
+    }
+
+    private func invalidateCompleteContext() {
+        completeGeneration &+= 1
     }
 
     private func restNotificationIdentifier(for sessionId: UUID) -> String {
