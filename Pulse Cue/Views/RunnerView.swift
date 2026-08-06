@@ -27,6 +27,7 @@ struct RunnerView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var restDialSize: CGFloat = 132
 
     @State private var showRoutinePicker = false
+    @State private var routinePendingStartAfterPickerDismissal: Routine?
     @State private var showEndAlert = false
     @State private var isCompleteActionPending = false
     /// Non-nil while the Form Guide sheet is shown for the current step.
@@ -74,8 +75,8 @@ struct RunnerView: View {
                     .padding(.bottom, 8)
             }
         }
-        .sheet(isPresented: $showRoutinePicker) {
-            RoutinePickerSheet(onSelect: { runnerViewModel.start(routine: $0) })
+        .sheet(isPresented: $showRoutinePicker, onDismiss: startPendingRoutine) {
+            RoutinePickerSheet(onSelect: { routinePendingStartAfterPickerDismissal = $0 })
         }
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)
@@ -535,6 +536,12 @@ struct RunnerView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("ルーティンを開始")
+    }
+
+    private func startPendingRoutine() {
+        guard let routine = routinePendingStartAfterPickerDismissal else { return }
+        routinePendingStartAfterPickerDismissal = nil
+        runnerViewModel.start(routine: routine)
     }
 
     private var endSessionButton: some View {

@@ -2,18 +2,7 @@
 //  RoutinePickerSheet.swift
 //  Pulse Cue
 //
-//  Sheet shown from the Runner tab when the user picks which routine
-//  to start. Surface goals (per `Docs/p0-requirements-audit.md`):
-//   - quick search by routine name
-//   - pinned routines on top, in the same order the WorkoutView uses
-//   - pin/unpin without leaving the sheet
-//   - tap a row → start runner (existing behavior, unchanged)
-//
-//  Reorder is **intentionally not** offered here — toggling SwiftUI
-//  edit mode would clash with the "single tap to start" flow. The
-//  WorkoutView remains the canonical drag-to-reorder surface, and a
-//  footnote in the sheet points there. Pin order changes made here
-//  propagate to WorkoutView through the shared `RoutineOrderStore`.
+//  Start flow: choose, inspect/edit, then start.
 //
 
 import SwiftUI
@@ -22,179 +11,427 @@ import SwiftData
 struct RoutinePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)])
-    private var routines: [Routine]
+    @EnvironmentObject private var settings: SettingsStore
+    @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)]) private var routines: [Routine]
+    @Query private var allSteps: [Step]
 
-    /// Records the chosen routine as a *pending intent* and dismisses. The
-    /// caller starts the workout in the sheet's `onDismiss`, so the Session
-    /// never starts (and the Runner cover never presents) while this sheet
-    /// still owns modal presentation — avoiding a modal-over-modal collision.
+    /// Selection is delivered before dismissal so existing callers can retain
+    /// their modal-safe pending intent behavior.
     let onSelect: (Routine) -> Void
 
-    @State private var searchText: String = ""
+    @State private var searchText = ""
     @State private var orderStore = RoutineOrderStore()
+    @State private var restStore = RoutineRestPreferenceStore()
+    @State private var editorRoutine: Routine?
+    @State private var routinePendingStartAfterEditorDismissal: Routine?
+    @State private var routinePendingDeletion: Routine?
 
     var body: some View {
         NavigationStack {
-            List {
-                if routines.isEmpty {
-                    emptyStateRow
-                } else if filteredRoutines.isEmpty {
-                    noMatchRow
-                } else {
-                    if !pinnedRoutines.isEmpty {
-                        Section {
-                            ForEach(pinnedRoutines) { routine in
-                                routineRow(routine)
-                            }
-                        } header: {
-                            PulseSectionHeader("ピン留め", icon: "pin.fill")
-                        }
+            ZStack {
+                LinearGradient(
+                    colors: [AppTheme.deepSpace.opacity(0.96), Color.black],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        intro
+                        searchBar
+                        content
                     }
-                    if !otherRoutines.isEmpty {
-                        Section {
-                            ForEach(otherRoutines) { routine in
-                                routineRow(routine)
-                            }
-                        } header: {
-                            PulseSectionHeader(
-                                pinnedRoutines.isEmpty ? "ルーティン" : "その他",
-                                icon: "list.bullet.rectangle"
-                            )
-                        }
-                    }
-                    reorderHintFooter
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 28)
                 }
             }
-            .navigationTitle("ルーティン開始")
-            .scrollContentBackground(.hidden)
-            .background(AppTheme.surface.ignoresSafeArea())
-            .listStyle(.insetGrouped)
-            .searchable(text: $searchText, prompt: "ルーティンを検索")
+            .navigationTitle("ルーティンを選択")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button("閉じる") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { createRoutine() } label: {
+                        Label("新規作成", systemImage: "plus")
+                    }
                 }
             }
+            .sheet(item: $editorRoutine, onDismiss: startPendingRoutine) { routine in
+                NavigationStack {
+                    RoutineEditorView(routine: routine, onStart: requestStartFromEditor)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("閉じる") { editorRoutine = nil }
+                            }
+                        }
+                }
+            }
+            .alert(
+                "ルーティンを削除しますか？",
+                isPresented: Binding(
+                    get: { routinePendingDeletion != nil },
+                    set: { if !$0 { routinePendingDeletion = nil } }
+                ),
+                presenting: routinePendingDeletion
+            ) { routine in
+                Button("削除", role: .destructive) { deleteRoutine(routine) }
+                Button("キャンセル", role: .cancel) {}
+            } message: { routine in
+                Text("「\(routine.name)」と種目内容を削除します。この操作は取り消せません。")
+            }
         }
+        .preferredColorScheme(.dark)
     }
 
-    // MARK: - Rows
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("今日のルーティンを選ぶ")
+                .font(.title2.weight(.black))
+            Text("カードで内容を確認するか、「このまま開始」ですぐトレーニングできます。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
+    }
 
-    private func routineRow(_ routine: Routine) -> some View {
-        Button {
-            onSelect(routine)
-            dismiss()
-        } label: {
-            HStack(alignment: .center, spacing: 10) {
-                if routine.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.orange)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(routine.name)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("更新: \(DateUtils.formatDate(routine.updatedAt))")
-                        .font(.footnote)
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("ルーティン名を検索", text: $searchText)
+                .submitLabel(.search)
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .accessibilityHidden(true)
+                .buttonStyle(.plain)
+                .accessibilityLabel("検索をクリア")
             }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
         }
-        .listRowBackground(Color(.secondarySystemGroupedBackground))
-        .accessibilityLabel("\(routine.name)\(routine.isPinned ? "、ピン留め済み" : "")")
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            Button {
-                togglePinned(routine)
-            } label: {
-                Label(
-                    routine.isPinned ? "ピン解除" : "ピン留め",
-                    systemImage: routine.isPinned ? "pin.slash" : "pin"
-                )
-            }
-            .tint(.orange)
-        }
-    }
-
-    private var emptyStateRow: some View {
-        ContentUnavailableView(
-            "ルーティンがありません",
-            systemImage: "list.bullet.rectangle",
-            description: Text("ワークアウトでルーティンを作成してください。")
-        )
-        .listRowBackground(AppTheme.surface)
-    }
-
-    private var noMatchRow: some View {
-        ContentUnavailableView(
-            "「\(searchText)」 に一致するルーティンがありません",
-            systemImage: "magnifyingglass",
-            description: Text("別のキーワードを試すか、検索をクリアしてください。")
-        )
-        .listRowBackground(AppTheme.surface)
+        .padding(.leading, 14)
+        .frame(minHeight: 50)
+        .background(PulseGlassPlate(level: .functional, cornerRadius: 18))
     }
 
     @ViewBuilder
-    private var reorderHintFooter: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Image(systemName: "pin")
-                        .font(.caption2)
-                    Text("行を右にスワイプするとピン留め / 解除できます。")
-                        .font(.footnote)
+    private var content: some View {
+        if routines.isEmpty {
+            emptyState
+        } else if filteredRoutines.isEmpty {
+            searchEmptyState
+        } else {
+            if !pinnedRoutines.isEmpty {
+                sectionTitle("ピン留め", icon: "pin.fill", count: pinnedRoutines.count)
+                ForEach(pinnedRoutines) { routine in routineCard(routine) }
+            }
+            if !otherRoutines.isEmpty {
+                sectionTitle(pinnedRoutines.isEmpty ? "ルーティン" : "その他", icon: "list.bullet.rectangle", count: otherRoutines.count)
+                ForEach(otherRoutines) { routine in routineCard(routine) }
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String, icon: String, count: Int) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).foregroundStyle(AppTheme.accent)
+            Text(title).font(.headline.weight(.bold))
+            Spacer()
+            Text("\(count)件").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
+    }
+
+    private func routineCard(_ routine: Routine) -> some View {
+        let steps = stepsByRoutine[routine.id] ?? []
+        return VStack(alignment: .leading, spacing: 14) {
+            NavigationLink {
+                RoutineEditorView(routine: routine, onStart: selectAndDismiss)
+            } label: {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(routine.name)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                            Text("内容を確認・編集")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.accent)
+                        }
+                        Spacer(minLength: 8)
+                        if routine.isPinned {
+                            Image(systemName: "pin.fill")
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 30, height: 30)
+                        }
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 24, height: 30)
+                    }
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) { cardMetadata(routine: routine, steps: steps) }
+                        VStack(alignment: .leading, spacing: 8) { cardMetadata(routine: routine, steps: steps) }
+                    }
+
+                    tagRow(for: steps)
                 }
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.caption2)
-                    Text("並び替えはワークアウト タブから行えます。")
-                        .font(.footnote)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { cardActions(routine) }
+                VStack(spacing: 10) { cardActions(routine) }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(AppTheme.surfaceCard.opacity(0.96))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(routine.isPinned ? AppTheme.accent.opacity(0.28) : Color.white.opacity(0.06), lineWidth: 1)
+                }
+        )
+    }
+
+    @ViewBuilder
+    private func cardMetadata(routine: Routine, steps: [Step]) -> some View {
+        metadata(icon: "dumbbell.fill", text: "\(steps.count)種目")
+        metadata(icon: "clock.fill", text: estimatedDuration(steps))
+        metadata(icon: "arrow.triangle.2.circlepath", text: "更新 \(DateUtils.formatDate(routine.updatedAt))")
+    }
+
+    @ViewBuilder
+    private func cardActions(_ routine: Routine) -> some View {
+        Button { selectAndDismiss(routine) } label: {
+            Label("このまま開始", systemImage: "play.fill")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(RoundedRectangle(cornerRadius: 14).fill(AppTheme.accentFilled))
+        }
+        .buttonStyle(.plain)
+        .disabled((stepsByRoutine[routine.id] ?? []).isEmpty)
+
+        Menu {
+            Button { editorRoutine = routine } label: { Label("編集", systemImage: "pencil") }
+            Button { duplicateRoutine(routine) } label: { Label("複製", systemImage: "doc.on.doc") }
+            Button { togglePinned(routine) } label: {
+                Label(routine.isPinned ? "ピン留めを解除" : "ピン留め", systemImage: routine.isPinned ? "pin.slash" : "pin")
+            }
+            Button { moveRoutine(routine, direction: -1) } label: {
+                Label("上へ移動", systemImage: "arrow.up")
+            }
+            .disabled(!canMove(routine, direction: -1))
+            Button { moveRoutine(routine, direction: 1) } label: {
+                Label("下へ移動", systemImage: "arrow.down")
+            }
+            .disabled(!canMove(routine, direction: 1))
+            Divider()
+            Button(role: .destructive) { routinePendingDeletion = routine } label: {
+                Label("削除", systemImage: "trash")
+            }
+        } label: {
+            Label("その他", systemImage: "ellipsis")
+                .font(.subheadline.weight(.semibold))
+                .frame(minWidth: 92, minHeight: 46)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.07)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func metadata(icon: String, text: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private func tagRow(for steps: [Step]) -> some View {
+        let tags = bodyPartTags(for: steps)
+        if !tags.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 7) {
+                    ForEach(tags, id: \.self) { tag in tagChip(tag) }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(tags, id: \.self) { tag in tagChip(tag) }
                 }
             }
-            .foregroundStyle(.secondary)
-            .listRowBackground(AppTheme.surface)
         }
     }
 
-    // MARK: - Derived data
-
-    private var trimmedSearch: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func tagChip(_ tag: String) -> some View {
+        Text(tag)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(AppTheme.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(AppTheme.accent.opacity(0.11)))
     }
 
+    private var emptyState: some View {
+        stateCard(
+            icon: "figure.strengthtraining.traditional",
+            title: "ルーティンを作成しましょう",
+            message: "種目、セット、回数、休憩を先に決めておくと、トレーニングをすぐ始められます。",
+            actionTitle: "最初のルーティンを作成",
+            action: createRoutine
+        )
+    }
+
+    private var searchEmptyState: some View {
+        stateCard(
+            icon: "magnifyingglass",
+            title: "一致するルーティンがありません",
+            message: "検索語を変えるか、検索をクリアしてください。",
+            actionTitle: "検索をクリア",
+            action: { searchText = "" }
+        )
+    }
+
+    private func stateCard(icon: String, title: String, message: String, actionTitle: String, action: @escaping () -> Void) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 34, weight: .semibold)).foregroundStyle(AppTheme.accent)
+            Text(title).font(.headline.weight(.bold))
+            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button(action: action) {
+                Text(actionTitle).font(.subheadline.weight(.bold)).frame(minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.accentFilled)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(RoundedRectangle(cornerRadius: 20).fill(AppTheme.surfaceCard))
+    }
+
+    private var trimmedSearch: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var filteredRoutines: [Routine] {
         guard !trimmedSearch.isEmpty else { return routines }
-        return routines.filter {
-            $0.name.localizedCaseInsensitiveContains(trimmedSearch)
+        return routines.filter { $0.name.localizedCaseInsensitiveContains(trimmedSearch) }
+    }
+    private var pinnedRoutines: [Routine] { orderStore.ordered(routines: filteredRoutines.filter(\.isPinned), pinned: true) }
+    private var otherRoutines: [Routine] { orderStore.ordered(routines: filteredRoutines.filter { !$0.isPinned }, pinned: false) }
+    private var stepsByRoutine: [UUID: [Step]] { Dictionary(grouping: allSteps, by: \.routineId) }
+
+    private func bodyPartTags(for steps: [Step]) -> [String] {
+        var seen = Set<BodyPart>()
+        var tags: [String] = []
+        for step in steps {
+            guard let exercise = step.resolvedExercise else { continue }
+            for part in exercise.bodyParts where seen.insert(part).inserted {
+                tags.append(part.displayName)
+                if tags.count == 3 { return tags }
+            }
         }
+        return tags
     }
 
-    private var pinnedRoutines: [Routine] {
-        orderStore.ordered(routines: filteredRoutines.filter(\.isPinned), pinned: true)
+    private func estimatedDuration(_ steps: [Step]) -> String {
+        guard !steps.isEmpty else { return "時間未設定" }
+        let seconds = steps.reduce(0) { total, step in
+            let sets = max(1, step.sets)
+            return total + sets * 30 + max(0, sets - 1) * step.restSeconds
+        }
+        return "約\(max(1, Int(ceil(Double(seconds) / 60))))分"
     }
 
-    private var otherRoutines: [Routine] {
-        orderStore.ordered(routines: filteredRoutines.filter { !$0.isPinned }, pinned: false)
+    private func selectAndDismiss(_ routine: Routine) {
+        let steps = stepsByRoutine[routine.id] ?? []
+        guard !steps.isEmpty else { return }
+        prepareRestPreferences(for: routine, steps: steps)
+        let routineRest = restStore.routineDefault(for: routine.id, appDefault: settings.defaultRestSeconds)
+        for step in steps {
+            step.restSeconds = restStore.stepOverride(for: step.id) ?? routineRest
+        }
+        try? modelContext.save()
+        onSelect(routine)
+        dismiss()
     }
 
-    // MARK: - Actions
+    private func requestStartFromEditor(_ routine: Routine) {
+        routinePendingStartAfterEditorDismissal = routine
+        editorRoutine = nil
+    }
+
+    private func startPendingRoutine() {
+        guard let routine = routinePendingStartAfterEditorDismissal else { return }
+        routinePendingStartAfterEditorDismissal = nil
+        selectAndDismiss(routine)
+    }
+
+    private func createRoutine() {
+        let routine = Routine(name: "新しいルーティン")
+        modelContext.insert(routine)
+        editorRoutine = routine
+    }
 
     private func togglePinned(_ routine: Routine) {
         routine.isPinned.toggle()
         routine.updatedAt = Date()
         orderStore.setPinned(routine.id, pinned: routine.isPinned)
-        // The SwiftData model context auto-saves on next render, but
-        // we make the write explicit so the sheet's @Query observes
-        // the update before the next animation frame.
+        try? modelContext.save()
+    }
+
+    private func duplicateRoutine(_ routine: Routine) {
+        let sourceSteps = (stepsByRoutine[routine.id] ?? []).sorted(by: { $0.order < $1.order })
+        prepareRestPreferences(for: routine, steps: sourceSteps)
+        let copy = Routine(name: routine.name + "（コピー）", isPinned: routine.isPinned)
+        modelContext.insert(copy)
+        var mapping: [UUID: UUID] = [:]
+        for step in sourceSteps {
+            let newStep = step.duplicated(routineId: copy.id, order: step.order)
+            mapping[step.id] = newStep.id
+            modelContext.insert(newStep)
+        }
+        restStore.copyMetadata(from: routine.id, to: copy.id, stepIDMapping: mapping)
+        orderStore.setPinned(copy.id, pinned: copy.isPinned)
+        try? modelContext.save()
+    }
+
+    private func prepareRestPreferences(for routine: Routine, steps: [Step]) {
+        restStore.prepareRoutine(
+            routine.id,
+            existingStepRests: steps.sorted { $0.order < $1.order }.map { (id: $0.id, seconds: $0.restSeconds) },
+            appDefault: settings.defaultRestSeconds
+        )
+    }
+
+    private func orderedGroup(for routine: Routine) -> [Routine] {
+        orderStore.ordered(routines: routines.filter { $0.isPinned == routine.isPinned }, pinned: routine.isPinned)
+    }
+
+    private func canMove(_ routine: Routine, direction: Int) -> Bool {
+        let group = orderedGroup(for: routine)
+        guard let index = group.firstIndex(where: { $0.id == routine.id }) else { return false }
+        let destination = index + direction
+        return group.indices.contains(destination)
+    }
+
+    private func moveRoutine(_ routine: Routine, direction: Int) {
+        let group = orderedGroup(for: routine)
+        guard let index = group.firstIndex(where: { $0.id == routine.id }), canMove(routine, direction: direction) else { return }
+        let destination = direction < 0 ? index - 1 : index + 2
+        orderStore.move(routines: group, fromOffsets: IndexSet(integer: index), toOffset: destination, pinned: routine.isPinned)
+    }
+
+    private func deleteRoutine(_ routine: Routine) {
+        let steps = stepsByRoutine[routine.id] ?? []
+        restStore.removeMetadata(forRoutine: routine.id, stepIDs: steps.map(\.id))
+        steps.forEach { modelContext.delete($0) }
+        modelContext.delete(routine)
+        routinePendingDeletion = nil
         try? modelContext.save()
     }
 }

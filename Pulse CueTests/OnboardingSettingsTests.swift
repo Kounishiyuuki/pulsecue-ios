@@ -85,5 +85,38 @@ struct OnboardingSettingsTests {
         #expect(store.soundEnabled == true)
         #expect(store.hapticsEnabled == true)
         #expect(store.aiTransmissionScope == .standard)
+        #expect(store.defaultRestSeconds == 60)
+    }
+
+    @Test
+    func defaultRestSecondsDefaultsToSixtyAndPersists() {
+        let (store, defaults) = Self.makeStore()
+        #expect(store.defaultRestSeconds == 60)
+
+        store.defaultRestSeconds = 90
+
+        #expect(defaults.integer(forKey: "settings.defaultRestSeconds") == 90)
+        #expect(SettingsStore(defaults: defaults).defaultRestSeconds == 90)
+    }
+
+    @Test(arguments: [(-1, 0), (601, 600), (120, 120)])
+    func defaultRestSecondsClampsToSupportedRange(input: Int, expected: Int) {
+        let (store, defaults) = Self.makeStore()
+
+        store.defaultRestSeconds = input
+
+        #expect(store.defaultRestSeconds == expected)
+        #expect(defaults.integer(forKey: "settings.defaultRestSeconds") == expected)
+    }
+
+    @Test(arguments: [(-20, 0), (999, 600)])
+    func initializationRepairsPersistedOutOfRangeRest(input: Int, expected: Int) {
+        let defaults = UserDefaults(suiteName: "test.settings.invalid-rest.\(UUID().uuidString)")!
+        defaults.set(input, forKey: "settings.defaultRestSeconds")
+
+        let store = SettingsStore(defaults: defaults)
+
+        #expect(store.defaultRestSeconds == expected)
+        #expect(defaults.integer(forKey: "settings.defaultRestSeconds") == expected)
     }
 }
