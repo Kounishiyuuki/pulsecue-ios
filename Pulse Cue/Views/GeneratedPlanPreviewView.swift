@@ -34,6 +34,12 @@ struct GeneratedPlanPreviewView: View {
         _viewModel = StateObject(wrappedValue: GeneratedPlanViewModel(gym: gym, bodyPart: bodyPart))
     }
 
+    /// Quick Plan entry: builds the same preview from a multi-part request
+    /// (body parts + duration + intensity). Reuses the whole screen.
+    init(gym: Gym, request: QuickPlanRequest) {
+        _viewModel = StateObject(wrappedValue: GeneratedPlanViewModel(gym: gym, request: request))
+    }
+
     var body: some View {
         ZStack {
             PulseAtmosphericBackground()
@@ -106,7 +112,7 @@ struct GeneratedPlanPreviewView: View {
             Text("これから行うメニュー")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.accent)
-            Text("\(viewModel.bodyPart.displayName) — \(viewModel.gym.name)")
+            Text("\(plan.bodyParts.map(\.displayName).joined(separator: "・")) — \(viewModel.gym.name)")
                 .font(.title.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true)
             ViewThatFits {

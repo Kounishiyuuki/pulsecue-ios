@@ -121,12 +121,23 @@ struct TodayGymPlanCard: View {
     private func activeWithMachinesContent(gym: Gym, count: Int) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             gymSummaryRow(gym: gym, count: count)
+            // Primary: Quick Plan — pick today's conditions (parts + time +
+            // intensity) in one short flow. The original single-part picker
+            // remains available beneath it.
+            NavigationLink {
+                QuickPlanConditionView(gym: gym)
+            } label: {
+                Label("今日のメニューを作る", systemImage: "sparkles")
+            }
+            .buttonStyle(MyGymPrimaryButtonStyle())
             NavigationLink {
                 TargetBodyPartSelectionView(gym: gym)
             } label: {
                 Label("部位を選んで作成", systemImage: "target")
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(MyGymPrimaryButtonStyle())
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
             changeGymLink
         }
     }

@@ -13,6 +13,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case customMachineAdd = "custom-machine-add"
     case customMachineEdit = "custom-machine-edit"
     case planner
+    case quickPlanCondition = "quick-plan-condition"
+    case quickPlanPreview = "quick-plan-preview"
     case previewSingle = "preview-single"
     case previewWeeklyBeforeGeneration = "preview-weekly-before-generation"
     case previewWeekly = "preview-weekly"
@@ -91,6 +93,17 @@ struct GlassUIVisualQARoot: View {
                 ManualMachineSelectionView(gym: gym)
             case .planner:
                 TargetBodyPartSelectionView(gym: gym)
+            case .quickPlanCondition:
+                QuickPlanConditionView(gym: gym)
+            case .quickPlanPreview:
+                GeneratedPlanPreviewView(
+                    gym: gym,
+                    request: QuickPlanRequest(
+                        bodyParts: [.chest, .back],
+                        duration: .standardPlus,
+                        intensity: .standard
+                    )
+                )
             case .previewSingle:
                 GeneratedPlanPreviewView(gym: gym, bodyPart: .chest)
             case .previewWeeklyBeforeGeneration:

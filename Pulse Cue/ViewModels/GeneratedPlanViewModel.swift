@@ -26,6 +26,10 @@ final class GeneratedPlanViewModel: ObservableObject {
 
     let gym: Gym
     @Published private(set) var bodyPart: BodyPart
+    /// Present for a Quick Plan (multi body part + duration + intensity);
+    /// `nil` for the original single-body-part flow. When set, `regenerate`
+    /// uses `WorkoutPlanGenerator.generate(request:)`.
+    @Published private(set) var request: QuickPlanRequest?
     @Published private(set) var plan: GeneratedPlan?
     @Published private(set) var state: State = .idle
 
@@ -37,6 +41,12 @@ final class GeneratedPlanViewModel: ObservableObject {
     init(gym: Gym, bodyPart: BodyPart) {
         self.gym = gym
         self.bodyPart = bodyPart
+    }
+
+    init(gym: Gym, request: QuickPlanRequest) {
+        self.gym = gym
+        self.bodyPart = request.normalizedBodyParts.first ?? .fullBody
+        self.request = request
     }
 
     func configure(modelContext: ModelContext) {
@@ -55,11 +65,19 @@ final class GeneratedPlanViewModel: ObservableObject {
         // narrowed to what is marked available. Pure read; nothing is
         // written and no Routine/Step is created until the user saves.
         let equipment = repository.availableEquipment(for: gym, availableOnly: true)
-        plan = WorkoutPlanGenerator.generate(
-            bodyPart: bodyPart,
-            gym: gym,
-            availableEquipment: equipment
-        )
+        if let request {
+            plan = WorkoutPlanGenerator.generate(
+                request: request,
+                gym: gym,
+                availableEquipment: equipment
+            )
+        } else {
+            plan = WorkoutPlanGenerator.generate(
+                bodyPart: bodyPart,
+                gym: gym,
+                availableEquipment: equipment
+            )
+        }
         state = .generated
     }
 

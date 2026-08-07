@@ -87,6 +87,7 @@
 		FC8288834D88458B95DF7E56 /* Pulse_CueUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FBA91F3E114F92BB31BF6D /* Pulse_CueUITestsLaunchTests.swift */; };
 		FD61BFE41E6A466BA9E043D0 /* SampleDataSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */; };
 		D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */; };
+		4B71A0C55E9142AA83100005 /* QuickPlanConditionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0C65E9142AA83100006 /* QuickPlanConditionView.swift */; };
 		4B71A0C15E9142AA83100001 /* QuickPlanRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0C25E9142AA83100002 /* QuickPlanRequest.swift */; };
 		D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */; };
 		D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */; };
@@ -353,6 +354,7 @@
 		F931151BAB1D473A8625DFF3 /* DayLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLog.swift; sourceTree = "<group>"; };
 		FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pulse_CueTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyPart.swift; sourceTree = "<group>"; };
+		4B71A0C65E9142AA83100006 /* QuickPlanConditionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanConditionView.swift; sourceTree = "<group>"; };
 		4B71A0C25E9142AA83100002 /* QuickPlanRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanRequest.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalog.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogQuery.swift; sourceTree = "<group>"; };
@@ -581,6 +583,7 @@
 				D17104DB1A8E4001B0DA3A02 /* ManualMachineSelectionView.swift */,
 				D17104DB1A8E4001B0DA7202 /* CustomMachineFormView.swift */,
 				D17104DB1A8E4001B0DA3B02 /* TargetBodyPartSelectionView.swift */,
+				4B71A0C65E9142AA83100006 /* QuickPlanConditionView.swift */,
 				D17104DB1A8E4001B0DA3C02 /* GeneratedPlanPreviewView.swift */,
 				D17104DB1A8E4001B0DA8052 /* ExerciseGuideView.swift */,
 				D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */,
@@ -1139,6 +1142,7 @@
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
 				D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */,
+				4B71A0C55E9142AA83100005 /* QuickPlanConditionView.swift in Sources */,
 				4B71A0C15E9142AA83100001 /* QuickPlanRequest.swift in Sources */,
 				D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */,
 				D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */,
