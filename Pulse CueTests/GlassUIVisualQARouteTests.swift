@@ -42,6 +42,8 @@ struct GlassUIVisualQARouteTests {
             "runner-rest",
             "routine-selection",
             "routine-detail",
+            "daylog-sleep-input",
+            "daylog-weight-input",
             "exercise-library",
             "form-guide",
             "form-guide-instructions-expanded",
