@@ -276,6 +276,89 @@ enum WorkoutPlanGenerator {
         )
     }
 
+    // MARK: - Exercise replacement (shared by Preview and Runner)
+
+    /// Ranked replacement candidates for the exercise currently on
+    /// `originalMachineId`. Reuses `candidateExercises` for the same-body-part,
+    /// available-only pool, then ranks by: same movement pattern → closest
+    /// difficulty → equipment variety, with the pool's authored priority order
+    /// as a deterministic tiebreak. The original machine and everything in
+    /// `excludingMachineIds` (e.g. the other unfinished exercises in the
+    /// workout) are removed. Uses only existing catalog metadata — custom
+    /// machines, which carry none, still appear, ranked after metadata-matched
+    /// standard machines. Deterministic; never invents an exercise or surfaces
+    /// unavailable equipment.
+    static func alternatives(
+        toMachineId originalMachineId: String,
+        bodyParts: Set<BodyPart>,
+        usableEquipment: [AvailableEquipment],
+        excludingMachineIds: Set<String> = [],
+        limit: Int = 5
+    ) -> [GeneratedExercise] {
+        let usable = usableEquipment.filter(\.isAvailable)
+
+        // Same-body-part pool, deduped by machine, in authored priority order.
+        var seen = Set<String>()
+        var pool: [GeneratedExercise] = []
+        for part in BodyPart.allCases where bodyParts.contains(part) {
+            for candidate in candidateExercises(for: part, usableEquipment: usable) {
+                guard seen.insert(candidate.machineId).inserted else { continue }
+                pool.append(candidate)
+            }
+        }
+
+        // Never suggest the original itself or anything already in the workout.
+        let excluded = excludingMachineIds.union([originalMachineId])
+        let filtered = pool.filter { !excluded.contains($0.machineId) }
+
+        let original = MachineCatalog.entry(for: originalMachineId)
+        let ranked = filtered.enumerated().sorted { lhs, rhs in
+            let l = replacementScore(for: lhs.element, original: original)
+            let r = replacementScore(for: rhs.element, original: original)
+            if l != r { return l < r }
+            return lhs.offset < rhs.offset // stable: keep authored priority order
+        }.map(\.element)
+
+        return Array(ranked.prefix(limit))
+    }
+
+    /// Lower is better: (movement mismatch, difficulty distance, same-equipment).
+    /// A candidate with no catalog metadata (custom machine) scores worst on
+    /// each key but is never excluded, so it still appears as a last-resort
+    /// alternative rather than a dead end.
+    private static func replacementScore(
+        for candidate: GeneratedExercise,
+        original: MachineCatalogEntry?
+    ) -> (Int, Int, Int) {
+        let entry = MachineCatalog.entry(for: candidate.machineId)
+
+        let movementMismatch: Int = {
+            guard let o = original?.movementPattern, let c = entry?.movementPattern else { return 1 }
+            return o == c ? 0 : 1
+        }()
+
+        let difficultyDistance: Int = {
+            guard let o = original?.difficulty, let c = entry?.difficulty else { return 3 }
+            return abs(difficultyRank(o) - difficultyRank(c))
+        }()
+
+        // Prefer a *different* equipment type for genuine variety.
+        let sameEquipment: Int = {
+            guard let o = original?.equipmentType, let c = entry?.equipmentType else { return 0 }
+            return o == c ? 1 : 0
+        }()
+
+        return (movementMismatch, difficultyDistance, sameEquipment)
+    }
+
+    private static func difficultyRank(_ d: MachineDifficulty) -> Int {
+        switch d {
+        case .beginner: return 0
+        case .intermediate: return 1
+        case .advanced: return 2
+        }
+    }
+
     // MARK: - Templates
 
     /// One canonical exercise per `(BodyPart, machineId)` pair. Order

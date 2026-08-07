@@ -29,7 +29,9 @@ enum RoutineFactory {
     /// than persisting a bogus known-reference claim. Titles are never used
     /// to infer an id. (Read-time tolerance of unknown *stored* ids from a
     /// newer app is handled separately by `Step.resolvedExercise`.)
-    private static func persistableExerciseId(_ id: ExerciseID?) -> String? {
+    /// Shared with Exercise Replacement so a swapped-in exercise stores its id
+    /// by the same rule (unknown ids drop to `nil`).
+    static func persistableExerciseId(_ id: ExerciseID?) -> String? {
         guard let id, ExerciseLibrary.isValid(id) else { return nil }
         return id.rawValue
     }
