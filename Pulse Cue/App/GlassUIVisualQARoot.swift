@@ -15,6 +15,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case planner
     case quickPlanCondition = "quick-plan-condition"
     case quickPlanPreview = "quick-plan-preview"
+    case replacementSheet = "replacement-sheet"
+    case replacementSheetEmpty = "replacement-sheet-empty"
     case previewSingle = "preview-single"
     case previewWeeklyBeforeGeneration = "preview-weekly-before-generation"
     case previewWeekly = "preview-weekly"
@@ -103,6 +105,26 @@ struct GlassUIVisualQARoot: View {
                         duration: .standardPlus,
                         intensity: .standard
                     )
+                )
+            case .replacementSheet:
+                ExerciseReplacementSheet(
+                    originalName: "ベンチプレス",
+                    originalMachineId: "bench_press",
+                    candidates: WorkoutPlanGenerator.alternatives(
+                        toMachineId: "bench_press",
+                        bodyParts: [.chest],
+                        usableEquipment: ["chest_press", "pec_deck", "incline_chest_press", "cable_machine"]
+                            .compactMap { MachineCatalog.entry(for: $0) }
+                            .map { AvailableEquipment(entry: $0) }
+                    ),
+                    onSelect: { _ in }
+                )
+            case .replacementSheetEmpty:
+                ExerciseReplacementSheet(
+                    originalName: "ベンチプレス",
+                    originalMachineId: "bench_press",
+                    candidates: [],
+                    onSelect: { _ in }
                 )
             case .previewSingle:
                 GeneratedPlanPreviewView(gym: gym, bodyPart: .chest)
