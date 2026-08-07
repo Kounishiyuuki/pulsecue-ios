@@ -148,6 +148,17 @@ final class SettingsStore: ObservableObject {
             ScreenWakeManager.apply(keepScreenOn)
         }
     }
+    @Published var defaultRestSeconds: Int {
+        didSet {
+            let clamped = Self.clampRestSeconds(defaultRestSeconds)
+            if defaultRestSeconds != clamped {
+                defaults.set(clamped, forKey: Keys.defaultRestSeconds)
+                defaultRestSeconds = clamped
+                return
+            }
+            defaults.set(clamped, forKey: Keys.defaultRestSeconds)
+        }
+    }
 
     // Integrations / AI preference (kept as an app-side toggle even
     // while AI is disabled, so the choice is ready when the feature
@@ -175,6 +186,9 @@ final class SettingsStore: ObservableObject {
         self.soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
         self.hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         self.keepScreenOn = defaults.bool(forKey: Keys.keepScreenOn)
+        self.defaultRestSeconds = Self.clampRestSeconds(
+            defaults.object(forKey: Keys.defaultRestSeconds) as? Int ?? 60
+        )
 
         if let raw = defaults.string(forKey: Keys.aiTransmissionScope),
            let value = AITransmissionScope(rawValue: raw) {
@@ -185,6 +199,10 @@ final class SettingsStore: ObservableObject {
 
         self.hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
 
+        // Materialize the normalized value as well as exposing it. This also
+        // repairs values written by older builds outside the supported range.
+        defaults.set(defaultRestSeconds, forKey: Keys.defaultRestSeconds)
+
         ScreenWakeManager.apply(keepScreenOn)
     }
 
@@ -193,11 +211,16 @@ final class SettingsStore: ObservableObject {
         hasCompletedOnboarding = true
     }
 
+    private static func clampRestSeconds(_ value: Int) -> Int {
+        min(max(value, 0), 600)
+    }
+
     private enum Keys {
         static let notificationsEnabled = "settings.notificationsEnabled"
         static let soundEnabled = "settings.soundEnabled"
         static let hapticsEnabled = "settings.hapticsEnabled"
         static let keepScreenOn = "settings.keepScreenOn"
+        static let defaultRestSeconds = "settings.defaultRestSeconds"
         static let aiTransmissionScope = "settings.aiTransmissionScope"
         static let hasCompletedOnboarding = "settings.hasCompletedOnboarding"
     }

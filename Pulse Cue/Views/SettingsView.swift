@@ -438,6 +438,31 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 sectionHeader(icon: "gearshape.fill", title: "アプリ設定")
 
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("標準の休憩時間")
+                                .font(.subheadline.weight(.semibold))
+                            Text("ルーティンで指定しない場合の初期値")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        Text("\(settings.defaultRestSeconds) 秒")
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                    }
+                    Stepper(
+                        "標準の休憩時間を調整",
+                        value: $settings.defaultRestSeconds,
+                        in: 0...600,
+                        step: 15
+                    )
+                    .labelsHidden()
+                    .accessibilityValue("\(settings.defaultRestSeconds) 秒")
+                }
+
+                Divider().opacity(0.4)
+
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("休憩終了の通知を許可する", isOn: notificationBinding)
                     Text(notificationStatusText)

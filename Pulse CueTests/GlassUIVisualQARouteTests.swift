@@ -40,6 +40,8 @@ struct GlassUIVisualQARouteTests {
             "runner-active",
             "runner-active-later-set",
             "runner-rest",
+            "routine-selection",
+            "routine-detail",
             "exercise-library",
             "form-guide",
             "form-guide-instructions-expanded",

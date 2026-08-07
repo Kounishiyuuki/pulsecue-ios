@@ -24,6 +24,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case runnerActive = "runner-active"
     case runnerActiveLaterSet = "runner-active-later-set"
     case runnerRest = "runner-rest"
+    case routineSelection = "routine-selection"
+    case routineDetail = "routine-detail"
     case exerciseLibrary = "exercise-library"
     case formGuide = "form-guide"
     case formGuideInstructionsExpanded = "form-guide-instructions-expanded"
@@ -123,6 +125,10 @@ struct GlassUIVisualQARoot: View {
                 ScreenshotRunnerHost(modelContext: modelContext, target: .laterSet)
             case .runnerRest:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .rest)
+            case .routineSelection:
+                ScreenshotRoutineSelectionHost(modelContext: modelContext)
+            case .routineDetail:
+                ScreenshotRoutineDetailHost()
             case .exerciseLibrary:
                 ExerciseLibraryView()
             case .formGuide:
@@ -141,6 +147,41 @@ struct GlassUIVisualQARoot: View {
             case .login:
                 LoginView(authSession: AuthSessionStore())
             }
+        }
+    }
+}
+
+/// DEBUG-only hosts for deterministic routine selection/detail layout checks.
+/// They use the shared in-memory fixture and an isolated settings suite.
+private struct ScreenshotRoutineSelectionHost: View {
+    @StateObject private var settings: SettingsStore
+    @StateObject private var runnerViewModel: RunnerViewModel
+
+    init(modelContext: ModelContext) {
+        let ephemeral = makeScreenshotSettings()
+        _settings = StateObject(wrappedValue: ephemeral)
+        let runner = RunnerViewModel(settings: ephemeral)
+        runner.configure(modelContext: modelContext)
+        _runnerViewModel = StateObject(wrappedValue: runner)
+    }
+
+    var body: some View {
+        WorkoutView()
+            .environmentObject(settings)
+            .environmentObject(runnerViewModel)
+    }
+}
+
+private struct ScreenshotRoutineDetailHost: View {
+    @Query private var routines: [Routine]
+    @StateObject private var settings = makeScreenshotSettings()
+
+    var body: some View {
+        if let routine = routines.first(where: { $0.id == GlassUIVisualQAFixture.routineID }) {
+            RoutineEditorView(routine: routine, onStart: { _ in })
+                .environmentObject(settings)
+        } else {
+            ProgressView("ルーティンを準備中…")
         }
     }
 }
