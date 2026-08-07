@@ -48,18 +48,42 @@ struct GeneratedExercise: Hashable, Identifiable {
 }
 
 struct GeneratedPlan: Hashable {
+    /// Primary body part. For a single-part plan this is the target; for a
+    /// multi-part Quick Plan it is the first selected part (kept so existing
+    /// single-part call sites and `RoutineFactory` are unchanged).
     let bodyPart: BodyPart
+    /// All target body parts, first-seen order. Defaults to `[bodyPart]` so
+    /// the original single-part construction stays source-compatible.
+    let bodyParts: [BodyPart]
     let gymId: UUID
     let gymName: String
     let exercises: [GeneratedExercise]
     /// Human-readable warnings (e.g. "選択中のマシンが少ないためメニューが短くなっています").
     let warnings: [String]
 
+    init(
+        bodyPart: BodyPart,
+        bodyParts: [BodyPart]? = nil,
+        gymId: UUID,
+        gymName: String,
+        exercises: [GeneratedExercise],
+        warnings: [String]
+    ) {
+        self.bodyPart = bodyPart
+        let parts = bodyParts ?? [bodyPart]
+        self.bodyParts = parts.isEmpty ? [bodyPart] : parts
+        self.gymId = gymId
+        self.gymName = gymName
+        self.exercises = exercises
+        self.warnings = warnings
+    }
+
     var isEmpty: Bool { exercises.isEmpty }
 
-    /// Default display title for the resulting Routine.
+    /// Default display title for the resulting Routine, e.g. "胸・背中の日 — Gym".
     var defaultTitle: String {
-        "\(bodyPart.displayName)の日 — \(gymName)"
+        let names = bodyParts.map(\.displayName).joined(separator: "・")
+        return "\(names)の日 — \(gymName)"
     }
 }
 
@@ -98,40 +122,7 @@ enum WorkoutPlanGenerator {
         availableEquipment: [AvailableEquipment]
     ) -> GeneratedPlan {
         let usable = availableEquipment.filter(\.isAvailable)
-        let standardIds = Set(usable.filter { !$0.isCustom }.map(\.id))
-        let templateMatches = templates(for: bodyPart).filter { standardIds.contains($0.machineId) }
-
-        let standardExercises = templateMatches.map { template in
-            GeneratedExercise(
-                machineId: template.machineId,
-                exerciseName: template.exerciseName,
-                sets: template.sets,
-                reps: template.reps,
-                restSeconds: template.restSeconds,
-                cue: template.cue,
-                exerciseId: template.exerciseId
-            )
-        }
-
-        // Custom machines qualify only when they actually train the
-        // requested part. Deduped by reference id so one machine cannot
-        // fill the plan twice.
-        var seenCustomIds = Set<String>()
-        let customExercises = usable
-            .filter { $0.isCustom && $0.bodyParts.contains(bodyPart) }
-            .compactMap { equipment -> GeneratedExercise? in
-                guard seenCustomIds.insert(equipment.id).inserted else { return nil }
-                return GeneratedExercise(
-                    machineId: equipment.id,
-                    exerciseName: equipment.displayName,
-                    sets: customFallbackSets,
-                    reps: customFallbackReps,
-                    restSeconds: customFallbackRestSeconds,
-                    cue: customFallbackCue
-                )
-            }
-
-        let candidates = standardExercises + customExercises
+        let candidates = candidateExercises(for: bodyPart, usableEquipment: usable)
 
         var warnings: [String] = []
         if usable.isEmpty {
@@ -148,6 +139,140 @@ enum WorkoutPlanGenerator {
             gymName: gym.name,
             exercises: Array(candidates.prefix(maxExercises)),
             warnings: warnings
+        )
+    }
+
+    /// Quick Plan generation: the same per-body-part candidate selection as
+    /// the single-part path, extended with the three Quick Plan conditions.
+    ///
+    /// - Multiple body parts are covered round-robin (part1#1, part2#1,
+    ///   part1#2, …) so a two-part request is balanced, then deduped by
+    ///   machine so one machine never appears twice.
+    /// - `duration` caps how many exercises the plan contains.
+    /// - `intensity` nudges each strength exercise's sets / rest by a small,
+    ///   deterministic amount (cardio/warm-up entries with no rest are left
+    ///   untouched). It never rewrites reps or invents a prescription.
+    ///
+    /// Deterministic: the same request + equipment always produces the same
+    /// plan. Unavailable equipment never enters a plan.
+    static func generate(
+        request: QuickPlanRequest,
+        gym: Gym,
+        availableEquipment: [AvailableEquipment]
+    ) -> GeneratedPlan {
+        let parts = request.normalizedBodyParts
+        let usable = availableEquipment.filter(\.isAvailable)
+
+        // Per-part candidate lists, in the order the parts were chosen.
+        let perPart = parts.map { candidateExercises(for: $0, usableEquipment: usable) }
+
+        // Round-robin interleave across parts, deduped by machine id so a
+        // machine shared by two parts is only used once.
+        var merged: [GeneratedExercise] = []
+        var seenMachineIds = Set<String>()
+        var column = 0
+        var didAppend = true
+        while didAppend {
+            didAppend = false
+            for list in perPart where column < list.count {
+                didAppend = true
+                let exercise = list[column]
+                guard seenMachineIds.insert(exercise.machineId).inserted else { continue }
+                merged.append(exercise)
+            }
+            column += 1
+        }
+
+        let capped = Array(merged.prefix(request.duration.targetExerciseCount))
+        let adjusted = capped.map { applyIntensity(request.intensity, to: $0) }
+
+        var warnings: [String] = []
+        if usable.isEmpty {
+            warnings.append("選択中のマシンがありません。マイジムから利用できるマシンを選択してください。")
+        } else if adjusted.isEmpty {
+            let names = parts.map(\.displayName).joined(separator: "・")
+            warnings.append("\(names)を鍛えられるマシンが見つかりませんでした。別のマシンを追加するか、別の部位を選んでください。")
+        } else if adjusted.count < request.duration.targetExerciseCount {
+            warnings.append("選択中のマシンが少ないためメニューが短くなっています。マシンを追加するとより良い提案ができます。")
+        }
+
+        return GeneratedPlan(
+            bodyPart: parts.first ?? .fullBody,
+            bodyParts: parts,
+            gymId: gym.id,
+            gymName: gym.name,
+            exercises: adjusted,
+            warnings: warnings
+        )
+    }
+
+    // MARK: - Candidate selection (shared by single-part and Quick Plan)
+
+    /// The ordered candidate exercises for one body part: standard catalog
+    /// templates whose machine is available (authored priority order) then
+    /// available custom machines that train the part. Uncapped and
+    /// unwarned — callers cap and add warnings. `usableEquipment` must
+    /// already be filtered to `isAvailable`.
+    static func candidateExercises(
+        for bodyPart: BodyPart,
+        usableEquipment: [AvailableEquipment]
+    ) -> [GeneratedExercise] {
+        let standardIds = Set(usableEquipment.filter { !$0.isCustom }.map(\.id))
+        let standardExercises = templates(for: bodyPart)
+            .filter { standardIds.contains($0.machineId) }
+            .map { template in
+                GeneratedExercise(
+                    machineId: template.machineId,
+                    exerciseName: template.exerciseName,
+                    sets: template.sets,
+                    reps: template.reps,
+                    restSeconds: template.restSeconds,
+                    cue: template.cue,
+                    exerciseId: template.exerciseId
+                )
+            }
+
+        // Custom machines qualify only when they actually train the
+        // requested part. Deduped by reference id so one machine cannot
+        // fill the plan twice.
+        var seenCustomIds = Set<String>()
+        let customExercises = usableEquipment
+            .filter { $0.isCustom && $0.bodyParts.contains(bodyPart) }
+            .compactMap { equipment -> GeneratedExercise? in
+                guard seenCustomIds.insert(equipment.id).inserted else { return nil }
+                return GeneratedExercise(
+                    machineId: equipment.id,
+                    exerciseName: equipment.displayName,
+                    sets: customFallbackSets,
+                    reps: customFallbackReps,
+                    restSeconds: customFallbackRestSeconds,
+                    cue: customFallbackCue
+                )
+            }
+
+        return standardExercises + customExercises
+    }
+
+    /// Applies an intensity nudge to a single exercise. Cardio / warm-up
+    /// entries (no rest) are returned unchanged so we never prescribe
+    /// "2 sets of treadmill". Strength entries get their sets and rest
+    /// shifted by the intensity's small delta, clamped to sane floors.
+    static func applyIntensity(
+        _ intensity: QuickPlanIntensity,
+        to exercise: GeneratedExercise
+    ) -> GeneratedExercise {
+        guard exercise.restSeconds > 0 else { return exercise }
+        let sets = Swift.max(1, exercise.sets + intensity.setsDelta)
+        let rest = Swift.max(30, exercise.restSeconds + intensity.restDelta)
+        guard sets != exercise.sets || rest != exercise.restSeconds else { return exercise }
+        return GeneratedExercise(
+            machineId: exercise.machineId,
+            exerciseName: exercise.exerciseName,
+            sets: sets,
+            reps: exercise.reps,
+            restSeconds: rest,
+            cue: exercise.cue,
+            exerciseId: exercise.exerciseId
         )
     }
 

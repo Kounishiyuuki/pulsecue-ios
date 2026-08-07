@@ -75,6 +75,7 @@
 		D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2602 /* MealEntrySheet.swift */; };
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
 		D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */; };
+		4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */; };
 		DA57885887FA409498252986 /* WorkoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */; };
 		E28727782CB448ABBE5F84CE /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006E74099FEC4FEA860FC867 /* AppTheme.swift */; };
 		E28727782CB448ABBE5F8501 /* PulseUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006E74099FEC4FEA860FC901 /* PulseUI.swift */; };
@@ -87,6 +88,8 @@
 		FC8288834D88458B95DF7E56 /* Pulse_CueUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FBA91F3E114F92BB31BF6D /* Pulse_CueUITestsLaunchTests.swift */; };
 		FD61BFE41E6A466BA9E043D0 /* SampleDataSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */; };
 		D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */; };
+		4B71A0C55E9142AA83100005 /* QuickPlanConditionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0C65E9142AA83100006 /* QuickPlanConditionView.swift */; };
+		4B71A0C15E9142AA83100001 /* QuickPlanRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0C25E9142AA83100002 /* QuickPlanRequest.swift */; };
 		D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */; };
 		D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */; };
 		D17104DB1A8E4001B0DA2E21 /* MachineCatalogListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */; };
@@ -151,6 +154,7 @@
 		D17104DB1A8E4001B0DA6001 /* CustomMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA6002 /* CustomMachine.swift */; };
 		D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3102 /* GymRepository.swift */; };
 		D17104DB1A8E4001B0DA3201 /* WorkoutPlanGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3202 /* WorkoutPlanGenerator.swift */; };
+		4B71A0C75E9142AA83100007 /* WorkoutStarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0C85E9142AA83100008 /* WorkoutStarter.swift */; };
 		D17104DB1A8E4001B0DA3301 /* RoutineFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3302 /* RoutineFactory.swift */; };
 		D17104DB1A8E4001B0DA5741 /* RuleBasedWeeklyPlanGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5742 /* RuleBasedWeeklyPlanGenerator.swift */; };
 		D17104DB1A8E4001B0DA5781 /* AITrainingPlanProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA5782 /* AITrainingPlanProvider.swift */; };
@@ -176,6 +180,7 @@
 		D17104DB1A8E4001B0DA3C01 /* GeneratedPlanPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3C02 /* GeneratedPlanPreviewView.swift */; };
 		D17104DB1A8E4001B0DA3D01 /* MachineCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */; };
 		D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */; };
+		4B71A0C35E9142AA83100003 /* WorkoutIntelligenceQuickPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0C45E9142AA83100004 /* WorkoutIntelligenceQuickPlanTests.swift */; };
 		D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */; };
 		D17104DB1A8E4001B0DA6101 /* CustomMachineMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA6102 /* CustomMachineMigrationTests.swift */; };
 		D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */; };
@@ -291,6 +296,7 @@
 		C0DE13700000000000000002 /* ExerciseLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseLibraryView.swift; sourceTree = "<group>"; };
 		38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pulse_CueUITests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachineFlowUITests.swift; sourceTree = "<group>"; };
+		4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanFlowUITests.swift; sourceTree = "<group>"; };
 		38AF9175A5654DA28D42BFAB /* RunnerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerViewModel.swift; sourceTree = "<group>"; };
 		D5616686429645B3AE4EFB4D /* RunnerPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPresenter.swift; sourceTree = "<group>"; };
 		3C2EFAE4B7EE4446ABDEAD0F /* SoundHapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundHapticManager.swift; sourceTree = "<group>"; };
@@ -351,6 +357,8 @@
 		F931151BAB1D473A8625DFF3 /* DayLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLog.swift; sourceTree = "<group>"; };
 		FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pulse_CueTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyPart.swift; sourceTree = "<group>"; };
+		4B71A0C65E9142AA83100006 /* QuickPlanConditionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanConditionView.swift; sourceTree = "<group>"; };
+		4B71A0C25E9142AA83100002 /* QuickPlanRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanRequest.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalog.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogQuery.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogListView.swift; sourceTree = "<group>"; };
@@ -415,6 +423,7 @@
 		D17104DB1A8E4001B0DA6002 /* CustomMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachine.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3102 /* GymRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepository.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3202 /* WorkoutPlanGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPlanGenerator.swift; sourceTree = "<group>"; };
+		4B71A0C85E9142AA83100008 /* WorkoutStarter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutStarter.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3302 /* RoutineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineFactory.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA5742 /* RuleBasedWeeklyPlanGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RuleBasedWeeklyPlanGenerator.swift; path = "Pulse Cue/Services/RuleBasedWeeklyPlanGenerator.swift"; sourceTree = SOURCE_ROOT; };
 		D17104DB1A8E4001B0DA5782 /* AITrainingPlanProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AITrainingPlanProvider.swift; path = "Pulse Cue/Services/AITrainingPlanProvider.swift"; sourceTree = SOURCE_ROOT; };
@@ -440,6 +449,7 @@
 		D17104DB1A8E4001B0DA3C02 /* GeneratedPlanPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedPlanPreviewView.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3D02 /* MachineCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineCatalogTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPlanGeneratorTests.swift; sourceTree = "<group>"; };
+		4B71A0C45E9142AA83100004 /* WorkoutIntelligenceQuickPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutIntelligenceQuickPlanTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymRepositoryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA6102 /* CustomMachineMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachineMigrationTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachineEndToEndTests.swift; sourceTree = "<group>"; };
@@ -577,6 +587,7 @@
 				D17104DB1A8E4001B0DA3A02 /* ManualMachineSelectionView.swift */,
 				D17104DB1A8E4001B0DA7202 /* CustomMachineFormView.swift */,
 				D17104DB1A8E4001B0DA3B02 /* TargetBodyPartSelectionView.swift */,
+				4B71A0C65E9142AA83100006 /* QuickPlanConditionView.swift */,
 				D17104DB1A8E4001B0DA3C02 /* GeneratedPlanPreviewView.swift */,
 				D17104DB1A8E4001B0DA8052 /* ExerciseGuideView.swift */,
 				D17104DB1A8E4001B0DA4602 /* GymCandidateSearchView.swift */,
@@ -628,6 +639,7 @@
 				3C2EFAE4B7EE4446ABDEAD0F /* SoundHapticManager.swift */,
 				D17104DB1A8E4001B0DA3102 /* GymRepository.swift */,
 				D17104DB1A8E4001B0DA3202 /* WorkoutPlanGenerator.swift */,
+				4B71A0C85E9142AA83100008 /* WorkoutStarter.swift */,
 				D17104DB1A8E4001B0DA3302 /* RoutineFactory.swift */,
 				D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */,
 				D17104DB1A8E4001B0DA4302 /* MapKitGymCandidateSearchService.swift */,
@@ -739,6 +751,7 @@
 				8FF7150E5F514C0E944597A5 /* Step.swift */,
 				21A1C70A4F4C4790A97F5998 /* StepResult.swift */,
 				D17104DB1A8E4001B0DA2D02 /* BodyPart.swift */,
+				4B71A0C25E9142AA83100002 /* QuickPlanRequest.swift */,
 				D17104DB1A8E4001B0DA2E02 /* MachineCatalog.swift */,
 				D17104DB1A8E4001B0DA2E12 /* MachineCatalogQuery.swift */,
 				D17104DB1A8E4001B0DA5612 /* MachineExerciseTemplate.swift */,
@@ -833,6 +846,7 @@
 				D17104DB1A8E4001B0DA5732 /* RoutineStepCandidateSaveTests.swift */,
 				D17104DB1A8E4001B0DA5772 /* WeeklyPlanRoutineSaveTests.swift */,
 				D17104DB1A8E4001B0DA3E02 /* WorkoutPlanGeneratorTests.swift */,
+				4B71A0C45E9142AA83100004 /* WorkoutIntelligenceQuickPlanTests.swift */,
 				D17104DB1A8E4001B0DA3F02 /* GymRepositoryTests.swift */,
 				D17104DB1A8E4001B0DA6102 /* CustomMachineMigrationTests.swift */,
 				D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */,
@@ -872,6 +886,7 @@
 			children = (
 				38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */,
 				D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */,
+				4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */,
 				D17104DB1A8E4001B0DAA0E2 /* FormGuide3DUITests.swift */,
 				81FBA91F3E114F92BB31BF6D /* Pulse_CueUITestsLaunchTests.swift */,
 			);
@@ -1133,6 +1148,8 @@
 				D17104DB1A8E4001B0DA2501 /* NutritionView.swift in Sources */,
 				D17104DB1A8E4001B0DA2601 /* MealEntrySheet.swift in Sources */,
 				D17104DB1A8E4001B0DA2D01 /* BodyPart.swift in Sources */,
+				4B71A0C55E9142AA83100005 /* QuickPlanConditionView.swift in Sources */,
+				4B71A0C15E9142AA83100001 /* QuickPlanRequest.swift in Sources */,
 				D17104DB1A8E4001B0DA2E01 /* MachineCatalog.swift in Sources */,
 				D17104DB1A8E4001B0DA2E11 /* MachineCatalogQuery.swift in Sources */,
 				D17104DB1A8E4001B0DA2E21 /* MachineCatalogListView.swift in Sources */,
@@ -1165,6 +1182,7 @@
 				D17104DB1A8E4001B0DA6001 /* CustomMachine.swift in Sources */,
 				D17104DB1A8E4001B0DA3101 /* GymRepository.swift in Sources */,
 				D17104DB1A8E4001B0DA3201 /* WorkoutPlanGenerator.swift in Sources */,
+				4B71A0C75E9142AA83100007 /* WorkoutStarter.swift in Sources */,
 				D17104DB1A8E4001B0DA3301 /* RoutineFactory.swift in Sources */,
 				D17104DB1A8E4001B0DA5741 /* RuleBasedWeeklyPlanGenerator.swift in Sources */,
 				D17104DB1A8E4001B0DA5781 /* AITrainingPlanProvider.swift in Sources */,
@@ -1263,6 +1281,7 @@
 				AAB10C0000000000000000DA /* ProfileGymSetupStatusTests.swift in Sources */,
 				D17104DB1A8E4001B0DA57B1 /* MockAIPlanSaveHandoffTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3E01 /* WorkoutPlanGeneratorTests.swift in Sources */,
+				4B71A0C35E9142AA83100003 /* WorkoutIntelligenceQuickPlanTests.swift in Sources */,
 				D17104DB1A8E4001B0DA3F01 /* GymRepositoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA6101 /* CustomMachineMigrationTests.swift in Sources */,
 				D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */,
@@ -1297,6 +1316,7 @@
 			files = (
 				D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */,
+				4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */,
 				D17104DB1A8E4001B0DAA0E1 /* FormGuide3DUITests.swift in Sources */,
 				FC8288834D88458B95DF7E56 /* Pulse_CueUITestsLaunchTests.swift in Sources */,
 			);

@@ -23,8 +23,14 @@ struct GeneratedPlanPreviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    // Provided app-wide (above the TabView); needed only by the Quick Plan
+    // "この内容で開始" action, which reuses the shared Runner-start path.
+    @EnvironmentObject private var runnerViewModel: RunnerViewModel
+    @EnvironmentObject private var settings: SettingsStore
 
     @StateObject private var viewModel: GeneratedPlanViewModel
+    /// Stateless UserDefaults accessor, same as `WorkoutView`.
+    @State private var restStore = RoutineRestPreferenceStore()
     @State private var showMachineReview = false
     /// Non-nil while the text Form Guide sheet is presented. Purely local
     /// UI state — opening it reads static content and persists nothing.
@@ -32,6 +38,12 @@ struct GeneratedPlanPreviewView: View {
 
     init(gym: Gym, bodyPart: BodyPart) {
         _viewModel = StateObject(wrappedValue: GeneratedPlanViewModel(gym: gym, bodyPart: bodyPart))
+    }
+
+    /// Quick Plan entry: builds the same preview from a multi-part request
+    /// (body parts + duration + intensity). Reuses the whole screen.
+    init(gym: Gym, request: QuickPlanRequest) {
+        _viewModel = StateObject(wrappedValue: GeneratedPlanViewModel(gym: gym, request: request))
     }
 
     var body: some View {
@@ -106,7 +118,7 @@ struct GeneratedPlanPreviewView: View {
             Text("これから行うメニュー")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.accent)
-            Text("\(viewModel.bodyPart.displayName) — \(viewModel.gym.name)")
+            Text("\(plan.bodyParts.map(\.displayName).joined(separator: "・")) — \(viewModel.gym.name)")
                 .font(.title.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true)
             ViewThatFits {
@@ -324,20 +336,15 @@ struct GeneratedPlanPreviewView: View {
             .background(stickyBackground)
         } else {
             VStack(spacing: 8) {
-                Button {
-                    viewModel.saveAsRoutine()
-                } label: {
-                    if viewModel.state == .saving {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Label("ルーティンとして保存", systemImage: "tray.and.arrow.down.fill")
-                    }
+                // Quick Plan leads with "この内容で開始" (start now, reusing the
+                // shared Runner path) and keeps save as a secondary action.
+                // The original single-part flow keeps save as its primary.
+                if isQuickPlan {
+                    startButton
+                    saveButton(isPrimary: false)
+                } else {
+                    saveButton(isPrimary: true)
                 }
-                .buttonStyle(MyGymPrimaryButtonStyle(
-                    isEnabled: canSave
-                ))
-                .disabled(!canSave)
 
                 Group {
                     if dynamicTypeSize.isAccessibilitySize {
@@ -360,6 +367,52 @@ struct GeneratedPlanPreviewView: View {
                     cornerRadius: 18
                 )
             )
+        }
+    }
+
+    /// The plan was built from a Quick Plan request (multi-part + duration +
+    /// intensity), so it offers "この内容で開始"; the single-part flow does not.
+    private var isQuickPlan: Bool { viewModel.request != nil }
+
+    private var startButton: some View {
+        Button {
+            // Materialize once (shared with save) and start through the same
+            // path the routine list uses; the Runner cover then presents
+            // itself from the app root via `RunnerViewModel.isRunning`.
+            viewModel.startWorkout(
+                restStore: restStore,
+                appDefaultRestSeconds: settings.defaultRestSeconds,
+                runner: runnerViewModel
+            )
+        } label: {
+            Label("この内容で開始", systemImage: "play.fill")
+        }
+        .buttonStyle(MyGymPrimaryButtonStyle(isEnabled: canStart))
+        .disabled(!canStart)
+    }
+
+    @ViewBuilder
+    private func saveButton(isPrimary: Bool) -> some View {
+        let button = Button {
+            viewModel.saveAsRoutine()
+        } label: {
+            if viewModel.state == .saving {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            } else {
+                Label(isPrimary ? "ルーティンとして保存" : "保存", systemImage: "tray.and.arrow.down.fill")
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .disabled(!canSave)
+
+        if isPrimary {
+            button.buttonStyle(MyGymPrimaryButtonStyle(isEnabled: canSave))
+        } else {
+            button
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(AppTheme.accent)
         }
     }
 
@@ -405,6 +458,9 @@ struct GeneratedPlanPreviewView: View {
         guard let plan = viewModel.plan, !plan.isEmpty else { return false }
         return viewModel.state != .saving
     }
+
+    /// Same gate as `canSave`: a non-empty, not-currently-saving plan.
+    private var canStart: Bool { canSave }
 
     private var isSaved: Bool {
         if case .saved = viewModel.state { return true }

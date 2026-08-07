@@ -29,6 +29,8 @@ struct GlassUIVisualQARouteTests {
             "custom-machine-add",
             "custom-machine-edit",
             "planner",
+            "quick-plan-condition",
+            "quick-plan-preview",
             "preview-single",
             "preview-weekly-before-generation",
             "preview-weekly",
