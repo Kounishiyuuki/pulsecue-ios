@@ -26,6 +26,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case runnerRest = "runner-rest"
     case routineSelection = "routine-selection"
     case routineDetail = "routine-detail"
+    case daylogSleepInput = "daylog-sleep-input"
+    case daylogWeightInput = "daylog-weight-input"
     case exerciseLibrary = "exercise-library"
     case formGuide = "form-guide"
     case formGuideInstructionsExpanded = "form-guide-instructions-expanded"
@@ -129,6 +131,10 @@ struct GlassUIVisualQARoot: View {
                 ScreenshotRoutineSelectionHost(modelContext: modelContext)
             case .routineDetail:
                 ScreenshotRoutineDetailHost()
+            case .daylogSleepInput:
+                ScreenshotDayLogInputHost(field: .sleep)
+            case .daylogWeightInput:
+                ScreenshotDayLogInputHost(field: .weight)
             case .exerciseLibrary:
                 ExerciseLibraryView()
             case .formGuide:
@@ -182,6 +188,42 @@ private struct ScreenshotRoutineDetailHost: View {
                 .environmentObject(settings)
         } else {
             ProgressView("ルーティンを準備中…")
+        }
+    }
+}
+
+/// DEBUG-only host that renders the keyboard-free sleep/weight quick-input
+/// sheet over an isolated in-memory `DayLog` seeded with a representative value
+/// (7h17m / 72.5 kg), so the wheels and the "記録を削除" affordance are visible.
+private struct ScreenshotDayLogInputHost: View {
+    let field: DayLogField
+    @State private var container: ModelContainer
+
+    init(field: DayLogField) {
+        self.field = field
+        let built = try! ModelContainer(
+            for: DayLog.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let log = DayLog(
+            date: Date(timeIntervalSince1970: 1_735_689_600),
+            sleepMinutes: 437,
+            weightKg: 72.5
+        )
+        built.mainContext.insert(log)
+        _container = State(initialValue: built)
+    }
+
+    var body: some View {
+        content.modelContainer(container)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let log = try? container.mainContext.fetch(FetchDescriptor<DayLog>()).first {
+            DayLogQuickInputSheet(field: field, dayLog: log)
+        } else {
+            ProgressView("準備中…")
         }
     }
 }
