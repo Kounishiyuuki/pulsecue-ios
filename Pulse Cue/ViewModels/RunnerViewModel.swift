@@ -171,6 +171,84 @@ final class RunnerViewModel: ObservableObject {
         return steps[nextIndex]
     }
 
+    // MARK: - Exercise replacement
+
+    /// The current exercise can be swapped only before any of its sets is
+    /// completed (and while actually exercising, not resting).
+    var canReplaceCurrentExercise: Bool {
+        isRunning && phase == .exercise && currentSetIndex == 0 && currentStep != nil
+    }
+
+    /// The next exercise is always unstarted, so it can be swapped whenever a
+    /// workout is running and one exists.
+    var canReplaceNextExercise: Bool {
+        isRunning && nextStep != nil
+    }
+
+    /// Ranked replacement candidates for `step`, from the active gym's
+    /// available equipment, excluding the workout's other exercises. Empty
+    /// when the step has no resolvable exercise (e.g. a custom machine) or the
+    /// gym has nothing else available — the sheet then shows a no-alternative
+    /// message rather than a dead end.
+    func replacementCandidates(for step: Step) -> [GeneratedExercise] {
+        guard let modelContext, let exercise = resolvedExercise(for: step) else { return [] }
+        let repo = GymRepository(modelContext: modelContext)
+        guard let gym = repo.activeGym() else { return [] }
+        let equipment = repo.availableEquipment(for: gym, availableOnly: true)
+        let originalMachineId = exercise.compatibleMachineIds.first ?? (step.exerciseId ?? "")
+        let others = Set(steps.compactMap { other -> String? in
+            guard other.id != step.id else { return nil }
+            return resolvedExercise(for: other)?.compatibleMachineIds.first
+        })
+        return WorkoutPlanGenerator.alternatives(
+            toMachineId: originalMachineId,
+            bodyParts: Set(exercise.bodyParts),
+            usableEquipment: equipment,
+            excludingMachineIds: others
+        )
+    }
+
+    /// Replaces the exercise on `step` with `candidate`, keeping the original
+    /// sets / reps / rest. Allowed only for the current exercise before any
+    /// set is completed, or an as-yet-unstarted later exercise — a completed
+    /// or in-progress exercise is never rewritten, and no `StepResult` is
+    /// touched. Returns whether the replacement applied.
+    @discardableResult
+    func replaceExercise(_ step: Step, with candidate: GeneratedExercise) -> Bool {
+        guard let index = steps.firstIndex(where: { $0.id == step.id }) else { return false }
+        let isCurrentUnstarted = index == currentStepIndex && phase == .exercise && currentSetIndex == 0
+        let isFutureUnstarted = index > currentStepIndex
+        guard isCurrentUnstarted || isFutureUnstarted else { return false }
+
+        objectWillChange.send()
+        step.title = candidate.exerciseName
+        step.exerciseId = RoutineFactory.persistableExerciseId(candidate.exerciseId)
+        step.note = candidate.cue
+        // sets / repsTarget / restSeconds / order are intentionally preserved.
+
+        // Drop any in-flight Complete bound to the old position, and refresh
+        // the on-screen rep counter when the current exercise changed.
+        invalidateCompleteContext()
+        if index == currentStepIndex {
+            currentReps = step.repsTarget
+        }
+        try? modelContext?.save()
+        saveState()
+        return true
+    }
+
+    /// Representative catalog machine id for a step's exercise, used by the
+    /// replacement sheet's "same movement" relation label. Empty when the
+    /// step has no resolvable exercise (e.g. a custom machine).
+    func exerciseMachineId(for step: Step) -> String {
+        resolvedExercise(for: step)?.compatibleMachineIds.first ?? ""
+    }
+
+    private func resolvedExercise(for step: Step) -> Exercise? {
+        guard let idString = step.exerciseId else { return nil }
+        return ExerciseLibrary.exercise(for: ExerciseID(rawValue: idString))
+    }
+
     var isRunning: Bool {
         phase != .done && sessionId != nil
     }

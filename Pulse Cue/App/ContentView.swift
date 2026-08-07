@@ -125,9 +125,14 @@ private enum PulseCueUITestFixtureSeeder {
         // The Quick Plan fixture also selects a few machines so the Today card
         // reaches its "active gym with machines" state and the generator has
         // real candidates to work with.
-        if wantsQuickPlan, repository.machines(for: gym).isEmpty {
+        if wantsQuickPlan {
+            // A generous chest/back set so a generated plan leaves spare
+            // machines for Exercise Replacement to offer as alternatives.
+            // Set unconditionally (the simulator persists app data across UI
+            // test launches, so an isEmpty guard would keep a stale set).
             repository.setMachines(
-                ["bench_press", "chest_press", "lat_pulldown", "seated_row", "dumbbells"],
+                ["bench_press", "chest_press", "pec_deck", "incline_chest_press",
+                 "cable_machine", "smith_machine", "dumbbells", "lat_pulldown", "seated_row"],
                 for: gym
             )
         }

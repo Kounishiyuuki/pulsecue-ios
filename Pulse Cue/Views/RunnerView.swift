@@ -35,6 +35,8 @@ struct RunnerView: View {
     /// or equipment). Presenting it is observational — no workout state,
     /// timer, set/rep progress, or StepResult is changed.
     @State private var guideExerciseId: ExerciseID?
+    /// Non-nil while the exercise-replacement sheet is presented.
+    @State private var replacementTarget: RunnerReplacementTarget?
 
     var body: some View {
         ZStack {
@@ -49,7 +51,9 @@ struct RunnerView: View {
                         statusChips
                         phaseSignature
                         formGuideButton
+                        replaceCurrentExerciseButton
                         nextUpCard
+                        replaceNextExerciseButton
                         if runnerViewModel.isRunning {
                             endSessionButton
                         } else {
@@ -80,6 +84,16 @@ struct RunnerView: View {
         }
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)
+        }
+        .sheet(item: $replacementTarget) { target in
+            ExerciseReplacementSheet(
+                originalName: target.name,
+                originalMachineId: target.machineId,
+                candidates: target.candidates,
+                onSelect: { candidate in
+                    runnerViewModel.replaceExercise(target.step, with: candidate)
+                }
+            )
         }
         .alert("セッションを終了しますか？", isPresented: $showEndAlert) {
             Button("終了", role: .destructive) {
@@ -438,6 +452,54 @@ struct RunnerView: View {
         }
     }
 
+    // MARK: - Exercise replacement entries
+
+    /// "種目を変更" for the current exercise — only while it is still unstarted
+    /// (no set completed). A completed / in-progress exercise cannot be swapped.
+    @ViewBuilder
+    private var replaceCurrentExerciseButton: some View {
+        if runnerViewModel.canReplaceCurrentExercise, let step = runnerViewModel.currentStep {
+            replaceButton(for: step, label: "種目を変更")
+        }
+    }
+
+    /// "次の種目を変更" for the upcoming (always unstarted) exercise.
+    @ViewBuilder
+    private var replaceNextExerciseButton: some View {
+        if runnerViewModel.canReplaceNextExercise, let step = runnerViewModel.nextStep {
+            replaceButton(for: step, label: "次の種目を変更")
+        }
+    }
+
+    private func replaceButton(for step: Step, label: String) -> some View {
+        Button {
+            replacementTarget = RunnerReplacementTarget(
+                step: step,
+                name: step.title,
+                machineId: runnerViewModel.exerciseMachineId(for: step),
+                candidates: runnerViewModel.replacementCandidates(for: step)
+            )
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 18)
+            .frame(minHeight: 48)
+            .frame(maxWidth: .infinity)
+            .background(glassBackground)
+            .overlay(glassStroke)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(AppTheme.accent)
+        .accessibilityLabel("\(step.title) を別の種目に変更")
+    }
+
     // MARK: - Next up card
 
     @ViewBuilder
@@ -752,4 +814,15 @@ struct RunnerView: View {
             return "ワークアウト完了"
         }
     }
+}
+
+/// Identifies which live step the replacement sheet is acting on, carrying the
+/// candidates ranked when the sheet was opened. A stable per-presentation id
+/// keeps the sheet identity independent of the underlying `Step`.
+private struct RunnerReplacementTarget: Identifiable {
+    let id = UUID()
+    let step: Step
+    let name: String
+    let machineId: String
+    let candidates: [GeneratedExercise]
 }
