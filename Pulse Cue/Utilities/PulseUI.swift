@@ -33,21 +33,47 @@ struct PulseAtmosphericBackground: View {
                     endPoint: .bottomTrailing
                 )
 
-                Ellipse()
-                    .fill(AppTheme.deepGlass.opacity(focused ? 0.18 : 0.24))
-                    .frame(width: size.width * 0.90, height: size.height * 0.30)
-                    .blur(radius: 72)
-                    .position(x: size.width * 0.82, y: size.height * 0.12)
+                // The two soft glows are drawn as radial gradients that fade to
+                // clear rather than as blurred ellipses. A large-radius `.blur`
+                // forces an offscreen render pass on every screen appearance;
+                // a radial gradient reaches the same calm, edge-less glow with
+                // no offscreen compositing.
+                glow(
+                    color: AppTheme.deepGlass.opacity(focused ? 0.18 : 0.24),
+                    width: size.width * 1.30,
+                    height: size.height * 0.52,
+                    x: size.width * 0.82,
+                    y: size.height * 0.12
+                )
 
-                Ellipse()
-                    .fill(AppTheme.reflectedBlue.opacity(focused ? 0.08 : 0.12))
-                    .frame(width: size.width * 0.76, height: size.height * 0.28)
-                    .blur(radius: 80)
-                    .position(x: size.width * 0.10, y: size.height * 0.78)
+                glow(
+                    color: AppTheme.reflectedBlue.opacity(focused ? 0.08 : 0.12),
+                    width: size.width * 1.12,
+                    height: size.height * 0.50,
+                    x: size.width * 0.10,
+                    y: size.height * 0.78
+                )
             }
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
+    }
+
+    /// A soft, edge-less radial glow. The gradient fades to clear well inside
+    /// the ellipse frame so no hard boundary is visible — the same look the
+    /// blurred ellipses produced, without an offscreen blur pass.
+    private func glow(color: Color, width: CGFloat, height: CGFloat, x: CGFloat, y: CGFloat) -> some View {
+        Ellipse()
+            .fill(
+                RadialGradient(
+                    colors: [color, .clear],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: max(width, height) * 0.5
+                )
+            )
+            .frame(width: width, height: height)
+            .position(x: x, y: y)
     }
 }
 
@@ -73,8 +99,16 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
             .background(
+                // Shadow attached to the opaque background shape, not the whole
+                // card: SwiftUI shadows the known rounded-rect silhouette
+                // directly instead of rasterizing the card's text/content into
+                // an offscreen buffer per frame. Ordinary cards stay flat
+                // ("通常カードはフラット、主役だけGlass"), so the shadow is a
+                // faint tone separator, not depth — hero Glass keeps its own
+                // shadow in `PulseGlassPlate`.
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
                     .fill(AppTheme.surfaceCard)
+                    .shadow(color: AppTheme.shadow.opacity(0.55), radius: 4, x: 0, y: 2)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
@@ -83,7 +117,6 @@ extension View {
                         lineWidth: 0.75
                     )
             )
-            .shadow(color: AppTheme.shadow, radius: 12, x: 0, y: 7)
     }
 
     /// Applies the atmospheric app background, ignoring safe areas.
