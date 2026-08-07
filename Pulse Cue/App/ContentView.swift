@@ -109,13 +109,27 @@ private enum PulseCueUITestFixtureSeeder {
         // the in-memory store. Compiled out of Release so no launch argument
         // can ever seed fixture data into a production build.
         #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument) else {
-            return
-        }
+        let args = ProcessInfo.processInfo.arguments
+        let wantsCustomMachine = args.contains(PulseCueUITestSupport.customMachineFlowArgument)
+        let wantsQuickPlan = args.contains(PulseCueUITestSupport.quickPlanFlowArgument)
+        guard wantsCustomMachine || wantsQuickPlan else { return }
 
         let repository = GymRepository(modelContext: modelContext)
-        if repository.allGyms().isEmpty {
-            _ = repository.createGym(name: "UIテストジム", makeActive: true)
+        let gym: Gym
+        if let existing = repository.allGyms().first {
+            gym = existing
+        } else {
+            gym = repository.createGym(name: "UIテストジム", makeActive: true)
+        }
+
+        // The Quick Plan fixture also selects a few machines so the Today card
+        // reaches its "active gym with machines" state and the generator has
+        // real candidates to work with.
+        if wantsQuickPlan, repository.machines(for: gym).isEmpty {
+            repository.setMachines(
+                ["bench_press", "chest_press", "lat_pulldown", "seated_row", "dumbbells"],
+                for: gym
+            )
         }
         #endif
     }

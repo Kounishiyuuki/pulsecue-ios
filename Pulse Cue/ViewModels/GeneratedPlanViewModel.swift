@@ -81,25 +81,62 @@ final class GeneratedPlanViewModel: ObservableObject {
         state = .generated
     }
 
-    /// Persists the current plan as a new `Routine` plus ordered
-    /// `Step` rows. Refuses to save an empty plan so the user can't
-    /// accidentally create a blank routine.
-    func saveAsRoutine() {
-        guard let modelContext else {
-            state = .error("内部エラー: モデル未初期化")
-            return
-        }
-        guard let plan, !plan.isEmpty else {
-            state = .error("保存できる種目がありません")
-            return
-        }
+    /// The routine + steps this preview has already inserted, if any. Both
+    /// "保存" and "この内容で開始" go through `materializeRoutine`, so the plan
+    /// is turned into a `Routine` exactly once no matter how the two actions
+    /// are combined — tapping one then the other never double-creates.
+    private var materialized: RoutineFactory.Output?
 
-        state = .saving
+    /// Creates and inserts the `Routine` + `Step` graph once, caching the
+    /// result. Returns `nil` for a missing context or an empty plan.
+    @discardableResult
+    private func materializeRoutine() -> RoutineFactory.Output? {
+        if let materialized { return materialized }
+        guard let modelContext, let plan, !plan.isEmpty else { return nil }
         let output = RoutineFactory.makeRoutine(from: plan)
         modelContext.insert(output.routine)
         for step in output.steps {
             modelContext.insert(step)
         }
+        materialized = output
+        return output
+    }
+
+    /// Persists the current plan as a new `Routine` plus ordered `Step` rows.
+    /// Refuses to save an empty plan so the user can't accidentally create a
+    /// blank routine.
+    func saveAsRoutine() {
+        guard modelContext != nil else {
+            state = .error("内部エラー: モデル未初期化")
+            return
+        }
+        state = .saving
+        guard let output = materializeRoutine() else {
+            state = .error("保存できる種目がありません")
+            return
+        }
         state = .saved(routineId: output.routine.id)
+    }
+
+    /// Materializes the routine (once) and starts it through the shared
+    /// `WorkoutStarter` — the same 3-layer-rest / Runner-init path the routine
+    /// list uses. Reuses the already-saved routine if "保存" ran first.
+    func startWorkout(
+        restStore: RoutineRestPreferenceStore,
+        appDefaultRestSeconds: Int,
+        runner: RunnerViewModel
+    ) {
+        guard let modelContext, let output = materializeRoutine() else {
+            state = .error("開始できる種目がありません")
+            return
+        }
+        WorkoutStarter.start(
+            routine: output.routine,
+            steps: output.steps,
+            modelContext: modelContext,
+            restStore: restStore,
+            appDefaultRestSeconds: appDefaultRestSeconds,
+            runner: runner
+        )
     }
 }

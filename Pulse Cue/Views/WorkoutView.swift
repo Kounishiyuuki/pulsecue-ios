@@ -364,15 +364,16 @@ struct WorkoutView: View {
     }
 
     private func startRoutine(_ routine: Routine) {
-        let steps = stepsByRoutine[routine.id] ?? []
-        guard !steps.isEmpty else { return }
-        prepareRestPreferences(for: routine, steps: steps)
-        let routineRest = restStore.routineDefault(for: routine.id, appDefault: settings.defaultRestSeconds)
-        for step in steps {
-            step.restSeconds = restStore.stepOverride(for: step.id) ?? routineRest
-        }
-        try? modelContext.save()
-        runnerViewModel.start(routine: routine)
+        // Shared with Quick Plan via `WorkoutStarter` so there is one start
+        // path (same 3-layer rest handling, same Runner init).
+        WorkoutStarter.start(
+            routine: routine,
+            steps: stepsByRoutine[routine.id] ?? [],
+            modelContext: modelContext,
+            restStore: restStore,
+            appDefaultRestSeconds: settings.defaultRestSeconds,
+            runner: runnerViewModel
+        )
     }
 
     private func requestStartFromEditor(_ routine: Routine) {
