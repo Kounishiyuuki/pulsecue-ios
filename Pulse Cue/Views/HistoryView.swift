@@ -213,11 +213,19 @@ struct HistoryView: View {
         }
     }
 
-    private func formatDate(_ date: Date) -> String {
+    // A single cached formatter shared by every row. Each session row formats
+    // its date twice (visible label + VoiceOver string); creating a
+    // `DateFormatter` per call re-parsed the format string on every row on
+    // every scroll pass. The output is identical.
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
         formatter.dateFormat = "M月d日（E） HH:mm"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func formatDate(_ date: Date) -> String {
+        Self.dateFormatter.string(from: date)
     }
 
     private func formatDuration(_ seconds: Int) -> String {
