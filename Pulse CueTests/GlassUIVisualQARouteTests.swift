@@ -21,6 +21,7 @@ struct GlassUIVisualQARouteTests {
     @Test func everyRepresentativeRouteParsesDeterministically() {
         #expect(Set(GlassUIVisualQARoute.allCases.map(\.rawValue)) == [
             "home",
+            "progress",
             "mygym-active",
             "mygym-empty",
             "mygym-multiple",

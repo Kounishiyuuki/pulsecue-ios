@@ -5,6 +5,7 @@ import SwiftUI
 /// DEBUG-only launch destinations used for deterministic visual QA.
 enum GlassUIVisualQARoute: String, CaseIterable {
     case home
+    case progress
     case myGymActive = "mygym-active"
     case myGymEmpty = "mygym-empty"
     case myGymMultiple = "mygym-multiple"
@@ -80,6 +81,8 @@ struct GlassUIVisualQARoot: View {
             switch route {
             case .home:
                 ScreenshotHomeHost(modelContext: modelContext)
+            case .progress:
+                NavigationStack { WorkoutProgressView() }
             case .myGymActive:
                 MyGymHomeView()
             case .myGymEmpty:
