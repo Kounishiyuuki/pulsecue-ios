@@ -81,11 +81,11 @@ struct StepExerciseIdMigrationTests {
     /// V3 → V4 lightweight stage).
     private static func openV4Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
         let config = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV4.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV5.self),
             url: url
         )
         let container = try ModelContainer(
-            for: Schema(versionedSchema: PulseCueSchemaV4.self),
+            for: Schema(versionedSchema: PulseCueSchemaV5.self),
             migrationPlan: PulseCueMigrationPlan.self,
             configurations: config
         )
@@ -120,7 +120,7 @@ struct StepExerciseIdMigrationTests {
             id: machineId, gymId: gymId, machineId: "chest_press",
             displayName: "チェストプレス", isAvailable: true, addedAt: addedAt
         ))
-        context.insert(Routine(
+        context.insert(PulseCueSchemaV1.Routine(
             id: routineId,
             name: "胸の日",
             createdAt: createdAt,
@@ -447,7 +447,7 @@ struct StepExerciseIdMigrationTests {
     func v1StoreMigratesToV2AndPreservesWorkoutGraph() throws {
         try Self.withTempStore { url in
             try Self.seedV1Store(at: url) { context in
-                context.insert(Routine(
+                context.insert(PulseCueSchemaV1.Routine(
                     id: Self.routineId,
                     name: "V1ルーティン",
                     createdAt: Self.createdAt,
@@ -483,7 +483,7 @@ struct StepExerciseIdMigrationTests {
             }
 
             try Self.openV2Store(at: url) { context in
-                let routines = try context.fetch(FetchDescriptor<Routine>())
+                let routines = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Routine>())
                 let steps = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Step>())
                 let sessions = try context.fetch(FetchDescriptor<Session>())
                 let results = try context.fetch(FetchDescriptor<StepResult>())
