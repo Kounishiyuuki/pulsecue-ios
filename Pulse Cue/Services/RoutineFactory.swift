@@ -36,11 +36,16 @@ enum RoutineFactory {
         return id.rawValue
     }
 
-    static func makeRoutine(from plan: GeneratedPlan, now: Date = Date()) -> Output {
+    static func makeRoutine(
+        from plan: GeneratedPlan,
+        origin: RoutineOrigin = .userSaved,
+        now: Date = Date()
+    ) -> Output {
         let routine = Routine(
             name: plan.defaultTitle,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            origin: origin
         )
         let steps = plan.exercises.enumerated().map { index, exercise in
             Step(

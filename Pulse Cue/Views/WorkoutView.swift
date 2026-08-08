@@ -85,7 +85,7 @@ struct WorkoutView: View {
                 Text("今日のルーティン")
                     .font(.system(.largeTitle, design: .rounded, weight: .black))
                 Spacer()
-                if !routines.isEmpty {
+                if !savedRoutines.isEmpty {
                     Text("\(filteredRoutines.count)件")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(AppTheme.accent)
@@ -124,7 +124,7 @@ struct WorkoutView: View {
 
     @ViewBuilder
     private var routineContent: some View {
-        if routines.isEmpty {
+        if savedRoutines.isEmpty {
             stateCard(
                 icon: "figure.strengthtraining.traditional",
                 title: "最初のルーティンを作成",
@@ -332,10 +332,15 @@ struct WorkoutView: View {
         .accessibilityLabel("新しいルーティンを作成")
     }
 
+    /// The routine library: only routines the user explicitly saved.
+    /// Workout-generated routines (Quick Plan "この内容で開始") stay out of the
+    /// list while remaining valid Runner / History targets.
+    private var savedRoutines: [Routine] { routines.filter { $0.origin == .userSaved } }
+
     private var filteredRoutines: [Routine] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return routines }
-        return routines.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return savedRoutines }
+        return savedRoutines.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
     private var pinnedRoutines: [Routine] { orderStore.ordered(routines: filteredRoutines.filter(\.isPinned), pinned: true) }
     private var regularRoutines: [Routine] { orderStore.ordered(routines: filteredRoutines.filter { !$0.isPinned }, pinned: false) }
@@ -425,7 +430,7 @@ struct WorkoutView: View {
     }
 
     private func orderedGroup(for routine: Routine) -> [Routine] {
-        orderStore.ordered(routines: routines.filter { $0.isPinned == routine.isPinned }, pinned: routine.isPinned)
+        orderStore.ordered(routines: savedRoutines.filter { $0.isPinned == routine.isPinned }, pinned: routine.isPinned)
     }
 
     private func canMove(_ routine: Routine, direction: Int) -> Bool {

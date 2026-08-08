@@ -88,12 +88,22 @@ final class GeneratedPlanViewModel: ObservableObject {
     private var materialized: RoutineFactory.Output?
 
     /// Creates and inserts the `Routine` + `Step` graph once, caching the
-    /// result. Returns `nil` for a missing context or an empty plan.
+    /// result. `origin` sets whether the routine belongs in the library
+    /// (`.userSaved`) or is a run-only routine (`.workoutGenerated`). Tapping
+    /// "この内容で開始" then "保存" (or vice versa) reuses the single cached
+    /// routine — an explicit 保存 promotes an already-generated one to
+    /// `.userSaved` rather than creating a duplicate.
     @discardableResult
-    private func materializeRoutine() -> RoutineFactory.Output? {
-        if let materialized { return materialized }
+    private func materializeRoutine(origin: RoutineOrigin) -> RoutineFactory.Output? {
+        if let materialized {
+            if origin == .userSaved, materialized.routine.origin != .userSaved {
+                materialized.routine.origin = .userSaved
+                materialized.routine.updatedAt = Date()
+            }
+            return materialized
+        }
         guard let modelContext, let plan, !plan.isEmpty else { return nil }
-        let output = RoutineFactory.makeRoutine(from: plan)
+        let output = RoutineFactory.makeRoutine(from: plan, origin: origin)
         modelContext.insert(output.routine)
         for step in output.steps {
             modelContext.insert(step)
@@ -102,7 +112,7 @@ final class GeneratedPlanViewModel: ObservableObject {
         return output
     }
 
-    /// Persists the current plan as a new `Routine` plus ordered `Step` rows.
+    /// Persists the current plan as a new library `Routine` (`.userSaved`).
     /// Refuses to save an empty plan so the user can't accidentally create a
     /// blank routine.
     func saveAsRoutine() {
@@ -111,7 +121,7 @@ final class GeneratedPlanViewModel: ObservableObject {
             return
         }
         state = .saving
-        guard let output = materializeRoutine() else {
+        guard let output = materializeRoutine(origin: .userSaved) else {
             state = .error("保存できる種目がありません")
             return
         }
@@ -126,7 +136,7 @@ final class GeneratedPlanViewModel: ObservableObject {
         appDefaultRestSeconds: Int,
         runner: RunnerViewModel
     ) {
-        guard let modelContext, let output = materializeRoutine() else {
+        guard let modelContext, let output = materializeRoutine(origin: .workoutGenerated) else {
             state = .error("開始できる種目がありません")
             return
         }

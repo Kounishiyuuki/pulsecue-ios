@@ -34,13 +34,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV4.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV5.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             return try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV4.self),
+                for: Schema(versionedSchema: PulseCueSchemaV5.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -265,9 +265,36 @@ enum PulseCueSchemaV1: VersionedSchema {
         }
     }
 
+    /// Version-specific historical `Routine` (schemas V1–V4). Mirrors the
+    /// pre-V5 shipped `Routine` exactly — same entity name "Routine" and the
+    /// same attributes, with NO `origin`. V5 uses the current top-level
+    /// `Routine`, which adds `origin`. Not used by app code.
+    @Model
+    final class Routine {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var createdAt: Date
+        var updatedAt: Date
+        var isPinned: Bool
+
+        init(
+            id: UUID = UUID(),
+            name: String,
+            createdAt: Date = Date(),
+            updatedAt: Date = Date(),
+            isPinned: Bool = false
+        ) {
+            self.id = id
+            self.name = name
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+            self.isPinned = isPinned
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
             Session.self,
             StepResult.self,
@@ -282,7 +309,7 @@ enum PulseCueSchemaV2: VersionedSchema {
     static var versionIdentifier = Schema.Version(2, 0, 0)
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
             Session.self,
             StepResult.self,
@@ -299,7 +326,7 @@ enum PulseCueSchemaV3: VersionedSchema {
     static var versionIdentifier = Schema.Version(3, 0, 0)
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
             Session.self,
             StepResult.self,
@@ -315,6 +342,27 @@ enum PulseCueSchemaV3: VersionedSchema {
 
 enum PulseCueSchemaV4: VersionedSchema {
     static var versionIdentifier = Schema.Version(4, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            PulseCueSchemaV1.Routine.self,
+            Step.self,
+            Session.self,
+            StepResult.self,
+            DayLog.self,
+            MealEntry.self,
+            UserProfile.self,
+            Gym.self,
+            GymMachine.self,
+            CustomMachine.self
+        ]
+    }
+}
+
+/// Adds `Routine.origin` so workout-generated routines can be kept out of the
+/// library. Lightweight: the new non-optional attribute defaults to
+/// `.userSaved`, so every existing routine stays visible.
+enum PulseCueSchemaV5: VersionedSchema {
+    static var versionIdentifier = Schema.Version(5, 0, 0)
     static var models: [any PersistentModel.Type] {
         [
             Routine.self,
@@ -337,7 +385,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV1.self,
             PulseCueSchemaV2.self,
             PulseCueSchemaV3.self,
-            PulseCueSchemaV4.self
+            PulseCueSchemaV4.self,
+            PulseCueSchemaV5.self
         ]
     }
 
@@ -354,6 +403,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV3.self,
                 toVersion: PulseCueSchemaV4.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV4.self,
+                toVersion: PulseCueSchemaV5.self
             )
         ]
     }

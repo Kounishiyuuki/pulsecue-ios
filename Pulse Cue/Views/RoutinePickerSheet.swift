@@ -120,7 +120,7 @@ struct RoutinePickerSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        if routines.isEmpty {
+        if savedRoutines.isEmpty {
             emptyState
         } else if filteredRoutines.isEmpty {
             searchEmptyState
@@ -317,9 +317,13 @@ struct RoutinePickerSheet: View {
     }
 
     private var trimmedSearch: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// Only user-saved routines belong in the picker; workout-generated ones
+    /// (Quick Plan "この内容で開始") are never listed.
+    private var savedRoutines: [Routine] { routines.filter { $0.origin == .userSaved } }
+
     private var filteredRoutines: [Routine] {
-        guard !trimmedSearch.isEmpty else { return routines }
-        return routines.filter { $0.name.localizedCaseInsensitiveContains(trimmedSearch) }
+        guard !trimmedSearch.isEmpty else { return savedRoutines }
+        return savedRoutines.filter { $0.name.localizedCaseInsensitiveContains(trimmedSearch) }
     }
     private var pinnedRoutines: [Routine] { orderStore.ordered(routines: filteredRoutines.filter(\.isPinned), pinned: true) }
     private var otherRoutines: [Routine] { orderStore.ordered(routines: filteredRoutines.filter { !$0.isPinned }, pinned: false) }
@@ -409,7 +413,7 @@ struct RoutinePickerSheet: View {
     }
 
     private func orderedGroup(for routine: Routine) -> [Routine] {
-        orderStore.ordered(routines: routines.filter { $0.isPinned == routine.isPinned }, pinned: routine.isPinned)
+        orderStore.ordered(routines: savedRoutines.filter { $0.isPinned == routine.isPinned }, pinned: routine.isPinned)
     }
 
     private func canMove(_ routine: Routine, direction: Int) -> Bool {

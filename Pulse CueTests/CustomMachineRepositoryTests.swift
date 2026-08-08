@@ -20,7 +20,7 @@ struct CustomMachineRepositoryTests {
         // an ad-hoc `Schema([...])`: building a raw subset schema that includes
         // `CustomMachine` tripped a CoreData "model still editable" crash,
         // while the versioned schema (the same one the app ships) is stable.
-        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
         let context = ModelContext(container)
