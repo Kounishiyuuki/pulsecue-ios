@@ -24,10 +24,20 @@ final class Routine {
     var createdAt: Date
     var updatedAt: Date
     var isPinned: Bool
-    /// Added in schema V5. Existing routines migrate to `.userSaved` so the
-    /// library is unchanged; a non-optional default keeps the migration
-    /// lightweight.
-    var origin: RoutineOrigin
+    /// Added in schema V5. Optional on purpose: a lightweight V4 → V5
+    /// migration leaves pre-existing rows with no value, and reading a
+    /// non-optional enum keypath in that state fatal-crashes SwiftData
+    /// (`Passed nil for a non-optional keypath \Routine.origin`). Never read
+    /// this directly — go through `origin`, which maps legacy `nil` to
+    /// `.userSaved`.
+    var storedOrigin: RoutineOrigin?
+
+    /// Effective origin. Legacy (pre-V5) rows have no stored value and are by
+    /// definition library routines, so they read as `.userSaved`.
+    var origin: RoutineOrigin {
+        get { storedOrigin ?? .userSaved }
+        set { storedOrigin = newValue }
+    }
 
     init(
         id: UUID = UUID(),
@@ -42,6 +52,8 @@ final class Routine {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.isPinned = isPinned
-        self.origin = origin
+        // Newly created routines always state their origin explicitly; only
+        // rows written before V5 are allowed to be nil.
+        self.storedOrigin = origin
     }
 }
