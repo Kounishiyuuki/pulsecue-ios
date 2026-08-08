@@ -94,6 +94,81 @@ struct StepExerciseIdMigrationTests {
         try context.save()
     }
 
+    /// Opens the store with the V4 schema ONLY (no plan) so it is genuinely
+    /// stamped V4 — whose `Routine` entity is the origin-less
+    /// `PulseCueSchemaV1.Routine`. This is the real pre-V5 on-disk shape.
+    private static func seedV4Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV4.self)
+        let config = ModelConfiguration(schema: schema, url: url)
+        let container = try ModelContainer(for: schema, configurations: config)
+        let context = ModelContext(container)
+        try work(context)
+        try context.save()
+    }
+
+    // MARK: - V4 → V5 origin migration (release blocker regression guard)
+
+    @Test
+    func v4RoutinesReadAsUserSavedAfterMigrationToV5() throws {
+        try Self.withTempStore { url in
+            // Genuine V4-stamped store with an origin-less routine + history.
+            try Self.seedV4Store(at: url) { context in
+                context.insert(Gym(
+                    id: Self.gymId, name: "テストジム", officialUrl: "https://example.com",
+                    isActive: true, createdAt: Self.createdAt, updatedAt: Self.updatedAt
+                ))
+                context.insert(PulseCueSchemaV1.Routine(
+                    id: Self.routineId, name: "胸の日",
+                    createdAt: Self.createdAt, updatedAt: Self.updatedAt, isPinned: true
+                ))
+                context.insert(Session(
+                    id: Self.sessionId, routineId: Self.routineId, dayDate: Self.createdAt,
+                    startedAt: Self.updatedAt, endedAt: Self.endedAt,
+                    status: .completed, totalSeconds: 800
+                ))
+                context.insert(StepResult(
+                    id: Self.resultId, sessionId: Self.sessionId, stepId: Self.step0Id,
+                    setIndex: 0, done: true, actualReps: 10, memo: "完了"
+                ))
+            }
+            // Open with V5 + full plan → runs the V4 → V5 lightweight stage.
+            try Self.openV4Store(at: url) { context in
+                let routines = try context.fetch(FetchDescriptor<Routine>())
+                #expect(routines.count == 1)
+                let routine = try #require(routines.first)
+                #expect(routine.id == Self.routineId)
+                #expect(routine.name == "胸の日")
+                #expect(routine.isPinned)
+                #expect(routine.storedOrigin == nil)    // legacy row: no value
+                #expect(routine.origin == .userSaved)   // nil reads as library
+                // …so it still shows up in the library list, which filters the
+                // same way WorkoutView / RoutinePickerSheet do.
+                #expect(routines.filter { $0.origin == .userSaved }.count == 1)
+                // History / Session survive the migration intact.
+                let sessions = try context.fetch(FetchDescriptor<Session>())
+                #expect(sessions.count == 1)
+                #expect(sessions.first?.routineId == Self.routineId)
+                let results = try context.fetch(FetchDescriptor<StepResult>())
+                #expect(results.count == 1)
+                #expect(results.first?.sessionId == Self.sessionId)
+            }
+            // Reopen the migrated store: still one userSaved routine, no
+            // re-crash. Writing an explicit origin must persist (the setter
+            // fills the previously-nil column).
+            try Self.openV4Store(at: url) { context in
+                let routines = try context.fetch(FetchDescriptor<Routine>())
+                #expect(routines.count == 1)
+                #expect(routines.first?.origin == .userSaved)
+                routines.first?.origin = .workoutGenerated
+            }
+            try Self.openV4Store(at: url) { context in
+                let routine = try #require(try context.fetch(FetchDescriptor<Routine>()).first)
+                #expect(routine.storedOrigin == .workoutGenerated)
+                #expect(routine.origin == .workoutGenerated)
+            }
+        }
+    }
+
     // MARK: - Fixed fixture values
 
     private static let gymId = UUID(uuidString: "51000000-0000-0000-0000-000000000001")!

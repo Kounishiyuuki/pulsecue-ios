@@ -358,9 +358,10 @@ enum PulseCueSchemaV4: VersionedSchema {
     }
 }
 
-/// Adds `Routine.origin` so workout-generated routines can be kept out of the
-/// library. Lightweight: the new non-optional attribute defaults to
-/// `.userSaved`, so every existing routine stays visible.
+/// Adds `Routine.storedOrigin` so workout-generated routines can be kept out
+/// of the library. Lightweight: the new attribute is optional, so existing
+/// rows migrate to nil, which `Routine.origin` reads as `.userSaved` — every
+/// pre-V5 routine stays visible.
 enum PulseCueSchemaV5: VersionedSchema {
     static var versionIdentifier = Schema.Version(5, 0, 0)
     static var models: [any PersistentModel.Type] {
