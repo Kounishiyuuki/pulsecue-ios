@@ -26,6 +26,7 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case historyPopulated = "history-populated"
     case historyDetail = "history-detail"
     case runnerActive = "runner-active"
+    case runnerActivePreviousPerformance = "runner-active-previous-performance"
     case runnerActiveLaterSet = "runner-active-later-set"
     case runnerRest = "runner-rest"
     case routineSelection = "routine-selection"
@@ -158,6 +159,8 @@ struct GlassUIVisualQARoot: View {
                 }
             case .runnerActive:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .exercise)
+            case .runnerActivePreviousPerformance:
+                ScreenshotRunnerHost(modelContext: modelContext, target: .exercise, seedHistory: true)
             case .runnerActiveLaterSet:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .laterSet)
             case .runnerRest:
@@ -288,13 +291,15 @@ private struct ScreenshotRunnerHost: View {
 
     let modelContext: ModelContext
     let target: Target
+    var seedHistory = false
     @StateObject private var settings: SettingsStore
     @StateObject private var runnerViewModel: RunnerViewModel
     @State private var started = false
 
-    init(modelContext: ModelContext, target: Target) {
+    init(modelContext: ModelContext, target: Target, seedHistory: Bool = false) {
         self.modelContext = modelContext
         self.target = target
+        self.seedHistory = seedHistory
         let ephemeral = makeScreenshotSettings()
         _settings = StateObject(wrappedValue: ephemeral)
         _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: ephemeral))
@@ -313,6 +318,7 @@ private struct ScreenshotRunnerHost: View {
                     predicate: #Predicate { $0.id == routineID }
                 )
                 guard let routine = try? modelContext.fetch(descriptor).first else { return }
+                if seedHistory { seedPreviousPerformance(routineId: routine.id) }
                 // Phase-bound public API only — no state-machine change.
                 // ACTIVE first set = exercise phase (static, no ticking timer).
                 // REST = one Complete → rest hero. LATER SET = Complete (record
@@ -334,7 +340,34 @@ private struct ScreenshotRunnerHost: View {
                         runnerViewModel.handle(action: .complete, context: restContext)
                     }
                 }
+                runnerViewModel.refreshExerciseInsight()
             }
+    }
+
+    /// Seeds one prior completed session whose StepResults match the routine's
+    /// steps (all sets at target) so the Runner shows a Previous Performance
+    /// and a +1-rep suggestion. DEBUG-only screenshot data.
+    private func seedPreviousPerformance(routineId: UUID) {
+        let stepDescriptor = FetchDescriptor<Step>(
+            predicate: #Predicate { $0.routineId == routineId }
+        )
+        guard let steps = try? modelContext.fetch(stepDescriptor), !steps.isEmpty else { return }
+        let past = Session(
+            routineId: routineId,
+            dayDate: Date().addingTimeInterval(-3 * 86_400),
+            startedAt: Date().addingTimeInterval(-3 * 86_400),
+            status: .completed
+        )
+        modelContext.insert(past)
+        for step in steps {
+            for setIndex in 0..<max(1, step.sets) {
+                modelContext.insert(StepResult(
+                    sessionId: past.id, stepId: step.id, setIndex: setIndex,
+                    done: true, actualReps: step.repsTarget
+                ))
+            }
+        }
+        try? modelContext.save()
     }
 }
 

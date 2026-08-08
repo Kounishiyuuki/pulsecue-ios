@@ -31,6 +31,11 @@ final class RunnerViewModel: ObservableObject {
     @Published private(set) var sessionId: UUID?
     @Published private(set) var routineId: UUID?
     @Published private(set) var isConfigured: Bool = false
+    /// The current exercise's last completed performance and a conservative
+    /// reps target, derived read-only from History. Recomputed only on
+    /// exercise change (see `refreshExerciseInsight`), never per rest tick.
+    @Published private(set) var previousPerformance: PreviousPerformance?
+    @Published private(set) var progression: ProgressionSuggestion?
 
     private var modelContext: ModelContext?
     private var routine: Routine?
@@ -234,7 +239,51 @@ final class RunnerViewModel: ObservableObject {
         }
         try? modelContext?.save()
         saveState()
+        if index == currentStepIndex { refreshExerciseInsight() }
         return true
+    }
+
+    // MARK: - Previous performance / progression (read-only)
+
+    /// Recomputes `previousPerformance` and `progression` for the current
+    /// exercise from History. Called on workout start, exercise change, and
+    /// after a replacement — never per rest tick. Read-only: no `StepResult`,
+    /// `Session`, or session state is modified.
+    func refreshExerciseInsight() {
+        guard let modelContext, let step = currentStep, let exerciseId = step.exerciseId else {
+            previousPerformance = nil
+            progression = nil
+            return
+        }
+        let allSteps = (try? modelContext.fetch(FetchDescriptor<Step>())) ?? []
+        let allSessions = (try? modelContext.fetch(FetchDescriptor<Session>())) ?? []
+        let allResults = (try? modelContext.fetch(FetchDescriptor<StepResult>())) ?? []
+
+        let previous = PreviousPerformanceQuery.latest(
+            exerciseId: exerciseId,
+            excludingSessionId: sessionId,
+            steps: allSteps,
+            sessions: allSessions,
+            results: allResults
+        )
+        // Rep progression is inappropriate for cardio; custom machines (no
+        // resolvable exercise) are treated as rep-trainable.
+        let isCardio = resolvedExercise(for: step)?.movementPattern == .cardio
+        previousPerformance = previous
+        progression = ProgressionRule.suggest(
+            previous: previous,
+            baselineReps: step.repsTarget,
+            allowsRepProgression: !isCardio
+        )
+    }
+
+    /// Sets the current set's on-screen rep counter to the suggested target.
+    /// Transient only — it uses the same path as the ± buttons, so no
+    /// `StepResult`, completed set, or session state is touched.
+    func applySuggestedReps() {
+        guard phase == .exercise, isRunning, let suggested = progression?.suggestedReps else { return }
+        currentReps = max(0, suggested)
+        saveState()
     }
 
     /// Representative catalog machine id for a step's exercise, used by the
