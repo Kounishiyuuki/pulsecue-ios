@@ -35,6 +35,8 @@ struct GeneratedPlanPreviewView: View {
     /// Non-nil while the text Form Guide sheet is presented. Purely local
     /// UI state — opening it reads static content and persists nothing.
     @State private var guideExerciseId: ExerciseID?
+    /// Non-nil while the exercise-replacement sheet is presented.
+    @State private var replacementTarget: ReplacementTarget?
 
     init(gym: Gym, bodyPart: BodyPart) {
         _viewModel = StateObject(wrappedValue: GeneratedPlanViewModel(gym: gym, bodyPart: bodyPart))
@@ -107,6 +109,16 @@ struct GeneratedPlanPreviewView: View {
         }
         .sheet(item: $guideExerciseId) { id in
             ExerciseGuideView(exerciseId: id)
+        }
+        .sheet(item: $replacementTarget) { target in
+            ExerciseReplacementSheet(
+                originalName: target.name,
+                originalMachineId: target.machineId,
+                candidates: target.candidates,
+                onSelect: { candidate in
+                    viewModel.replaceExercise(at: target.index, with: candidate)
+                }
+            )
         }
         .task { viewModel.configure(modelContext: modelContext) }
     }
@@ -183,13 +195,13 @@ struct GeneratedPlanPreviewView: View {
             }
             VStack(spacing: 12) {
                 ForEach(Array(plan.exercises.enumerated()), id: \.offset) { index, exercise in
-                    exerciseCard(exercise, number: index + 1)
+                    exerciseCard(exercise, index: index, number: index + 1)
                 }
             }
         }
     }
 
-    private func exerciseCard(_ exercise: GeneratedExercise, number: Int) -> some View {
+    private func exerciseCard(_ exercise: GeneratedExercise, index: Int, number: Int) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Text("\(number)")
                 .font(.headline.monospacedDigit())
@@ -231,10 +243,44 @@ struct GeneratedPlanPreviewView: View {
                     formGuideButton(exerciseName: exercise.exerciseName, exerciseId: guideId)
                         .padding(.top, 2)
                 }
+
+                changeExerciseButton(exercise, index: index)
+                    .padding(.top, 2)
             }
         }
         .padding(16)
         .background(PulseGlassPlate(level: .subtle, cornerRadius: 20))
+    }
+
+    /// Opens the shared replacement sheet for this exercise. Candidates are
+    /// ranked on demand from the gym's available equipment, excluding the
+    /// other exercises already in the plan.
+    private func changeExerciseButton(_ exercise: GeneratedExercise, index: Int) -> some View {
+        Button {
+            replacementTarget = ReplacementTarget(
+                index: index,
+                name: exercise.exerciseName,
+                machineId: exercise.machineId,
+                candidates: viewModel.replacementCandidates(forExerciseAt: index)
+            )
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                Text("種目を変更")
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.accent)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(AppTheme.accentSoft)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(exercise.exerciseName) を別の種目に変更")
     }
 
     /// Opens the text Form Guide for a supported standard exercise. Custom
@@ -498,4 +544,14 @@ struct GeneratedPlanPreviewView: View {
         ]
         return palette[index % palette.count]
     }
+}
+
+/// Identifies which exercise the replacement sheet is acting on, carrying the
+/// candidates ranked when the sheet was opened.
+private struct ReplacementTarget: Identifiable {
+    let id = UUID()
+    let index: Int
+    let name: String
+    let machineId: String
+    let candidates: [GeneratedExercise]
 }

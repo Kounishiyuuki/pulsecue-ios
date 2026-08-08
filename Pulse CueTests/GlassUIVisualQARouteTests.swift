@@ -31,6 +31,8 @@ struct GlassUIVisualQARouteTests {
             "planner",
             "quick-plan-condition",
             "quick-plan-preview",
+            "replacement-sheet",
+            "replacement-sheet-empty",
             "preview-single",
             "preview-weekly-before-generation",
             "preview-weekly",

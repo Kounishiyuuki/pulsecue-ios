@@ -139,4 +139,64 @@ final class GeneratedPlanViewModel: ObservableObject {
             runner: runner
         )
     }
+
+    // MARK: - Exercise replacement
+
+    /// Ranked alternatives for the exercise at `index`, from this gym's
+    /// available equipment, excluding the other exercises already in the plan.
+    /// Computed on demand (when the sheet opens), never per body render.
+    func replacementCandidates(forExerciseAt index: Int) -> [GeneratedExercise] {
+        guard let repository, let plan, plan.exercises.indices.contains(index) else { return [] }
+        let equipment = repository.availableEquipment(for: gym, availableOnly: true)
+        let original = plan.exercises[index]
+        let others = Set(plan.exercises.enumerated().compactMap { $0.offset == index ? nil : $0.element.machineId })
+        return WorkoutPlanGenerator.alternatives(
+            toMachineId: original.machineId,
+            bodyParts: bodyParts(for: original, equipment: equipment),
+            usableEquipment: equipment,
+            excludingMachineIds: others
+        )
+    }
+
+    /// Replaces only the exercise at `index`, carrying over the original's
+    /// sets / reps / rest (no "smart" auto-correction). The rest of the plan is
+    /// untouched. Any already-materialized routine is discarded so a later
+    /// 保存 / 開始 rebuilds from the updated plan.
+    func replaceExercise(at index: Int, with candidate: GeneratedExercise) {
+        guard let plan, plan.exercises.indices.contains(index) else { return }
+        let original = plan.exercises[index]
+        let replacement = GeneratedExercise(
+            machineId: candidate.machineId,
+            exerciseName: candidate.exerciseName,
+            sets: original.sets,
+            reps: original.reps,
+            restSeconds: original.restSeconds,
+            cue: candidate.cue,
+            exerciseId: candidate.exerciseId
+        )
+        var exercises = plan.exercises
+        exercises[index] = replacement
+        self.plan = GeneratedPlan(
+            bodyPart: plan.bodyPart,
+            bodyParts: plan.bodyParts,
+            gymId: plan.gymId,
+            gymName: plan.gymName,
+            exercises: exercises,
+            warnings: plan.warnings
+        )
+        // The saved/started routine (if any) no longer matches the plan.
+        materialized = nil
+    }
+
+    /// Body parts to search for alternatives: the machine's catalog parts,
+    /// else its custom-equipment parts, else the plan's target parts.
+    private func bodyParts(for exercise: GeneratedExercise, equipment: [AvailableEquipment]) -> Set<BodyPart> {
+        if let entry = MachineCatalog.entry(for: exercise.machineId) {
+            return entry.bodyParts
+        }
+        if let custom = equipment.first(where: { $0.id == exercise.machineId }) {
+            return custom.bodyParts
+        }
+        return Set(plan?.bodyParts ?? [bodyPart])
+    }
 }
