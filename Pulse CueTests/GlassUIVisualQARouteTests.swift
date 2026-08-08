@@ -42,6 +42,7 @@ struct GlassUIVisualQARouteTests {
             "history-populated",
             "history-detail",
             "runner-active",
+            "runner-active-previous-performance",
             "runner-active-later-set",
             "runner-rest",
             "routine-selection",

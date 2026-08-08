@@ -50,6 +50,7 @@ struct RunnerView: View {
                             .id("runner-top")
                         statusChips
                         phaseSignature
+                        previousPerformanceCard
                         formGuideButton
                         replaceCurrentExerciseButton
                         nextUpCard
@@ -116,6 +117,11 @@ struct RunnerView: View {
                 argument: phaseAnnouncement(for: newPhase)
             )
         }
+        // Recompute Previous Performance / suggestion only when the exercise
+        // changes (new session, moving between steps) — never per rest tick.
+        .task { runnerViewModel.refreshExerciseInsight() }
+        .onChange(of: runnerViewModel.sessionId) { _, _ in runnerViewModel.refreshExerciseInsight() }
+        .onChange(of: runnerViewModel.currentStepIndex) { _, _ in runnerViewModel.refreshExerciseInsight() }
     }
 
     // MARK: - Background
@@ -450,6 +456,84 @@ struct RunnerView: View {
             .foregroundStyle(AppTheme.accent)
             .accessibilityLabel("\(step.title) のフォームを見る")
         }
+    }
+
+    // MARK: - Previous performance / progression
+
+    private static let previousDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "M月d日"
+        return f
+    }()
+
+    /// Compact "前回 … / 今回の目安 …" card. Shown only while exercising (the
+    /// rest timer owns the screen during rest) and only when history exists —
+    /// it never competes with the current set controls.
+    @ViewBuilder
+    private var previousPerformanceCard: some View {
+        if runnerViewModel.phase == .exercise, let previous = runnerViewModel.previousPerformance {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("前回")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.accent)
+                    Text(previous.setReps.map(String.init).joined(separator: " / ") + " 回")
+                        .font(.subheadline.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(Self.previousDateFormatter.string(from: previous.date))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let suggestion = runnerViewModel.progression {
+                    Divider().overlay(Color.white.opacity(0.08))
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) { suggestionLabel(suggestion); Spacer(minLength: 8); applySuggestionButton }
+                        VStack(alignment: .leading, spacing: 8) { suggestionLabel(suggestion); applySuggestionButton }
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(glassBackground)
+            .overlay(glassStroke)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func suggestionLabel(_ suggestion: ProgressionSuggestion) -> some View {
+        HStack(spacing: 6) {
+            Text("今回の目安")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(AppTheme.accent)
+            Text(suggestionText(suggestion))
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func suggestionText(_ s: ProgressionSuggestion) -> String {
+        s.isProgression
+            ? "各セット \(s.baselineReps)〜\(s.suggestedReps) 回"
+            : "各セット \(s.suggestedReps) 回"
+    }
+
+    private var applySuggestionButton: some View {
+        Button {
+            runnerViewModel.applySuggestedReps()
+        } label: {
+            Text("目安を適用")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(AppTheme.accent)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.accentSoft)
+        )
+        .accessibilityLabel("目安のレップ数を適用")
     }
 
     // MARK: - Exercise replacement entries
