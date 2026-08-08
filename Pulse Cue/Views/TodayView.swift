@@ -38,7 +38,21 @@ struct TodayView: View {
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
     private var profiles: [UserProfile]
 
+    // Workout history for the Home progress summary / "repeat" action. Derived
+    // read-only via `WorkoutProgress`; never mutated here.
+    @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
+    private var sessions: [Session]
+    @Query private var stepResults: [StepResult]
+    @Query private var routines: [Routine]
+    @Query private var allSteps: [Step]
+
     @StateObject private var targetStore = HealthTargetStore()
+    /// Stateless UserDefaults accessor (same as WorkoutView), for the shared
+    /// Runner-start path used by "前回のメニューをもう一度".
+    @State private var restStore = RoutineRestPreferenceStore()
+    /// Cached so the summary is recomputed only on appear / History change,
+    /// not on every body render (see `recomputeProgressSummary`).
+    @State private var progressSummary: HomeProgressSummary = .empty
 
     @State private var activeField: DayLogField?
     @State private var showRoutinePicker = false
@@ -101,6 +115,7 @@ struct TodayView: View {
                     conditionCard
                     startWorkoutButton
                     TodayGymPlanCard()
+                    homeWorkoutProgressCard
                     VStack(spacing: 16) {
                         PulseSectionHeader("今日のサマリー", icon: "chart.bar.xaxis")
                         metricsGrid
@@ -126,7 +141,33 @@ struct TodayView: View {
         .task {
             ensureTodayLogExists()
             _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
+            recomputeProgressSummary()
         }
+        .onChange(of: sessions.count) { _, _ in recomputeProgressSummary() }
+        .onChange(of: stepResults.count) { _, _ in recomputeProgressSummary() }
+    }
+
+    private func recomputeProgressSummary() {
+        progressSummary = HomeProgressSummary.make(
+            sessions: sessions, results: stepResults, routines: routines
+        )
+    }
+
+    /// Starts a brand-new workout from the most recent completed session's
+    /// routine, through the same `WorkoutStarter` path the routine list uses.
+    /// History is never reused or mutated; a fresh Session is created.
+    private func repeatLastWorkout() {
+        guard let last = progressSummary.lastWorkout,
+              let routine = routines.first(where: { $0.id == last.routineId }) else { return }
+        let steps = allSteps.filter { $0.routineId == routine.id }
+        WorkoutStarter.start(
+            routine: routine,
+            steps: steps,
+            modelContext: modelContext,
+            restStore: restStore,
+            appDefaultRestSeconds: settings.defaultRestSeconds,
+            runner: runnerViewModel
+        )
     }
 
     // MARK: - Background
@@ -809,6 +850,86 @@ struct TodayView: View {
             Circle().fill(color).frame(width: 6, height: 6)
             Text(text).foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: - Workout progress (Home)
+
+    private static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "ja_JP"); f.dateFormat = "M月d日"; return f
+    }()
+
+    /// Compact "continue + this week + progress" block. Hidden entirely until
+    /// there is workout history, so a first-time Home leads with Quick Plan.
+    @ViewBuilder
+    private var homeWorkoutProgressCard: some View {
+        if progressSummary.hasHistory {
+            VStack(alignment: .leading, spacing: 14) {
+                PulseSectionHeader("トレーニング", icon: "figure.strengthtraining.traditional")
+
+                if let last = progressSummary.lastWorkout {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("最後のトレーニング")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppTheme.accent)
+                        HStack(spacing: 8) {
+                            Text(Self.shortDateFormatter.string(from: last.date))
+                                .font(.subheadline.weight(.semibold))
+                            Text(last.routineName)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(DateUtils.formatDuration(seconds: max(0, last.durationSeconds)))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            repeatLastWorkout()
+                        } label: {
+                            Label("前回のメニューをもう一度", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .tint(AppTheme.accent)
+                    }
+                }
+
+                weeklyProgressRow
+
+                NavigationLink {
+                    WorkoutProgressView()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("進捗を見る")
+                        Image(systemName: "chevron.right").font(.caption2)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(minHeight: 44)
+                }
+            }
+            .padding(16)
+            .pulseCard()
+        }
+    }
+
+    private var weeklyProgressRow: some View {
+        HStack(spacing: 10) {
+            weeklyStat("\(progressSummary.weeklyWorkoutCount)", "今週の回数")
+            weeklyStat("\(progressSummary.weeklyTrainingDays)", "日数")
+            weeklyStat("\(progressSummary.weeklyCompletedSets)", "セット")
+            weeklyStat(DateUtils.formatDuration(seconds: max(0, progressSummary.weeklyDurationSeconds)), "合計時間")
+        }
+    }
+
+    private func weeklyStat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.headline.weight(.bold)).foregroundStyle(.primary)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Glass surfaces
