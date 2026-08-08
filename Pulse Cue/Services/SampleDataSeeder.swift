@@ -13,6 +13,11 @@ struct SampleDataSeeder {
     private static let seededKey = "sample.seeded"
 
     static func seedIfNeeded(modelContext: ModelContext) {
+        // Sample routines are development / screenshot convenience only. A real
+        // App Store user must start with a clean store (the Routine list has a
+        // proper "最初のルーティンを作成" empty state), so this never runs in
+        // Release — no "（サンプル）" data can be mistaken for the user's own.
+        #if DEBUG
         guard isEnabled else { return }
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: seededKey) else { return }
@@ -44,5 +49,6 @@ struct SampleDataSeeder {
         pullSteps.forEach { modelContext.insert($0) }
 
         defaults.set(true, forKey: seededKey)
+        #endif
     }
 }
