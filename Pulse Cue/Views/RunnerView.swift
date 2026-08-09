@@ -748,9 +748,11 @@ struct RunnerView: View {
         }
     }
 
+    /// Skip advances past the *whole* current exercise (remaining sets
+    /// included) — it has never skipped a single set. The label says so.
     private var skipButton: some View {
-        iconButton(label: "スキップ", systemImage: "forward.end.fill",
-                   a11y: "このステップをスキップ") {
+        iconButton(label: "種目をスキップ", systemImage: "forward.end.fill",
+                   a11y: "この種目をスキップして次の種目へ") {
             runnerViewModel.handle(action: .skip)
         }
     }
@@ -837,6 +839,10 @@ struct RunnerView: View {
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
             }
+            // A capsule, not a circle: a two-word label ("種目をスキップ")
+            // widens the button instead of being clipped, and a short label
+            // ("戻る") still renders as the original 52pt circle.
+            .padding(.horizontal, 12)
             .frame(minWidth: 52, minHeight: 52)
             .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil)
             .foregroundStyle(iconButtonForeground(isAccent: isAccent, isDisabled: isDisabled))
@@ -855,14 +861,14 @@ struct RunnerView: View {
     @ViewBuilder
     private func iconButtonBackground(isAccent: Bool, isDisabled: Bool) -> some View {
         if isAccent && !isDisabled {
-            Circle().fill(AppTheme.accentFilled)
+            Capsule().fill(AppTheme.accentFilled)
         } else if isAccent && isDisabled {
-            Circle().fill(reduceTransparency ? AnyShapeStyle(AppTheme.surfaceCard) : AnyShapeStyle(.ultraThinMaterial))
+            Capsule().fill(reduceTransparency ? AnyShapeStyle(AppTheme.surfaceCard) : AnyShapeStyle(.ultraThinMaterial))
         } else {
-            Circle()
+            Capsule()
                 .fill(reduceTransparency ? AnyShapeStyle(AppTheme.surfaceCard) : AnyShapeStyle(.ultraThinMaterial))
                 .overlay(
-                    Circle().strokeBorder(.white.opacity(0.20), lineWidth: 0.7)
+                    Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.7)
                 )
         }
     }
