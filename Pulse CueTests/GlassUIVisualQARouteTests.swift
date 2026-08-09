@@ -46,6 +46,8 @@ struct GlassUIVisualQARouteTests {
             "runner-active-previous-performance",
             "runner-active-later-set",
             "runner-rest",
+            "workout-completion",
+            "workout-completion-skipped",
             "routine-selection",
             "routine-detail",
             "daylog-sleep-input",

@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */; };
+		C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */; };
+		C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */; };
+		C0FFEE0000000000000B0001 /* WorkoutCompletionSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0001 /* WorkoutCompletionSummary.swift */; };
 		0030153F89E046C493437F05 /* StepResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A1C70A4F4C4790A97F5998 /* StepResult.swift */; };
 		0B22E96C2DEA44F1A240BB25 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = F53D2167ACB84391A781A5F8 /* Session.swift */; };
 		11D66B1ADAFF48799ED94A65 /* Routine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */; };
@@ -284,6 +288,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionUITests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionView.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0001 /* WorkoutCompletionSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionSummary.swift; sourceTree = "<group>"; };
 		006E74099FEC4FEA860FC867 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		006E74099FEC4FEA860FC901 /* PulseUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseUI.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000D7 /* ProfileGymSetupStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileGymSetupStatus.swift; sourceTree = "<group>"; };
@@ -576,6 +584,7 @@
 		0D8204BD8467472493866B8C /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */,
 				D17104DB1A8E4001B0DA2202 /* AICoachView.swift */,
 				9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */,
 				D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */,
@@ -769,6 +778,7 @@
 		74598358BF684396B5173D66 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0001 /* WorkoutCompletionSummary.swift */,
 				F931151BAB1D473A8625DFF3 /* DayLog.swift */,
 				20132618DA9D4059810757F4 /* Enums.swift */,
 				D17104DB1A8E4001B0DA2302 /* MealEntry.swift */,
@@ -834,6 +844,7 @@
 		8B8BDF9909D442F68C9E8E09 /* Pulse CueTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */,
 				D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */,
 				AAB10C0000000000000001C4 /* APIHealthQAModelTests.swift */,
 				AAB10C0000000000000001B4 /* APIContractsAndAdaptersTests.swift */,
@@ -917,6 +928,7 @@
 		901EC8C69F4B4436B498CBD4 /* Pulse CueUITests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */,
 				38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */,
 				D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */,
 				4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */,
@@ -1099,6 +1111,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */,
+				C0FFEE0000000000000B0001 /* WorkoutCompletionSummary.swift in Sources */,
 				54FDF3C3A4E240BDA4CED51E /* ContentView.swift in Sources */,
 				5BAEAE269491457F91CF3F92 /* Pulse_CueApp.swift in Sources */,
 				B134D9F025D84AA7A5B90001 /* GlassUIVisualQARoot.swift in Sources */,
@@ -1269,6 +1283,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */,
 				4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */,
 				3CC3C0747ADF4996ABB9CBA4 /* GoogleSignInPresentationTests.swift in Sources */,
@@ -1359,6 +1374,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */,
 				D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */,
 				4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */,
