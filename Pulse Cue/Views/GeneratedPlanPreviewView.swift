@@ -513,13 +513,10 @@ struct GeneratedPlanPreviewView: View {
         return false
     }
 
-    /// Pure view-level estimate. Assumes ~4 seconds per rep + the
-    /// prescribed rest after each set. Rounded up to whole minutes.
+    /// Shared with the routine cards via `WorkoutDurationEstimator`, so the
+    /// same prescription never shows two different times.
     private func estimatedMinutes(_ plan: GeneratedPlan) -> Int {
-        let totalSeconds = plan.exercises.reduce(0) { acc, e in
-            acc + e.sets * (e.reps * 4 + e.restSeconds)
-        }
-        return max(1, Int(ceil(Double(totalSeconds) / 60.0)))
+        WorkoutDurationEstimator.minutes(forPlan: plan.exercises)
     }
 
     /// Body-part list rendered under the exercise title. Uses the
