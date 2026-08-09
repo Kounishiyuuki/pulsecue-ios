@@ -2,6 +2,33 @@
 
 Xcode で Scheme `Pulse Cue` を選択して以下を順に確認します。所要時間 10 分程度。
 
+## fresh install を確認するときの前準備（Simulator）
+
+`simctl uninstall` はアプリの**コンテナ**しか消しません。Simulator では
+`<Device>/data/Library/Preferences/<bundle id>.plist` にも設定が書かれることがあり
+（UI テストがホストアプリを起動した場合など）、このファイルはアンインストール後も
+残って次のインストールから読まれます。オンボーディング完了フラグがここに残ると
+「新規インストールなのにオンボーディングが出ない」状態になります。
+
+fresh install を確認する前に、必ず両方を消してください:
+
+```sh
+xcrun simctl uninstall <UDID> com.kounishiyuuki.pulsecue
+xcrun simctl spawn <UDID> defaults delete com.kounishiyuuki.pulsecue
+```
+
+確認方法（両方とも空／該当キーなしであること）:
+
+```sh
+xcrun simctl get_app_container <UDID> com.kounishiyuuki.pulsecue data   # → Library/Preferences/
+/usr/libexec/PlistBuddy -c Print \
+  ~/Library/Developer/CoreSimulator/Devices/<UDID>/data/Library/Preferences/com.kounishiyuuki.pulsecue.plist
+```
+
+- [ ] 上記 2 コマンド実行後にインストール → 起動でオンボーディングが表示される
+- [ ] 「ゲストで始める」→ ホームに入る
+- [ ] アプリを終了して再起動 → オンボーディングは出ず、直接ホームが表示される
+
 ## 起動 / 全体
 
 - [ ] ⌘R で起動 → 「今日 / ワークアウト / ランナー / 履歴 / 設定」の 5 タブが表示される
