@@ -36,6 +36,11 @@ final class RunnerViewModel: ObservableObject {
     /// exercise change (see `refreshExerciseInsight`), never per rest tick.
     @Published private(set) var previousPerformance: PreviousPerformance?
     @Published private(set) var progression: ProgressionSuggestion?
+    /// Non-nil only between a *completed* finish and the user dismissing the
+    /// Workout Completion screen. Purely presentational: the session it
+    /// describes is already finalized, so nothing here re-writes History.
+    /// An abandoned session (quit) never produces one.
+    @Published private(set) var completion: WorkoutCompletionSummary?
 
     private var modelContext: ModelContext?
     private var routine: Routine?
@@ -66,6 +71,7 @@ final class RunnerViewModel: ObservableObject {
 
     func start(routine: Routine) {
         guard let modelContext else { return }
+        completion = nil
         invalidateCompleteContext()
         stopTimer()
         invalidateAttention()
@@ -133,6 +139,19 @@ final class RunnerViewModel: ObservableObject {
     func endSessionEarly() {
         invalidateCompleteContext()
         finishSession(completed: false)
+    }
+
+    /// Closes the Workout Completion screen. Presentation-only: the session
+    /// was finalized once by `finishSession`, so this writes nothing, changes
+    /// no History row, and never starts another Session.
+    func dismissCompletion() {
+        completion = nil
+    }
+
+    /// Whether the Runner cover belongs on screen — an active workout, or a
+    /// finished one whose completion summary has not been dismissed yet.
+    var shouldPresentRunner: Bool {
+        isRunning || completion != nil
     }
 
     func adjustCurrentReps(by adjustment: Int) {
@@ -451,7 +470,34 @@ final class RunnerViewModel: ObservableObject {
         session.status = completed ? .completed : .abandoned
         session.totalSeconds = Int(session.endedAt!.timeIntervalSince(session.startedAt))
 
+        // Snapshot after finalization but before `resetState()` clears the
+        // session, so the Completion screen reports the finalized numbers.
+        // A routine with no steps finishes instantly on start and has nothing
+        // to celebrate, so it gets no Completion screen.
+        let summary = (completed && !steps.isEmpty) ? completionSummary(for: session) : nil
+
         resetState()
+        completion = summary
+    }
+
+    /// Reads the just-finalized session's completed work. Only `StepResult`s
+    /// actually marked done are counted, so skipped sets never inflate the
+    /// set count and an exercise counts only when at least one of its sets
+    /// was completed.
+    private func completionSummary(for session: Session) -> WorkoutCompletionSummary? {
+        guard let modelContext else { return nil }
+        let sessionId = session.id
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.done == true }
+        )
+        let doneResults = (try? modelContext.fetch(descriptor)) ?? []
+        let endedAt = session.endedAt ?? Date()
+        return WorkoutCompletionSummary(
+            sessionId: sessionId,
+            duration: max(0, endedAt.timeIntervalSince(session.startedAt)),
+            completedExerciseCount: Set(doneResults.map(\.stepId)).count,
+            completedSetCount: doneResults.count
+        )
     }
 
     private func resetState() {

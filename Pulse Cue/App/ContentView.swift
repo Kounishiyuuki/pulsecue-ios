@@ -61,13 +61,14 @@ struct ContentView: View {
             // `configure` may recover a session persisted from a previous
             // launch. `onChange` only fires on *transitions*, so mirror the
             // recovered state once here to re-present the Runner if needed.
-            runnerPresenter.syncPresentation(isRunning: runnerViewModel.isRunning)
+            runnerPresenter.syncPresentation(shouldPresent: runnerViewModel.shouldPresentRunner)
         }
         // Keep the cover's presentation in lock-step with the authoritative
-        // workout state: a workout becoming active presents it; ending it
-        // dismisses it. The workout is never started/ended from here.
-        .onChange(of: runnerViewModel.isRunning) { _, running in
-            runnerPresenter.syncPresentation(isRunning: running)
+        // workout state: a workout becoming active presents it; a finished one
+        // keeps it until its Completion summary is dismissed. The workout is
+        // never started/ended from here.
+        .onChange(of: runnerViewModel.shouldPresentRunner) { _, shouldPresent in
+            runnerPresenter.syncPresentation(shouldPresent: shouldPresent)
         }
         .fullScreenCover(isPresented: onboardingPresented) {
             OnboardingView {
@@ -112,6 +113,15 @@ private enum PulseCueUITestFixtureSeeder {
         let args = ProcessInfo.processInfo.arguments
         let wantsCustomMachine = args.contains(PulseCueUITestSupport.customMachineFlowArgument)
         let wantsQuickPlan = args.contains(PulseCueUITestSupport.quickPlanFlowArgument)
+        let wantsCompletion = args.contains(PulseCueUITestSupport.completionFlowArgument)
+
+        // The completion fixture needs no gym — just the shortest possible
+        // real routine, so the Runner reaches its end after a single Complete
+        // (or a single 種目をスキップ) with no rest timer in between.
+        if wantsCompletion {
+            seedCompletionRoutine(modelContext: modelContext)
+        }
+
         guard wantsCustomMachine || wantsQuickPlan else { return }
 
         let repository = GymRepository(modelContext: modelContext)
@@ -138,6 +148,28 @@ private enum PulseCueUITestFixtureSeeder {
         }
         #endif
     }
+
+    #if DEBUG
+    /// One routine, one exercise, one set, no rest. Inserted only into the
+    /// completion fixture's in-memory store (see `completionFlowArgument`).
+    private static func seedCompletionRoutine(modelContext: ModelContext) {
+        let existing = (try? modelContext.fetchCount(FetchDescriptor<Routine>())) ?? 0
+        guard existing == 0 else { return }
+        let routine = Routine(name: "完了フローテスト")
+        modelContext.insert(routine)
+        modelContext.insert(
+            Step(
+                routineId: routine.id,
+                order: 0,
+                title: "チェストプレス",
+                sets: 1,
+                repsTarget: 10,
+                restSeconds: 0
+            )
+        )
+        try? modelContext.save()
+    }
+    #endif
 }
 
 #Preview {
