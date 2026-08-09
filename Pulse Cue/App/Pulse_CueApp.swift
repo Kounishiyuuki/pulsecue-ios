@@ -28,6 +28,7 @@ struct Pulse_CueApp: App {
         var inMemory = false
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
+            || ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.completionFlowArgument)
             || PulseCueUITestSupport.isFormGuideDebugRoute()
             || PulseCueUITestSupport.requestedGlassUIRoute() != nil {
             inMemory = true
@@ -114,18 +115,26 @@ enum PulseCueUITestSupport {
     /// shows the Quick Plan entry, and (like the custom-machine fixture)
     /// skips onboarding. DEBUG-only; compiled out of Release.
     static let quickPlanFlowArgument = "-pulsecue-ui-test-quick-plan-flow"
+    /// Seeds a single one-set, zero-rest routine into an in-memory store and
+    /// skips onboarding, so the Workout Completion flow can be driven end to
+    /// end (start → Complete/種目をスキップ → completion → 履歴) in a few taps
+    /// without waiting on a rest timer. DEBUG-only; compiled out of Release.
+    static let completionFlowArgument = "-pulsecue-ui-test-completion-flow"
 
-    /// The custom-machine and quick-plan fixtures are the only launch modes
-    /// allowed to update onboarding. Isolated DEBUG roots win when arguments
-    /// are accidentally combined, preserving their no-UserDefaults-write
-    /// guarantee.
+    /// The custom-machine, quick-plan, and completion fixtures are the only
+    /// launch modes allowed to update onboarding. Isolated DEBUG roots win when
+    /// arguments are accidentally combined, preserving their
+    /// no-UserDefaults-write guarantee.
     static func shouldCompleteCustomMachineOnboarding(
         _ args: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
         // DEBUG-only fixture: Release never skips onboarding via a launch
         // argument, so a production build always shows the real first-run flow.
         #if DEBUG
-        guard args.contains(customMachineFlowArgument) || args.contains(quickPlanFlowArgument) else { return false }
+        guard args.contains(customMachineFlowArgument)
+            || args.contains(quickPlanFlowArgument)
+            || args.contains(completionFlowArgument)
+        else { return false }
         return requestedGlassUIRoute(args) == nil && !isFormGuideDebugRoute(args)
         #else
         return false

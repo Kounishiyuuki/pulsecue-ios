@@ -42,32 +42,15 @@ struct RunnerView: View {
         ZStack {
             backgroundLayer.ignoresSafeArea()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 16) {
-                        Color.clear
-                            .frame(height: 0)
-                            .id("runner-top")
-                        statusChips
-                        phaseSignature
-                        previousPerformanceCard
-                        formGuideButton
-                        replaceCurrentExerciseButton
-                        nextUpCard
-                        replaceNextExerciseButton
-                        if runnerViewModel.isRunning {
-                            endSessionButton
-                        } else {
-                            startRoutineButton
-                        }
-                        Color.clear.frame(height: 8)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
+            if let summary = runnerViewModel.completion {
+                // A finished workout owns the whole Runner until the user
+                // acknowledges it, so the idle "ルーティンを開始" CTA can never
+                // sit under the finger the moment a workout ends.
+                WorkoutCompletionView(summary: summary) {
+                    runnerViewModel.dismissCompletion()
                 }
-                .onChange(of: runnerViewModel.phase) { _, _ in
-                    proxy.scrollTo("runner-top", anchor: .top)
-                }
+            } else {
+                workoutContent
             }
         }
         .navigationTitle(runnerViewModel.currentStep?.title ?? "ワークアウト")
@@ -122,6 +105,36 @@ struct RunnerView: View {
         .task { runnerViewModel.refreshExerciseInsight() }
         .onChange(of: runnerViewModel.sessionId) { _, _ in runnerViewModel.refreshExerciseInsight() }
         .onChange(of: runnerViewModel.currentStepIndex) { _, _ in runnerViewModel.refreshExerciseInsight() }
+    }
+
+    private var workoutContent: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 16) {
+                    Color.clear
+                        .frame(height: 0)
+                        .id("runner-top")
+                    statusChips
+                    phaseSignature
+                    previousPerformanceCard
+                    formGuideButton
+                    replaceCurrentExerciseButton
+                    nextUpCard
+                    replaceNextExerciseButton
+                    if runnerViewModel.isRunning {
+                        endSessionButton
+                    } else {
+                        startRoutineButton
+                    }
+                    Color.clear.frame(height: 8)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+            }
+            .onChange(of: runnerViewModel.phase) { _, _ in
+                proxy.scrollTo("runner-top", anchor: .top)
+            }
+        }
     }
 
     // MARK: - Background

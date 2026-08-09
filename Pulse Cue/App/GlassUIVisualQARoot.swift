@@ -30,6 +30,10 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case runnerActivePreviousPerformance = "runner-active-previous-performance"
     case runnerActiveLaterSet = "runner-active-later-set"
     case runnerRest = "runner-rest"
+    case workoutCompletion = "workout-completion"
+    /// The same screen after every exercise was skipped — the honest zero
+    /// state, which must still read as a finished workout.
+    case workoutCompletionSkipped = "workout-completion-skipped"
     case routineSelection = "routine-selection"
     case routineDetail = "routine-detail"
     case daylogSleepInput = "daylog-sleep-input"
@@ -168,6 +172,24 @@ struct GlassUIVisualQARoot: View {
                 ScreenshotRunnerHost(modelContext: modelContext, target: .laterSet)
             case .runnerRest:
                 ScreenshotRunnerHost(modelContext: modelContext, target: .rest)
+            case .workoutCompletion:
+                ScreenshotWorkoutCompletionHost(
+                    summary: WorkoutCompletionSummary(
+                        sessionId: GlassUIVisualQAFixture.featuredSessionID,
+                        duration: 1_845,
+                        completedExerciseCount: 3,
+                        completedSetCount: 8
+                    )
+                )
+            case .workoutCompletionSkipped:
+                ScreenshotWorkoutCompletionHost(
+                    summary: WorkoutCompletionSummary(
+                        sessionId: GlassUIVisualQAFixture.featuredSessionID,
+                        duration: 42,
+                        completedExerciseCount: 0,
+                        completedSetCount: 0
+                    )
+                )
             case .routineSelection:
                 ScreenshotRoutineSelectionHost(modelContext: modelContext)
             case .routineDetail:
@@ -195,6 +217,27 @@ struct GlassUIVisualQARoot: View {
                 LoginView(authSession: AuthSessionStore())
             }
         }
+    }
+}
+
+/// DEBUG-only host for the Workout Completion screen. Renders the production
+/// view over a fixed transient summary on the Runner's own dark backdrop, so
+/// narrow-width and large Dynamic Type can be checked deterministically. It
+/// stores nothing and drives no session.
+private struct ScreenshotWorkoutCompletionHost: View {
+    let summary: WorkoutCompletionSummary
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [AppTheme.deepSpace.opacity(0.82), Color.black],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            WorkoutCompletionView(summary: summary, onDone: {})
+        }
+        .preferredColorScheme(.dark)
     }
 }
 

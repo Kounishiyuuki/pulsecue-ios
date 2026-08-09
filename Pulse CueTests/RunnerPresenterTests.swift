@@ -24,14 +24,14 @@ struct RunnerPresenterTests {
     @Test func startingWorkoutPresentsCover() {
         let p = RunnerPresenter()
         #expect(p.isRunnerCovered == false)
-        p.syncPresentation(isRunning: true)
+        p.syncPresentation(shouldPresent: true)
         #expect(p.isRunnerCovered)
     }
 
     @Test func finishingWorkoutDismissesCover() {
         let p = RunnerPresenter()
-        p.syncPresentation(isRunning: true)
-        p.syncPresentation(isRunning: false)
+        p.syncPresentation(shouldPresent: true)
+        p.syncPresentation(shouldPresent: false)
         #expect(p.isRunnerCovered == false)
     }
 
@@ -39,8 +39,8 @@ struct RunnerPresenterTests {
         // No sequence of "still running" syncs can silently hide an active
         // workout — the cover tracks the domain state exactly.
         let p = RunnerPresenter()
-        p.syncPresentation(isRunning: true)
-        p.syncPresentation(isRunning: true)
+        p.syncPresentation(shouldPresent: true)
+        p.syncPresentation(shouldPresent: true)
         #expect(p.isRunnerCovered)
     }
 
