@@ -15,10 +15,15 @@ import Testing
 @MainActor
 struct WorkoutProgressTests {
 
+    /// `daysAgo` is counted back from the fixture's fixed `now`, never from the
+    /// system clock: "this week" must mean the same week no matter what day the
+    /// suite runs on.
     private func session(_ id: UUID = UUID(), routineId: UUID = UUID(), daysAgo: Int, status: SessionStatus = .completed, seconds: Int = 1800) -> Session {
-        Session(id: id, routineId: routineId, dayDate: .now,
-                startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)),
-                status: status, totalSeconds: seconds)
+        let startedAt = now.addingTimeInterval(TimeInterval(-daysAgo * 86_400))
+        return Session(id: id, routineId: routineId,
+                       dayDate: calendar.startOfDay(for: startedAt),
+                       startedAt: startedAt,
+                       status: status, totalSeconds: seconds)
     }
 
     private func step(_ exerciseId: String?, id: UUID = UUID(), title: String = "種目") -> Step {
@@ -30,9 +35,25 @@ struct WorkoutProgressTests {
     }
 
     // A calendar fixed so "this week" is deterministic in tests: week starts
-    // Monday, reference date is a Wednesday.
+    // Monday, reference date is a Wednesday. `now` is the single clock every
+    // fixture is built from — no test reads the system date, so the suite
+    // behaves identically on any run date.
     private var calendar: Calendar { var c = Calendar(identifier: .gregorian); c.firstWeekday = 2; return c }
     private var now: Date { calendar.date(from: DateComponents(year: 2026, month: 8, day: 5))! } // Wed
+
+    // MARK: - Fixture determinism
+
+    /// Guards the fixture itself: every session must be anchored to `now`, not
+    /// to `Date()`. Reintroducing the system clock here silently breaks the
+    /// weekly tests once the real date leaves the reference week.
+    @Test
+    func fixtureSessionsAreAnchoredToTheFixedNow() {
+        #expect(session(daysAgo: 0).startedAt == now)
+        #expect(session(daysAgo: 9).startedAt == now.addingTimeInterval(-9 * 86_400))
+        let week = calendar.dateInterval(of: .weekOfYear, for: now)
+        #expect(week?.contains(session(daysAgo: 0).startedAt) == true)
+        #expect(week?.contains(session(daysAgo: 9).startedAt) == false)
+    }
 
     // MARK: - Home summary
 
