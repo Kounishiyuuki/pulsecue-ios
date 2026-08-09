@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */; };
+		C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */; };
 		C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */; };
 		C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */; };
 		C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */; };
@@ -288,6 +290,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimatorTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimator.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionView.swift; sourceTree = "<group>"; };
@@ -637,6 +641,7 @@
 		26F919F9BFF14BE9BB9C7FD7 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */,
 				D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */,
 				AAB10C0000000000000001C0 /* APIHealthQAModel.swift */,
 				AAB10C0000000000000001B0 /* APIContracts.swift */,
@@ -844,6 +849,7 @@
 		8B8BDF9909D442F68C9E8E09 /* Pulse CueTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */,
 				C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */,
 				D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */,
 				AAB10C0000000000000001C4 /* APIHealthQAModelTests.swift */,
@@ -1111,6 +1117,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */,
 				C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */,
 				C0FFEE0000000000000B0001 /* WorkoutCompletionSummary.swift in Sources */,
 				54FDF3C3A4E240BDA4CED51E /* ContentView.swift in Sources */,
@@ -1283,6 +1290,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */,
 				C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */,
 				4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1801 /* RunnerStateMachineTests.swift in Sources */,

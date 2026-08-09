@@ -343,12 +343,7 @@ struct RoutinePickerSheet: View {
     }
 
     private func estimatedDuration(_ steps: [Step]) -> String {
-        guard !steps.isEmpty else { return "時間未設定" }
-        let seconds = steps.reduce(0) { total, step in
-            let sets = max(1, step.sets)
-            return total + sets * 30 + max(0, sets - 1) * step.restSeconds
-        }
-        return "約\(max(1, Int(ceil(Double(seconds) / 60))))分"
+        WorkoutDurationEstimator.approximateText(forSteps: steps)
     }
 
     private func selectAndDismiss(_ routine: Routine) {
