@@ -140,6 +140,56 @@ struct WorkoutDurationEstimatorTests {
                 == "約\(WorkoutDurationEstimator.minutes(forPlan: planExercises))分")
     }
 
+    // MARK: - Step order normalisation
+
+    /// The RC QA plan that exposed the bug: only the *last* exercise has a
+    /// different rest (75 vs 90), and the estimate drops the trailing rest —
+    /// so an unsorted array drops 90 instead of 75 and loses a whole minute
+    /// (34分 → 33分). Callers hand over unsorted `@Query` results, so the
+    /// adapter must normalise to `Step.order`.
+    private func rcQaSteps() -> [Step] {
+        let routineId = UUID()
+        let prescription = [(3, 10, 90), (4, 10, 90), (3, 10, 90), (3, 10, 90), (3, 12, 75)]
+        return prescription.enumerated().map { index, p in
+            Step(
+                routineId: routineId, order: index, title: "E\(index)",
+                sets: p.0, repsTarget: p.1, restSeconds: p.2
+            )
+        }
+    }
+
+    @Test
+    func stepOrderDrivesTheEstimateNotArrayOrder() {
+        let ordered = rcQaSteps()
+        let expectedSeconds = 1984   // 664s work + 1320s rest (trailing 75 dropped)
+        let orderedExercises = WorkoutDurationEstimator.exercises(fromSteps: ordered)
+        #expect(WorkoutDurationEstimator.totalSeconds(orderedExercises) == expectedSeconds)
+        #expect(WorkoutDurationEstimator.minutes(orderedExercises) == 34)
+
+        // Every rotation and a reversal must agree with the ordered array.
+        for shift in 1..<ordered.count {
+            let rotated = Array(ordered[shift...] + ordered[..<shift])
+            let rotatedExercises = WorkoutDurationEstimator.exercises(fromSteps: rotated)
+            #expect(WorkoutDurationEstimator.totalSeconds(rotatedExercises) == expectedSeconds)
+            #expect(WorkoutDurationEstimator.minutes(rotatedExercises) == 34)
+        }
+        let reversed = Array(ordered.reversed())
+        let reversedExercises = WorkoutDurationEstimator.exercises(fromSteps: reversed)
+        #expect(WorkoutDurationEstimator.totalSeconds(reversedExercises) == expectedSeconds)
+        #expect(WorkoutDurationEstimator.approximateText(forSteps: reversed) == "約34分")
+    }
+
+    @Test
+    func adapterEmitsStepsInExecutionOrder() {
+        // Runner semantics: `RunnerViewModel.fetchSteps` sorts by `Step.order`
+        // ascending, so the estimate must see that same sequence.
+        let shuffled = rcQaSteps().shuffled()
+        let exercises = WorkoutDurationEstimator.exercises(fromSteps: shuffled)
+        #expect(exercises.map(\.sets) == [3, 4, 3, 3, 3])
+        #expect(exercises.map(\.reps) == [10, 10, 10, 10, 12])
+        #expect(exercises.map(\.restSeconds) == [90, 90, 90, 90, 75])
+    }
+
     @Test
     func stepsWithNoExercisesShowUnsetRatherThanAMinute() {
         #expect(WorkoutDurationEstimator.approximateText(forSteps: []) == "時間未設定")
