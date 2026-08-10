@@ -81,8 +81,19 @@ enum WorkoutDurationEstimator {
 // Thin, so no screen re-derives the shape (or the formula) for itself.
 
 extension WorkoutDurationEstimator {
+    /// Normalises to `Step.order` before converting, because the estimate is
+    /// order-sensitive: it drops the trailing rest of the *last* exercise, so
+    /// a differently ordered array would drop a different one. Callers hand
+    /// over unsorted arrays (`WorkoutView` / `RoutinePickerSheet` fetch every
+    /// `Step` with an unsorted `@Query`), and `Step.order` is exactly the
+    /// sequence `RunnerViewModel.fetchSteps` executes — so normalising here
+    /// keeps the estimate identical to the workout the user will actually do,
+    /// wherever it is shown. No tie-break: `order` is assigned from an
+    /// enumerated index per routine, and the Runner sorts on it alone.
     static func exercises(fromSteps steps: [Step]) -> [Exercise] {
-        steps.map { Exercise(sets: $0.sets, reps: $0.repsTarget, restSeconds: $0.restSeconds) }
+        steps
+            .sorted { $0.order < $1.order }
+            .map { Exercise(sets: $0.sets, reps: $0.repsTarget, restSeconds: $0.restSeconds) }
     }
 
     static func exercises(fromPlan planExercises: [GeneratedExercise]) -> [Exercise] {
