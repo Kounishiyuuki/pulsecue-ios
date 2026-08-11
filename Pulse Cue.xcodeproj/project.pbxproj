@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C0FFEE0000000000000B0021 /* DateUtilsDurationFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */; };
+		C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */; };
 		C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */; };
 		C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */; };
 		C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */; };
@@ -292,6 +293,7 @@
 
 /* Begin PBXFileReference section */
 		C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateUtilsDurationFormatTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymQuickPlanUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimatorTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimator.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionUITests.swift; sourceTree = "<group>"; };
@@ -937,6 +939,7 @@
 		901EC8C69F4B4436B498CBD4 /* Pulse CueUITests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */,
 				C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */,
 				38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */,
 				D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */,
@@ -1386,6 +1389,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */,
 				C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */,
 				D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */,
