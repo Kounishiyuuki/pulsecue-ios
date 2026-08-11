@@ -113,8 +113,12 @@ struct WorkoutIntelligenceQuickPlanTests {
 
     // MARK: - Duration
 
+    /// Duration is a time goal, not an exercise count: the plan is sized so
+    /// its estimate approaches the chosen minutes without passing the
+    /// ceiling. A longer request therefore still yields a longer plan, but
+    /// the count itself is an outcome rather than the contract.
     @Test
-    func durationControlsExerciseCount() throws {
+    func durationControlsPlanLength() throws {
         let context = try Self.makeContext()
         let gym = Self.makeGym(in: context)
         let equipment = Self.richEquipment(on: gym)
@@ -126,9 +130,13 @@ struct WorkoutIntelligenceQuickPlanTests {
             request: Self.request([.chest, .back], .extended),
             gym: gym, availableEquipment: equipment
         )
-        #expect(compact.exercises.count == QuickPlanDuration.compact.targetExerciseCount)
+        let compactMinutes = WorkoutDurationEstimator.minutes(forPlan: compact.exercises)
+        let extendedMinutes = WorkoutDurationEstimator.minutes(forPlan: extended.exercises)
+
+        #expect(compactMinutes <= QuickPlanDuration.compact.upperBoundMinutes)
+        #expect(extendedMinutes <= QuickPlanDuration.extended.upperBoundMinutes)
+        #expect(extendedMinutes > compactMinutes)
         #expect(extended.exercises.count > compact.exercises.count)
-        #expect(extended.exercises.count <= QuickPlanDuration.extended.targetExerciseCount)
     }
 
     // MARK: - Determinism

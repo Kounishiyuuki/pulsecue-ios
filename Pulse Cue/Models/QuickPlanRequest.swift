@@ -12,8 +12,9 @@
 
 import Foundation
 
-/// How long today's session should be. Drives how many exercises the plan
-/// contains; deliberately a coarse bucket, not a precise time calculation.
+/// How long today's session should be. This is a *time* goal: the generator
+/// sizes the plan so its estimated duration (`WorkoutDurationEstimator`) lands
+/// near the chosen value, rather than emitting a fixed number of exercises.
 enum QuickPlanDuration: Int, CaseIterable, Codable, Identifiable {
     case compact = 30
     case standard = 45
@@ -26,9 +27,10 @@ enum QuickPlanDuration: Int, CaseIterable, Codable, Identifiable {
 
     var displayName: String { "\(rawValue)分" }
 
-    /// Target number of exercises across all selected body parts. Kept small
-    /// so the preview stays scannable; the generator still caps at whatever
-    /// the available equipment can actually fill.
+    /// A rough starting size for the plan, kept for documentation and for
+    /// callers that want an at-a-glance shape. It is **not** a cap — sizing
+    /// by a fixed count is exactly what made every bucket land at roughly
+    /// 60% of the chosen duration.
     var targetExerciseCount: Int {
         switch self {
         case .compact: return 3
@@ -37,6 +39,16 @@ enum QuickPlanDuration: Int, CaseIterable, Codable, Identifiable {
         case .extended: return 7
         }
     }
+
+    /// How far past the chosen time a plan may run. The estimate is coarse
+    /// and the user picked a ceiling, so a little overshoot is fine and a lot
+    /// is not.
+    var upperBoundMinutes: Int { Int((Double(minutes) * 1.10).rounded(.down)) }
+
+    /// Below this a plan is meaningfully shorter than what was asked for.
+    /// Used only to decide whether to warn — the generator never pads a plan
+    /// with equipment the gym does not have.
+    var lowerBoundMinutes: Int { Int((Double(minutes) * 0.80).rounded(.up)) }
 }
 
 /// How hard today's session should feel. Applied as a small, deterministic

@@ -183,8 +183,11 @@ enum WorkoutPlanGenerator {
             column += 1
         }
 
-        let capped = Array(merged.prefix(request.duration.targetExerciseCount))
-        let adjusted = capped.map { applyIntensity(request.intensity, to: $0) }
+        // Intensity is applied to every candidate *before* sizing, because it
+        // changes sets and rest and therefore changes how long each exercise
+        // takes. Sizing then runs on the real prescription.
+        let candidates = merged.map { applyIntensity(request.intensity, to: $0) }
+        let adjusted = Array(candidates.prefix(exerciseCount(fitting: request.duration, from: candidates)))
 
         var warnings: [String] = []
         if usable.isEmpty {
@@ -192,7 +195,10 @@ enum WorkoutPlanGenerator {
         } else if adjusted.isEmpty {
             let names = parts.map(\.displayName).joined(separator: "・")
             warnings.append("\(names)を鍛えられるマシンが見つかりませんでした。別のマシンを追加するか、別の部位を選んでください。")
-        } else if adjusted.count < request.duration.targetExerciseCount {
+        } else if adjusted.count == candidates.count,
+                  WorkoutDurationEstimator.minutes(forPlan: adjusted) < request.duration.lowerBoundMinutes {
+            // Every usable machine is already in the plan and it is still
+            // short of the requested time: the gym is the limit, not sizing.
             warnings.append("選択中のマシンが少ないためメニューが短くなっています。マシンを追加するとより良い提案ができます。")
         }
 
@@ -204,6 +210,39 @@ enum WorkoutPlanGenerator {
             exercises: adjusted,
             warnings: warnings
         )
+    }
+
+    // MARK: - Quick Plan sizing (time, not count)
+
+    /// How many of `candidates` (in order) make a plan that fills the chosen
+    /// duration without running well past it.
+    ///
+    /// `WorkoutDurationEstimator` is the only judge of time here, so the
+    /// number the preview shows and the number this targets can never drift
+    /// apart — and a duration-based movement such as a treadmill warm-up
+    /// counts for its real length rather than its rep count.
+    ///
+    /// The scan is a single pass over at most `candidates.count` prefixes, so
+    /// it always terminates and never re-orders, duplicates or invents an
+    /// exercise: the returned plan is a prefix of the candidate list, which is
+    /// already deduped by machine and already constrained to the gym's
+    /// available equipment and the requested body parts.
+    ///
+    /// Best effort at the edges: if even one exercise overshoots the bound the
+    /// plan is that single exercise, and if the whole list still fits, the
+    /// whole list is used (the caller warns that the gym is the limit).
+    static func exerciseCount(
+        fitting duration: QuickPlanDuration,
+        from candidates: [GeneratedExercise]
+    ) -> Int {
+        guard !candidates.isEmpty else { return 0 }
+        let upperBound = duration.upperBoundMinutes
+        var best = 1
+        for count in 1...candidates.count {
+            let minutes = WorkoutDurationEstimator.minutes(forPlan: Array(candidates.prefix(count)))
+            if minutes <= upperBound { best = count }
+        }
+        return best
     }
 
     // MARK: - Candidate selection (shared by single-part and Quick Plan)

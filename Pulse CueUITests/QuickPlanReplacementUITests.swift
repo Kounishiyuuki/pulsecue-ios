@@ -34,13 +34,24 @@ final class QuickPlanReplacementUITests: XCTestCase {
         }
     }
 
-    /// Today → 今日のメニューを作る → メニューを見る → Preview.
+    /// Today → 今日のメニューを作る → 30分 → メニューを見る → Preview.
+    ///
+    /// The shortest bucket is chosen deliberately. Quick Plan now fills the
+    /// requested time, so a 60-minute plan uses nearly every machine in the
+    /// fixture gym — and Exercise Replacement, which only offers machines the
+    /// workout is not already using, then correctly has nothing to suggest.
+    /// A 30-minute plan leaves spares, which is what these tests exercise.
     private func openPreview(_ app: XCUIApplication) {
         endRecoveredRunnerIfNeeded(app)
         let entry = app.buttons["今日のメニューを作る"]
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "Quick Plan entry missing")
         if !entry.isHittable { app.swipeUp() }
         entry.tap()
+
+        let shortest = app.buttons["30分"].firstMatch
+        XCTAssertTrue(shortest.waitForExistence(timeout: 8), "duration control missing")
+        shortest.tap()
+
         let seeMenu = app.buttons["メニューを見る"]
         XCTAssertTrue(seeMenu.waitForExistence(timeout: 8), "condition CTA missing")
         seeMenu.tap()
