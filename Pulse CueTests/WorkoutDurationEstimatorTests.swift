@@ -190,6 +190,105 @@ struct WorkoutDurationEstimatorTests {
         #expect(exercises.map(\.restSeconds) == [90, 90, 90, 90, 75])
     }
 
+    // MARK: - Duration-based movements
+
+    /// A treadmill warm-up is prescribed as "1 set of 10 minutes", stored as
+    /// `sets: 1, reps: 10, restSeconds: 0`. Estimating it from reps gave 40s
+    /// for a 10-minute effort; the catalog now carries the real set length.
+    @Test
+    func durationBasedSetUsesCatalogLengthNotReps() {
+        let treadmill = try? #require(ExerciseLibrary.exercise(for: "treadmill_warmup"))
+        #expect(treadmill?.workSecondsPerSet == 600)
+        #expect(treadmill?.isDurationBased == true)
+
+        let step = Step(
+            routineId: UUID(), order: 0, title: "トレッドミルウォームアップ",
+            sets: 1, repsTarget: 10, restSeconds: 0, exerciseId: "treadmill_warmup"
+        )
+        let exercises = WorkoutDurationEstimator.exercises(fromSteps: [step])
+        #expect(exercises.first?.secondsPerSet == 600)
+        #expect(WorkoutDurationEstimator.totalSeconds(exercises) == 600)
+        #expect(WorkoutDurationEstimator.minutes(exercises) == 10)
+    }
+
+    @Test
+    func repBasedMovementsAreUnaffectedByTheCatalog() {
+        // A strength entry declares no set length, so reps still drive it.
+        let bench = try? #require(ExerciseLibrary.exercise(for: "bench_press"))
+        #expect(bench?.workSecondsPerSet == nil)
+        #expect(bench?.isDurationBased == false)
+
+        let step = Step(
+            routineId: UUID(), order: 0, title: "ベンチプレス",
+            sets: 3, repsTarget: 8, restSeconds: 120, exerciseId: "bench_press"
+        )
+        let exercises = WorkoutDurationEstimator.exercises(fromSteps: [step])
+        #expect(exercises.first?.secondsPerSet == 8 * 4)
+        #expect(WorkoutDurationEstimator.totalSeconds(exercises) == 3 * 32 + 2 * 120)
+    }
+
+    @Test
+    func unresolvableExerciseIdFallsBackToReps() {
+        // Custom machines carry no catalog identity.
+        let custom = Step(
+            routineId: UUID(), order: 0, title: "自作マシン",
+            sets: 2, repsTarget: 10, restSeconds: 60, exerciseId: nil
+        )
+        let unknown = Step(
+            routineId: UUID(), order: 1, title: "謎の種目",
+            sets: 2, repsTarget: 10, restSeconds: 60, exerciseId: "no_such_exercise"
+        )
+        for step in [custom, unknown] {
+            let exercises = WorkoutDurationEstimator.exercises(fromSteps: [step])
+            #expect(exercises.first?.workSecondsPerSet == nil)
+            #expect(exercises.first?.secondsPerSet == 40)
+        }
+    }
+
+    /// Mixed plans must add both models together.
+    @Test
+    func mixedRepAndDurationPlanAccumulatesBoth() {
+        let routineId = UUID()
+        let steps = [
+            Step(routineId: routineId, order: 0, title: "トレッドミルウォームアップ",
+                 sets: 1, repsTarget: 10, restSeconds: 0, exerciseId: "treadmill_warmup"),
+            Step(routineId: routineId, order: 1, title: "ベンチプレス",
+                 sets: 3, repsTarget: 8, restSeconds: 120, exerciseId: "bench_press"),
+        ]
+        let exercises = WorkoutDurationEstimator.exercises(fromSteps: steps)
+        // 600s treadmill (no rest) + 3×32s bench + 2 of its 3 rests.
+        #expect(WorkoutDurationEstimator.totalSeconds(exercises) == 600 + 96 + 240)
+        #expect(WorkoutDurationEstimator.minutes(exercises) == 16)
+    }
+
+    /// The saved routine and the generated plan must agree for a
+    /// duration-based movement too, not just for rep-based ones.
+    @Test
+    func planAndStepsAgreeOnADurationBasedMovement() {
+        let generated = GeneratedExercise(
+            machineId: "treadmill", exerciseName: "トレッドミルウォームアップ",
+            sets: 1, reps: 10, restSeconds: 0, cue: "", exerciseId: "treadmill_warmup"
+        )
+        let step = Step(
+            routineId: UUID(), order: 0, title: "トレッドミルウォームアップ",
+            sets: 1, repsTarget: 10, restSeconds: 0, exerciseId: "treadmill_warmup"
+        )
+        #expect(WorkoutDurationEstimator.exercises(fromPlan: [generated])
+                == WorkoutDurationEstimator.exercises(fromSteps: [step]))
+        #expect(WorkoutDurationEstimator.minutes(forPlan: [generated]) == 10)
+    }
+
+    @Test
+    func everyCardioCatalogEntryDeclaresASetLength() {
+        // Guards the invariant the estimate now depends on: a movement the
+        // catalog calls cardio is time-based, never estimated from reps.
+        let cardio = ExerciseLibrary.all.filter { $0.movementPattern == .cardio }
+        #expect(!cardio.isEmpty)
+        for exercise in cardio {
+            #expect(exercise.isDurationBased, "\(exercise.id.rawValue) has no workSecondsPerSet")
+        }
+    }
+
     @Test
     func stepsWithNoExercisesShowUnsetRatherThanAMinute() {
         #expect(WorkoutDurationEstimator.approximateText(forSteps: []) == "時間未設定")

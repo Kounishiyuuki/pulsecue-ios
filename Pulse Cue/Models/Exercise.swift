@@ -32,6 +32,18 @@ struct Exercise: Identifiable, Hashable, Sendable {
     let movementPattern: MovementPattern?
     let difficulty: MachineDifficulty?
     let beginnerFriendly: Bool?
+    /// How long one set takes when the movement is measured in time rather
+    /// than repetitions — a treadmill warm-up is "10 minutes", not "10 reps".
+    /// `nil` (the default) means rep-based, which is every strength entry.
+    ///
+    /// Catalog knowledge keyed by the persisted `ExerciseID`, so a saved
+    /// `Step` recovers it through `ExerciseLibrary` with no new stored
+    /// property. Nothing infers time from a display name, a cue string, or a
+    /// rep count.
+    let workSecondsPerSet: Int?
+
+    /// Whether one set is measured in time instead of repetitions.
+    var isDurationBased: Bool { workSecondsPerSet != nil }
 
     init(
         id: ExerciseID,
@@ -42,7 +54,8 @@ struct Exercise: Identifiable, Hashable, Sendable {
         compatibleEquipment: [ExerciseEquipment],
         movementPattern: MovementPattern? = nil,
         difficulty: MachineDifficulty? = nil,
-        beginnerFriendly: Bool? = nil
+        beginnerFriendly: Bool? = nil,
+        workSecondsPerSet: Int? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -57,6 +70,7 @@ struct Exercise: Identifiable, Hashable, Sendable {
         self.movementPattern = movementPattern
         self.difficulty = difficulty
         self.beginnerFriendly = beginnerFriendly
+        self.workSecondsPerSet = workSecondsPerSet.map { max(0, $0) }
     }
 
     /// Body parts (primary first) in canonical order, for display.

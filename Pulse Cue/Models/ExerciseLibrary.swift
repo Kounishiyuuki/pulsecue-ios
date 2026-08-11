@@ -214,18 +214,28 @@ enum ExerciseLibrary {
                  difficulty: .beginner, beginnerFriendly: true),
 
         // MARK: Full body / cardio
+        //
+        // Performed for a length of time rather than for repetitions, so each
+        // declares `workSecondsPerSet`. The values are the prescribed lengths
+        // these movements have always been authored with (the same lengths the
+        // user reads in each template's cue) — no code parses cue text.
         Exercise(id: "treadmill_warmup", displayName: "トレッドミルウォームアップ",
                  primaryBodyPart: .fullBody, secondaryBodyParts: [.legs],
                  compatibleEquipment: [.machine("treadmill")], movementPattern: .cardio,
-                 difficulty: .beginner, beginnerFriendly: true),
+                 difficulty: .beginner, beginnerFriendly: true,
+                 workSecondsPerSet: 600),
         Exercise(id: "bike_finisher", displayName: "エアロバイクフィニッシュ",
                  primaryBodyPart: .fullBody, secondaryBodyParts: [.legs],
                  compatibleEquipment: [.machine("bike")], movementPattern: .cardio,
-                 difficulty: .beginner, beginnerFriendly: true),
+                 difficulty: .beginner, beginnerFriendly: true,
+                 workSecondsPerSet: 300),
+        // Authored as a 5–10 minute effort; the catalog carries a single
+        // representative number, so the midpoint is used.
         Exercise(id: "rowing_machine", displayName: "ローイングマシン",
                  primaryBodyPart: .fullBody, secondaryBodyParts: [.back, .legs],
                  compatibleEquipment: [.machine("rowing_machine")], movementPattern: .cardio,
-                 difficulty: .beginner, beginnerFriendly: true),
+                 difficulty: .beginner, beginnerFriendly: true,
+                 workSecondsPerSet: 450),
     ]
 
     // MARK: - Indexes (built once)
