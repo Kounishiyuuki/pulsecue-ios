@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0FFEE0000000000000B0021 /* DateUtilsDurationFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */; };
 		C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */; };
 		C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */; };
 		C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */; };
@@ -291,6 +292,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateUtilsDurationFormatTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymQuickPlanUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimatorTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimator.swift; sourceTree = "<group>"; };
@@ -851,6 +853,7 @@
 		8B8BDF9909D442F68C9E8E09 /* Pulse CueTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */,
 				C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */,
 				C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */,
 				D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */,
@@ -1293,6 +1296,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0021 /* DateUtilsDurationFormatTests.swift in Sources */,
 				C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */,
 				C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */,
 				4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */,
