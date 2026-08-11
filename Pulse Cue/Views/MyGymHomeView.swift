@@ -165,13 +165,30 @@ struct MyGymHomeView: View {
                 }
             }
             machineStatRow(gym)
+            // Quick Plan leads here for the same reason it leads on Today:
+            // it is the only route that asks for 時間 / 強度. Coming from My
+            // Gym previously went straight to the single-body-part generator,
+            // so a user who had just picked their machines never met those
+            // controls. Both entries pass this gym, so either route stays
+            // constrained to the equipment selected above.
+            let hasMachines = viewModel.machineCount(for: gym) > 0
+            NavigationLink {
+                QuickPlanConditionView(gym: gym)
+            } label: {
+                Label("今日のメニューを作る", systemImage: "sparkles")
+            }
+            .buttonStyle(MyGymPrimaryButtonStyle(isEnabled: hasMachines))
+            .disabled(!hasMachines)
+
             NavigationLink {
                 TargetBodyPartSelectionView(gym: gym)
             } label: {
-                Label("選択中のマシンでメニューを生成", systemImage: "sparkles")
+                Label("部位を選んで作成", systemImage: "target")
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(MyGymPrimaryButtonStyle(isEnabled: viewModel.machineCount(for: gym) > 0))
-            .disabled(viewModel.machineCount(for: gym) == 0)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(!hasMachines)
         }
         .myGymHeroCard()
     }
