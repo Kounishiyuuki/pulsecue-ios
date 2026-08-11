@@ -39,12 +39,20 @@ enum WorkoutDurationEstimator {
         let sets: Int
         let reps: Int
         let restSeconds: Int
+        /// Set length for a movement measured in time rather than in
+        /// repetitions. `nil` means rep-based and the length comes from
+        /// `reps`.
+        let workSecondsPerSet: Int?
 
-        init(sets: Int, reps: Int, restSeconds: Int) {
+        init(sets: Int, reps: Int, restSeconds: Int, workSecondsPerSet: Int? = nil) {
             self.sets = max(1, sets)
             self.reps = max(0, reps)
             self.restSeconds = max(0, restSeconds)
+            self.workSecondsPerSet = workSecondsPerSet.map { max(0, $0) }
         }
+
+        /// One set's working time, from whichever model the movement uses.
+        var secondsPerSet: Int { workSecondsPerSet ?? reps * secondsPerRep }
     }
 
     /// Rough tempo for one repetition, including the turnaround. Whole
@@ -54,7 +62,7 @@ enum WorkoutDurationEstimator {
     /// Estimated wall-clock seconds for the whole workout, rest included.
     static func totalSeconds(_ exercises: [Exercise]) -> Int {
         guard let last = exercises.last else { return 0 }
-        let work = exercises.reduce(0) { $0 + $1.sets * $1.reps * secondsPerRep }
+        let work = exercises.reduce(0) { $0 + $1.sets * $1.secondsPerSet }
         let rest = exercises.reduce(0) { $0 + $1.sets * $1.restSeconds }
         // The workout ends on its final set; the Runner does not rest after it.
         return work + rest - last.restSeconds
@@ -93,11 +101,35 @@ extension WorkoutDurationEstimator {
     static func exercises(fromSteps steps: [Step]) -> [Exercise] {
         steps
             .sorted { $0.order < $1.order }
-            .map { Exercise(sets: $0.sets, reps: $0.repsTarget, restSeconds: $0.restSeconds) }
+            .map {
+                Exercise(
+                    sets: $0.sets,
+                    reps: $0.repsTarget,
+                    restSeconds: $0.restSeconds,
+                    workSecondsPerSet: catalogWorkSeconds(exerciseId: $0.exerciseId)
+                )
+            }
     }
 
     static func exercises(fromPlan planExercises: [GeneratedExercise]) -> [Exercise] {
-        planExercises.map { Exercise(sets: $0.sets, reps: $0.reps, restSeconds: $0.restSeconds) }
+        planExercises.map {
+            Exercise(
+                sets: $0.sets,
+                reps: $0.reps,
+                restSeconds: $0.restSeconds,
+                workSecondsPerSet: catalogWorkSeconds(exerciseId: $0.exerciseId?.rawValue)
+            )
+        }
+    }
+
+    /// Time-based set length declared by the catalog for this movement, or
+    /// `nil` for a rep-based one (and for anything unresolvable, such as a
+    /// custom machine). Resolution is by the persisted `ExerciseID` only —
+    /// never by display name, cue text, or rep count — so a saved `Step`
+    /// estimates exactly like the plan it came from.
+    private static func catalogWorkSeconds(exerciseId: String?) -> Int? {
+        guard let exerciseId else { return nil }
+        return ExerciseLibrary.exercise(for: ExerciseID(rawValue: exerciseId))?.workSecondsPerSet
     }
 
     /// "約N分" / "時間未設定" for a saved routine's steps.
