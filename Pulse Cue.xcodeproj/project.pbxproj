@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0FFEE0000000000000B0053 /* HealthKitInputAssistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */; };
+		C0FFEE0000000000000B0052 /* HealthKitInputAssist.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0052 /* HealthKitInputAssist.swift */; };
+		C0FFEE0000000000000B0051 /* HealthKitClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0051 /* HealthKitClient.swift */; };
 		C0FFEE0000000000000B0041 /* QuickPlanTargetDurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0041 /* QuickPlanTargetDurationTests.swift */; };
 		C0FFEE0000000000000B0021 /* DateUtilsDurationFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */; };
 		C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */; };
@@ -293,6 +296,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitInputAssistTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0052 /* HealthKitInputAssist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitInputAssist.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0051 /* HealthKitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitClient.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0041 /* QuickPlanTargetDurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanTargetDurationTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateUtilsDurationFormatTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymQuickPlanUITests.swift; sourceTree = "<group>"; };
@@ -647,6 +653,7 @@
 		26F919F9BFF14BE9BB9C7FD7 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0051 /* HealthKitClient.swift */,
 				C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */,
 				D17104DB1A8E4001B0DA2102 /* AICoachStub.swift */,
 				AAB10C0000000000000001C0 /* APIHealthQAModel.swift */,
@@ -839,6 +846,7 @@
 		86AE8C4359EF4E47ABDA7C34 /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0052 /* HealthKitInputAssist.swift */,
 				38AF9175A5654DA28D42BFAB /* RunnerViewModel.swift */,
 				D5616686429645B3AE4EFB4D /* RunnerPresenter.swift */,
 				D17104DB1A8E4001B0DA3402 /* MyGymHomeViewModel.swift */,
@@ -855,6 +863,7 @@
 		8B8BDF9909D442F68C9E8E09 /* Pulse CueTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */,
 				C0FFEE0000000000000A0041 /* QuickPlanTargetDurationTests.swift */,
 						C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */,
 				C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */,
@@ -1126,6 +1135,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0052 /* HealthKitInputAssist.swift in Sources */,
+				C0FFEE0000000000000B0051 /* HealthKitClient.swift in Sources */,
 				C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */,
 				C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */,
 				C0FFEE0000000000000B0001 /* WorkoutCompletionSummary.swift in Sources */,
@@ -1299,6 +1310,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0053 /* HealthKitInputAssistTests.swift in Sources */,
 				C0FFEE0000000000000B0041 /* QuickPlanTargetDurationTests.swift in Sources */,
 						C0FFEE0000000000000B0021 /* DateUtilsDurationFormatTests.swift in Sources */,
 				C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */,

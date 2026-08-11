@@ -2,21 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>食品バーコードを読み取るためにカメラを使用します。</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>ジム登録の際、近くのジムを検索するために位置情報を使います。現在地は近くのジム検索にのみ使用します。</string>
-	<!-- Google Sign-In configuration (PR #115).
-	     These two values are DOCUMENTED PLACEHOLDERS until a real Google Cloud
-	     OAuth iOS client exists for com.kounishiyuuki.pulsecue. While the
-	     placeholder is in place, GoogleSignInConfig.isConfigured is false and
-	     the Google button shows "設定準備中" without starting a real sign-in.
-	     To enable real Google Sign-In, replace BOTH values:
-	       1. GIDClientID            -> <REAL>.apps.googleusercontent.com
-	       2. the CFBundleURLSchemes -> com.googleusercontent.apps.<REAL>
-	     No code change is required. -->
-	<key>GIDClientID</key>
-	<string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -28,5 +13,13 @@
 			</array>
 		</dict>
 	</array>
+	<key>GIDClientID</key>
+	<string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+	<key>NSCameraUsageDescription</key>
+	<string>食品バーコードを読み取るためにカメラを使用します。</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>体重と睡眠時間の入力を補助するために、ヘルスケアのデータを読み取ります。読み取った値は画面に表示されるだけで、保存するかどうかはご自身で選べます。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ジム登録の際、近くのジムを検索するために位置情報を使います。現在地は近くのジム検索にのみ使用します。</string>
 </dict>
 </plist>
