@@ -39,9 +39,18 @@ struct DayLogQuickInputSheet: View {
     /// an explicit "保存"; opening or cancelling records nothing.
     private static let sleepDraftMinutes = 360
 
-    init(field: DayLogField, dayLog: DayLog) {
+    /// Optional Health assist for the sleep and weight wheels. It only moves
+    /// the wheels; saving stays entirely with the "保存" button.
+    @StateObject private var healthAssist: HealthKitInputAssist
+
+    init(
+        field: DayLogField,
+        dayLog: DayLog,
+        healthAssist: HealthKitInputAssist? = nil
+    ) {
         self.field = field
         self._dayLog = Bindable(wrappedValue: dayLog)
+        self._healthAssist = StateObject(wrappedValue: healthAssist ?? HealthKitInputAssist())
         self._valueText = State(initialValue: DayLogQuickInputSheet.initialValue(field: field, dayLog: dayLog))
 
         let sleep = DayLogQuickInputSheet.sleepComponents(
@@ -123,6 +132,15 @@ struct DayLogQuickInputSheet: View {
             .onChange(of: sleepHours) { _, hours in
                 if hours >= 24 { sleepMinutes = 0 }
             }
+
+            healthAssistRow(label: "睡眠時間をヘルスケアから取得") {
+                await healthAssist.fetchSleep(for: dayLog.date)
+                guard let minutes = healthAssist.fetchedSleepMinutes else { return }
+                let components = Self.sleepComponents(fromMinutes: minutes)
+                let hours = components.hours.clamped(to: Self.sleepHourRange)
+                sleepHours = hours
+                sleepMinutes = hours >= 24 ? 0 : components.minutes.clamped(to: Self.sleepMinuteRange)
+            }
         } footer: {
             Text("時間と分のホイールで調整できます。")
                 .font(.footnote)
@@ -149,10 +167,57 @@ struct DayLogQuickInputSheet: View {
                     format: { ".\($0)" }
                 )
             }
+
+            healthAssistRow(label: "体重をヘルスケアから取得") {
+                await healthAssist.fetchLatestWeight()
+                guard let kilograms = healthAssist.fetchedWeightKilograms else { return }
+                let components = Self.weightComponents(fromKg: kilograms)
+                weightWhole = components.whole.clamped(to: Self.weightWholeRange)
+                weightDecimal = components.decimal.clamped(to: Self.weightDecimalRange)
+            }
         } footer: {
             Text("0.1 kg 単位でホイール調整できます。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Health assist
+    //
+    // A quiet, optional shortcut. It fills the wheels above and nothing more —
+    // the value is saved only when the user taps 保存, exactly as with a value
+    // they dialled themselves. When HealthKit is unavailable the row is not
+    // shown at all, so the sheet looks and behaves as it always has.
+
+    @ViewBuilder
+    private func healthAssistRow(
+        label: String,
+        apply: @escaping () async -> Void
+    ) -> some View {
+        if healthAssist.isAvailable {
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    Task { await apply() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if healthAssist.state == .loading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "heart.text.square")
+                        }
+                        Text("ヘルスケアから取得")
+                    }
+                }
+                .disabled(healthAssist.state == .loading)
+                .accessibilityLabel(label)
+
+                if let message = healthAssist.message {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(message)
+                }
+            }
         }
     }
 
