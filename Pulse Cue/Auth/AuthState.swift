@@ -13,11 +13,11 @@
 
 import Foundation
 
-/// Identifies which (future) sign-in path a session came from.
+/// Which provider identity is linked to this device's profile, if any.
 ///
-/// `apple` / `google` are placeholders only in this phase — the real
-/// providers are mock implementations (`MockAppleAuthProvider` /
-/// `MockGoogleAuthProvider`) that perform no network or SDK calls.
+/// `apple` / `google` are real sign-ins through the system and SDK UI. They
+/// link a provider identity locally — there is no PulseCue account and no
+/// server behind them.
 enum AuthProviderKind: String, Codable, CaseIterable, Identifiable {
     case guest
     case apple
@@ -25,15 +25,15 @@ enum AuthProviderKind: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Short Japanese label for the current usage state, used by the
-    /// read-only Settings status row. Apple (PR #114) and Google (PR #115)
-    /// are real sign-ins; either way the data stays local — sync/account
-    /// linking is not active yet.
+    /// Short Japanese label for the Settings status row. The wording says
+    /// "連携" rather than "サインイン済み" because that is literally what
+    /// happened: an identity was attached to this device's profile. Nothing
+    /// was created on a server and nothing syncs.
     var statusLabel: String {
         switch self {
         case .guest:  return "ゲスト（ローカル利用）"
-        case .apple:  return "Appleでサインイン済み"
-        case .google: return "Googleでサインイン済み"
+        case .apple:  return "Appleと連携済み（この端末のみ）"
+        case .google: return "Googleと連携済み（この端末のみ）"
         }
     }
 }
@@ -43,8 +43,9 @@ enum AuthProviderKind: String, Codable, CaseIterable, Identifiable {
 ///   - `guest`     — explicit local-only usage (the current default).
 ///   - `signedIn`  — carries only non-sensitive display metadata.
 ///
-/// There is intentionally no token / credential / session-persistence case;
-/// real account binding is deferred to a later phase.
+/// There is intentionally no token / credential case: the provider SDKs own
+/// credentials, and what PulseCue persists is only the link record in
+/// `LinkedAccount`.
 enum AuthState: Equatable {
     case signedOut
     case guest

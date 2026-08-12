@@ -30,6 +30,8 @@ struct AuthShellTests {
 
     @Test
     func initialStateIsConfigurable() {
+        // The injected initial state is preserved verbatim; only unlinking
+        // forces the guest state.
         let store = AuthSessionStore(initialState: .signedOut)
         #expect(store.state == .signedOut)
         #expect(store.statusLabel == "未ログイン")
@@ -51,9 +53,9 @@ struct AuthShellTests {
     func signOutReturnsToSignedOut() {
         let store = AuthSessionStore()
 
-        store.signOut()
+        store.unlinkAccount()
 
-        #expect(store.state == .signedOut)
+        #expect(store.state == .guest)
         #expect(store.isSignedIn == false)
         #expect(store.session == nil)
     }
@@ -64,36 +66,36 @@ struct AuthShellTests {
     func mockAppleSignInProducesNonSensitiveAppleSession() async {
         let store = AuthSessionStore()
 
-        await store.signInWithMockApple()
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Apple ユーザー", email: nil)
 
         #expect(store.isSignedIn == true)
         let session = store.session
         #expect(session?.provider == .apple)
         // Display-only metadata; no credential is surfaced.
         #expect(session?.email == nil)
-        #expect(store.statusLabel == "Appleでサインイン済み")
+        #expect(store.statusLabel == "Appleと連携済み（この端末のみ）")
     }
 
     @Test
     func mockGoogleSignInProducesNonSensitiveGoogleSession() async {
         let store = AuthSessionStore()
 
-        await store.signInWithMockGoogle()
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Google ユーザー", email: nil)
 
         #expect(store.isSignedIn == true)
         let session = store.session
         #expect(session?.provider == .google)
         #expect(session?.email == nil)
-        #expect(store.statusLabel == "Googleでサインイン済み")
+        #expect(store.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 
     @Test
     func signOutAfterMockSignInClearsSession() async {
         let store = AuthSessionStore()
-        await store.signInWithMockApple()
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Apple ユーザー", email: nil)
         #expect(store.isSignedIn == true)
 
-        store.signOut()
+        store.unlinkAccount()
 
         #expect(store.isSignedIn == false)
         #expect(store.session == nil)
@@ -109,10 +111,12 @@ struct AuthShellTests {
     }
 
     @Test
-    func mockProvidersReportTheirKind() {
+    func providerKindsCoverGuestAndBothLinkProviders() {
+        // Apple and Google no longer have provider types: their flows run in
+        // LoginView and are recorded through AuthSessionStore. Only the guest
+        // path still has one.
         #expect(GuestAuthProvider().kind == .guest)
-        #expect(MockAppleAuthProvider().kind == .apple)
-        #expect(MockGoogleAuthProvider().kind == .google)
+        #expect(Set(AuthProviderKind.allCases) == [.guest, .apple, .google])
     }
 
     // MARK: - State helpers
@@ -128,7 +132,7 @@ struct AuthShellTests {
     @Test
     func providerKindStatusLabels() {
         #expect(AuthProviderKind.guest.statusLabel == "ゲスト（ローカル利用）")
-        #expect(AuthProviderKind.apple.statusLabel == "Appleでサインイン済み")
-        #expect(AuthProviderKind.google.statusLabel == "Googleでサインイン済み")
+        #expect(AuthProviderKind.apple.statusLabel == "Appleと連携済み（この端末のみ）")
+        #expect(AuthProviderKind.google.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 }

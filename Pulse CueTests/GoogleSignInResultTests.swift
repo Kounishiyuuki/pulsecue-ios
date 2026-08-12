@@ -4,7 +4,7 @@
 //
 //  Covers the sanitized Google Sign-In path (PR #115): the
 //  framework-independent `GoogleSignInResult` value type,
-//  `AuthSessionStore.completeGoogleSignIn(displayName:email:)`, and the
+//  `AuthSessionStore.completeGoogleSignIn(userIdentifier: "google-test-user", displayName:email:)`, and the
 //  `GoogleSignInConfig` placeholder/valid detection that gates the real flow.
 //  No real Google UI/SDK is invoked — these are pure value/state checks that
 //  confirm only non-sensitive display metadata is kept and no token-like
@@ -48,47 +48,48 @@ struct GoogleSignInResultTests {
     func completeGoogleSignInSetsSanitizedSignedInState() {
         let store = AuthSessionStore(initialState: .signedOut)
 
-        store.completeGoogleSignIn(displayName: "Hanako Suzuki", email: "hanako@example.com")
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Hanako Suzuki", email: "hanako@example.com")
 
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .google)
         #expect(store.session?.displayName == "Hanako Suzuki")
         #expect(store.session?.email == "hanako@example.com")
-        #expect(store.statusLabel == "Googleでサインイン済み")
+        #expect(store.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 
     @Test
     func completeGoogleSignInWithNilMetadataStillSignsIn() {
         let store = AuthSessionStore(initialState: .signedOut)
 
-        store.completeGoogleSignIn(displayName: nil, email: nil)
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: nil, email: nil)
 
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .google)
         #expect(store.session?.displayName == nil)
         #expect(store.session?.email == nil)
-        #expect(store.statusLabel == "Googleでサインイン済み")
+        #expect(store.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 
     @Test
     func googleSignInThenSignOutClears() {
         let store = AuthSessionStore(initialState: .signedOut)
-        store.completeGoogleSignIn(displayName: "Hanako", email: nil)
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Hanako", email: nil)
         #expect(store.isSignedIn == true)
 
-        store.signOut()
+        store.unlinkAccount()
 
         #expect(store.isSignedIn == false)
         #expect(store.session == nil)
-        #expect(store.state == .signedOut)
+        #expect(store.state == .guest)
     }
 
     @Test
     func googleSessionCarriesOnlyDisplayMetadata() {
         let store = AuthSessionStore(initialState: .signedOut)
-        store.completeGoogleSignIn(displayName: "Hanako", email: "hanako@example.com")
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Hanako", email: "hanako@example.com")
 
-        let expected = AuthSession(provider: .google, displayName: "Hanako", email: "hanako@example.com")
+        let expected = AuthSession(provider: .google, displayName: "Hanako", email: "hanako@example.com",
+            userIdentifier: "google-test-user")
         #expect(store.session == expected)
     }
 

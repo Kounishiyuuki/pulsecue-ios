@@ -775,11 +775,11 @@ struct SettingsView: View {
                 if authSession.isSignedIn {
                     Divider().opacity(0.4)
                     Button(role: .destructive) {
-                        authSession.signOut()
+                        authSession.unlinkAccount()
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                            Text("ログアウト")
+                            Image(systemName: "link.badge.plus")
+                            Text("連携を解除")
                                 .font(.subheadline.weight(.semibold))
                             Spacer()
                         }
@@ -791,7 +791,10 @@ struct SettingsView: View {
 
                 Divider().opacity(0.4)
 
-                Text("アカウント削除は実ログイン連携時に有効になります。現在はアカウントが作成されないため、削除する情報もありません。")
+                // Says exactly what the app does. There is no PulseCue account
+                // and no server, so there is nothing to delete remotely —
+                // claiming otherwise either way would be misleading.
+                Text("Apple・Googleとの連携はこの端末内のプロフィールに保存されます。PulseCueのアカウントは作成されず、データが別端末と同期・バックアップされることはありません。連携を解除しても、トレーニング記録などの端末内データは削除されません。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

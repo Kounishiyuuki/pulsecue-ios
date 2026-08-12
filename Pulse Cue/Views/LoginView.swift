@@ -159,17 +159,20 @@ struct LoginView: View {
     /// and Apple `user` identifier are deliberately ignored and never stored.
     /// Cancellation / failure leaves the auth state unchanged.
     private func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
-        guard case let .success(authorization) = result else { return }
-        let appleResult: AppleSignInResult
-        if let credential = authorization.credential as? ASAuthorizationAppleIDCredential {
-            appleResult = AppleSignInResult(
-                nameComponents: credential.fullName,
-                email: credential.email
-            )
-        } else {
-            appleResult = AppleSignInResult(displayName: nil, email: nil)
-        }
+        guard case let .success(authorization) = result,
+              let credential = authorization.credential as? ASAuthorizationAppleIDCredential
+        else { return }
+        // `credential.user` is Apple's stable, app-scoped identifier. It is what
+        // lets the link survive a relaunch and be re-validated with
+        // `ASAuthorizationAppleIDProvider`. The identityToken and
+        // authorizationCode are still never read: there is no server to send
+        // them to, so storing them would be storing a credential for nothing.
+        let appleResult = AppleSignInResult(
+            nameComponents: credential.fullName,
+            email: credential.email
+        )
         authSession.completeAppleSignIn(
+            userIdentifier: credential.user,
             displayName: appleResult.displayName,
             email: appleResult.email
         )
@@ -194,13 +197,18 @@ struct LoginView: View {
     private func presentGoogleSignIn() {
         guard let presenter = Self.topViewController() else { return }
         GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { signInResult, error in
-            guard error == nil, let profile = signInResult?.user.profile else { return }
-            // Extract ONLY the non-sensitive display name / email up front, so
-            // the MainActor handoff below captures plain `String?` values and
-            // never the SDK result. The idToken, accessToken, refreshToken,
-            // serverAuthCode, and Google user identifier are never touched.
-            let displayName = profile.name
-            let email = profile.email
+            guard error == nil,
+                  let user = signInResult?.user,
+                  let userID = user.userID
+            else { return }
+            // Extract ONLY the stable identifier and the non-sensitive display
+            // fields up front, so the MainActor handoff below captures plain
+            // `String` values and never the SDK result. The idToken,
+            // accessToken, refreshToken and serverAuthCode are never touched —
+            // the SDK keeps its own credential and `restorePreviousSignIn`
+            // brings the session back on the next launch.
+            let displayName = user.profile?.name
+            let email = user.profile?.email
             // Hop to the main actor for the state update + dismiss, which are
             // both main-actor isolated. The SDK callback itself is nonisolated.
             Task { @MainActor in
@@ -209,6 +217,7 @@ struct LoginView: View {
                     email: email
                 )
                 authSession.completeGoogleSignIn(
+                    userIdentifier: userID,
                     displayName: googleResult.displayName,
                     email: googleResult.email
                 )

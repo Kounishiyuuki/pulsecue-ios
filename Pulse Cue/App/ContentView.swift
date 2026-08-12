@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var authSession: AuthSessionStore
 
     @State private var selectedTab: AppTab = .today
     @StateObject private var runnerPresenter = RunnerPresenter()
@@ -62,6 +63,12 @@ struct ContentView: View {
             // launch. `onChange` only fires on *transitions*, so mirror the
             // recovered state once here to re-present the Runner if needed.
             runnerPresenter.syncPresentation(shouldPresent: runnerViewModel.shouldPresentRunner)
+            // Ask the provider whether a stored Apple / Google link is still
+            // good, and restore the linked display if so. Nothing is requested
+            // from the user here: this only re-reads a link they already made,
+            // and a link the provider no longer honours quietly falls back to
+            // guest.
+            await authSession.restoreLinkedAccount()
         }
         // Keep the cover's presentation in lock-step with the authoritative
         // workout state: a workout becoming active presents it; a finished one

@@ -8,6 +8,7 @@
 //  unavailable state visible for development.
 //
 
+import Foundation
 import Testing
 @testable import Pulse_Cue
 
@@ -34,13 +35,34 @@ struct GoogleSignInPresentationTests {
 
     // MARK: - Current app configuration
 
-    @Test func mainBundleGoogleConfigIsPlaceholderSoReleaseHidesIt() {
-        // Documents the current shipped state: the Info.plist Google config is
-        // still the documented placeholder, so a Release build hides the
-        // control. If a real client is ever configured this flips to `true`
-        // and the assertion below should be updated deliberately.
+    @Test func mainBundleGoogleConfigIsARealClientSoReleaseShowsIt() {
+        // A real iOS OAuth client is now configured, which the previous
+        // version of this test explicitly asked to flip deliberately.
         let config = GoogleSignInConfig.fromMainBundle()
-        #expect(config.isConfigured == false)
-        #expect(GoogleSignInPresentation.showsControl(isConfigured: config.isConfigured, isDebugBuild: false) == false)
+        #expect(config.isConfigured)
+        #expect(GoogleSignInPresentation.showsControl(isConfigured: config.isConfigured, isDebugBuild: false))
+        // Guard the shape rather than the literal, and prove the placeholder
+        // is gone.
+        let clientID = try! #require(config.clientID)
+        #expect(clientID.hasSuffix(".apps.googleusercontent.com"))
+        #expect(!clientID.contains("YOUR_IOS_CLIENT_ID"))
+    }
+
+    /// The reversed client ID must be registered as a URL scheme, or the
+    /// OAuth callback never returns to the app.
+    @Test func infoPlistRegistersTheReversedClientIDUrlScheme() {
+        let config = GoogleSignInConfig.fromMainBundle()
+        let clientID = try! #require(config.clientID)
+        let expected = "com.googleusercontent.apps." + clientID.replacingOccurrences(
+            of: ".apps.googleusercontent.com", with: ""
+        )
+        let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+        let schemes = types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+        #expect(schemes.contains(expected), "missing \(expected) in \(schemes)")
+    }
+
+    /// No backend exists, so no server client id may be configured.
+    @Test func noServerClientIDIsConfigured() {
+        #expect(Bundle.main.object(forInfoDictionaryKey: "GIDServerClientID") == nil)
     }
 }

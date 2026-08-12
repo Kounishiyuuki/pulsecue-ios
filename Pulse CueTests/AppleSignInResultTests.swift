@@ -4,7 +4,7 @@
 //
 //  Covers the sanitized Sign in with Apple path (PR #114): the
 //  framework-independent `AppleSignInResult` value type and
-//  `AuthSessionStore.completeAppleSignIn(displayName:email:)`. No real Apple
+//  `AuthSessionStore.completeAppleSignIn(userIdentifier: "apple-test-user", displayName:email:)`. No real Apple
 //  UI is invoked — these are pure value/state checks that confirm only
 //  non-sensitive display metadata is kept and no token-like fields exist.
 //
@@ -70,13 +70,13 @@ struct AppleSignInResultTests {
     func completeAppleSignInSetsSanitizedSignedInState() {
         let store = AuthSessionStore(initialState: .signedOut)
 
-        store.completeAppleSignIn(displayName: "Taro Yamada", email: "taro@example.com")
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Taro Yamada", email: "taro@example.com")
 
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .apple)
         #expect(store.session?.displayName == "Taro Yamada")
         #expect(store.session?.email == "taro@example.com")
-        #expect(store.statusLabel == "Appleでサインイン済み")
+        #expect(store.statusLabel == "Appleと連携済み（この端末のみ）")
     }
 
     @Test
@@ -85,26 +85,26 @@ struct AppleSignInResultTests {
         // sign-in with nil metadata must still produce a valid signed-in state.
         let store = AuthSessionStore(initialState: .signedOut)
 
-        store.completeAppleSignIn(displayName: nil, email: nil)
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: nil, email: nil)
 
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .apple)
         #expect(store.session?.displayName == nil)
         #expect(store.session?.email == nil)
-        #expect(store.statusLabel == "Appleでサインイン済み")
+        #expect(store.statusLabel == "Appleと連携済み（この端末のみ）")
     }
 
     @Test
     func appleSignInThenSignOutClears() {
         let store = AuthSessionStore(initialState: .signedOut)
-        store.completeAppleSignIn(displayName: "Taro", email: nil)
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Taro", email: nil)
         #expect(store.isSignedIn == true)
 
-        store.signOut()
+        store.unlinkAccount()
 
         #expect(store.isSignedIn == false)
         #expect(store.session == nil)
-        #expect(store.state == .signedOut)
+        #expect(store.state == .guest)
     }
 
     // MARK: - Non-sensitive session shape
@@ -115,9 +115,10 @@ struct AppleSignInResultTests {
         // there is no token/code/user field to carry a secret. This asserts the
         // sanitized session equals one built purely from display metadata.
         let store = AuthSessionStore(initialState: .signedOut)
-        store.completeAppleSignIn(displayName: "Taro", email: "taro@example.com")
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Taro", email: "taro@example.com")
 
-        let expected = AuthSession(provider: .apple, displayName: "Taro", email: "taro@example.com")
+        let expected = AuthSession(provider: .apple, displayName: "Taro", email: "taro@example.com",
+            userIdentifier: "apple-test-user")
         #expect(store.session == expected)
     }
 }

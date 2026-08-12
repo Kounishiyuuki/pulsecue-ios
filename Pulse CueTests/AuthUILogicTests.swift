@@ -38,12 +38,12 @@ struct AuthUILogicTests {
         let store = AuthSessionStore(initialState: .signedOut)
 
         // "Appleで続ける"
-        await store.signInWithMockApple()
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Apple ユーザー", email: nil)
 
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .apple)
         #expect(store.session?.email == nil)
-        #expect(store.statusLabel == "Appleでサインイン済み")
+        #expect(store.statusLabel == "Appleと連携済み（この端末のみ）")
     }
 
     @Test
@@ -51,12 +51,12 @@ struct AuthUILogicTests {
         let store = AuthSessionStore(initialState: .signedOut)
 
         // "Googleで続ける"
-        await store.signInWithMockGoogle()
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Google ユーザー", email: nil)
 
         #expect(store.isSignedIn == true)
         #expect(store.session?.provider == .google)
         #expect(store.session?.email == nil)
-        #expect(store.statusLabel == "Googleでサインイン済み")
+        #expect(store.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 
     // MARK: - Settings logout availability
@@ -68,14 +68,14 @@ struct AuthUILogicTests {
         // action stays hidden.
         #expect(store.isSignedIn == false)
 
-        await store.signInWithMockApple()
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Apple ユーザー", email: nil)
         // After a mock sign-in the logout action becomes available…
         #expect(store.isSignedIn == true)
 
-        store.signOut()
+        store.unlinkAccount()
         // …and signing out returns to a non-signed-in state.
         #expect(store.isSignedIn == false)
-        #expect(store.state == .signedOut)
+        #expect(store.state == .guest)
         #expect(store.session == nil)
     }
 
@@ -85,10 +85,10 @@ struct AuthUILogicTests {
     func switchingFromAppleToGoogleUpdatesSession() async {
         let store = AuthSessionStore(initialState: .signedOut)
 
-        await store.signInWithMockApple()
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Apple ユーザー", email: nil)
         #expect(store.session?.provider == .apple)
 
-        await store.signInWithMockGoogle()
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Google ユーザー", email: nil)
         #expect(store.session?.provider == .google)
         #expect(store.isSignedIn == true)
     }
@@ -103,10 +103,10 @@ struct AuthUILogicTests {
         store.continueAsGuest()
         #expect(store.statusLabel == "ゲスト（ローカル利用）")
 
-        await store.signInWithMockApple()
-        #expect(store.statusLabel == "Appleでサインイン済み")
+        store.completeAppleSignIn(userIdentifier: "apple-test-user", displayName: "Apple ユーザー", email: nil)
+        #expect(store.statusLabel == "Appleと連携済み（この端末のみ）")
 
-        await store.signInWithMockGoogle()
-        #expect(store.statusLabel == "Googleでサインイン済み")
+        store.completeGoogleSignIn(userIdentifier: "google-test-user", displayName: "Google ユーザー", email: nil)
+        #expect(store.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 }
