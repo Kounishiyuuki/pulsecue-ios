@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0FFEE0000000000000B0063 /* LocalAccountLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */; };
+		C0FFEE0000000000000B0062 /* AccountLinkProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0062 /* AccountLinkProviders.swift */; };
+		C0FFEE0000000000000B0061 /* LinkedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0061 /* LinkedAccount.swift */; };
 		C0FFEE0000000000000B0053 /* HealthKitInputAssistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */; };
 		C0FFEE0000000000000B0052 /* HealthKitInputAssist.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0052 /* HealthKitInputAssist.swift */; };
 		C0FFEE0000000000000B0051 /* HealthKitClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0051 /* HealthKitClient.swift */; };
@@ -296,6 +299,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAccountLinkTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0062 /* AccountLinkProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLinkProviders.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000A0061 /* LinkedAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedAccount.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitInputAssistTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0052 /* HealthKitInputAssist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitInputAssist.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0051 /* HealthKitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitClient.swift; sourceTree = "<group>"; };
@@ -750,6 +756,8 @@
 		AAB10C0000000000000000C0 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0062 /* AccountLinkProviders.swift */,
+				C0FFEE0000000000000A0061 /* LinkedAccount.swift */,
 				AAB10C0000000000000000C1 /* AuthState.swift */,
 				AAB10C0000000000000000C3 /* AuthSession.swift */,
 				AAB10C0000000000000000C5 /* AuthProvider.swift */,
@@ -863,6 +871,7 @@
 		8B8BDF9909D442F68C9E8E09 /* Pulse CueTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */,
 				C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */,
 				C0FFEE0000000000000A0041 /* QuickPlanTargetDurationTests.swift */,
 						C0FFEE0000000000000A0021 /* DateUtilsDurationFormatTests.swift */,
@@ -1135,6 +1144,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0062 /* AccountLinkProviders.swift in Sources */,
+				C0FFEE0000000000000B0061 /* LinkedAccount.swift in Sources */,
 				C0FFEE0000000000000B0052 /* HealthKitInputAssist.swift in Sources */,
 				C0FFEE0000000000000B0051 /* HealthKitClient.swift in Sources */,
 				C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */,
@@ -1310,6 +1321,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE0000000000000B0063 /* LocalAccountLinkTests.swift in Sources */,
 				C0FFEE0000000000000B0053 /* HealthKitInputAssistTests.swift in Sources */,
 				C0FFEE0000000000000B0041 /* QuickPlanTargetDurationTests.swift in Sources */,
 						C0FFEE0000000000000B0021 /* DateUtilsDurationFormatTests.swift in Sources */,

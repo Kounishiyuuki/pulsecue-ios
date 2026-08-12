@@ -9,12 +9,12 @@
 			<string>com.kounishiyuuki.pulsecue.googlesignin</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.YOUR_IOS_CLIENT_ID</string>
+				<string>com.googleusercontent.apps.376943003827-oai1mlkosmm8pv1ie94eelvcop3p6clu</string>
 			</array>
 		</dict>
 	</array>
 	<key>GIDClientID</key>
-	<string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+	<string>376943003827-oai1mlkosmm8pv1ie94eelvcop3p6clu.apps.googleusercontent.com</string>
 	<key>NSCameraUsageDescription</key>
 	<string>食品バーコードを読み取るためにカメラを使用します。</string>
 	<key>NSHealthShareUsageDescription</key>

@@ -25,10 +25,21 @@ struct AuthSession: Equatable {
     let displayName: String?
     /// Optional email for display only. Never used for auth in this phase.
     let email: String?
+    /// The provider's stable identifier for this user
+    /// (`ASAuthorizationAppleIDCredential.user`, `GIDGoogleUser.userID`), or
+    /// `nil` for guest. Opaque and app-scoped — an identifier, never a
+    /// credential, and it authenticates nothing on its own.
+    let userIdentifier: String?
 
-    init(provider: AuthProviderKind, displayName: String? = nil, email: String? = nil) {
+    init(
+        provider: AuthProviderKind,
+        displayName: String? = nil,
+        email: String? = nil,
+        userIdentifier: String? = nil
+    ) {
         self.provider = provider
         self.displayName = displayName
         self.email = email
+        self.userIdentifier = userIdentifier
     }
 }
