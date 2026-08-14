@@ -1,0 +1,35 @@
+# Minimal CI for the Cloudflare Workers package.
+#
+# Scoped to `server/**` on purpose: the iOS app is built and tested in Xcode
+# and has nothing to gain from a Linux runner. Node is pinned to the version
+# in `server/.nvmrc` so the `node:sqlite`-backed repository tests run the
+# same way here as they do locally.
+name: server-ci
+
+on:
+  push:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: server/.nvmrc
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run typecheck:test
+      - run: npm test

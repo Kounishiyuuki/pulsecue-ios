@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { findOrCreateAccountForIdentity } from "../../src/api/db/accounts";
+import {
+	AccountUnavailableError,
+	UserNotFoundError,
+	findOrCreateAccountForIdentity,
+	markUserDeleting,
+} from "../../src/api/db/accounts";
 import {
 	SESSION_TTL_SECONDS,
 	createSession,
@@ -151,6 +156,62 @@ describe("rotation", () => {
 
 		expect(shouldRotate(session, half - 1)).toBe(false);
 		expect(shouldRotate(session, half)).toBe(true);
+		db.close();
+	});
+});
+
+describe("sessions and account state", () => {
+	it("will not authenticate a token once the account is deleting", async () => {
+		const db = await createTestDatabase();
+		const userId = await makeUser(db);
+		const { token } = await createSession(db, userId, { now: 1000 });
+		expect(await findActiveSessionByToken(db, token, 1001)).not.toBeNull();
+
+		await markUserDeleting(db, userId, 2000);
+
+		expect(await findActiveSessionByToken(db, token, 2001)).toBeNull();
+		db.close();
+	});
+
+	it("stays closed even if a revocation were somehow missed", async () => {
+		// Belt and braces: the token lookup checks user state itself, so an
+		// un-revoked session on a deleting account still fails.
+		const db = await createTestDatabase();
+		const userId = await makeUser(db);
+		const { token, session } = await createSession(db, userId, { now: 1000 });
+		await db
+			.prepare(
+				`UPDATE users SET state='deleting', deleted_at=2000, updated_at=2000 WHERE id=?`,
+			)
+			.bind(userId)
+			.run();
+		await db
+			.prepare(`UPDATE sessions SET revoked_at = NULL WHERE id = ?`)
+			.bind(session.id)
+			.run();
+
+		expect(await findActiveSessionByToken(db, token, 2001)).toBeNull();
+		db.close();
+	});
+
+	it("refuses to mint for an unknown user", async () => {
+		const db = await createTestDatabase();
+		await expect(
+			createSession(db, "no-such-user", { now: 1000 }),
+		).rejects.toBeInstanceOf(UserNotFoundError);
+		expect(await db.count("sessions")).toBe(0);
+		db.close();
+	});
+
+	it("refuses to mint for a deleting user", async () => {
+		const db = await createTestDatabase();
+		const userId = await makeUser(db);
+		await markUserDeleting(db, userId, 2000);
+
+		await expect(
+			createSession(db, userId, { now: 2100 }),
+		).rejects.toBeInstanceOf(AccountUnavailableError);
+		expect(await db.count("sessions")).toBe(0);
 		db.close();
 	});
 });

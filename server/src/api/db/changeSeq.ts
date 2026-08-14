@@ -25,10 +25,19 @@ export async function nextChangeSeq(
 		)
 		.bind(userId)
 		.first<{ seq: number }>();
-	if (!row) throw new Error(`no change sequence row for user ${userId}`);
+	if (!row) throw new MissingChangeSequenceError(userId);
 	return row.seq;
 }
 
+/**
+ * The user's current sequence.
+ *
+ * A freshly created account legitimately sits at 0. A *missing* row does
+ * not: account creation writes it in the same batch as the user, so its
+ * absence means the account is malformed. Returning 0 for both would hide
+ * that behind a plausible-looking answer and let a client sync against a
+ * cursor that was never initialised, so the two are separated.
+ */
 export async function currentChangeSeq(
 	db: SqlDatabase,
 	userId: string,
@@ -37,5 +46,14 @@ export async function currentChangeSeq(
 		.prepare(`SELECT seq FROM user_change_seq WHERE user_id = ?`)
 		.bind(userId)
 		.first<{ seq: number }>();
-	return row?.seq ?? 0;
+	if (!row) throw new MissingChangeSequenceError(userId);
+	return row.seq;
+}
+
+/** No sync cursor exists for this user — the account row set is incomplete. */
+export class MissingChangeSequenceError extends Error {
+	constructor(readonly userId: string) {
+		super(`no change sequence row for user ${userId}`);
+		this.name = "MissingChangeSequenceError";
+	}
 }

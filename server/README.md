@@ -373,12 +373,26 @@ so nothing here can be mistaken for a working sign-in. The only route is
 `database_id` in `wrangler.api.jsonc` is a placeholder. Provisioning and
 deployment are deliberately **not** part of this PR:
 
+Every command must name `wrangler.api.jsonc`. Without `--config`, wrangler
+picks up `wrangler.jsonc` and would target the **gym-machine** Worker
+instead:
+
 ```sh
-npx wrangler d1 create pulsecue-api
-# paste the printed database_id into wrangler.api.jsonc
-npx wrangler d1 migrations apply pulsecue-api --local   # local only
-npx wrangler deploy --config wrangler.api.jsonc          # later, on approval
+# 1. Provision the database (not done yet — needs approval).
+npx wrangler d1 create pulsecue-api --config wrangler.api.jsonc
+
+# 2. Paste the printed database_id into wrangler.api.jsonc.
+
+# 3. Apply migrations to the LOCAL database only.
+npx wrangler d1 migrations apply pulsecue-api --local --config wrangler.api.jsonc
+
+# 4. Run locally.
+npx wrangler dev --config wrangler.api.jsonc
 ```
+
+Remote migration (`--remote`) and `wrangler deploy` are **not** part of this
+work and are not run from here. They change live account data, so they stay
+an explicit, separately approved step.
 
 ### Schema notes
 
@@ -399,10 +413,29 @@ npx wrangler deploy --config wrangler.api.jsonc          # later, on approval
   the first sync slice. A counter rather than a timestamp because clocks
   skew and two writes in one second still need an order.
 
+- `users.state` and `users.deleted_at` are held consistent by a CHECK. An
+  active user with a deletion timestamp, or a deleting user without one,
+  would make "is this account usable" depend on which column was read.
+- A `deleting` account fails closed everywhere: no session is issued, and
+  `findActiveSessionByToken` joins `users` so an existing token stops
+  authenticating on the very next request even if a revocation were missed.
+
 ### Tests
 
 The repository tests run the **real migration** against an in-memory
 SQLite (`node:sqlite`), so the actual SQL, UNIQUE constraints, CHECKs and
-foreign keys are exercised — not a hand-written fake. Node 23 still gates
-`node:sqlite` behind `--experimental-sqlite`, which `vitest.config.ts`
-passes to the test workers; `npm test` is unchanged.
+foreign keys are exercised — not a hand-written fake. The double's
+`batch()` uses a real transaction with rollback, matching D1, so a
+non-atomic implementation cannot pass.
+
+`node:sqlite` ships unflagged from Node 23.4 / 24; `vitest.config.ts`
+probes for it and adds `--experimental-sqlite` only when the running Node
+needs it. `.nvmrc` and `engines` pin the supported runtime, and
+`.github/workflows/server-ci.yml` runs the same commands on push.
+
+```sh
+npm run typecheck        # production sources
+npm run typecheck:test   # sources + tests
+npm test
+npm run check            # all three
+```

@@ -28,8 +28,17 @@ CREATE TABLE users (
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL,
   -- Set when deletion is requested. Soft delete first so an accidental
-  -- request is recoverable and so revocation can be retried.
-  deleted_at   INTEGER
+  -- request is recoverable and so provider revocation can be retried.
+  deleted_at   INTEGER,
+  -- `state` and `deleted_at` are two views of the same fact, so the
+  -- database refuses to hold them apart: an active user with a deletion
+  -- timestamp, or a deleting user without one, would make every
+  -- "is this account usable" check depend on which column it happened to
+  -- read.
+  CHECK (
+    (state = 'active'   AND deleted_at IS NULL) OR
+    (state = 'deleting' AND deleted_at IS NOT NULL)
+  )
 );
 
 -- A provider identity linked to a user. A user may link more than one

@@ -11,7 +11,8 @@
  * and lives in the iOS Keychain from then on.
  */
 
-import type { EpochSeconds, SessionRow, SqlDatabase } from "../types";
+import type { EpochSeconds, SessionRow, SqlDatabase, UserRow } from "../types";
+import { AccountUnavailableError, UserNotFoundError } from "./accounts";
 import { newId, nowSeconds } from "./ids";
 
 /** Absolute lifetime. No sliding extension — see `shouldRotate`. */
@@ -46,6 +47,13 @@ export interface IssuedSession {
 	session: SessionRow;
 }
 
+/**
+ * Issues a session, but only for an `active` user.
+ *
+ * The state test is part of the INSERT rather than a separate SELECT, so a
+ * deletion committed in between cannot slip a session through: the row
+ * simply is not written, and the caller gets `AccountUnavailableError`.
+ */
 export async function createSession(
 	db: SqlDatabase,
 	userId: string,
@@ -58,7 +66,11 @@ export async function createSession(
 		.prepare(
 			`INSERT INTO sessions
 			   (id, user_id, token_sha256, created_at, last_used_at, expires_at, device_name)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			 SELECT ?, ?, ?, ?, ?, ?, ?
+			 WHERE EXISTS (
+			   SELECT 1 FROM users
+			   WHERE id = ? AND state = 'active' AND deleted_at IS NULL
+			 )`,
 		)
 		.bind(
 			id,
@@ -68,17 +80,33 @@ export async function createSession(
 			now,
 			now + SESSION_TTL_SECONDS,
 			options.deviceName ?? null,
+			userId,
 		)
 		.run();
 	const session = await findSessionById(db, id);
-	if (!session) throw new Error("session insert did not persist");
+	if (!session) {
+		// Either the user does not exist or it is being deleted. Both are a
+		// refusal to issue; the caller decides how to answer without leaking
+		// which one it was.
+		const user = await db
+			.prepare(`SELECT state FROM users WHERE id = ?`)
+			.bind(userId)
+			.first<{ state: UserRow["state"] }>();
+		if (!user) throw new UserNotFoundError(userId);
+		throw new AccountUnavailableError(userId, user.state);
+	}
 	return { token, session };
 }
 
 /**
  * Resolves a bearer token to a session, or `null` when it is unknown,
- * revoked or expired. The three are deliberately indistinguishable to the
- * caller so a failure cannot be probed for which one it was.
+ * revoked, expired, or owned by an account that is being deleted. All four
+ * are deliberately indistinguishable to the caller, so a failed request
+ * cannot be probed for which one it was.
+ *
+ * The join on `users` is what makes deletion fail closed even if a
+ * revocation were somehow missed: state is checked on every single
+ * authenticated request, not only at revoke time.
  */
 export async function findActiveSessionByToken(
 	db: SqlDatabase,
@@ -87,8 +115,13 @@ export async function findActiveSessionByToken(
 ): Promise<SessionRow | null> {
 	return db
 		.prepare(
-			`SELECT * FROM sessions
-			 WHERE token_sha256 = ? AND revoked_at IS NULL AND expires_at > ?`,
+			`SELECT s.* FROM sessions AS s
+			 JOIN users AS u ON u.id = s.user_id
+			 WHERE s.token_sha256 = ?
+			   AND s.revoked_at IS NULL
+			   AND s.expires_at > ?
+			   AND u.state = 'active'
+			   AND u.deleted_at IS NULL`,
 		)
 		.bind(await hashSessionToken(token), now)
 		.first<SessionRow>();

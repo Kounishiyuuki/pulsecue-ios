@@ -111,3 +111,110 @@ describe("0001_user_auth_foundation", () => {
 		db.close();
 	});
 });
+
+describe("0001 constraints", () => {
+	it("enforces foreign keys and cascades on user delete", async () => {
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at) VALUES ('u1','active',1,1)`)
+			.run();
+		// A child row pointing at nobody is refused.
+		await expect(
+			db
+				.prepare(
+					`INSERT INTO user_profiles (user_id,created_at,updated_at) VALUES ('ghost',1,1)`,
+				)
+				.run(),
+		).rejects.toThrow();
+
+		for (const sql of [
+			`INSERT INTO user_profiles (user_id,created_at,updated_at) VALUES ('u1',1,1)`,
+			`INSERT INTO user_change_seq (user_id,seq) VALUES ('u1',0)`,
+			`INSERT INTO auth_identities (id,user_id,provider,subject,email_verified,created_at,last_seen_at)
+			 VALUES ('i1','u1','apple','s1',0,1,1)`,
+			`INSERT INTO sessions (id,user_id,token_sha256,created_at,last_used_at,expires_at)
+			 VALUES ('s1','u1','hash-1',1,1,999)`,
+		]) {
+			await db.prepare(sql).run();
+		}
+
+		await db.prepare(`DELETE FROM users WHERE id='u1'`).run();
+
+		expect(await db.count("user_profiles")).toBe(0);
+		expect(await db.count("user_change_seq")).toBe(0);
+		expect(await db.count("auth_identities")).toBe(0);
+		expect(await db.count("sessions")).toBe(0);
+		db.close();
+	});
+
+	it("rejects a non-boolean email_verified", async () => {
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at) VALUES ('u1','active',1,1)`)
+			.run();
+		await expect(
+			db
+				.prepare(
+					`INSERT INTO auth_identities (id,user_id,provider,subject,email_verified,created_at,last_seen_at)
+					 VALUES ('i1','u1','apple','s1',2,1,1)`,
+				)
+				.run(),
+		).rejects.toThrow();
+		db.close();
+	});
+
+	it("rejects a duplicate session token hash", async () => {
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at) VALUES ('u1','active',1,1)`)
+			.run();
+		const insert = (id: string) =>
+			db
+				.prepare(
+					`INSERT INTO sessions (id,user_id,token_sha256,created_at,last_used_at,expires_at)
+					 VALUES (?, 'u1','same-hash',1,1,999)`,
+				)
+				.bind(id)
+				.run();
+		await insert("s1");
+		await expect(insert("s2")).rejects.toThrow();
+		db.close();
+	});
+
+	it("refuses impossible state / deleted_at combinations", async () => {
+		const db = await createTestDatabase();
+		// active must not carry a deletion timestamp…
+		await expect(
+			db
+				.prepare(
+					`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','active',1,1,5)`,
+				)
+				.run(),
+		).rejects.toThrow();
+		// …and deleting must.
+		await expect(
+			db
+				.prepare(
+					`INSERT INTO users (id,state,created_at,updated_at) VALUES ('u2','deleting',1,1)`,
+				)
+				.run(),
+		).rejects.toThrow();
+
+		// Both valid shapes are accepted.
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at) VALUES ('u3','active',1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u4','deleting',1,1,5)`,
+			)
+			.run();
+		expect(await db.count("users")).toBe(2);
+
+		// And the invariant holds through an UPDATE too.
+		await expect(
+			db.prepare(`UPDATE users SET state='deleting' WHERE id='u3'`).run(),
+		).rejects.toThrow();
+		db.close();
+	});
+});
