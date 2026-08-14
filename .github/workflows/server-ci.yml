@@ -1,0 +1,39 @@
+# Minimal CI for the Cloudflare Workers package.
+#
+# Scoped to `server/**` on purpose: the iOS app is built and tested in Xcode
+# and has nothing to gain from a Linux runner.
+#
+# Node 24 is the only supported runtime — `server/.nvmrc` and `engines` in
+# `server/package.json` say the same thing, and it is the version where
+# `node:sqlite` ships unflagged, so the repository tests run here exactly as
+# they do locally.
+name: server-ci
+
+on:
+  push:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Reads `24` from server/.nvmrc — one place to change the runtime.
+          node-version-file: server/.nvmrc
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run typecheck:test
+      - run: npm test
