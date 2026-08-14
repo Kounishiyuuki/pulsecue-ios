@@ -1,0 +1,39 @@
+/**
+ * `pulsecue-api` — accounts and sync.
+ *
+ * Deployed separately from `pulsecue-gym-machine-api` (wrangler.jsonc):
+ *
+ *   npx wrangler deploy --config wrangler.api.jsonc
+ *
+ * NOT deployed as part of this PR. `database_id` is a placeholder until the
+ * D1 database is actually provisioned:
+ *
+ *   npx wrangler d1 create pulsecue-api
+ *   # copy the printed database_id into this file
+ *   npx wrangler d1 migrations apply pulsecue-api --local    # local only
+ *
+ * No routes / custom domain are configured, and no secrets are declared —
+ * D1 is a binding, not a secret.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pulsecue-api",
+	"main": "src/api/index.ts",
+	"compatibility_date": "2026-05-14",
+	"workers_dev": true,
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "pulsecue-api",
+			"database_id": "REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT",
+			"migrations_dir": "migrations"
+		}
+	]
+}

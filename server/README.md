@@ -353,3 +353,56 @@ so that `Smith Machine` is not lost to a generic `Machine`.
   available.
 - **Only `http:` and `https:` schemes** are accepted. `file:`, `ftp:`,
   `javascript:`, etc. are rejected at validation time.
+
+## `pulsecue-api` (accounts) — foundation only
+
+A **second Worker** lives in this package, configured by
+`wrangler.api.jsonc` with its entry at `src/api/index.ts`. It is separate
+from `pulsecue-gym-machine-api` on purpose: that Worker is
+machine-to-machine (a static import key and short-lived HMAC tokens, no
+users), while this one owns accounts and per-user data. Mixing two
+authorization models in one router would be a mistake.
+
+This PR adds the **schema and repository layer only**. There is no auth
+endpoint yet — Apple and Google token verification land in their own PRs,
+so nothing here can be mistaken for a working sign-in. The only route is
+`GET /health`.
+
+### Not deployed
+
+`database_id` in `wrangler.api.jsonc` is a placeholder. Provisioning and
+deployment are deliberately **not** part of this PR:
+
+```sh
+npx wrangler d1 create pulsecue-api
+# paste the printed database_id into wrangler.api.jsonc
+npx wrangler d1 migrations apply pulsecue-api --local   # local only
+npx wrangler deploy --config wrangler.api.jsonc          # later, on approval
+```
+
+### Schema notes
+
+- Timestamps are unix epoch seconds (INTEGER, UTC). D1 has no date type,
+  and integers compare without format or locale risk.
+- **No provider tokens are stored.** A test asserts the DDL contains no
+  `access_token` / `refresh_token` / `id_token` / `authorization_code`
+  column.
+- Sessions store **only the SHA-256** of the opaque token, so a database
+  disclosure yields no usable session. Sessions are stored (rather than
+  self-contained) precisely so unlink and account deletion can revoke
+  access immediately.
+- Identities are keyed by `(provider, subject)` from a *server-verified*
+  token and are **never merged by email** — Apple's private relay makes an
+  address an unsafe join key, and trusting one would allow account
+  takeover.
+- `user_change_seq` is a per-user monotonic counter, the pull cursor for
+  the first sync slice. A counter rather than a timestamp because clocks
+  skew and two writes in one second still need an order.
+
+### Tests
+
+The repository tests run the **real migration** against an in-memory
+SQLite (`node:sqlite`), so the actual SQL, UNIQUE constraints, CHECKs and
+foreign keys are exercised — not a hand-written fake. Node 23 still gates
+`node:sqlite` behind `--experimental-sqlite`, which `vitest.config.ts`
+passes to the test workers; `npm test` is unchanged.
