@@ -430,8 +430,11 @@ non-atomic implementation cannot pass.
 
 `node:sqlite` ships unflagged from Node 23.4 / 24; `vitest.config.ts`
 probes for it and adds `--experimental-sqlite` only when the running Node
-needs it. `.nvmrc` and `engines` pin the supported runtime, and
-`.github/workflows/server-ci.yml` runs the same commands on push.
+needs it. **Node 24 is the supported runtime** — pinned in `.nvmrc`, declared as
+`engines: { node: ">=24 <25" }`, and used by
+`.github/workflows/server-ci.yml`, which runs the same commands on push.
+Older versions may still work locally (the probe adds the flag), but only
+24 is verified in CI.
 
 ```sh
 npm run typecheck        # production sources
