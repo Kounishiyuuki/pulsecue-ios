@@ -363,10 +363,39 @@ machine-to-machine (a static import key and short-lived HMAC tokens, no
 users), while this one owns accounts and per-user data. Mixing two
 authorization models in one router would be a mistake.
 
-This PR adds the **schema and repository layer only**. There is no auth
-endpoint yet — Apple and Google token verification land in their own PRs,
-so nothing here can be mistaken for a working sign-in. The only route is
-`GET /health`.
+Routes: `GET /health`, `POST /v1/auth/apple`.
+
+### Sign in with Apple
+
+`POST /v1/auth/apple` takes `{ identityToken, rawNonce, deviceName? }` and
+returns `{ sessionToken, expiresAt, user }`.
+
+The iOS app is not trusted with identity. Everything that decides *who* the
+user is comes out of Apple's signature — `credential.user` from the client
+is deliberately ignored, and only the `sub` claim is stored. Verified on
+every request: RS256 signature against Apple's published key, issuer,
+audience (`APPLE_AUDIENCE`), expiry with a 60s skew allowance, and that
+`sha256(rawNonce)` equals the token's `nonce` claim.
+
+The nonce is then **spent**: `auth_nonces` records it, so replaying a
+captured request body fails even though the token is still inside its
+validity window.
+
+Every credential failure answers `401 invalid_credentials` with identical
+wording. Which check failed is a short code in the log with a correlation
+id — never in the response, because distinguishing "no such account" from
+"bad token" is an enumeration oracle. Apple's key service being unreachable
+is a `503`, not a rejection.
+
+**No Apple secret is required.** Verifying an identity token needs only
+Apple's public keys. The `.p8` signing key, Key ID and Team ID exist solely
+to *revoke* a token at account deletion, and are introduced with that work
+rather than sitting here as placeholders. `APPLE_AUDIENCE` is the app's
+bundle identifier — environment-specific but not secret.
+
+Apple's key set is cached in-memory per isolate and refetched once on an
+unknown `kid`, so key rotation is not an outage. No KV binding is needed to
+be correct.
 
 ### Not deployed
 
@@ -385,6 +414,7 @@ npx wrangler d1 create pulsecue-api --config wrangler.api.jsonc
 
 # 3. Apply migrations to the LOCAL database only.
 npx wrangler d1 migrations apply pulsecue-api --local --config wrangler.api.jsonc
+# applies 0001_user_auth_foundation.sql and 0002_auth_nonces.sql
 
 # 4. Run locally.
 npx wrangler dev --config wrangler.api.jsonc

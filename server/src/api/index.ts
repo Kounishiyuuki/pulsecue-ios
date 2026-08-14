@@ -5,20 +5,33 @@
  * machine-to-machine (a static import key, short-lived HMAC tokens, no
  * users), while this one owns accounts and per-user data. Sharing a router
  * would mix two incompatible authorization models.
- *
- * This PR lays the foundation only: the D1 schema and the repository layer.
- * There is deliberately no auth endpoint yet — Apple and Google token
- * verification land in their own PRs, so nothing here can be mistaken for a
- * usable sign-in.
  */
 
 import { Hono } from "hono";
+import { APPLE_JWKS_URL } from "./auth/apple";
+import { RemoteJwksProvider } from "./auth/jwks";
 import { newId } from "./db/ids";
+import { makeAppleAuthHandler } from "./routes/authApple";
 import type { ApiEnv } from "./types";
 
 const app = new Hono<{ Bindings: ApiEnv }>();
 
+/**
+ * One provider per isolate, so Apple's key set is fetched once and reused
+ * across requests instead of on every sign-in.
+ */
+const appleJwks = new RemoteJwksProvider({ url: APPLE_JWKS_URL });
+
 app.get("/health", (c) => c.json({ status: "ok", service: "pulsecue-api" }));
+
+app.post("/v1/auth/apple", (c) =>
+	makeAppleAuthHandler({
+		jwks: appleJwks,
+		// Empty when unconfigured; verification rejects that rather than
+		// treating it as "any audience".
+		audience: c.env.APPLE_AUDIENCE ?? "",
+	})(c),
+);
 
 app.notFound((c) =>
 	c.json({ error: { code: "not_found", message: "Route not found" } }, 404),

@@ -24,14 +24,23 @@ import type { SqlDatabase, SqlStatement } from "../../../src/api/types";
 
 // `.href`, not the URL object: this package pulls in both the Workers and
 // the Node globals, and the two `URL` types are not assignable to each other.
-const MIGRATION_PATH = fileURLToPath(
-	new URL("../../../migrations/0001_user_auth_foundation.sql", import.meta.url)
-		.href,
-);
+// Applied in order, exactly as wrangler would.
+const MIGRATION_FILES = [
+	"0001_user_auth_foundation.sql",
+	"0002_auth_nonces.sql",
+];
+
+// `.href`, not the URL object: this package pulls in both the Workers and
+// the Node globals, and the two `URL` types are not assignable to each other.
+function migrationPath(name: string): string {
+	return fileURLToPath(new URL(`../../../migrations/${name}`, import.meta.url).href);
+}
 
 /** The migration text, so a test can assert on the schema itself. */
 export function readMigrationSql(): string {
-	return readFileSync(MIGRATION_PATH, "utf8");
+	return MIGRATION_FILES.map((name) =>
+		readFileSync(migrationPath(name), "utf8"),
+	).join("\n");
 }
 
 interface SqliteStatement {
