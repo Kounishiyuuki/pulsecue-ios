@@ -63,12 +63,55 @@ describe("a well-formed Google token", () => {
 		expect(identity.emailVerified).toBe(false);
 	});
 
-	it("accepts an aud array containing this client", async () => {
+	it("accepts a matching single-string audience", async () => {
 		const signer = await createTestSigner();
-		const identity = await verifyWith(signer, {
-			aud: ["someone.else.apps.googleusercontent.com", TEST_GOOGLE_AUDIENCE],
-		});
+		const identity = await verifyWith(signer, { aud: TEST_GOOGLE_AUDIENCE });
 		expect(identity.subject).toBeTruthy();
+	});
+});
+
+describe("audience contract", () => {
+	// PulseCue has exactly one server client id, so `aud` is one string and
+	// nothing else. An array would mean the token was also minted for someone
+	// else, and `azp` — the claim that would disambiguate that — is not
+	// checked here.
+	it("rejects an array audience, even one containing this client", async () => {
+		const signer = await createTestSigner();
+		await expect(
+			verifyWith(signer, {
+				aud: [TEST_GOOGLE_AUDIENCE, "someone.else.apps.googleusercontent.com"],
+			}),
+		).rejects.toBeInstanceOf(GoogleTokenInvalidError);
+	});
+
+	it("rejects a single-element array audience", async () => {
+		const signer = await createTestSigner();
+		await expect(
+			verifyWith(signer, { aud: [TEST_GOOGLE_AUDIENCE] }),
+		).rejects.toBeInstanceOf(GoogleTokenInvalidError);
+	});
+
+	it("rejects a wrong, missing, empty or non-string audience", async () => {
+		const signer = await createTestSigner();
+		for (const aud of [
+			"999.apps.googleusercontent.com",
+			undefined,
+			"",
+			42,
+			null,
+			{ aud: TEST_GOOGLE_AUDIENCE },
+		]) {
+			await expect(verifyWith(signer, { aud })).rejects.toBeInstanceOf(
+				GoogleTokenInvalidError,
+			);
+		}
+	});
+
+	it("fails closed when GOOGLE_AUDIENCE is unset, whatever the token says", async () => {
+		const signer = await createTestSigner();
+		await expect(verifyWith(signer, {}, { audience: "" })).rejects.toBeInstanceOf(
+			GoogleTokenInvalidError,
+		);
 	});
 });
 

@@ -37,7 +37,11 @@ const requestSchema = z.object({
 
 export interface GoogleAuthDependencies {
 	jwks: JwksProvider;
-	/** The PulseCue iOS OAuth client id. Empty means "refuse", not "any". */
+	/**
+	 * The PulseCue **Web application (server) OAuth client id** — the value
+	 * the iOS app sets as `GIDServerClientID`, which is what Google puts in
+	 * `aud`. Not the iOS client id. Empty means "refuse", not "any".
+	 */
 	audience: string;
 	now?: () => number;
 }

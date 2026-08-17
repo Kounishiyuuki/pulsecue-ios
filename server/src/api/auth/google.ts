@@ -13,11 +13,20 @@
  *                 `none` or HMAC token cannot be smuggled through.
  *   iss         — one of Google's two documented issuer spellings, from a
  *                 fixed allowlist. Never taken from the token.
- *   aud         — issued for *this* OAuth client. Without it, an ID token
- *                 minted for any other Google client — including one an
- *                 attacker registered themselves — would sign its holder in
- *                 here. This is the single most important claim on a Google
- *                 ID token.
+ *   aud         — issued for *this backend*. Without it, an ID token minted
+ *                 for any other Google client — including one an attacker
+ *                 registered themselves — would sign its holder in here.
+ *                 This is the single most important claim on a Google ID
+ *                 token.
+ *
+ *                 Which client id that is, is easy to get wrong: it is the
+ *                 **Web application ("server") client id**, not the iOS one.
+ *                 When the iOS app sets `GIDServerClientID`, Google mints the
+ *                 ID token with `aud` set to that server client id — the iOS
+ *                 client id stays behind `GIDClientID` and the reversed-client-id
+ *                 URL scheme, and never appears in `aud`. `GOOGLE_AUDIENCE`
+ *                 must therefore hold the same value as `GIDServerClientID`.
+ *                 See the README for the full mapping.
  *   exp / iat   — inside its validity window, with a small skew allowance.
  *   sub         — present and non-empty; it is the account key.
  *
@@ -61,7 +70,11 @@ export function createGoogleJwksProvider(): JwksProvider {
 
 export interface GoogleVerificationInput {
 	idToken: string;
-	/** The PulseCue iOS OAuth client id, from configuration. */
+	/**
+	 * The PulseCue **Web application (server) OAuth client id**, from
+	 * configuration — the same value the app sets as `GIDServerClientID`.
+	 * Not the iOS client id.
+	 */
 	audience: string;
 	jwks: JwksProvider;
 	/** Unix seconds; injectable so expiry is testable. */
@@ -133,13 +146,25 @@ function assertIssuer(claims: JwtClaims): void {
 	}
 }
 
-/** Google sends `aud` as a string; the JWT spec allows an array, so both work. */
+/**
+ * `aud` must be exactly the one configured audience, as a single string.
+ *
+ * The JWT spec allows an array, and Google's own tokens for this flow do not
+ * use one. Accepting an array would mean accepting a token that was *also*
+ * minted for someone else, and the `azp` claim that exists to disambiguate
+ * that case is not checked here — so the permissive reading would widen who
+ * can sign in without anything else narrowing it back. PulseCue has exactly
+ * one server client id, so the narrow contract loses nothing and there is no
+ * reason to generalise ahead of a real need.
+ */
 function assertAudience(claims: JwtClaims, audience: string): void {
 	const actual = claims.aud;
-	const matches = Array.isArray(actual)
-		? actual.includes(audience)
-		: actual === audience;
-	if (!matches) throw new GoogleTokenInvalidError("audience mismatch");
+	if (typeof actual !== "string" || actual.length === 0) {
+		throw new GoogleTokenInvalidError("audience is not a single string");
+	}
+	if (actual !== audience) {
+		throw new GoogleTokenInvalidError("audience mismatch");
+	}
 }
 
 function assertWindow(claims: JwtClaims, now: number): void {

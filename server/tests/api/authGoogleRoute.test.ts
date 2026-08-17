@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { JwksFetchError, type JwksProvider } from "../../src/api/auth/jwks";
+import { base64urlEncode } from "../../src/api/auth/jwt";
 import { findIdentity, markUserDeleting } from "../../src/api/db/accounts";
 import { findActiveSessionByToken } from "../../src/api/db/sessions";
 import { makeGoogleAuthHandler } from "../../src/api/routes/authGoogle";
@@ -45,6 +46,13 @@ async function tokenFor(
 	overrides: Record<string, unknown> = {},
 ) {
 	return signer.sign(await googleClaims(overrides));
+}
+
+/** A token with literally these segments, for shapes a signer cannot make. */
+function rawToken(header: string, payload: string): string {
+	const encode = (json: string) =>
+		base64urlEncode(new TextEncoder().encode(json));
+	return `${encode(header)}.${encode(payload)}.c2ln`;
 }
 
 describe("POST /v1/auth/google", () => {
@@ -205,6 +213,11 @@ describe("POST /v1/auth/google", () => {
 			{ idToken: await signer.sign(await googleClaims(), { alg: "none" }) },
 			// Unknown kid.
 			{ idToken: await (await createTestSigner("rotated-away")).sign(await googleClaims()) },
+			// Payload is not a JSON object — must be a 401, not a crash.
+			{ idToken: rawToken('{"alg":"RS256","kid":"k1"}', "null") },
+			{ idToken: rawToken('{"alg":"RS256","kid":"k1"}', '["iss"]') },
+			{ idToken: rawToken('{"alg":"RS256","kid":"k1"}', '"a-string"') },
+			{ idToken: rawToken('{"alg":"RS256","kid":"k1"}', "42") },
 		];
 
 		const bodies: string[] = [];

@@ -27,7 +27,10 @@
  *     arbitrary `kid` values could otherwise turn one cheap request into one
  *     outbound fetch. A cooldown plus single-flight bounds that to roughly
  *     one refetch per cooldown window per isolate, no matter how many
- *     requests arrive.
+ *     requests arrive. A short backoff after a failed fetch covers the other
+ *     shape of the same problem: once the cache has expired and the provider
+ *     is down, a serial stream of requests would otherwise each start their
+ *     own doomed fetch.
  */
 
 export interface JwksProvider {
@@ -98,6 +101,12 @@ export interface RemoteJwksOptions {
 	 * per request.
 	 */
 	unknownKidCooldownSeconds?: number;
+	/**
+	 * How long to fail fast after a fetch failed, instead of retrying on the
+	 * next request. Kept short: the point is to stop hammering a provider
+	 * that is already struggling, not to extend its outage into ours.
+	 */
+	failureBackoffSeconds?: number;
 	/** Injectable for tests; defaults to the global `fetch`. */
 	fetchImpl?: typeof fetch;
 	/** Injectable clock, in milliseconds. */
@@ -110,8 +119,11 @@ export class RemoteJwksProvider implements JwksProvider {
 	private inFlight: Promise<JwkWithId[]> | null = null;
 	/** Only unknown-`kid` refetches; a cold load must not start the clock. */
 	private lastForcedFetchAtMs: number | null = null;
+	/** Set when a fetch throws, cleared when one succeeds. */
+	private lastFailedFetchAtMs: number | null = null;
 	private readonly ttlMs: number;
 	private readonly cooldownMs: number;
+	private readonly failureBackoffMs: number;
 	private readonly requirements: JwksKeyRequirements;
 	private readonly fetchImpl: typeof fetch;
 	private readonly nowMs: () => number;
@@ -125,6 +137,7 @@ export class RemoteJwksProvider implements JwksProvider {
 		}
 		this.ttlMs = (options.ttlSeconds ?? 6 * 60 * 60) * 1000;
 		this.cooldownMs = (options.unknownKidCooldownSeconds ?? 60) * 1000;
+		this.failureBackoffMs = (options.failureBackoffSeconds ?? 5) * 1000;
 		this.requirements = options.requirements ?? RSA_SIGNING_KEY_REQUIREMENTS;
 		this.fetchImpl = options.fetchImpl ?? fetch;
 		this.nowMs = options.nowMs ?? (() => Date.now());
@@ -153,8 +166,10 @@ export class RemoteJwksProvider implements JwksProvider {
 	invalidate(): void {
 		this.cached = null;
 		// An explicit invalidation is an operator saying "rotation happened
-		// now"; holding it behind the anti-storm cooldown would defeat it.
+		// now"; holding it behind the anti-storm cooldown or the failure
+		// backoff would defeat it.
 		this.lastForcedFetchAtMs = null;
+		this.lastFailedFetchAtMs = null;
 	}
 
 	private mayForceRefresh(): boolean {
@@ -163,13 +178,26 @@ export class RemoteJwksProvider implements JwksProvider {
 	}
 
 	private async load(force: boolean): Promise<JwkWithId[]> {
-		if (!force && this.cached && this.cached.expiresAtMs > this.nowMs()) {
+		const now = this.nowMs();
+		if (!force && this.cached && this.cached.expiresAtMs > now) {
 			return this.cached.keys;
 		}
 		// Whoever gets here first does the fetch; everyone else waits on it.
 		// Without this, a burst of concurrent unknown-`kid` requests would each
 		// open their own connection to the provider.
 		if (this.inFlight) return this.inFlight;
+
+		// Once the cache has expired, single-flight no longer helps a *serial*
+		// stream of requests: each one arrives after the last failure resolved
+		// and starts its own fetch. A provider that is down would take one
+		// outbound request per inbound request. Fail fast for a short while
+		// instead — the answer is the same 503 either way.
+		if (
+			this.lastFailedFetchAtMs !== null &&
+			now - this.lastFailedFetchAtMs < this.failureBackoffMs
+		) {
+			throw new JwksFetchError("a recent fetch failed");
+		}
 
 		const pending = this.fetchKeys(force).finally(() => {
 			this.inFlight = null;
@@ -180,7 +208,17 @@ export class RemoteJwksProvider implements JwksProvider {
 
 	private async fetchKeys(forced: boolean): Promise<JwkWithId[]> {
 		if (forced) this.lastForcedFetchAtMs = this.nowMs();
+		try {
+			const keys = await this.fetchAndParse();
+			this.lastFailedFetchAtMs = null;
+			return keys;
+		} catch (error) {
+			this.lastFailedFetchAtMs = this.nowMs();
+			throw error;
+		}
+	}
 
+	private async fetchAndParse(): Promise<JwkWithId[]> {
 		let response: Response;
 		try {
 			response = await this.fetchImpl(this.options.url);

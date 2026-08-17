@@ -313,6 +313,103 @@ describe("unknown-kid fetch amplification", () => {
 		expect(calls).toBe(1);
 	});
 
+	it("backs off briefly instead of refetching per request while the provider is down", async () => {
+		// Once the cache has expired, single-flight no longer helps a serial
+		// stream: each request arrives after the last failure resolved. Without
+		// a backoff, a provider outage costs one outbound fetch per inbound
+		// request.
+		let calls = 0;
+		const impl = (async () => {
+			calls += 1;
+			throw new Error("network down");
+		}) as unknown as typeof fetch;
+		let now = 0;
+		const provider = new RemoteJwksProvider({
+			url: "https://example.test/keys",
+			failureBackoffSeconds: 5,
+			fetchImpl: impl,
+			nowMs: () => now,
+		});
+
+		for (let i = 0; i < 20; i += 1) {
+			now += 100;
+			// Still a 503-shaped failure either way — only the fetch is skipped.
+			await expect(provider.keyForId("k1")).rejects.toBeInstanceOf(JwksFetchError);
+		}
+
+		expect(calls).toBe(1);
+	});
+
+	it("retries once the failure backoff has passed", async () => {
+		let calls = 0;
+		const impl = (async () => {
+			calls += 1;
+			if (calls === 1) throw new Error("network down");
+			return new Response(JSON.stringify(keySet("k1")), { status: 200 });
+		}) as unknown as typeof fetch;
+		let now = 0;
+		const provider = new RemoteJwksProvider({
+			url: "https://example.test/keys",
+			failureBackoffSeconds: 5,
+			fetchImpl: impl,
+			nowMs: () => now,
+		});
+
+		await expect(provider.keyForId("k1")).rejects.toBeInstanceOf(JwksFetchError);
+		now = 5_000;
+		expect(await provider.keyForId("k1")).not.toBeNull();
+		expect(calls).toBe(2);
+	});
+
+	it("does not let a past failure block a later request once a fetch succeeds", async () => {
+		let calls = 0;
+		const impl = (async () => {
+			calls += 1;
+			if (calls === 1) throw new Error("network down");
+			return new Response(JSON.stringify(keySet("k1")), { status: 200 });
+		}) as unknown as typeof fetch;
+		let now = 0;
+		const provider = new RemoteJwksProvider({
+			url: "https://example.test/keys",
+			ttlSeconds: 1,
+			failureBackoffSeconds: 5,
+			fetchImpl: impl,
+			nowMs: () => now,
+		});
+
+		await expect(provider.keyForId("k1")).rejects.toBeInstanceOf(JwksFetchError);
+		now = 5_000;
+		expect(await provider.keyForId("k1")).not.toBeNull();
+		// The success cleared the failure, so the expired-cache refetch runs.
+		now = 6_001;
+		expect(await provider.keyForId("k1")).not.toBeNull();
+		expect(calls).toBe(3);
+	});
+
+	it("serves a valid cache without noticing an earlier failure", async () => {
+		// The backoff must never turn a working cache into a 503.
+		let calls = 0;
+		const impl = (async () => {
+			calls += 1;
+			if (calls === 1) return new Response(JSON.stringify(keySet("k1")), { status: 200 });
+			throw new Error("network down");
+		}) as unknown as typeof fetch;
+		let now = 0;
+		const provider = new RemoteJwksProvider({
+			url: "https://example.test/keys",
+			failureBackoffSeconds: 5,
+			fetchImpl: impl,
+			nowMs: () => now,
+		});
+
+		expect(await provider.keyForId("k1")).not.toBeNull();
+		// An unknown kid forces a refetch, which fails.
+		expect(await provider.keyForId("nope").catch(() => null)).toBeNull();
+		now += 100;
+		// The known kid still resolves from the still-valid cache.
+		expect(await provider.keyForId("k1")).not.toBeNull();
+	});
+
 	it("lets invalidate bypass the cooldown, so an operator can force a rotation", async () => {
 		const fetcher = fakeFetch([
 			ok(keySet("old")),

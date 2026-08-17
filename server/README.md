@@ -404,18 +404,56 @@ The same rule applies: `GIDGoogleUser` hands the app a `userID`, an email and
 a profile name, and **none of them are part of the request schema**. The
 account is keyed on the `sub` of a signature-verified token. Verified on every
 request: RS256 signature against Google's published key, issuer (allowlisted
-to Google's two documented spellings), audience (`GOOGLE_AUDIENCE`, the iOS
-OAuth client id), `exp` and `iat` with a 60s skew allowance, and a non-empty
-`sub`.
+to Google's two documented spellings), audience (`GOOGLE_AUDIENCE`), `exp` and
+`iat` with a 60s skew allowance, and a non-empty `sub`.
 
 The audience check is the load-bearing one here. An ID token is issued *to a
 client*, and without pinning `aud` to our own client id, a token minted for
 any other Google app — including one an attacker registered five minutes ago
 — would sign its holder in. Unset config is a refusal, never "any audience".
 
-**No Google secret is involved.** The iOS app is a public OAuth client with no
-client secret at all, and verifying an ID token needs only Google's public
-keys. `GOOGLE_AUDIENCE` is not secret; it appears in the app's URL scheme.
+`aud` must be **exactly one string** equal to `GOOGLE_AUDIENCE`. An array is
+rejected. The JWT spec permits an array and Google's tokens for this flow do
+not use one; accepting it would mean accepting a token *also* minted for
+someone else, while the `azp` claim that exists to disambiguate that case is
+not checked here. PulseCue has exactly one server client id, so the narrow
+contract costs nothing.
+
+**No Google secret is involved.** Verifying an ID token needs only Google's
+public keys — this backend never calls a Google token endpoint and holds no
+client secret. `GOOGLE_AUDIENCE` is a client id, which is public.
+
+#### Which client id goes where
+
+Google Cloud issues **two** OAuth client ids for this setup, and swapping them
+is the mistake to avoid. The ID token's `aud` is the **Web application
+("server") client id**, *not* the iOS one:
+
+| Google Cloud client | Used as | Appears in `aud`? |
+|---|---|---|
+| **iOS** OAuth client id | `GIDClientID` in the app, and the reversed-client-id URL scheme | **No** |
+| **Web application** OAuth client id | `GIDServerClientID` in the app, and `GOOGLE_AUDIENCE` here | **Yes** |
+
+The flow: the app sets `GIDServerClientID` to the Web client id, so Google
+mints the ID token with `aud` = that Web client id. The backend compares `aud`
+against `GOOGLE_AUDIENCE`, which must hold the *same* value. The iOS client id
+never reaches the server at all.
+
+Setting `GOOGLE_AUDIENCE` to the iOS client id would reject every real token —
+a fail-closed mistake rather than a dangerous one, but a confusing outage.
+
+Two things are **not** done yet and are needed before Google sign-in works end
+to end:
+
+1. The Web application OAuth client has not been created in Google Cloud, and
+   no real client id appears anywhere in this repo — `.dev.vars.example` has a
+   placeholder only.
+2. The iOS app does not set `GIDServerClientID` yet. That is a follow-up iOS
+   PR; this one is server-only. Until it lands, tokens from the app carry the
+   iOS client id in `aud` and this endpoint will (correctly) refuse them.
+
+The existing reversed-client-id URL scheme stays as it is — it belongs to the
+iOS client id and is unaffected by any of this.
 
 **No nonce, deliberately.** Apple's nonce exists because
 `ASAuthorizationAppleIDRequest` lets the app bind a value it generated into
