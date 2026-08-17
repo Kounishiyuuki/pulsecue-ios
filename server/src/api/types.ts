@@ -19,6 +19,15 @@ export interface ApiEnv {
 	 * would otherwise mean "accept a token minted for any Apple client".
 	 */
 	APPLE_AUDIENCE?: string;
+	/**
+	 * The PulseCue iOS OAuth client id Google issues ID tokens for — the
+	 * `aud` every token must carry. Not a secret (it is visible in the app's
+	 * URL scheme), but environment-specific, so it is configured rather than
+	 * compiled in. Verification refuses to run when it is unset: an empty
+	 * audience would mean "accept a token minted for any Google client",
+	 * including one an attacker registered.
+	 */
+	GOOGLE_AUDIENCE?: string;
 }
 
 /**

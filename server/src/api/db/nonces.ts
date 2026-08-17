@@ -17,6 +17,22 @@ export class NonceAlreadyUsedError extends Error {
 }
 
 /**
+ * The nonce store could not answer — D1 unavailable, or an unexpected
+ * failure that is not the primary key rejecting a duplicate.
+ *
+ * A distinct type because the two must not share an HTTP status: a replay is
+ * a bad credential (401), while a database outage is ours (503). Reporting an
+ * outage as a bad credential tells a user their sign-in failed for a reason
+ * that is not true, and hides the incident.
+ */
+export class NonceStoreUnavailableError extends Error {
+	constructor() {
+		super("nonce store is unavailable");
+		this.name = "NonceStoreUnavailableError";
+	}
+}
+
+/**
  * Claims a nonce, or throws if it was already claimed.
  *
  * The primary key does the work: two concurrent replays cannot both insert,
@@ -42,9 +58,28 @@ export async function consumeNonce(
 			.bind(params.nonceHash, params.provider, now, params.expiresAt)
 			.run();
 	} catch {
-		// The only constraint on this table is the primary key, so a failure
-		// here means the nonce was already recorded.
-		throw new NonceAlreadyUsedError();
+		// Which failure was it? Treating *every* insert error as a replay
+		// turns a D1 outage into "your credentials are invalid" for every
+		// user at once.
+		//
+		// The distinction is drawn by asking the table rather than by reading
+		// the driver's error text: error strings are provider-specific and
+		// change between D1 versions and the SQLite double used in tests, so
+		// matching on them would be brittle in exactly the situation that
+		// matters. If the row is there, the primary key rejected a duplicate
+		// and this is a replay. If it is not there — or the lookup itself
+		// fails — the store is the problem.
+		let existing: unknown = null;
+		try {
+			existing = await db
+				.prepare(`SELECT 1 FROM auth_nonces WHERE nonce_sha256 = ?`)
+				.bind(params.nonceHash)
+				.first();
+		} catch {
+			throw new NonceStoreUnavailableError();
+		}
+		if (existing) throw new NonceAlreadyUsedError();
+		throw new NonceStoreUnavailableError();
 	}
 }
 
