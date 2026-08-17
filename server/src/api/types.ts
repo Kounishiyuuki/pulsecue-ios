@@ -11,6 +11,14 @@
 export interface ApiEnv {
 	/** D1 binding declared in `wrangler.api.jsonc`. */
 	DB: D1Database;
+	/**
+	 * The bundle identifier Apple issues identity tokens for — the `aud`
+	 * every token must carry. Not a secret (it is visible in the app), but
+	 * it is environment-specific, so it is configured rather than compiled
+	 * in. Verification refuses to run when it is unset: an empty audience
+	 * would otherwise mean "accept a token minted for any Apple client".
+	 */
+	APPLE_AUDIENCE?: string;
 }
 
 /**

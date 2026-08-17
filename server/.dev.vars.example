@@ -27,3 +27,16 @@ PULSECUE_IMPORT_TOKEN_SECRET=local-dev-token-signing-secret
 # AI_TRAINING_PLAN_MOCK_VALID_TOKEN=fake-valid-ai-training-plan-token
 # AI_TRAINING_PLAN_MOCK_EXPIRED_TOKEN=fake-expired-ai-training-plan-token
 # AI_TRAINING_PLAN_MOCK_WRONG_SCOPE_TOKEN=fake-wrong-scope-ai-token
+
+# --- pulsecue-api (accounts) ---
+# Audience for Sign in with Apple identity tokens: the app's bundle
+# identifier. NOT a secret — it ships inside the app — but it is
+# environment-specific, so it is configured rather than compiled in.
+# Verification refuses to run when this is unset, because an empty audience
+# would mean "accept a token minted for any Apple client".
+#
+# No Apple secret belongs here. Verifying an identity token needs only
+# Apple's public keys. The .p8 signing key / Key ID / Team ID are required
+# solely to revoke a token at account deletion, and are introduced with that
+# work — never as a placeholder.
+APPLE_AUDIENCE=com.kounishiyuuki.pulsecue

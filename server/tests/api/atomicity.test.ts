@@ -9,7 +9,38 @@ import {
 	currentChangeSeq,
 } from "../../src/api/db/changeSeq";
 import { createSession } from "../../src/api/db/sessions";
-import { createTestDatabase } from "./support/sqliteD1";
+import { type TestDatabase, createTestDatabase } from "./support/sqliteD1";
+
+/**
+ * Wraps a database so the *first* identity lookup finds nothing, even
+ * though the row exists. That is the only way to drive
+ * `findOrCreateAccountForIdentity` into its creation batch when the
+ * identity has already been taken — the state a concurrent first sign-in
+ * produces.
+ */
+function hideIdentityOnce(db: TestDatabase): TestDatabase {
+	let hidden = false;
+	return {
+		...db,
+		prepare: (sql: string) => {
+			const statement = db.prepare(sql);
+			if (hidden || !sql.includes("FROM auth_identities")) return statement;
+			return {
+				...statement,
+				bind: (...values: unknown[]) => {
+					const bound = statement.bind(...values);
+					return {
+						...bound,
+						first: async () => {
+							hidden = true;
+							return null;
+						},
+					};
+				},
+			};
+		},
+	};
+}
 
 describe("the test double really is atomic", () => {
 	// If this fails, every atomicity assertion below is meaningless.
@@ -72,38 +103,49 @@ describe("account creation atomicity", () => {
 	});
 
 	it("leaves nothing behind when a statement in the batch fails", async () => {
+		// The earlier version of this test pre-inserted the conflicting
+		// identity, so the lookup found it and the code returned before the
+		// batch ever ran — it proved nothing about atomicity. Here the first
+		// lookup is made to miss while the row really exists, which is the
+		// actual race: two devices sign in, one wins, and the loser's batch
+		// hits UNIQUE (provider, subject) partway through.
 		const db = await createTestDatabase();
-		// A subject long past any sane limit is not what breaks this; a
-		// CHECK violation is. Force one by pre-inserting a conflicting
-		// identity row so the batch's UNIQUE insert fails mid-flight.
 		await db
 			.prepare(
-				`INSERT INTO users (id,state,created_at,updated_at) VALUES ('squatter','active',1,1)`,
+				`INSERT INTO users (id,state,created_at,updated_at) VALUES ('winner','active',1,1)`,
 			)
 			.run();
 		await db
 			.prepare(
 				`INSERT INTO auth_identities (id,user_id,provider,subject,email_verified,created_at,last_seen_at)
-				 VALUES ('i-squat','squatter','apple','sub-1',0,1,1)`,
+				 VALUES ('i-win','winner','apple','sub-1',0,1,1)`,
 			)
+			.run();
+		await db
+			.prepare(`INSERT INTO user_profiles (user_id,created_at,updated_at) VALUES ('winner',1,1)`)
+			.run();
+		await db
+			.prepare(`INSERT INTO user_change_seq (user_id,seq) VALUES ('winner',0)`)
 			.run();
 
 		const usersBefore = await db.count("users");
 		const profilesBefore = await db.count("user_profiles");
 		const cursorsBefore = await db.count("user_change_seq");
 
-		// Resolves onto the existing account rather than creating a second one.
-		const account = await findOrCreateAccountForIdentity(db, {
-			provider: "apple",
-			subject: "sub-1",
-		});
+		const account = await findOrCreateAccountForIdentity(
+			hideIdentityOnce(db),
+			{ provider: "apple", subject: "sub-1" },
+		);
 
+		// It went through createAccount, the batch failed on UNIQUE, and the
+		// retry resolved onto the winner.
 		expect(account.created).toBe(false);
-		expect(account.user.id).toBe("squatter");
-		// No orphan user, profile or cursor was left over.
+		expect(account.user.id).toBe("winner");
+		// Nothing partial survived the rolled-back batch.
 		expect(await db.count("users")).toBe(usersBefore);
 		expect(await db.count("user_profiles")).toBe(profilesBefore);
 		expect(await db.count("user_change_seq")).toBe(cursorsBefore);
+		expect(await db.count("auth_identities")).toBe(1);
 		db.close();
 	});
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createTestDatabase } from "./support/sqliteD1";
 
-describe("0001_user_auth_foundation", () => {
-	it("creates exactly the foundation tables", async () => {
+describe("account schema", () => {
+	it("creates exactly the expected tables", async () => {
 		const db = await createTestDatabase();
 		const { results } = await db
 			.prepare(
@@ -11,6 +11,7 @@ describe("0001_user_auth_foundation", () => {
 			.all<{ name: string }>();
 		expect(results.map((r) => r.name)).toEqual([
 			"auth_identities",
+			"auth_nonces",
 			"sessions",
 			"user_change_seq",
 			"user_profiles",
@@ -112,7 +113,7 @@ describe("0001_user_auth_foundation", () => {
 	});
 });
 
-describe("0001 constraints", () => {
+describe("schema constraints", () => {
 	it("enforces foreign keys and cascades on user delete", async () => {
 		const db = await createTestDatabase();
 		await db
