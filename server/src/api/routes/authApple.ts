@@ -122,25 +122,17 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				now,
 			});
 
-			// Resolved BEFORE the exchange, on purpose.
+			// The exchange comes FIRST, and nothing about the account is
+			// written until it has fully succeeded.
 			//
-			// Every database operation moved above the exchange is one that can
-			// no longer fail while an un-stored Apple refresh token exists. It
-			// also means a `deleting` account is turned away before Apple ever
-			// mints a credential for it, rather than after.
-			const account = await findOrCreateAccountForIdentity(
-				c.env.DB,
-				{
-					provider: "apple",
-					subject: verified.subject,
-					email: verified.email,
-					emailVerified: verified.emailVerified,
-				},
-				now,
-			);
-
-			// Exchanged against the subject the identity token already proved.
-			// A code that belongs to someone else fails here.
+			// An earlier version resolved the account before this call, to
+			// shrink the window in which an un-stored refresh token could
+			// exist. That trade was wrong: it meant a token whose exchange
+			// `id_token` named a *different* subject still created a PulseCue
+			// user and an auth identity. The window is closed properly instead
+			// — `exchangeAppleAuthorizationCode` now revokes the token itself
+			// on any validation failure — so account mutation can wait until
+			// the subject binding actually holds.
 			const exchanged = await exchangeAppleAuthorizationCode({
 				authorizationCode: parsed.data.authorizationCode,
 				config: clientSecret,
@@ -150,12 +142,28 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				now,
 			});
 
-			// From here a live Apple refresh token exists that only this
-			// request knows about. If it is not stored, it becomes a credential
-			// nobody can revoke and nobody can see — so a failure below must
-			// hand it back to Apple rather than drop it.
+			// Past this line the exchange is fully validated and the two
+			// subjects agree, so it is safe to touch the account.
+			//
+			// A live Apple refresh token exists that only this request knows
+			// about. If it is not stored, it becomes a credential nobody can
+			// revoke and nobody can see — so *every* failure below, account
+			// resolution included, must hand it back to Apple rather than drop
+			// it.
+			let account: Awaited<ReturnType<typeof findOrCreateAccountForIdentity>>;
 			let issued: Awaited<ReturnType<typeof saveCredentialAndIssueSession>>;
 			try {
+				account = await findOrCreateAccountForIdentity(
+					c.env.DB,
+					{
+						provider: "apple",
+						subject: verified.subject,
+						email: verified.email,
+						emailVerified: verified.emailVerified,
+					},
+					now,
+				);
+
 				// One batch: the encrypted refresh token and the session commit
 				// together or not at all. A live session for an account whose
 				// credential was not stored is an account that cannot be deleted
@@ -176,7 +184,7 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				// NOT do: it does not write the token anywhere for a later
 				// retry. The failure we are handling is the database, so
 				// "store it and try again" would be storing it in the thing
-				// that just failed — and storing a plaintext credential to
+				// that just failed — and persisting a plaintext credential to
 				// recover from a storage failure is worse than the problem.
 				const compensation = await revokeAppleRefreshToken({
 					refreshToken: exchanged.refreshToken,
@@ -184,6 +192,9 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 					fetchImpl: deps.fetchImpl,
 					now,
 				});
+				if (compensation.status !== "revoked") {
+					logCompensationFailure(correlationId, compensation.status);
+				}
 
 				// A concurrent deletion is answered exactly as a settled one is,
 				// so the race is not a way to tell a deleting account from an
@@ -218,6 +229,17 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				return reject(c, correlationId, "nonce_replayed", 401);
 			}
 			if (error instanceof AppleExchangeError) {
+				// The exchange revokes the token itself when it fails *after*
+				// Apple issued one. If that revoke did not confirm, a live
+				// Apple grant may still exist that nothing here tracks — the
+				// one condition an operator has to be able to find later.
+				if (error.leftCredentialOrphaned) {
+					logCompensationFailure(
+						correlationId,
+						error.compensation?.status ?? "unknown",
+					);
+				}
+
 				// A spent, expired or forged code is the caller's problem; an
 				// Apple outage or a broken client secret is ours. Reporting the
 				// second as "invalid credentials" would be untrue and would
@@ -244,6 +266,29 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 			throw error;
 		}
 	};
+}
+
+/**
+ * Records that a compensating revoke did not confirm.
+ *
+ * This is the one condition an operator has to be able to find after the
+ * fact: a refresh token Apple may still honour, which nothing on this side
+ * holds — so it cannot be revoked at account deletion and cannot be seen in
+ * any table. A fixed code and a correlation id are enough to locate the
+ * request; nothing that identifies the user or the credential is included.
+ *
+ * Deliberately absent: the refresh token, the authorization code, the
+ * identity token, the exchanged id_token, the Apple subject, the client
+ * secret, and Apple's raw response body.
+ */
+function logCompensationFailure(correlationId: string, outcome: string): void {
+	console.error(
+		JSON.stringify({
+			event: "apple_auth_compensation_revoke_failed",
+			outcome,
+			correlationId,
+		}),
+	);
 }
 
 /** Logs a short code and answers without it. */

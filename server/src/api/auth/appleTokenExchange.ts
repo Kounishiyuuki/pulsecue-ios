@@ -55,10 +55,26 @@ export type AppleExchangeFailure =
 	| "subjectMismatch";
 
 export class AppleExchangeError extends Error {
-	constructor(readonly failure: AppleExchangeFailure) {
+	constructor(
+		readonly failure: AppleExchangeFailure,
+		/**
+		 * Set when the failure happened *after* Apple issued a refresh token,
+		 * and therefore after this service became responsible for that token's
+		 * lifecycle. It reports what the compensating revoke achieved.
+		 *
+		 * `undefined` means no token existed yet, so there was nothing to
+		 * compensate — not that compensation was skipped.
+		 */
+		readonly compensation?: AppleRevocationOutcome,
+	) {
 		// The failure kind only. Never Apple's body, never the code or secret.
 		super(`apple token exchange failed: ${failure}`);
 		this.name = "AppleExchangeError";
+	}
+
+	/** True when a live Apple grant may still exist that nothing tracks. */
+	get leftCredentialOrphaned(): boolean {
+		return this.compensation !== undefined && this.compensation.status !== "revoked";
 	}
 }
 
@@ -116,16 +132,40 @@ export async function exchangeAppleAuthorizationCode(
 
 	const refreshToken = payload.refresh_token;
 	if (typeof refreshToken !== "string" || refreshToken.length === 0) {
-		// Without it there is nothing to revoke at deletion, which is the only
-		// reason this exchange happens. Accepting the sign-in anyway would
-		// quietly create an account that cannot meet Apple's requirement.
+		// Nothing was issued, so there is nothing to compensate. Without a
+		// refresh token there is also nothing to revoke at deletion, which is
+		// the only reason this exchange happens — so the sign-in cannot be
+		// accepted either.
 		throw new AppleExchangeError("malformedResponse");
 	}
+
+	// ─────────────────────────────────────────────────────────────────────
+	// Apple has now issued a live refresh token, and this function owns its
+	// lifecycle from here.
+	//
+	// Every remaining check can fail, and each one used to `throw` straight
+	// past the caller — which left the token valid at Apple with nothing on
+	// our side holding it: unrevokable at account deletion, and invisible.
+	// So from this point failures go through `abandon`, which hands the token
+	// back to Apple before rejecting.
+	// ─────────────────────────────────────────────────────────────────────
+	const abandon = async (
+		failure: AppleExchangeFailure,
+	): Promise<never> => {
+		const compensation = await revokeAppleRefreshToken({
+			refreshToken,
+			config: input.config,
+			fetchImpl: input.fetchImpl,
+			now,
+		});
+		throw new AppleExchangeError(failure, compensation);
+	};
+
 	if (payload.token_type !== undefined && !isBearer(payload.token_type)) {
-		throw new AppleExchangeError("malformedResponse");
+		await abandon("malformedResponse");
 	}
 	if (payload.expires_in !== undefined && typeof payload.expires_in !== "number") {
-		throw new AppleExchangeError("malformedResponse");
+		await abandon("malformedResponse");
 	}
 
 	// `id_token` is REQUIRED, not "verified if present". Treating it as
@@ -136,10 +176,18 @@ export async function exchangeAppleAuthorizationCode(
 	// `access_token` is deliberately ignored and never stored: nothing here
 	// calls an Apple API on the user's behalf, so keeping one would be holding
 	// a credential for no reason.
-	const verifiedSubject = await verifyExchangeIdToken(payload.id_token, input, now);
+	let verifiedSubject: string;
+	try {
+		verifiedSubject = await verifyExchangeIdToken(payload.id_token, input, now);
+	} catch {
+		return abandon("malformedResponse");
+	}
 
 	if (verifiedSubject !== input.expectedSubject) {
-		throw new AppleExchangeError("subjectMismatch");
+		// The attack this closes: a victim's authorization code paired with the
+		// attacker's own identity token. Nothing is written, and the token the
+		// attacker just caused Apple to mint does not survive the attempt.
+		return abandon("subjectMismatch");
 	}
 
 	return {
