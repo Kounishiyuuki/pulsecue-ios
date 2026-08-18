@@ -34,7 +34,27 @@ import GoogleSignIn
 
 struct LoginView: View {
     @ObservedObject var authSession: AuthSessionStore
+    /// The PulseCue server account, when this build has one.
+    ///
+    /// Optional so the local-only login shell keeps working unchanged in
+    /// previews and in builds with no API configured. When it is absent, or
+    /// unconfigured, sign-in still links the provider locally and simply does
+    /// not claim a server account was created.
+    var serverAccount: ServerAccountStore?
     @Environment(\.dismiss) private var dismiss
+
+    /// The raw nonce for the sign-in attempt currently on screen.
+    ///
+    /// Apple receives `sha256(rawNonce)` and echoes it inside the signed
+    /// identity token; the server receives the raw value and recomputes the
+    /// hash. Holding it here for the duration of one attempt is what ties the
+    /// token that comes back to the request that went out.
+    @State private var appleRawNonce: String?
+
+    /// The Web/server OAuth client. Google mints the ID token's `aud` from
+    /// this, and the backend verifies against it. Separate from
+    /// `googleConfig`, which is the *iOS* client.
+    private let googleServerConfig = GoogleServerSignInConfig.fromMainBundle()
 
     /// Google sign-in configuration read from Info.plist. While this holds the
     /// documented placeholder, `isConfigured` is false.
@@ -114,6 +134,12 @@ struct LoginView: View {
             // no token / code / user identifier is read or stored.
             SignInWithAppleButton(.continue) { request in
                 request.requestedScopes = [.fullName, .email]
+                // Apple gets the hash; the server gets the raw value. A
+                // captured identity token proves nothing without it, and the
+                // server spends each nonce once.
+                let raw = AppleSignInNonce.makeRawNonce()
+                appleRawNonce = raw
+                request.nonce = AppleSignInNonce.sha256Hex(raw)
             } onCompletion: { result in
                 handleAppleCompletion(result)
             }
@@ -176,6 +202,34 @@ struct LoginView: View {
             displayName: appleResult.displayName,
             email: appleResult.email
         )
+
+        // Hand the *signed* material to PulseCue's server, which decides who
+        // this is. `credential.user`, the name and the email are deliberately
+        // not sent as identity — the server reads the subject out of the
+        // signature it verifies, and there is no field on the request for
+        // anything the client claims.
+        //
+        // `authorizationCode` is required, not best-effort: without it the
+        // server cannot obtain the refresh token it needs to revoke at account
+        // deletion, and the code cannot be re-requested later.
+        if let serverAccount,
+           let rawNonce = appleRawNonce,
+           let identityToken = credential.identityToken
+             .flatMap({ String(data: $0, encoding: .utf8) }),
+           let authorizationCode = credential.authorizationCode
+             .flatMap({ String(data: $0, encoding: .utf8) }) {
+            appleRawNonce = nil
+            Task { @MainActor in
+                await serverAccount.signInWithApple(
+                    identityToken: identityToken,
+                    authorizationCode: authorizationCode,
+                    rawNonce: rawNonce
+                )
+            }
+        } else {
+            appleRawNonce = nil
+        }
+
         dismiss()
     }
 
@@ -209,6 +263,17 @@ struct LoginView: View {
             // brings the session back on the next launch.
             let displayName = user.profile?.name
             let email = user.profile?.email
+            // The ID token is the ONLY thing the server accepts as identity.
+            // `user.userID`, the profile name and the email are display fields
+            // here and are never sent as identity — the server reads `sub` out
+            // of the signature it verifies.
+            //
+            // The token is only useful to the backend when `GIDServerClientID`
+            // is configured, because that is what puts the server client id in
+            // the token's `aud`. Unconfigured means no server sign-in is
+            // attempted at all, rather than one that would be rejected.
+            let idToken = user.idToken?.tokenString
+            let serverSignInIsPossible = googleServerConfig.isConfigured
             // Hop to the main actor for the state update + dismiss, which are
             // both main-actor isolated. The SDK callback itself is nonisolated.
             Task { @MainActor in
@@ -221,6 +286,9 @@ struct LoginView: View {
                     displayName: googleResult.displayName,
                     email: googleResult.email
                 )
+                if let serverAccount, serverSignInIsPossible, let idToken {
+                    await serverAccount.signInWithGoogle(idToken: idToken)
+                }
                 dismiss()
             }
         }

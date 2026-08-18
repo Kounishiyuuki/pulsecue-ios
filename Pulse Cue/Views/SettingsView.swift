@@ -31,6 +31,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var authSession: AuthSessionStore
+    @EnvironmentObject var serverAccount: ServerAccountStore
 
     // 14 days of DayLog so we can pull "current weight" + today's intake
     // for the goal-gap card without a second SwiftData read.
@@ -105,7 +106,7 @@ struct SettingsView: View {
             }
         }
         .sheet(isPresented: $showLoginSheet) {
-            LoginView(authSession: authSession)
+            LoginView(authSession: authSession, serverAccount: serverAccount)
         }
         .sheet(isPresented: $showProfileGymSetup) {
             ProfileGymSetupView()
@@ -725,8 +726,15 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    PulseStatusBadge("ローカルのみ", kind: .info)
+                    PulseStatusBadge("この端末のみ", kind: .info)
                 }
+
+                Divider().opacity(0.4)
+
+                // The PulseCue server account. Separate from the local link
+                // above on purpose: a local link means a provider was once
+                // attached to this device, never that a server account exists.
+                ServerAccountSettingsSection(store: serverAccount)
 
                 Button {
                     showLoginSheet = true

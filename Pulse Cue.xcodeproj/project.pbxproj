@@ -7,6 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AAB10C000000000000002011 /* ServerAccountSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */; };
+		AAB10C00000000000000200F /* ServerAccountSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200E /* ServerAccountSessionTests.swift */; };
+		AAB10C00000000000000200D /* ServerAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200C /* ServerAccountStore.swift */; };
+		AAB10C00000000000000200B /* ServerAccountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200A /* ServerAccountState.swift */; };
+		AAB10C000000000000002009 /* GoogleServerSignInConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */; };
+		AAB10C000000000000002007 /* AppleSignInNonce.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002006 /* AppleSignInNonce.swift */; };
+		AAB10C000000000000002005 /* PulseCueAccountAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002004 /* PulseCueAccountAPI.swift */; };
+		AAB10C000000000000002003 /* ServerSessionTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002002 /* ServerSessionTokenStore.swift */; };
+		AAB10C000000000000002001 /* PulseCueAPIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002000 /* PulseCueAPIConfiguration.swift */; };
 		C0FFEE0000000000000B0063 /* LocalAccountLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */; };
 		C0FFEE0000000000000B0062 /* AccountLinkProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0062 /* AccountLinkProviders.swift */; };
 		C0FFEE0000000000000B0061 /* LinkedAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0061 /* LinkedAccount.swift */; };
@@ -299,6 +308,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountSettingsSection.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000200E /* ServerAccountSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountSessionTests.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000200C /* ServerAccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountStore.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000200A /* ServerAccountState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountState.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleServerSignInConfig.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002006 /* AppleSignInNonce.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignInNonce.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002004 /* PulseCueAccountAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseCueAccountAPI.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002002 /* ServerSessionTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSessionTokenStore.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002000 /* PulseCueAPIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseCueAPIConfiguration.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAccountLinkTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0062 /* AccountLinkProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLinkProviders.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0061 /* LinkedAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedAccount.swift; sourceTree = "<group>"; };
@@ -606,6 +624,7 @@
 		0D8204BD8467472493866B8C /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */,
 				C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */,
 				D17104DB1A8E4001B0DA2202 /* AICoachView.swift */,
 				9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */,
@@ -756,6 +775,13 @@
 		AAB10C0000000000000000C0 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
+				AAB10C00000000000000200C /* ServerAccountStore.swift */,
+				AAB10C00000000000000200A /* ServerAccountState.swift */,
+				AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */,
+				AAB10C000000000000002006 /* AppleSignInNonce.swift */,
+				AAB10C000000000000002004 /* PulseCueAccountAPI.swift */,
+				AAB10C000000000000002002 /* ServerSessionTokenStore.swift */,
+				AAB10C000000000000002000 /* PulseCueAPIConfiguration.swift */,
 				C0FFEE0000000000000A0062 /* AccountLinkProviders.swift */,
 				C0FFEE0000000000000A0061 /* LinkedAccount.swift */,
 				AAB10C0000000000000000C1 /* AuthState.swift */,
@@ -871,6 +897,7 @@
 		8B8BDF9909D442F68C9E8E09 /* Pulse CueTests */ = {
 			isa = PBXGroup;
 			children = (
+				AAB10C00000000000000200E /* ServerAccountSessionTests.swift */,
 				C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */,
 				C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */,
 				C0FFEE0000000000000A0041 /* QuickPlanTargetDurationTests.swift */,
@@ -1144,6 +1171,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAB10C000000000000002011 /* ServerAccountSettingsSection.swift in Sources */,
+				AAB10C00000000000000200D /* ServerAccountStore.swift in Sources */,
+				AAB10C00000000000000200B /* ServerAccountState.swift in Sources */,
+				AAB10C000000000000002009 /* GoogleServerSignInConfig.swift in Sources */,
+				AAB10C000000000000002007 /* AppleSignInNonce.swift in Sources */,
+				AAB10C000000000000002005 /* PulseCueAccountAPI.swift in Sources */,
+				AAB10C000000000000002003 /* ServerSessionTokenStore.swift in Sources */,
+				AAB10C000000000000002001 /* PulseCueAPIConfiguration.swift in Sources */,
 				C0FFEE0000000000000B0062 /* AccountLinkProviders.swift in Sources */,
 				C0FFEE0000000000000B0061 /* LinkedAccount.swift in Sources */,
 				C0FFEE0000000000000B0052 /* HealthKitInputAssist.swift in Sources */,
@@ -1321,6 +1356,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAB10C00000000000000200F /* ServerAccountSessionTests.swift in Sources */,
 				C0FFEE0000000000000B0063 /* LocalAccountLinkTests.swift in Sources */,
 				C0FFEE0000000000000B0053 /* HealthKitInputAssistTests.swift in Sources */,
 				C0FFEE0000000000000B0041 /* QuickPlanTargetDurationTests.swift in Sources */,

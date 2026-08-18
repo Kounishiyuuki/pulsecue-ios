@@ -15,6 +15,29 @@
 	</array>
 	<key>GIDClientID</key>
 	<string>376943003827-oai1mlkosmm8pv1ie94eelvcop3p6clu.apps.googleusercontent.com</string>
+	<!--
+	  The *second* Google client: the Web application ("server") OAuth client
+	  id. Setting this makes Google mint the ID token with `aud` set to it,
+	  which is what the PulseCue backend verifies against GOOGLE_AUDIENCE.
+
+	  This is NOT the iOS client id above, and it gets NO reversed-client-id
+	  URL scheme — it is not an app identity and nothing redirects to it.
+
+	  Placeholder until the Web application client exists in Google Cloud.
+	  While it is a placeholder, Google sign-in does not claim to have created
+	  a PulseCue account.
+	-->
+	<key>GIDServerClientID</key>
+	<string>YOUR_WEB_SERVER_CLIENT_ID.apps.googleusercontent.com</string>
+	<!--
+	  Base URL of the PulseCue account API. HTTPS only.
+
+	  Placeholder until the Worker is deployed. While it is a placeholder the
+	  account layer is simply unavailable: it connects nowhere, does not fall
+	  back to localhost, and does not affect Guest or any local feature.
+	-->
+	<key>PulseCueAPIBaseURL</key>
+	<string>https://YOUR_PULSECUE_API_HOST</string>
 	<key>NSCameraUsageDescription</key>
 	<string>食品バーコードを読み取るためにカメラを使用します。</string>
 	<key>NSHealthShareUsageDescription</key>

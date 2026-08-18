@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import SwiftData
 #if canImport(GoogleSignIn)
 import GoogleSignIn
@@ -19,6 +20,15 @@ struct Pulse_CueApp: App {
     // UI, Apple, Google) have a ready place to read account state. It does not
     // gate any existing feature and persists nothing.
     @StateObject private var authSession = AuthSessionStore()
+    // The PulseCue *server* account, which is a different thing from the local
+    // provider link above. With no API base URL configured — the shipped state
+    // today — this sits in `.notConfigured` and touches nothing: Guest and
+    // every local feature behave exactly as before.
+    @StateObject private var serverAccount = ServerAccountStore(
+        api: PulseCueAccountAPIClient(configuration: .fromMainBundle()),
+        tokenStore: KeychainServerSessionTokenStore(),
+        deviceName: UIDevice.current.name
+    )
 
     var sharedModelContainer: ModelContainer = {
         // In-memory (never opening the user's persistent V4 store) for the
@@ -98,6 +108,7 @@ struct Pulse_CueApp: App {
             .environmentObject(settings)
             .environmentObject(runnerViewModel)
             .environmentObject(authSession)
+            .environmentObject(serverAccount)
     }
 
     /// Routes incoming URLs to GoogleSignIn only. Returns immediately when the
