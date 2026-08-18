@@ -492,15 +492,45 @@ call. **Nothing invokes it yet** — creating a Cron trigger is a production
 resource change and is not part of this work — but it exists and is tested, so
 wiring it up later is configuration rather than design.
 
-#### One deliberate judgement call
+#### When a credential cannot be decrypted
 
-If a stored credential cannot be decrypted (a lost key, or a tampered row),
-waiting cannot fix it. Retrying forever would hold the user's data hostage to
-a blob nobody can read, so the deletion proceeds and the reason is logged with
-a fixed code for an operator. The reasoning: an unreadable ciphertext is not a
-usable credential for us or for anyone holding the database. It is still a
-genuine failure to revoke at Apple, which is why it is logged rather than
-passed over.
+A lost key, a wrong key version, a corrupt row or an AAD mismatch means the
+stored ciphertext cannot be opened.
+
+An earlier version of this PR **deleted the account anyway**, reasoning that
+an unreadable ciphertext is not a usable credential. That reasoning is about
+*our* copy, and it answers the wrong question: the grant at Apple is
+unaffected by whether we can read our copy of it. Hard-deleting would destroy
+the only record that the grant exists while reporting the deletion as
+complete — and Apple's requirement is that the token is **revoked**, which we
+would have neither done nor be able to do.
+
+So the deletion stays owed:
+
+- the account remains `deleting`
+- its sessions remain revoked, and sign-in remains impossible
+- the credential material is **kept**, because it is the only thing that could
+  ever be recovered if the key is restored
+- `last_error_code` is `credential_unreadable`, and a fixed non-PII code is
+  logged for an operator
+
+A test proves the pending state is recoverable rather than a dead end: once
+the correct key is available again, the same deletion completes and Apple is
+contacted exactly once.
+
+#### What may finish a deletion
+
+Hard delete happens under exactly two conditions:
+
+- every Apple credential was revoked with a **confirmed HTTP 2xx**, or
+- there was no provider credential to revoke at all
+
+Google reaches the second case by construction — the ID token flow never
+issues a refresh token, so no revocation is invented for it.
+
+Everything else keeps the deletion pending, with the reason recorded
+distinctly: `provider_unavailable` (network or 5xx), `provider_rejected` (a
+4xx, which is not evidence of revocation either), or `credential_unreadable`.
 
 ### Sign in with Apple
 
