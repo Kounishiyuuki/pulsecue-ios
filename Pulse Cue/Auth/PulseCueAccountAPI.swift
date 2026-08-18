@@ -127,7 +127,17 @@ protocol PulseCueAccountAPI: Sendable {
     func signInWithGoogle(_ request: GoogleSignInRequest) async throws -> ServerSessionResponse
     func fetchProfile(sessionToken: String) async throws -> ServerAccountProfile
     func logout(sessionToken: String) async throws
-    func deleteAccount(sessionToken: String) async throws
+    func deleteAccount(sessionToken: String) async throws -> AccountDeletionOutcome
+}
+
+/// What the server said about a deletion request.
+///
+/// `202` is not a lesser `200`. It means the deletion is real and
+/// irreversible but provider revocation has not finished, so the UI must not
+/// tell the user their account is already gone.
+enum AccountDeletionOutcome: Equatable {
+    case deleted
+    case pending
 }
 
 /// Exactly what the server needs for Apple. Note what is absent: the Apple
@@ -189,17 +199,19 @@ struct PulseCueAccountAPIClient: PulseCueAccountAPI {
         try classify(response)
     }
 
-    func deleteAccount(sessionToken: String) async throws {
+    func deleteAccount(sessionToken: String) async throws -> AccountDeletionOutcome {
         let (_, response) = try await perform(
             path: "v1/me",
             method: "DELETE",
             body: Optional<AppleSignInRequest>.none,
             sessionToken: sessionToken
         )
-        // 202 means the deletion is under way and irreversible — a success
-        // from the app's point of view, not something to retry.
-        guard response.statusCode != 202 else { return }
+        // 202 means the deletion is under way and irreversible, but provider
+        // revocation has not confirmed. A success from the app's point of view
+        // — nothing to retry — and still not the same thing as "gone".
+        if response.statusCode == 202 { return .pending }
         try classify(response)
+        return .deleted
     }
 
     // MARK: - Internals

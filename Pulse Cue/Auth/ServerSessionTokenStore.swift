@@ -31,9 +31,24 @@
 import Foundation
 import Security
 
+/// What a read of the stored session token found.
+///
+/// The three cases are genuinely different and the difference is
+/// load-bearing. "There is no token" means the user is a guest. "The Keychain
+/// could not answer" means we do not know — and treating that as "no token"
+/// would sign someone out because the device happened to be locked when a
+/// background launch ran.
+enum SessionTokenRead: Equatable {
+    case token(String)
+    /// Read successfully; there is nothing stored.
+    case absent
+    /// The Keychain itself failed. Says nothing about whether a token exists.
+    case unavailable(OSStatus)
+}
+
 /// Storage for the opaque server session token.
 protocol ServerSessionTokenStoring: AnyObject, Sendable {
-    func readToken() -> String?
+    func read() -> SessionTokenRead
     /// Replaces any existing token. Returns false if the write failed.
     @discardableResult func saveToken(_ token: String) -> Bool
     @discardableResult func deleteToken() -> Bool
@@ -60,19 +75,38 @@ final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         ]
     }
 
-    func readToken() -> String? {
+    func read() -> SessionTokenRead {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess,
-              let data = item as? Data,
-              let token = String(data: data, encoding: .utf8),
-              !token.isEmpty
-        else { return nil }
-        return token
+
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data,
+                  let token = String(data: data, encoding: .utf8),
+                  !token.isEmpty
+            else {
+                // An item exists but holds nothing usable. Treat it as absent
+                // rather than as a failure: there is genuinely no session here,
+                // and a fresh sign-in will replace it.
+                return .absent
+            }
+            return .token(token)
+
+        case errSecItemNotFound:
+            return .absent
+
+        default:
+            // Anything else — most plausibly `errSecInteractionNotAllowed` on a
+            // background launch before the first unlock — is the Keychain
+            // failing to answer, not evidence that no session exists. Reporting
+            // it as absent would drop the user to Guest for a transient
+            // condition and destroy their session on the next write.
+            return .unavailable(status)
+        }
     }
 
     @discardableResult
@@ -112,10 +146,15 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         self.token = token
     }
 
-    func readToken() -> String? {
+    /// Set to simulate a Keychain that cannot answer at all.
+    var readFailure: OSStatus?
+
+    func read() -> SessionTokenRead {
         lock.lock()
         defer { lock.unlock() }
-        return token
+        if let readFailure { return .unavailable(readFailure) }
+        guard let token else { return .absent }
+        return .token(token)
     }
 
     @discardableResult
@@ -133,5 +172,18 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         defer { lock.unlock() }
         token = nil
         return true
+    }
+}
+
+extension ServerSessionTokenStoring {
+    /// The token if one was read, and `nil` for *both* absent and unavailable.
+    ///
+    /// Deliberately not used by launch restore, which has to tell those two
+    /// apart. It exists for callers where the distinction genuinely does not
+    /// matter — logout and deletion, which are trying to get rid of the token
+    /// either way.
+    func tokenIfPresent() -> String? {
+        if case let .token(value) = read() { return value }
+        return nil
     }
 }

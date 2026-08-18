@@ -53,12 +53,19 @@ describe("account schema", () => {
 			expect(ddl, `${table} must cascade`).toContain("on delete cascade");
 		}
 
-		// `provider_credentials` reaches users through the identity.
+		// `provider_credentials` reaches users through the identity — and does
+		// so with a *composite* reference, so a credential cannot claim a
+		// provider its identity does not have. Asserted on the pair rather than
+		// on `id` alone, because the single-column form would satisfy the
+		// cascade requirement while losing the provider binding.
 		const credentials = (
 			results.find((r) => r.name === "provider_credentials")?.sql ?? ""
 		).toLowerCase();
-		expect(credentials).toContain("references auth_identities(id)");
+		expect(credentials).toMatch(
+			/references\s+auth_identities\s*\(\s*id\s*,\s*provider\s*\)/,
+		);
 		expect(credentials).toContain("on delete cascade");
+		expect(credentials).toContain("foreign key (auth_identity_id, provider)");
 
 		// `auth_nonces` is keyed by a nonce hash and has no owner, so there is
 		// deliberately nothing there for a deletion to sweep.
