@@ -27,7 +27,7 @@ import { createSession } from "../db/sessions";
 import { GoogleTokenInvalidError, verifyGoogleIdToken } from "../auth/google";
 import { JwksFetchError, type JwksProvider } from "../auth/jwks";
 import { JwtMalformedError, JwtSignatureError } from "../auth/jwt";
-import type { ApiEnv } from "../types";
+import type { AuthedEnv } from "../types";
 
 const requestSchema = z.object({
 	idToken: z.string().min(1).max(8192),
@@ -47,7 +47,7 @@ export interface GoogleAuthDependencies {
 }
 
 export function makeGoogleAuthHandler(deps: GoogleAuthDependencies) {
-	return async (c: Context<{ Bindings: ApiEnv }>) => {
+	return async (c: Context<AuthedEnv>) => {
 		const correlationId = newId();
 		const now = deps.now?.() ?? Math.floor(Date.now() / 1000);
 
@@ -121,7 +121,7 @@ export function makeGoogleAuthHandler(deps: GoogleAuthDependencies) {
 
 /** Logs a short code and answers without it. */
 function reject(
-	c: Context<{ Bindings: ApiEnv }>,
+	c: Context<AuthedEnv>,
 	correlationId: string,
 	reason: string,
 	status: 400 | 401 | 503,
@@ -143,7 +143,7 @@ function reject(
 	return c.json({ error: { ...body, correlationId } }, status);
 }
 
-async function readJson(c: Context<{ Bindings: ApiEnv }>): Promise<unknown> {
+async function readJson(c: Context<AuthedEnv>): Promise<unknown> {
 	try {
 		return await c.req.json();
 	} catch {

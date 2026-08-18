@@ -13,11 +13,13 @@ import { appleClientSecretConfigFromEnv } from "./auth/appleClientSecret";
 import { createGoogleJwksProvider } from "./auth/google";
 import { tokenCipherFromEnv } from "./crypto/tokenCipher";
 import { newId } from "./db/ids";
+import { type AuthedEnv, requireSession } from "./middleware/requireSession";
 import { makeAppleAuthHandler } from "./routes/authApple";
 import { makeGoogleAuthHandler } from "./routes/authGoogle";
-import type { ApiEnv } from "./types";
+import { handleLogout, handleLogoutAll } from "./routes/logout";
+import { handleGetMe } from "./routes/me";
 
-const app = new Hono<{ Bindings: ApiEnv }>();
+const app = new Hono<AuthedEnv>();
 
 /**
  * One provider per isolate per issuer, so each key set is fetched once and
@@ -52,6 +54,18 @@ app.post("/v1/auth/google", (c) =>
 		audience: c.env.GOOGLE_AUDIENCE ?? "",
 	})(c),
 );
+
+/**
+ * Everything below requires a session.
+ *
+ * The middleware is attached per route rather than globally. A global guard
+ * that a future sign-in route silently inherits locks users out; one a future
+ * authenticated route silently misses is caught by that route's own tests.
+ * The second failure is the recoverable one.
+ */
+app.get("/v1/me", requireSession(), handleGetMe);
+app.post("/v1/auth/logout", requireSession(), handleLogout);
+app.post("/v1/auth/logout-all", requireSession(), handleLogoutAll);
 
 app.notFound((c) =>
 	c.json({ error: { code: "not_found", message: "Route not found" } }, 404),

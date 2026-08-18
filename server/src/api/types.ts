@@ -69,6 +69,21 @@ export interface ApiEnv {
 }
 
 /**
+ * What `requireSession` puts on the context for authenticated handlers.
+ *
+ * Declared here rather than in the middleware because *every* route shares
+ * one Hono env — including the sign-in routes, which never read these. One
+ * env keeps handlers interchangeable; the alternative is a cast at every
+ * mount point, which is exactly where a type error would have been useful.
+ */
+export interface AuthVariables {
+	session: SessionRow;
+	user: UserRow;
+}
+
+export type AuthedEnv = { Bindings: ApiEnv; Variables: AuthVariables };
+
+/**
  * The slice of `D1Database` the repositories actually use.
  *
  * Depending on the narrow shape rather than the whole binding is what lets
@@ -110,6 +125,14 @@ export interface AuthIdentityRow {
 	email_verified: 0 | 1;
 	created_at: EpochSeconds;
 	last_seen_at: EpochSeconds;
+}
+
+export interface UserProfileRow {
+	user_id: string;
+	display_name: string | null;
+	locale: string | null;
+	created_at: EpochSeconds;
+	updated_at: EpochSeconds;
 }
 
 export interface ProviderCredentialRow {
