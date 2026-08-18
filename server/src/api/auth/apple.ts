@@ -89,20 +89,36 @@ export class AppleTokenInvalidError extends Error {
 	}
 }
 
-export async function verifyAppleIdentityToken(
-	input: AppleVerificationInput,
-): Promise<VerifiedAppleIdentity> {
+/**
+ * Everything true of *any* Apple-signed identity token: signature, issuer,
+ * audience, validity window, subject.
+ *
+ * Split out from `verifyAppleIdentityToken` because Apple issues these in two
+ * places with different guarantees. The token the app receives is bound to a
+ * nonce the app chose. The `id_token` inside a `/auth/token` response is not:
+ * that request is authenticated by the client secret, and Apple does not
+ * document a nonce on it. Demanding one there would reject every real
+ * exchange.
+ *
+ * Keeping the nonce check *out* of this function and *in* the caller is what
+ * stops that difference from being papered over — a caller has to say
+ * explicitly that it is not checking a nonce, rather than inheriting a
+ * verifier that quietly stopped checking one.
+ */
+export async function verifyAppleIdentityClaims(input: {
+	token: string;
+	audience: string;
+	jwks: JwksProvider;
+	now?: number;
+}): Promise<VerifiedAppleClaims> {
 	const now = input.now ?? Math.floor(Date.now() / 1000);
 
 	if (!input.audience) {
 		// A misconfigured audience must never degrade into "accept anything".
 		throw new AppleTokenInvalidError("audience is not configured");
 	}
-	if (!input.rawNonce) {
-		throw new AppleTokenInvalidError("missing nonce");
-	}
 
-	const decoded = decodeJwt(input.identityToken);
+	const decoded = decodeJwt(input.token);
 
 	const kid = decoded.header.kid;
 	if (!kid) throw new AppleTokenInvalidError("header has no kid");
@@ -116,7 +132,6 @@ export async function verifyAppleIdentityToken(
 	assertIssuer(claims);
 	assertAudience(claims, input.audience);
 	assertWindow(claims, now);
-	const nonceHash = await assertNonce(claims, input.rawNonce);
 
 	const subject = claims.sub;
 	if (typeof subject !== "string" || subject.length === 0) {
@@ -127,8 +142,46 @@ export async function verifyAppleIdentityToken(
 		subject,
 		email: typeof claims.email === "string" ? claims.email : null,
 		emailVerified: readEmailVerified(claims),
-		nonceHash,
 		expiresAt: claims.exp as number,
+		claims,
+	};
+}
+
+export interface VerifiedAppleClaims {
+	subject: string;
+	email: string | null;
+	emailVerified: boolean;
+	expiresAt: number;
+	/** For a caller that needs a claim this type does not name. */
+	claims: JwtClaims;
+}
+
+/**
+ * The full check for the token the *app* presents: the common claims, plus
+ * the nonce binding that ties it to this sign-in attempt.
+ */
+export async function verifyAppleIdentityToken(
+	input: AppleVerificationInput,
+): Promise<VerifiedAppleIdentity> {
+	if (!input.rawNonce) {
+		throw new AppleTokenInvalidError("missing nonce");
+	}
+
+	const verified = await verifyAppleIdentityClaims({
+		token: input.identityToken,
+		audience: input.audience,
+		jwks: input.jwks,
+		now: input.now,
+	});
+
+	const nonceHash = await assertNonce(verified.claims, input.rawNonce);
+
+	return {
+		subject: verified.subject,
+		email: verified.email,
+		emailVerified: verified.emailVerified,
+		nonceHash,
+		expiresAt: verified.expiresAt,
 	};
 }
 

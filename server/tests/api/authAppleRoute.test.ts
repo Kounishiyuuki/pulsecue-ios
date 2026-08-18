@@ -16,11 +16,15 @@ import {
 	hashedNonce,
 } from "./support/appleTokens";
 import {
+	TEST_APPLE_SUBJECT,
 	appleErrorResponse,
 	appleTokenResponse,
+	appleTokenResponseFor,
 	createTestAppleSigningKey,
 	fakeAppleEndpoint,
+	signExchangeIdToken,
 	testEncryptionKey,
+	unverifiedSubject,
 } from "./support/appleProduction";
 import { type TestDatabase, createTestDatabase } from "./support/sqliteD1";
 
@@ -41,8 +45,18 @@ async function makeApp(
 	} = {},
 ) {
 	const key = await createTestAppleSigningKey();
+	// The subject of the identity token this request carries. The fake Apple
+	// mints its `id_token` for the same person, which is what a real exchange
+	// does — a test that wants a mismatch overrides `appleResponder`.
+	let requestedSubject = TEST_APPLE_SUBJECT;
 	const endpoint = fakeAppleEndpoint(
-		overrides.appleResponder ?? (() => appleTokenResponse()),
+		overrides.appleResponder ??
+			(() =>
+				appleTokenResponseFor(signer, {
+					sub: requestedSubject,
+					audience: key.config.clientId,
+					now: NOW,
+				})),
 	);
 	const app = new Hono<{ Bindings: ApiEnv }>();
 	app.post(
@@ -62,8 +76,16 @@ async function makeApp(
 	);
 	// The authorization code is required now, so it is defaulted in rather
 	// than repeated in every body; a test that cares passes its own.
-	const post = (body: Record<string, unknown>) =>
-		app.request(
+	const post = (body: Record<string, unknown>) => {
+		const identityToken = body.identityToken;
+		if (typeof identityToken === "string") {
+			try {
+				requestedSubject = unverifiedSubject(identityToken);
+			} catch {
+				// Not a decodable token; the route will reject it anyway.
+			}
+		}
+		return app.request(
 			"/v1/auth/apple",
 			{
 				method: "POST",
@@ -72,7 +94,8 @@ async function makeApp(
 			},
 			{ DB: db, APPLE_AUDIENCE: TEST_AUDIENCE } as unknown as ApiEnv,
 		);
-	return Object.assign(post, { apple: endpoint, key });
+	};
+	return Object.assign(post, { apple: endpoint, key, signer });
 }
 
 async function tokenFor(
@@ -426,9 +449,13 @@ describe("POST /v1/auth/apple — authorization code lifecycle", () => {
 		let issued = 0;
 		const post = await makeApp(db, signer, {
 			cipher,
-			appleResponder: () => {
+			appleResponder: async () => {
 				issued += 1;
-				return appleTokenResponse({ refresh_token: `refresh-${issued}` });
+				return appleTokenResponseFor(signer, {
+					sub: "apple-sub-1",
+					now: NOW,
+					bodyOverrides: { refresh_token: `refresh-${issued}` },
+				});
 			},
 		});
 

@@ -13,6 +13,7 @@
 
 import type { AppleClientSecretConfig } from "../../../src/api/auth/appleClientSecret";
 import { base64Encode } from "../../../src/api/crypto/tokenCipher";
+import type { TestSigner } from "./testSigner";
 
 export const TEST_APPLE_CLIENT_ID = "com.example.pulsecue.tests";
 export const TEST_APPLE_TEAM_ID = "TEAM000000";
@@ -111,4 +112,63 @@ export function appleErrorResponse(code: string, status = 400): Response {
 		status,
 		headers: { "content-type": "application/json" },
 	});
+}
+
+/** Default subject for a minted exchange `id_token`. Matches `appleClaims`. */
+export const TEST_APPLE_SUBJECT = "000123.abcdef.1234";
+
+/**
+ * Mints the `id_token` Apple puts in a `/auth/token` response.
+ *
+ * A real RS256 token from the same test signer whose JWKS the verifier is
+ * given, so the production verification path runs for real. Note there is
+ * deliberately **no nonce**: Apple does not put one on the exchange response,
+ * and the verifier must not demand one there.
+ */
+export async function signExchangeIdToken(
+	signer: TestSigner,
+	options: {
+		sub?: string;
+		audience?: string;
+		now?: number;
+		overrides?: Record<string, unknown>;
+	} = {},
+): Promise<string> {
+	const now = options.now ?? 1_800_000_100;
+	return signer.sign({
+		iss: "https://appleid.apple.com",
+		aud: options.audience ?? TEST_APPLE_CLIENT_ID,
+		sub: options.sub ?? TEST_APPLE_SUBJECT,
+		iat: now - 10,
+		exp: now + 600,
+		...(options.overrides ?? {}),
+	});
+}
+
+/** A `/auth/token` success body carrying a properly signed `id_token`. */
+export async function appleTokenResponseFor(
+	signer: TestSigner,
+	options: {
+		sub?: string;
+		audience?: string;
+		now?: number;
+		idTokenOverrides?: Record<string, unknown>;
+		bodyOverrides?: Record<string, unknown>;
+	} = {},
+): Promise<Response> {
+	const idToken = await signExchangeIdToken(signer, {
+		sub: options.sub,
+		audience: options.audience,
+		now: options.now,
+		overrides: options.idTokenOverrides,
+	});
+	return appleTokenResponse({ id_token: idToken, ...(options.bodyOverrides ?? {}) });
+}
+
+/** Reads `sub` out of a JWT without verifying it. Test convenience only. */
+export function unverifiedSubject(token: string): string {
+	const payload = token.split(".")[1] ?? "";
+	const padded = payload.replace(/-/g, "+").replace(/_/g, "/");
+	const json = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
+	return (JSON.parse(json) as { sub?: string }).sub ?? "";
 }

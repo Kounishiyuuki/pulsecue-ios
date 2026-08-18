@@ -9,39 +9,43 @@
  * exchanged at sign-in, when it is still valid — it is single-use and
  * short-lived, and there is no way to go back for one at deletion time.
  *
- * Three rules this file exists to hold:
+ * Four rules this file exists to hold:
  *
  *   Fixed endpoints. Both URLs are module constants. Nothing derived from a
  *   request reaches `fetch`, so no request can steer an outbound call.
  *
- *   Apple's response is not trusted. It is JSON from the network like any
- *   other; the shape is checked before anything is stored, and a response
- *   carrying an `id_token` has that token verified and its subject compared
- *   against the identity token the client already proved.
+ *   Apple's response is not trusted. The shape is checked before anything is
+ *   stored, and the `id_token` it carries is *required* and fully verified —
+ *   signature, issuer, audience, window, subject — before its subject is
+ *   compared to the one the client already proved.
+ *
+ *   **Revocation succeeds on HTTP 2xx and nothing else.** No error body is
+ *   ever read as evidence that a token is gone. See `revokeAppleRefreshToken`.
  *
  *   Nothing leaks. The authorization code, the client secret, the refresh
- *   token and Apple's raw error body are never logged, never returned, and
- *   never put in an error message. Failures are a small closed set of codes.
+ *   token, the id_token and Apple's raw error body are never logged, never
+ *   returned, and never put in an error message.
  */
 
 import {
 	type AppleClientSecretConfig,
 	createAppleClientSecret,
 } from "./appleClientSecret";
-import { APPLE_ISSUER } from "./apple";
+import { AppleTokenInvalidError, verifyAppleIdentityClaims } from "./apple";
 import { type JwksProvider } from "./jwks";
-import { decodeJwt, verifyRs256 } from "./jwt";
 
 const APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token";
 const APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke";
 
 /**
- * Why a call failed, in terms the HTTP layer can map without knowing Apple.
+ * Why an exchange failed, in terms the HTTP layer can map without knowing
+ * Apple.
  *
- * `invalidGrant` is the caller's fault (a reused, expired or forged code) and
- * becomes a 401. Everything else is Apple's or ours and becomes a 503 —
- * reporting an Apple outage as "your credentials are invalid" would tell a
- * user something untrue and hide the incident.
+ * `invalidGrant` and `subjectMismatch` are the caller's fault (a reused,
+ * expired or forged code; a code that belongs to somebody else) and become a
+ * 401. Everything else is Apple's or ours and becomes a 503 — reporting an
+ * Apple outage as "your credentials are invalid" would tell a user something
+ * untrue and hide the incident.
  */
 export type AppleExchangeFailure =
 	| "invalidGrant"
@@ -51,10 +55,26 @@ export type AppleExchangeFailure =
 	| "subjectMismatch";
 
 export class AppleExchangeError extends Error {
-	constructor(readonly failure: AppleExchangeFailure) {
+	constructor(
+		readonly failure: AppleExchangeFailure,
+		/**
+		 * Set when the failure happened *after* Apple issued a refresh token,
+		 * and therefore after this service became responsible for that token's
+		 * lifecycle. It reports what the compensating revoke achieved.
+		 *
+		 * `undefined` means no token existed yet, so there was nothing to
+		 * compensate — not that compensation was skipped.
+		 */
+		readonly compensation?: AppleRevocationOutcome,
+	) {
 		// The failure kind only. Never Apple's body, never the code or secret.
 		super(`apple token exchange failed: ${failure}`);
 		this.name = "AppleExchangeError";
+	}
+
+	/** True when a live Apple grant may still exist that nothing tracks. */
+	get leftCredentialOrphaned(): boolean {
+		return this.compensation !== undefined && this.compensation.status !== "revoked";
 	}
 }
 
@@ -63,10 +83,10 @@ export interface AppleTokenExchangeInput {
 	config: AppleClientSecretConfig;
 	/**
 	 * The `sub` from the identity token the client already proved. Apple's
-	 * response must agree with it, or nothing is stored.
+	 * response must name the same person, or nothing is stored.
 	 */
 	expectedSubject: string;
-	/** Used only if the response carries an `id_token`. */
+	/** Verifies the `id_token` in Apple's response. */
 	jwks: JwksProvider;
 	fetchImpl?: typeof fetch;
 	now?: number;
@@ -75,6 +95,8 @@ export interface AppleTokenExchangeInput {
 export interface AppleTokenExchangeResult {
 	/** The credential PulseCue stores, encrypted, solely to revoke later. */
 	refreshToken: string;
+	/** The subject Apple named in the response's own `id_token`. */
+	verifiedSubject: string;
 	/** Seconds, as Apple reported it. Informational. */
 	expiresIn: number | null;
 }
@@ -93,43 +115,106 @@ export async function exchangeAppleAuthorizationCode(
 		grant_type: "authorization_code",
 	});
 
-	const payload = await postForm(
+	const response = await postForm(
 		APPLE_TOKEN_URL,
 		body,
 		input.fetchImpl ?? fetch,
 	);
 
+	if (!response.ok) {
+		// Only here — on the token endpoint — is an OAuth error code read, and
+		// only to tell "this code is bad" from "Apple is having a bad time".
+		// It is never read as evidence that something succeeded.
+		throw new AppleExchangeError(classifyExchangeError(response));
+	}
+
+	const payload = parseJsonObject(response.body);
+
 	const refreshToken = payload.refresh_token;
 	if (typeof refreshToken !== "string" || refreshToken.length === 0) {
-		// Without it there is nothing to revoke at deletion, which is the only
-		// reason this exchange happens. Accepting the sign-in anyway would
-		// quietly create an account that cannot meet Apple's requirement.
-		throw new AppleExchangeError("malformedResponse");
-	}
-	if (payload.token_type !== undefined && !isBearer(payload.token_type)) {
+		// Nothing was issued, so there is nothing to compensate. Without a
+		// refresh token there is also nothing to revoke at deletion, which is
+		// the only reason this exchange happens — so the sign-in cannot be
+		// accepted either.
 		throw new AppleExchangeError("malformedResponse");
 	}
 
-	// Apple normally returns an id_token here too. When it does, it is a
-	// second signed statement about who this is — and it must name the same
-	// person the client already proved, or the code belonged to someone else.
-	if (payload.id_token !== undefined) {
-		await assertIdTokenSubject(payload.id_token, input, now);
+	// ─────────────────────────────────────────────────────────────────────
+	// Apple has now issued a live refresh token, and this function owns its
+	// lifecycle from here.
+	//
+	// Every remaining check can fail, and each one used to `throw` straight
+	// past the caller — which left the token valid at Apple with nothing on
+	// our side holding it: unrevokable at account deletion, and invisible.
+	// So from this point failures go through `abandon`, which hands the token
+	// back to Apple before rejecting.
+	// ─────────────────────────────────────────────────────────────────────
+	const abandon = async (
+		failure: AppleExchangeFailure,
+	): Promise<never> => {
+		const compensation = await revokeAppleRefreshToken({
+			refreshToken,
+			config: input.config,
+			fetchImpl: input.fetchImpl,
+			now,
+		});
+		throw new AppleExchangeError(failure, compensation);
+	};
+
+	if (payload.token_type !== undefined && !isBearer(payload.token_type)) {
+		await abandon("malformedResponse");
+	}
+	if (payload.expires_in !== undefined && typeof payload.expires_in !== "number") {
+		await abandon("malformedResponse");
+	}
+
+	// `id_token` is REQUIRED, not "verified if present". Treating it as
+	// optional means an attacker who can suppress it — or an Apple response
+	// shape nobody expected — skips the only check that proves this code
+	// belonged to the person whose identity token arrived with it.
+	//
+	// `access_token` is deliberately ignored and never stored: nothing here
+	// calls an Apple API on the user's behalf, so keeping one would be holding
+	// a credential for no reason.
+	let verifiedSubject: string;
+	try {
+		verifiedSubject = await verifyExchangeIdToken(payload.id_token, input, now);
+	} catch {
+		return abandon("malformedResponse");
+	}
+
+	if (verifiedSubject !== input.expectedSubject) {
+		// The attack this closes: a victim's authorization code paired with the
+		// attacker's own identity token. Nothing is written, and the token the
+		// attacker just caused Apple to mint does not survive the attempt.
+		return abandon("subjectMismatch");
 	}
 
 	return {
 		refreshToken,
+		verifiedSubject,
 		expiresIn:
 			typeof payload.expires_in === "number" ? payload.expires_in : null,
 	};
 }
 
+/**
+ * Why a revocation attempt did not confirm.
+ *
+ * There is deliberately no "already revoked" outcome. Apple answers 2xx when
+ * it accepts a revoke, including for a token it has already forgotten, so a
+ * non-2xx is never evidence that the token is gone.
+ */
 export type AppleRevocationOutcome =
+	/** Apple returned 2xx. The only outcome that means revoked. */
 	| { status: "revoked" }
-	/** Apple no longer recognises the token: the end state we wanted anyway. */
-	| { status: "alreadyInvalid" }
-	/** Transient. The caller should keep the account deleting and retry. */
-	| { status: "unavailable" };
+	/** Network trouble or a 5xx. Transient; the credential must be kept. */
+	| { status: "retryable" }
+	/**
+	 * Apple returned 4xx. Not transient, and **not revoked** — a bad client
+	 * secret or a malformed request says nothing about the token's state.
+	 */
+	| { status: "rejected" };
 
 export interface AppleRevocationInput {
 	refreshToken: string;
@@ -141,9 +226,18 @@ export interface AppleRevocationInput {
 /**
  * Revokes a refresh token at Apple.
  *
+ * **Success is HTTP 2xx and nothing else.** An earlier version read
+ * `invalid_grant` out of a 400 body and called it "already revoked". That
+ * inference is wrong and it is dangerous: `invalid_grant` from this endpoint
+ * can equally mean the token was issued to a different client, or that the
+ * request was malformed. Apple answers 2xx when it *accepts* a revoke —
+ * including for a token it has already forgotten — so there is no case where
+ * a non-2xx has to be read as success, and every case where doing so records
+ * a revocation that never happened. That is precisely the failure Apple's
+ * requirement exists to prevent.
+ *
  * Returns an outcome rather than throwing, because the caller — account
- * deletion — must make a different decision for each one and must never
- * treat "Apple is down" as "revoked".
+ * deletion — must make a different decision for each one.
  */
 export async function revokeAppleRefreshToken(
 	input: AppleRevocationInput,
@@ -154,9 +248,9 @@ export async function revokeAppleRefreshToken(
 	try {
 		clientSecret = await createAppleClientSecret(input.config, now);
 	} catch {
-		// A broken key is our problem and is fixable; it must not be recorded
-		// as a successful revocation.
-		return { status: "unavailable" };
+		// A broken key is our problem and is fixable; it must never be
+		// recorded as a successful revocation.
+		return { status: "retryable" };
 	}
 
 	const body = new URLSearchParams({
@@ -166,29 +260,37 @@ export async function revokeAppleRefreshToken(
 		token_type_hint: "refresh_token",
 	});
 
+	let response: RawResponse;
 	try {
-		await postForm(APPLE_REVOKE_URL, body, input.fetchImpl ?? fetch, {
-			allowEmptyBody: true,
-		});
-		return { status: "revoked" };
-	} catch (error) {
-		if (error instanceof AppleExchangeError) {
-			// Apple answers `invalid_grant` for a token it has already
-			// forgotten. The account is in the state deletion wanted.
-			if (error.failure === "invalidGrant") return { status: "alreadyInvalid" };
-		}
-		return { status: "unavailable" };
+		response = await postForm(
+			APPLE_REVOKE_URL,
+			body,
+			input.fetchImpl ?? fetch,
+		);
+	} catch {
+		return { status: "retryable" };
 	}
+
+	// The whole decision, in one place, reading only the status line. The
+	// body is never consulted — not for success, and not to soften a failure.
+	if (response.ok) return { status: "revoked" };
+	if (response.status >= 500) return { status: "retryable" };
+	return { status: "rejected" };
 }
 
 // MARK: - Internals
+
+interface RawResponse {
+	ok: boolean;
+	status: number;
+	body: string;
+}
 
 async function postForm(
 	url: string,
 	body: URLSearchParams,
 	fetchImpl: typeof fetch,
-	options: { allowEmptyBody?: boolean } = {},
-): Promise<Record<string, unknown>> {
+): Promise<RawResponse> {
 	let response: Response;
 	try {
 		response = await fetchImpl(url, {
@@ -201,22 +303,28 @@ async function postForm(
 	}
 
 	const text = await response.text().catch(() => "");
+	return { ok: response.ok, status: response.status, body: text };
+}
 
-	if (!response.ok) {
-		// Apple's OAuth errors are a documented small set. Anything else — a
-		// 5xx, an HTML error page from a proxy — is an outage, not a verdict
-		// on the credential. Apple's body itself is never surfaced.
-		const code = readErrorCode(text);
-		if (code === "invalid_grant") throw new AppleExchangeError("invalidGrant");
-		if (code === "invalid_client") throw new AppleExchangeError("invalidClient");
-		throw new AppleExchangeError("providerUnavailable");
-	}
+/**
+ * Maps a failed `/auth/token` response.
+ *
+ * A 5xx is an outage whatever the body says — an error code inside a 500 is
+ * not a verdict on the credential. Only a 4xx carrying a documented OAuth
+ * code is treated as one, and anything else (an HTML page from a proxy, an
+ * empty body) is an outage.
+ */
+function classifyExchangeError(response: RawResponse): AppleExchangeFailure {
+	if (response.status >= 500) return "providerUnavailable";
 
-	if (text.length === 0) {
-		// `/auth/revoke` answers 200 with no body on success.
-		if (options.allowEmptyBody) return {};
-		throw new AppleExchangeError("malformedResponse");
-	}
+	const code = readErrorCode(response.body);
+	if (code === "invalid_grant") return "invalidGrant";
+	if (code === "invalid_client") return "invalidClient";
+	return "providerUnavailable";
+}
+
+function parseJsonObject(text: string): Record<string, unknown> {
+	if (text.length === 0) throw new AppleExchangeError("malformedResponse");
 
 	let parsed: unknown;
 	try {
@@ -247,52 +355,38 @@ function isBearer(value: unknown): boolean {
 }
 
 /**
- * Verifies the `id_token` Apple returned and checks it names the same person
- * as the identity token the client proved.
+ * Fully verifies the `id_token` Apple returned and yields its subject.
  *
- * A mismatch means the authorization code did not belong to the identity
- * token presented alongside it — exactly the shape of an attack that pairs a
- * victim's code with the attacker's own token. Nothing is stored and no
- * session is issued.
+ * The same verifier the app's identity token goes through, minus the nonce:
+ * this token is not bound to one. That request is authenticated by the client
+ * secret, and Apple does not document a nonce on the exchange response, so
+ * demanding one would reject every real exchange. The omission is explicit
+ * here rather than hidden inside a shared verifier that quietly stopped
+ * checking.
  */
-async function assertIdTokenSubject(
+async function verifyExchangeIdToken(
 	idToken: unknown,
 	input: AppleTokenExchangeInput,
 	now: number,
-): Promise<void> {
+): Promise<string> {
 	if (typeof idToken !== "string" || idToken.length === 0) {
 		throw new AppleExchangeError("malformedResponse");
 	}
 
-	let subject: string;
 	try {
-		const decoded = decodeJwt(idToken);
-		const kid = decoded.header.kid;
-		if (!kid) throw new Error("no kid");
-		const key = await input.jwks.keyForId(kid);
-		if (!key) throw new Error("unknown key");
-		await verifyRs256(decoded, key);
-
-		const claims = decoded.claims;
-		if (claims.iss !== APPLE_ISSUER) throw new Error("issuer");
-		const audience = claims.aud;
-		const audienceOk = Array.isArray(audience)
-			? audience.includes(input.config.clientId)
-			: audience === input.config.clientId;
-		if (!audienceOk) throw new Error("audience");
-		if (typeof claims.exp !== "number" || now >= claims.exp + 60) {
-			throw new Error("expired");
+		const verified = await verifyAppleIdentityClaims({
+			token: idToken,
+			audience: input.config.clientId,
+			jwks: input.jwks,
+			now,
+		});
+		return verified.subject;
+	} catch (error) {
+		// A response we cannot verify is a response we do not act on. The
+		// specific claim that failed stays in the log, not in the outcome.
+		if (error instanceof AppleTokenInvalidError) {
+			throw new AppleExchangeError("malformedResponse");
 		}
-		if (typeof claims.sub !== "string" || claims.sub.length === 0) {
-			throw new Error("sub");
-		}
-		subject = claims.sub;
-	} catch {
-		// A response we cannot verify is a response we do not act on.
 		throw new AppleExchangeError("malformedResponse");
-	}
-
-	if (subject !== input.expectedSubject) {
-		throw new AppleExchangeError("subjectMismatch");
 	}
 }
