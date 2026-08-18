@@ -5,6 +5,7 @@ import {
 	requireSession,
 } from "../../src/api/middleware/requireSession";
 import {
+	AccountUnavailableError,
 	findOrCreateAccountForIdentity,
 	markUserDeleting,
 } from "../../src/api/db/accounts";
@@ -398,6 +399,92 @@ describe("POST /v1/auth/logout-all", () => {
 		expect(
 			(await makeApp(db)("/v1/auth/logout-all", { token: again.token })).status,
 		).toBe(200);
+		db.close();
+	});
+});
+
+// MARK: - Regression against the session-creation trigger (from #170)
+
+describe("session creation under the active-user trigger", () => {
+	it("still issues sessions normally for an active user", async () => {
+		// The trigger added in migration 0003 must not make the ordinary path
+		// any harder: several sessions on one active account still work.
+		const db = await createTestDatabase();
+		const { account, token } = await signedInUser(db);
+		const second = await createSession(db, account.user.id, { now: NOW });
+		const third = await createSession(db, account.user.id, { now: NOW });
+
+		for (const live of [token, second.token, third.token]) {
+			expect(await findActiveSessionByToken(db, live, NOW + 1)).not.toBeNull();
+		}
+		expect(await db.count("sessions")).toBe(3);
+		db.close();
+	});
+
+	it("refuses a new session for a deleting user as a failure, not a silent no-op", async () => {
+		// Before the trigger this INSERT wrote zero rows and *succeeded*. The
+		// distinction matters to every batched caller, so it is pinned here as
+		// well as in the Apple sign-in suite.
+		const db = await createTestDatabase();
+		const { account } = await signedInUser(db);
+		await markUserDeleting(db, account.user.id, NOW);
+
+		await expect(
+			createSession(db, account.user.id, { now: NOW }),
+		).rejects.toBeInstanceOf(AccountUnavailableError);
+		db.close();
+	});
+
+	it("keeps logout and logout-all working after the trigger change", async () => {
+		const db = await createTestDatabase();
+		const { account, token } = await signedInUser(db);
+		const second = await createSession(db, account.user.id, { now: NOW });
+
+		expect((await makeApp(db)("/v1/auth/logout", { token })).status).toBe(200);
+		expect(await findActiveSessionByToken(db, token, NOW + 1)).toBeNull();
+		expect(
+			await findActiveSessionByToken(db, second.token, NOW + 1),
+		).not.toBeNull();
+
+		expect(
+			(await makeApp(db)("/v1/auth/logout-all", { token: second.token })).status,
+		).toBe(200);
+		expect(await findActiveSessionByToken(db, second.token, NOW + 1)).toBeNull();
+		db.close();
+	});
+
+	it("stops honouring a token once the user row is gone", async () => {
+		// Hard deletion cascades sessions away, so the join in
+		// `findActiveSessionByToken` has nothing to match — a token cannot
+		// outlive the account even by one request.
+		const db = await createTestDatabase();
+		const { account, token } = await signedInUser(db);
+
+		await db.prepare(`DELETE FROM users WHERE id = ?`).bind(account.user.id).run();
+
+		expect(await findActiveSessionByToken(db, token, NOW + 1)).toBeNull();
+		expect((await makeApp(db)("/v1/me", { token })).status).toBe(401);
+		expect(await db.count("sessions")).toBe(0);
+		db.close();
+	});
+
+	it("answers a deleted account exactly like an unknown token", async () => {
+		// Otherwise the response is an oracle for "this account once existed".
+		const db = await createTestDatabase();
+		const { account, token } = await signedInUser(db);
+		await db.prepare(`DELETE FROM users WHERE id = ?`).bind(account.user.id).run();
+
+		const deleted = await makeApp(db)("/v1/me", { token });
+		const unknown = await makeApp(db)("/v1/me", { token: "never-issued-token" });
+
+		const normalise = async (response: Response) => {
+			const json = (await response.json()) as {
+				error: { code: string; message: string; correlationId: string };
+			};
+			return JSON.stringify({ ...json.error, correlationId: "" });
+		};
+		expect(deleted.status).toBe(unknown.status);
+		expect(await normalise(deleted)).toBe(await normalise(unknown));
 		db.close();
 	});
 });

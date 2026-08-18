@@ -7,20 +7,33 @@ import {
 	revokeAppleRefreshToken,
 } from "../../src/api/auth/appleTokenExchange";
 import { StaticJwksProvider } from "../../src/api/auth/jwks";
-import { createTestSigner } from "./support/testSigner";
+import { type TestSigner, createTestSigner } from "./support/testSigner";
 import {
 	TEST_APPLE_CLIENT_ID,
 	appleErrorResponse,
 	appleTokenResponse,
+	appleTokenResponseFor,
 	createTestAppleSigningKey,
 	fakeAppleEndpoint,
+	signExchangeIdToken,
 } from "./support/appleProduction";
 
 const NOW = 1_800_000_100;
 const SUBJECT = "000123.abcdef.1234";
 
+/**
+ * Drives a real exchange against a fake Apple.
+ *
+ * `responder` receives the signer whose JWKS the verifier is given, so a test
+ * can mint an `id_token` that actually verifies — or deliberately one that
+ * does not. The default is the happy path: a properly signed `id_token` for
+ * the same subject the caller claims to have proved.
+ */
 async function exchangeWith(
-	responder: Parameters<typeof fakeAppleEndpoint>[0],
+	responder?: (context: {
+		signer: TestSigner;
+		key: Awaited<ReturnType<typeof createTestAppleSigningKey>>;
+	}) => Response | Promise<Response>,
 	overrides: {
 		expectedSubject?: string;
 		jwks?: StaticJwksProvider;
@@ -28,21 +41,30 @@ async function exchangeWith(
 	} = {},
 ) {
 	const key = await createTestAppleSigningKey();
-	const endpoint = fakeAppleEndpoint(responder);
+	const signer = await createTestSigner();
+	const endpoint = fakeAppleEndpoint(() =>
+		(responder ??
+			(({ signer: s, key: k }) =>
+				appleTokenResponseFor(s, {
+					sub: SUBJECT,
+					audience: k.config.clientId,
+					now: NOW,
+				})))({ signer, key }),
+	);
 	const result = exchangeAppleAuthorizationCode({
 		authorizationCode: overrides.code ?? "test-authorization-code",
 		config: key.config,
 		expectedSubject: overrides.expectedSubject ?? SUBJECT,
-		jwks: overrides.jwks ?? new StaticJwksProvider([]),
+		jwks: overrides.jwks ?? signer.jwks,
 		fetchImpl: endpoint.fetchImpl,
 		now: NOW,
 	});
-	return { result, endpoint, key };
+	return { result, endpoint, key, signer };
 }
 
 describe("exchanging the authorization code", () => {
 	it("returns the refresh token Apple issued", async () => {
-		const { result } = await exchangeWith(() => appleTokenResponse());
+		const { result } = await exchangeWith();
 		await expect(result).resolves.toMatchObject({
 			refreshToken: "test-refresh-token",
 			expiresIn: 3600,
@@ -52,7 +74,7 @@ describe("exchanging the authorization code", () => {
 	it("posts to Apple's fixed token endpoint and nowhere else", async () => {
 		// The URL is a module constant. Nothing from the request reaches
 		// `fetch`, so a caller cannot steer an outbound call.
-		const { result, endpoint } = await exchangeWith(() => appleTokenResponse());
+		const { result, endpoint } = await exchangeWith();
 		await result;
 
 		expect(endpoint.requests).toHaveLength(1);
@@ -60,7 +82,7 @@ describe("exchanging the authorization code", () => {
 	});
 
 	it("sends the grant Apple documents, with a freshly signed client secret", async () => {
-		const { result, endpoint } = await exchangeWith(() => appleTokenResponse());
+		const { result, endpoint } = await exchangeWith();
 		await result;
 
 		const form = endpoint.requests[0]?.form ?? {};
@@ -266,17 +288,140 @@ describe("nothing leaks", () => {
 	});
 });
 
-describe("revoking a refresh token", () => {
-	it("posts to Apple's fixed revoke endpoint with the token hint", async () => {
-		const key = await createTestAppleSigningKey();
-		const endpoint = fakeAppleEndpoint(() => new Response("", { status: 200 }));
+describe("the id_token is required, not optional", () => {
+	it("refuses a success response that omits id_token entirely", async () => {
+		// Treating it as optional means an attacker who can suppress it — or
+		// an Apple response shape nobody expected — skips the only check that
+		// proves this code belonged to the person whose identity token arrived
+		// with it. Make it optional again and this fails.
+		const { result } = await exchangeWith(() => appleTokenResponse());
+		await expect(result).rejects.toMatchObject({ failure: "malformedResponse" });
+	});
 
+	it("refuses an empty or non-string id_token", async () => {
+		for (const id_token of ["", 12345, null, ["a"], { a: 1 }]) {
+			const { result } = await exchangeWith(() =>
+				appleTokenResponse({ id_token }),
+			);
+			await expect(result).rejects.toMatchObject({
+				failure: "malformedResponse",
+			});
+		}
+	});
+
+	it("refuses a malformed id_token", async () => {
+		for (const id_token of ["not.a.jwt", "onlyonesegment", "a.b"]) {
+			const { result } = await exchangeWith(() =>
+				appleTokenResponse({ id_token }),
+			);
+			await expect(result).rejects.toMatchObject({
+				failure: "malformedResponse",
+			});
+		}
+	});
+
+	it("refuses one signed by a key Apple does not publish", async () => {
+		const { result } = await exchangeWith(async ({ signer, key }) => {
+			const impostor = await createTestSigner(signer.kid);
+			return appleTokenResponse({
+				id_token: await signExchangeIdToken(impostor, {
+					sub: SUBJECT,
+					audience: key.config.clientId,
+					now: NOW,
+				}),
+			});
+		});
+		await expect(result).rejects.toMatchObject({ failure: "malformedResponse" });
+	});
+
+	it("refuses a wrong issuer, audience, expiry or missing sub", async () => {
+		const bad: Array<[string, Record<string, unknown>]> = [
+			["issuer", { iss: "https://accounts.google.com" }],
+			["audience", { aud: "com.someone.else" }],
+			["expired", { exp: NOW - 3600 }],
+			["missing sub", { sub: undefined }],
+			["empty sub", { sub: "" }],
+			["non-string sub", { sub: 12345 }],
+		];
+		for (const [label, overrides] of bad) {
+			const { result } = await exchangeWith(({ signer, key }) =>
+				appleTokenResponseFor(signer, {
+					sub: SUBJECT,
+					audience: key.config.clientId,
+					now: NOW,
+					idTokenOverrides: overrides,
+				}),
+			);
+			await expect(result, label).rejects.toMatchObject({
+				failure: "malformedResponse",
+			});
+		}
+	});
+
+	it("does NOT demand a nonce on the exchange id_token", async () => {
+		// Apple does not put one there — that request is authenticated by the
+		// client secret. Requiring one would reject every real exchange.
+		const { result } = await exchangeWith(({ signer, key }) =>
+			appleTokenResponseFor(signer, {
+				sub: SUBJECT,
+				audience: key.config.clientId,
+				now: NOW,
+			}),
+		);
+		await expect(result).resolves.toMatchObject({ verifiedSubject: SUBJECT });
+	});
+});
+
+describe("subject binding between the two tokens", () => {
+	it("accepts only an exact match", async () => {
+		const { result } = await exchangeWith(undefined, {
+			expectedSubject: SUBJECT,
+		});
+		await expect(result).resolves.toMatchObject({ verifiedSubject: SUBJECT });
+	});
+
+	it("refuses any mismatch, however small", async () => {
+		// The attack: pair a victim's authorization code with the attacker's
+		// own identity token. Nothing is stored and no session is issued.
+		for (const claimed of [
+			"000123.abcdef.9999",
+			"000123.abcdef.1234 ",
+			"000123.ABCDEF.1234",
+			"000123.abcdef.123",
+			"",
+		]) {
+			const { result } = await exchangeWith(undefined, {
+				expectedSubject: claimed,
+			});
+			await expect(result, claimed).rejects.toBeInstanceOf(AppleExchangeError);
+		}
+	});
+
+	it("reports a mismatch distinctly from a malformed response", async () => {
+		const { result } = await exchangeWith(undefined, {
+			expectedSubject: "someone-else",
+		});
+		await expect(result).rejects.toMatchObject({ failure: "subjectMismatch" });
+	});
+});
+
+describe("revoking a refresh token — success is HTTP 2xx and nothing else", () => {
+	async function revokeWith(responder: Parameters<typeof fakeAppleEndpoint>[0]) {
+		const key = await createTestAppleSigningKey();
+		const endpoint = fakeAppleEndpoint(responder);
 		const outcome = await revokeAppleRefreshToken({
 			refreshToken: "stored-refresh-token",
 			config: key.config,
 			fetchImpl: endpoint.fetchImpl,
 			now: NOW,
 		});
+		return { outcome, endpoint };
+	}
+
+	it("posts to Apple's fixed revoke endpoint with the token hint", async () => {
+		const { outcome, endpoint } = await revokeWith(
+			() => new Response("", { status: 200 }),
+		);
 
 		expect(outcome).toEqual({ status: "revoked" });
 		expect(endpoint.requests[0]?.url).toBe("https://appleid.apple.com/auth/revoke");
@@ -284,53 +429,105 @@ describe("revoking a refresh token", () => {
 		expect(endpoint.requests[0]?.form.token_type_hint).toBe("refresh_token");
 	});
 
-	it("treats a token Apple has already forgotten as done", async () => {
-		const key = await createTestAppleSigningKey();
-		const endpoint = fakeAppleEndpoint(() => appleErrorResponse("invalid_grant"));
-
-		await expect(
-			revokeAppleRefreshToken({
-				refreshToken: "t",
-				config: key.config,
-				fetchImpl: endpoint.fetchImpl,
-				now: NOW,
-			}),
-		).resolves.toEqual({ status: "alreadyInvalid" });
-	});
-
-	it("never reports an outage as a successful revocation", async () => {
-		// Recording a revocation that did not happen is exactly the failure
-		// Apple's requirement exists to prevent.
-		const key = await createTestAppleSigningKey();
-		for (const responder of [
-			() => new Response("", { status: 503 }),
-			() => appleErrorResponse("invalid_client"),
-		]) {
-			const endpoint = fakeAppleEndpoint(responder);
-			await expect(
-				revokeAppleRefreshToken({
-					refreshToken: "t",
-					config: key.config,
-					fetchImpl: endpoint.fetchImpl,
-					now: NOW,
-				}),
-			).resolves.toEqual({ status: "unavailable" });
+	it("accepts any 2xx, not just 200", async () => {
+		for (const status of [200, 201, 204]) {
+			const { outcome } = await revokeWith(
+				() => new Response(status === 204 ? null : "", { status }),
+			);
+			expect(outcome, `status ${status}`).toEqual({ status: "revoked" });
 		}
 	});
 
-	it("reports unavailable when the client secret cannot be signed", async () => {
+	it("does NOT treat a 400 invalid_grant as already revoked", async () => {
+		// This is the regression that matters. `invalid_grant` from the revoke
+		// endpoint can equally mean the token belongs to a different client or
+		// that the request was malformed — it is not evidence the token is
+		// gone. Apple answers 2xx when it accepts a revoke, including for a
+		// token it has already forgotten, so nothing is lost by refusing to
+		// infer success from an error body.
+		//
+		// Restore the old `invalid_grant → alreadyInvalid → revoked` path and
+		// this fails.
+		const { outcome } = await revokeWith(() => appleErrorResponse("invalid_grant"));
+		expect(outcome).toEqual({ status: "rejected" });
+		expect(outcome.status).not.toBe("revoked");
+	});
+
+	it("treats every other 4xx as rejected, never revoked", async () => {
+		const cases: Array<[number, Response]> = [
+			[400, appleErrorResponse("invalid_request")],
+			[400, appleErrorResponse("invalid_client")],
+			[401, appleErrorResponse("invalid_client", 401)],
+			[403, new Response("forbidden", { status: 403 })],
+			[404, new Response("", { status: 404 })],
+			[429, new Response("slow down", { status: 429 })],
+		];
+		for (const [label, response] of cases) {
+			const { outcome } = await revokeWith(() => response.clone());
+			expect(outcome, `status ${label}`).toEqual({ status: "rejected" });
+		}
+	});
+
+	it("treats a 5xx as a service failure whatever the body claims", async () => {
+		// A 500 carrying an `invalid_grant` body is still an outage. Reading
+		// the code out of it would turn a bad minute at Apple into a permanent
+		// "this token is gone".
+		for (const response of [
+			() => appleErrorResponse("invalid_grant", 500),
+			() => appleErrorResponse("invalid_client", 502),
+			() => new Response("", { status: 503 }),
+			() => new Response("<html>gateway</html>", { status: 504 }),
+		]) {
+			const { outcome } = await revokeWith(response);
+			expect(outcome).toEqual({ status: "retryable" });
+		}
+	});
+
+	it("treats a malformed error body as a failure, not a success", async () => {
+		for (const body of ["not json", "[1,2,3]", "", "null"]) {
+			const { outcome } = await revokeWith(
+				() => new Response(body, { status: 400 }),
+			);
+			expect(outcome).toEqual({ status: "rejected" });
+		}
+	});
+
+	it("treats an unreachable Apple as retryable", async () => {
+		const key = await createTestAppleSigningKey();
+		const outcome = await revokeAppleRefreshToken({
+			refreshToken: "t",
+			config: key.config,
+			fetchImpl: (async () => {
+				throw new Error("network down");
+			}) as unknown as typeof fetch,
+			now: NOW,
+		});
+		expect(outcome).toEqual({ status: "retryable" });
+	});
+
+	it("reports retryable when the client secret cannot be signed", async () => {
 		const key = await createTestAppleSigningKey({ privateKeyPem: "" });
 		const endpoint = fakeAppleEndpoint(() => new Response("", { status: 200 }));
 
-		await expect(
-			revokeAppleRefreshToken({
-				refreshToken: "t",
-				config: key.config,
-				fetchImpl: endpoint.fetchImpl,
-				now: NOW,
-			}),
-		).resolves.toEqual({ status: "unavailable" });
-		// And it did not reach Apple at all.
+		const outcome = await revokeAppleRefreshToken({
+			refreshToken: "t",
+			config: key.config,
+			fetchImpl: endpoint.fetchImpl,
+			now: NOW,
+		});
+
+		expect(outcome).toEqual({ status: "retryable" });
+		// And it never reached Apple.
 		expect(endpoint.requests).toHaveLength(0);
+	});
+
+	it("never returns revoked for any non-2xx status", async () => {
+		// The invariant stated directly, swept across the range.
+		for (const status of [400, 401, 403, 404, 409, 429, 500, 502, 503, 504]) {
+			const { outcome } = await revokeWith(
+				() => new Response(JSON.stringify({ error: "invalid_grant" }), { status }),
+			);
+			expect(outcome.status, `status ${status}`).not.toBe("revoked");
+		}
 	});
 });

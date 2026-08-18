@@ -26,16 +26,31 @@ import {
 } from "./appleTokenExchange";
 
 export type RevokeIdentityOutcome =
-	/** Apple confirmed it, or had already forgotten the token. Material erased. */
+	/**
+	 * **Apple answered HTTP 2xx.** The only outcome that means the token is
+	 * gone, and the only one that erases the stored material.
+	 */
 	| { status: "revoked" }
-	/** No credential to revoke — never stored, or already done. Nothing to do. */
+	/** No credential to revoke — never stored, or already erased. */
 	| { status: "nothingToRevoke" }
-	/** Transient: Apple unreachable. Keep the account deleting and retry. */
-	| { status: "retryable"; reason: "providerUnavailable" }
+	/**
+	 * Not revoked, and the credential is kept so a retry still has it.
+	 *
+	 * `providerUnavailable` — network trouble or a 5xx.
+	 * `providerRejected`    — Apple answered 4xx. Not transient in the "wait
+	 *   and it heals" sense (it usually means a misconfigured client secret),
+	 *   but emphatically **not** evidence the token was revoked, so the safe
+	 *   response is still to keep the credential and try again. The distinct
+	 *   reason is what tells an operator which of the two they are looking at.
+	 */
+	| { status: "retryable"; reason: "providerUnavailable" | "providerRejected" }
 	/**
 	 * The row exists but cannot be opened — wrong key version, tampering, or
-	 * a ciphertext moved between identities. Not retryable by waiting, and
+	 * a ciphertext moved between identities. Not fixable by waiting, and
 	 * deliberately not silently swallowed: an operator has to know.
+	 *
+	 * This does **not** mean the token was revoked at Apple. It means we can
+	 * no longer produce the credential needed to try.
 	 */
 	| { status: "unrevocable"; reason: "decryptFailed" };
 
@@ -76,13 +91,18 @@ export async function revokeAppleIdentityCredential(
 		now,
 	});
 
-	if (outcome.status === "unavailable") {
-		// The material stays put: a retry needs it.
-		return { status: "retryable", reason: "providerUnavailable" };
+	if (outcome.status !== "revoked") {
+		// Anything short of an Apple 2xx leaves the material exactly where it
+		// is. A retry needs it, and erasing it here would destroy the only
+		// copy of a credential that is, as far as anyone knows, still live.
+		return {
+			status: "retryable",
+			reason:
+				outcome.status === "rejected" ? "providerRejected" : "providerUnavailable",
+		};
 	}
 
-	// Both "revoked" and "alreadyInvalid" reach the same end state — Apple no
-	// longer honours the token — so both erase it here.
+	// Only now: Apple returned 2xx, so the token really is gone.
 	await markCredentialRevoked(input.db, input.authIdentityId, now);
 	return { status: "revoked" };
 }

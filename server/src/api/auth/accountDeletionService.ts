@@ -102,19 +102,34 @@ export async function processAccountDeletion(
 		});
 
 		if (outcome.status === "retryable") {
-			blockedBy = "provider_unavailable";
+			// A 5xx or a network failure may heal; a 4xx usually needs an
+			// operator. Neither is evidence the token was revoked, so both
+			// block completion — only the recorded code differs, so whoever
+			// looks later can tell which they are dealing with.
+			blockedBy =
+				outcome.reason === "providerRejected"
+					? "provider_rejected"
+					: "provider_unavailable";
 			continue;
 		}
 		if (outcome.status === "unrevocable") {
-			// The stored ciphertext cannot be opened — a lost key, or a row
-			// that was tampered with. Waiting cannot fix this, so retrying
-			// forever would only hold the user's data hostage to a blob nobody
-			// can read. The deletion proceeds and the reason is recorded, on
-			// the reasoning that an unreadable ciphertext is not a usable
-			// credential for us or for anyone with the database.
+			// The stored ciphertext cannot be opened — a lost key, a wrong key
+			// version, a corrupt row, or an AAD mismatch.
 			//
-			// It is still a real failure to revoke at Apple, so it is logged
-			// with a fixed code for an operator rather than passed over.
+			// An earlier version deleted the account anyway, reasoning that an
+			// unreadable ciphertext is not a usable credential. That reasoning
+			// is about *our* copy, and it answers the wrong question. The
+			// credential at Apple is unaffected by whether we can read our
+			// copy of it: the grant is still live, and hard-deleting here would
+			// destroy the only record that it exists while reporting the
+			// deletion as complete. Apple's requirement is that the token is
+			// revoked, and we would have neither revoked it nor be able to.
+			//
+			// So the deletion stays owed. The account remains `deleting`, its
+			// sessions remain revoked, sign-in remains impossible, and the
+			// credential material is kept — because it is the only thing that
+			// could ever be recovered if the key is restored. An operator gets
+			// a fixed code with no PII in it.
 			console.error(
 				JSON.stringify({
 					event: "account_deletion_credential_unreadable",
@@ -122,8 +137,11 @@ export async function processAccountDeletion(
 					// No user id, no identity id, no ciphertext.
 				}),
 			);
+			blockedBy = "credential_unreadable";
+			continue;
 		}
-		// "revoked" and "nothingToRevoke" both mean: nothing left to do here.
+		// "revoked" (an Apple 2xx) and "nothingToRevoke" (no credential ever
+		// stored) are the only two outcomes that leave nothing owed.
 	}
 
 	if (blockedBy) {
@@ -131,8 +149,17 @@ export async function processAccountDeletion(
 		return { status: "pending", reason: blockedBy };
 	}
 
-	// Only now. Every credential has been dealt with, so the cascade cannot
-	// orphan an Apple grant.
+	// Only now, and only under these conditions:
+	//
+	//   * every Apple credential was revoked with a confirmed HTTP 2xx, or
+	//   * there was no provider credential to revoke in the first place.
+	//
+	// Google reaches the second case by construction: the ID token flow never
+	// issues a refresh token, so there is nothing to revoke and no revocation
+	// is invented for it.
+	//
+	// Anything else set `blockedBy` above and returned already. The cascade
+	// therefore cannot destroy a record of an Apple grant that is still live.
 	await hardDeleteUser(deps.db, userId);
 	return { status: "completed" };
 }

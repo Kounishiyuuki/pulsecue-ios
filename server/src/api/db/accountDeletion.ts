@@ -32,7 +32,20 @@ export const DELETION_RETRY_BACKOFF_SECONDS = 15 * 60;
  * this row outlives the request that wrote it.
  */
 export type DeletionErrorCode =
+	/** Network trouble or a 5xx from the provider. Retrying may well work. */
 	| "provider_unavailable"
+	/**
+	 * The provider answered 4xx. Not transient in the "wait and it heals"
+	 * sense — usually a misconfigured client secret — but still **not**
+	 * evidence the token was revoked, so the deletion stays owed.
+	 */
+	| "provider_rejected"
+	/**
+	 * A credential row exists that cannot be decrypted: lost key, wrong
+	 * version, corrupt ciphertext, or an AAD mismatch. Retrying cannot fix it
+	 * and an operator has to intervene — but the deletion still cannot be
+	 * called done, because Apple was never asked to revoke anything.
+	 */
 	| "credential_unreadable";
 
 export async function findAccountDeletion(
