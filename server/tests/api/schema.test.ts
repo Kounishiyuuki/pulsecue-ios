@@ -15,9 +15,11 @@ describe("account schema", () => {
 			"auth_nonces",
 			"provider_credentials",
 			"sessions",
+			"step_results",
 			"user_change_seq",
 			"user_profiles",
 			"users",
+			"workout_sessions",
 		]);
 		db.close();
 	});
@@ -41,6 +43,9 @@ describe("account schema", () => {
 			"sessions",
 			"user_change_seq",
 			"account_deletions",
+			// Synced data is user-owned too, and must go with the account.
+			"workout_sessions",
+			"step_results",
 		];
 		for (const table of userOwned) {
 			const ddl = (results.find((r) => r.name === table)?.sql ?? "").toLowerCase();
