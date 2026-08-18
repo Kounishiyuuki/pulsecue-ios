@@ -12,6 +12,7 @@ describe("account schema", () => {
 		expect(results.map((r) => r.name)).toEqual([
 			"auth_identities",
 			"auth_nonces",
+			"provider_credentials",
 			"sessions",
 			"user_change_seq",
 			"user_profiles",
@@ -20,16 +21,23 @@ describe("account schema", () => {
 		db.close();
 	});
 
-	it("stores no provider token column anywhere", async () => {
+	it("stores no plaintext provider credential anywhere", async () => {
 		// The schema must not become a place where credentials accumulate.
+		//
+		// This test used to forbid `refresh_token` outright. That is no longer
+		// the right invariant: Apple requires revocation at account deletion,
+		// which needs a refresh token, and it can only be obtained during
+		// sign-in. So exactly one refresh token column now exists — and the
+		// invariant is tightened rather than dropped: it must be the encrypted
+		// one, and every *other* provider credential is still forbidden.
 		const db = await createTestDatabase();
 		const { results } = await db
 			.prepare(`SELECT sql FROM sqlite_master WHERE type='table'`)
 			.all<{ sql: string }>();
 		const ddl = results.map((r) => r.sql).join("\n").toLowerCase();
+
 		for (const forbidden of [
 			"access_token",
-			"refresh_token",
 			"id_token",
 			"identity_token",
 			"authorization_code",
@@ -37,6 +45,32 @@ describe("account schema", () => {
 		]) {
 			expect(ddl).not.toContain(forbidden);
 		}
+
+		// The only refresh token column is the encrypted one.
+		const refreshColumns = [...ddl.matchAll(/(\w*refresh_token\w*)/g)].map(
+			(match) => match[1],
+		);
+		expect(new Set(refreshColumns)).toEqual(new Set(["encrypted_refresh_token"]));
+		db.close();
+	});
+
+	it("keeps the encrypted credential's IV and key version beside it", async () => {
+		// Without a stored IV the ciphertext cannot be opened; without a key
+		// version a rotation would orphan every row. Both are part of what
+		// makes the column safe to have at all.
+		const db = await createTestDatabase();
+		const row = await db
+			.prepare(
+				`SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_credentials'`,
+			)
+			.first<{ sql: string }>();
+		const ddl = (row?.sql ?? "").toLowerCase();
+
+		expect(ddl).toContain("encrypted_refresh_token");
+		expect(ddl).toContain("encryption_iv");
+		expect(ddl).toContain("encryption_key_version");
+		// And it disappears with its owner rather than outliving them.
+		expect(ddl).toContain("on delete cascade");
 		db.close();
 	});
 

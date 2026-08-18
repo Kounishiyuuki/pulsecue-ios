@@ -25,14 +25,29 @@ import {
 	NonceStoreUnavailableError,
 	consumeNonce,
 } from "../db/nonces";
-import { createSession } from "../db/sessions";
+import { saveCredentialAndIssueSession } from "../db/providerCredentials";
 import { AppleTokenInvalidError, verifyAppleIdentityToken } from "../auth/apple";
+import type { AppleClientSecretConfig } from "../auth/appleClientSecret";
+import {
+	AppleExchangeError,
+	exchangeAppleAuthorizationCode,
+} from "../auth/appleTokenExchange";
+import type { TokenCipher } from "../crypto/tokenCipher";
 import { JwksFetchError, type JwksProvider } from "../auth/jwks";
 import { JwtMalformedError, JwtSignatureError } from "../auth/jwt";
 import type { ApiEnv } from "../types";
 
 const requestSchema = z.object({
 	identityToken: z.string().min(1).max(8192),
+	/**
+	 * Required, not optional. Apple hands this to the app once per sign-in and
+	 * it is the only way to obtain the refresh token that account deletion
+	 * must revoke. Accepting a sign-in without it would create an account that
+	 * cannot meet Apple's revoke-on-deletion requirement — a problem that
+	 * cannot be repaired later, because the code is single-use and cannot be
+	 * re-requested.
+	 */
+	authorizationCode: z.string().min(1).max(2048),
 	rawNonce: z.string().min(1).max(512),
 	/** Optional label for a future "signed-in devices" screen. */
 	deviceName: z.string().min(1).max(120).optional(),
@@ -41,6 +56,16 @@ const requestSchema = z.object({
 export interface AppleAuthDependencies {
 	jwks: JwksProvider;
 	audience: string;
+	/**
+	 * Null when Apple is not configured for this deployment. Sign-in then
+	 * refuses: without the client secret the code cannot be exchanged, and
+	 * without the exchange the account could not be deleted properly.
+	 */
+	clientSecret: AppleClientSecretConfig | null;
+	/** Null when no encryption key is configured. Same refusal, same reason. */
+	cipher: TokenCipher | null;
+	/** Injectable so the exchange is testable without reaching Apple. */
+	fetchImpl?: typeof fetch;
 	now?: () => number;
 }
 
@@ -52,6 +77,14 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 		const parsed = requestSchema.safeParse(await readJson(c));
 		if (!parsed.success) {
 			return reject(c, correlationId, "malformed_request", 400);
+		}
+
+		// Checked before anything is verified or spent. A deployment that
+		// cannot exchange the code must not consume the user's nonce or create
+		// an account it would be unable to delete properly.
+		const { clientSecret, cipher } = deps;
+		if (!clientSecret || !cipher) {
+			return reject(c, correlationId, "apple_not_configured", 503);
 		}
 
 		let verified: Awaited<ReturnType<typeof verifyAppleIdentityToken>>;
@@ -88,6 +121,18 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				now,
 			});
 
+			// Exchanged before the account is created, and against the subject
+			// the identity token already proved. A code that belongs to someone
+			// else fails here, before any row is written.
+			const exchanged = await exchangeAppleAuthorizationCode({
+				authorizationCode: parsed.data.authorizationCode,
+				config: clientSecret,
+				expectedSubject: verified.subject,
+				jwks: deps.jwks,
+				fetchImpl: deps.fetchImpl,
+				now,
+			});
+
 			const account = await findOrCreateAccountForIdentity(
 				c.env.DB,
 				{
@@ -99,7 +144,18 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				now,
 			);
 
-			const issued = await createSession(c.env.DB, account.user.id, {
+			// One batch: the encrypted refresh token and the session commit
+			// together or not at all. A live session for an account whose
+			// credential was not stored is an account that cannot be deleted
+			// per Apple's requirement, so that state is made unreachable rather
+			// than merely unlikely.
+			const issued = await saveCredentialAndIssueSession(c.env.DB, cipher, {
+				userId: account.user.id,
+				credential: {
+					authIdentityId: account.identity.id,
+					provider: "apple",
+					refreshToken: exchanged.refreshToken,
+				},
 				deviceName: parsed.data.deviceName ?? null,
 				now,
 			});
@@ -115,6 +171,21 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 		} catch (error) {
 			if (error instanceof NonceAlreadyUsedError) {
 				return reject(c, correlationId, "nonce_replayed", 401);
+			}
+			if (error instanceof AppleExchangeError) {
+				// A spent, expired or forged code is the caller's problem; an
+				// Apple outage or a broken client secret is ours. Reporting the
+				// second as "invalid credentials" would be untrue and would
+				// hide the incident.
+				const credentialFailure =
+					error.failure === "invalidGrant" ||
+					error.failure === "subjectMismatch";
+				return reject(
+					c,
+					correlationId,
+					`exchange_${error.failure}`,
+					credentialFailure ? 401 : 503,
+				);
 			}
 			if (error instanceof NonceStoreUnavailableError) {
 				// The store being down says nothing about the credential.

@@ -34,6 +34,38 @@ export interface ApiEnv {
 	 * Google client", including one an attacker registered.
 	 */
 	GOOGLE_AUDIENCE?: string;
+
+	// --- Apple token lifecycle ---
+	//
+	// These four are required *together* to exchange an authorization code and
+	// to revoke a refresh token. None has a value in this repository: the
+	// first three are configuration, `APPLE_PRIVATE_KEY` is a Worker secret.
+	// With none of them set, Apple sign-in refuses rather than degrading into
+	// an account that cannot be deleted per Apple's requirements.
+
+	/** The app's bundle identifier / Services ID. Becomes the secret's `sub`. */
+	APPLE_CLIENT_ID?: string;
+	/** Apple Developer Team ID. Becomes the client secret's `iss`. */
+	APPLE_TEAM_ID?: string;
+	/** Key ID of the .p8 signing key. Becomes the client secret's `kid`. */
+	APPLE_KEY_ID?: string;
+	/**
+	 * PKCS#8 PEM text of the .p8 private key. **A Worker secret** — set with
+	 * `wrangler secret put`. Never in wrangler.api.jsonc, never committed.
+	 */
+	APPLE_PRIVATE_KEY?: string;
+
+	/**
+	 * Base64 of 32 random bytes: the AES-256-GCM key that encrypts stored
+	 * refresh tokens. **A Worker secret.** Unset means Apple sign-in refuses —
+	 * storing the token in plaintext is not an alternative.
+	 */
+	APPLE_TOKEN_ENCRYPTION_KEY?: string;
+	/** Defaults to 1. Written into each row so a rotation stays readable. */
+	APPLE_TOKEN_ENCRYPTION_KEY_VERSION?: string;
+	/** Optional decrypt-only predecessor, for a rotation in progress. */
+	APPLE_TOKEN_ENCRYPTION_KEY_PREVIOUS?: string;
+	APPLE_TOKEN_ENCRYPTION_KEY_PREVIOUS_VERSION?: string;
 }
 
 /**
@@ -78,6 +110,20 @@ export interface AuthIdentityRow {
 	email_verified: 0 | 1;
 	created_at: EpochSeconds;
 	last_seen_at: EpochSeconds;
+}
+
+export interface ProviderCredentialRow {
+	id: string;
+	auth_identity_id: string;
+	provider: AuthProvider;
+	/** Base64 AES-256-GCM ciphertext. Blank once revoked. */
+	encrypted_refresh_token: string;
+	/** Base64 96-bit IV, fresh per write. Blank once revoked. */
+	encryption_iv: string;
+	encryption_key_version: number;
+	created_at: EpochSeconds;
+	updated_at: EpochSeconds;
+	revoked_at: EpochSeconds | null;
 }
 
 export interface SessionRow {

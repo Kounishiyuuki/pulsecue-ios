@@ -35,12 +35,52 @@ PULSECUE_IMPORT_TOKEN_SECRET=local-dev-token-signing-secret
 # Verification refuses to run when this is unset, because an empty audience
 # would mean "accept a token minted for any Apple client".
 #
-# No Apple secret belongs here. Verifying an identity token needs only
-# Apple's public keys. The .p8 signing key / Key ID / Team ID are required
-# for the /auth/revoke call Apple mandates at account deletion — a gate that
-# must close before Apple sign-in ships publicly — and are introduced with
-# that work rather than sitting here as placeholders.
+# Verifying an identity token needs only Apple's public keys. Everything past
+# verification — exchanging the authorization code, revoking at deletion —
+# needs the settings below.
 APPLE_AUDIENCE=com.kounishiyuuki.pulsecue
+
+# --- Apple token lifecycle ---
+#
+# Required TOGETHER. With none set, POST /v1/auth/apple answers 503 rather
+# than creating an account that could never be deleted the way Apple requires.
+# With only some set, the request fails loudly instead of quietly behaving as
+# though Apple were simply unconfigured.
+#
+# The first three are configuration rather than secrets — but they are still
+# account-specific, so REAL VALUES DO NOT BELONG IN GIT. Set them as vars on
+# the Worker; the placeholders here are for local runs only.
+#
+#   APPLE_CLIENT_ID  the app's bundle identifier / Services ID
+#   APPLE_TEAM_ID    Apple Developer Team ID
+#   APPLE_KEY_ID     Key ID of the Sign in with Apple .p8 key
+APPLE_CLIENT_ID=com.kounishiyuuki.pulsecue
+APPLE_TEAM_ID=REPLACE_WITH_APPLE_TEAM_ID
+APPLE_KEY_ID=REPLACE_WITH_APPLE_KEY_ID
+
+# PKCS#8 PEM text of the .p8 downloaded from the Apple Developer portal.
+#
+# THIS IS A SECRET. Never put a real key in this file or any committed file.
+# In production:
+#     npx wrangler secret put APPLE_PRIVATE_KEY --config wrangler.api.jsonc
+# For a local run, generate a THROWAWAY P-256 key Apple has never seen:
+#     openssl ecparam -genkey -name prime256v1 -noout | openssl pkcs8 -topk8 -nocrypt
+# It will not authenticate against Apple; it only exercises the code path.
+APPLE_PRIVATE_KEY=
+
+# AES-256-GCM key encrypting stored Apple refresh tokens: base64 of 32 random
+# bytes. THIS IS A SECRET.
+#     openssl rand -base64 32
+#     npx wrangler secret put APPLE_TOKEN_ENCRYPTION_KEY --config wrangler.api.jsonc
+#
+# Rotation: bump _VERSION and move the old key to _PREVIOUS (decrypt-only)
+# while a re-encrypt pass drains the old rows. Losing the key without a
+# configured predecessor makes stored tokens unrevocable, so rotate
+# deliberately.
+APPLE_TOKEN_ENCRYPTION_KEY=
+# APPLE_TOKEN_ENCRYPTION_KEY_VERSION=1
+# APPLE_TOKEN_ENCRYPTION_KEY_PREVIOUS=
+# APPLE_TOKEN_ENCRYPTION_KEY_PREVIOUS_VERSION=
 
 # Audience for Google Sign-In ID tokens: PulseCue's **Web application
 # ("server") OAuth client id** from the Google Cloud console — the same value

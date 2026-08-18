@@ -367,8 +367,9 @@ Routes: `GET /health`, `POST /v1/auth/apple`, `POST /v1/auth/google`.
 
 ### Sign in with Apple
 
-`POST /v1/auth/apple` takes `{ identityToken, rawNonce, deviceName? }` and
-returns `{ sessionToken, expiresAt, user }`.
+`POST /v1/auth/apple` takes
+`{ identityToken, authorizationCode, rawNonce, deviceName? }` and returns
+`{ sessionToken, expiresAt, user }`.
 
 The iOS app is not trusted with identity. Everything that decides *who* the
 user is comes out of Apple's signature — `credential.user` from the client
@@ -389,11 +390,80 @@ is a `503`, not a rejection.
 
 **No Apple secret is required *to verify a token*.** Verification needs only
 Apple's public keys, and `APPLE_AUDIENCE` is the app's bundle identifier —
-environment-specific but not secret.
+environment-specific but not secret. Everything past verification does need
+one; see below.
 
-That is not the same as "Apple sign-in is finished". See
-[Apple production gates](#apple-production-gates) below for what must still
-land before it ships publicly.
+#### The authorization code, and why it is required
+
+`authorizationCode` is **not optional**. Apple requires an app offering Sign
+in with Apple to let users delete their account *and* revoke the token, and
+revocation needs a refresh token. The only way to get one is to trade the
+authorization code — which Apple hands over once per sign-in, is single-use,
+and cannot be re-requested later. A sign-in accepted without it would create
+an account that can never be deleted the way Apple requires, with no way to
+repair it afterwards.
+
+So the code is exchanged during sign-in, in this order:
+
+1. Verify the identity token (signature, issuer, audience, window, nonce).
+2. Spend the nonce.
+3. Exchange the code at `https://appleid.apple.com/auth/token`, using a
+   freshly signed ES256 client secret.
+4. Validate Apple's response. If it carries an `id_token`, verify it and check
+   its `sub` equals the one the identity token already proved — a mismatch
+   means the code belonged to someone else, and nothing is written.
+5. Resolve the account.
+6. **In one batch:** store the encrypted refresh token *and* create the
+   session.
+
+Step 6 is a batch on purpose. A live session for an account whose credential
+was not stored is an account that cannot be deleted properly, so D1 rolls both
+back together rather than leaving that state reachable.
+
+Because the code is single-use, a failed sign-in is **not** retryable with the
+same request body. Recovery is a fresh Apple authorization flow, which is
+safe: the same `sub` resolves to the same PulseCue user, and the new refresh
+token replaces the old one.
+
+#### The client secret
+
+Apple's token endpoints take a short-lived ES256 JWT signed with the `.p8`
+key, not a static shared secret. PulseCue mints one per request with a **5
+minute** lifetime rather than caching one for the six months Apple permits: a
+secret that lives for minutes cannot be replayed for half a year if it ever
+reaches a log.
+
+Four settings are required *together* — `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`,
+`APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`. With none set, Apple sign-in answers
+`503` before spending the nonce or touching the account; with only some set,
+the request fails loudly rather than pretending to be unconfigured.
+`APPLE_PRIVATE_KEY` is a **Worker secret** and never appears in this
+repository — the tests generate their own throwaway P-256 keypair and drive
+the production signing path with it.
+
+#### Encrypted credential storage
+
+The refresh token is stored AES-256-GCM encrypted in `provider_credentials`,
+under the Worker secret `APPLE_TOKEN_ENCRYPTION_KEY` (base64 of 32 bytes).
+
+- A fresh 96-bit IV per write, stored beside the ciphertext. Re-signing in
+  re-encrypts with a new IV — reuse under one key is how GCM stops protecting
+  anything.
+- The GCM additional data binds the ciphertext to its `auth_identity_id`,
+  provider, purpose and key version. A row copied onto another identity fails
+  to decrypt instead of revoking the wrong person's Apple account — something
+  encryption alone would not catch, since the attacker never needs to read the
+  token to misuse it.
+- `encryption_key_version` is stored per row and a decrypt-only predecessor
+  key can be configured, so a key rotation is a config change plus a
+  re-encrypt pass rather than a migration.
+
+Revocation lives in `auth/appleRevocation.ts` as the service the deletion
+route will call. Its outcomes are a closed set — `revoked`,
+`nothingToRevoke`, `retryable`, `unrevocable` — because an Apple outage must
+never be recorded as a revocation that happened.
+
+See [Apple production gates](#apple-production-gates) for what is still open.
 
 ### Sign in with Google
 
@@ -503,28 +573,43 @@ immediately. No KV binding is needed to be correct.
 
 ### Apple production gates
 
-Apple sign-in verifies correctly today, but it is **not shippable yet**. These
-are release blockers for public availability, not optional follow-ups:
+The token lifecycle is now **built**; what remains is external setup and
+scheduling. Nothing here is optional for public availability.
 
-1. **Authorization code exchange, and `/auth/revoke`.** Apple requires an app
-   offering Sign in with Apple to let users delete their account *and* revoke
-   the token. That needs the `authorizationCode` exchanged for a refresh
-   token, the refresh token in encrypted storage, and a client secret signed
-   with a `.p8` key (plus Key ID and Team ID). None of it exists yet, and none
-   of it is a placeholder in this repo.
+1. ~~Authorization code exchange, encrypted refresh token storage, client
+   secret, revocation service.~~ **Done.** The code path exists and is tested
+   end to end against a fake Apple endpoint with a throwaway keypair. What it
+   still needs is **real credentials**, which is an external setup step:
+
+   ```sh
+   # Apple Developer portal: create a Sign in with Apple key, download the .p8.
+   npx wrangler secret put APPLE_PRIVATE_KEY --config wrangler.api.jsonc
+   npx wrangler secret put APPLE_TOKEN_ENCRYPTION_KEY --config wrangler.api.jsonc
+   # APPLE_CLIENT_ID / APPLE_TEAM_ID / APPLE_KEY_ID are vars, not secrets.
+   ```
+
+   Generate the encryption key with 32 random bytes, base64:
+   `openssl rand -base64 32`. Until all of it is set, Apple sign-in answers
+   `503` rather than creating an undeletable account.
 
    An earlier note here described the `.p8` as something to "pick up later, at
    deletion". That was wrong, and is corrected: deletion-with-revocation is a
    condition of offering Apple sign-in at all.
 
-2. **Nonce cleanup, actually running.** `purgeExpiredNonces` exists but
-   nothing calls it in production. Without a scheduled sweep, `auth_nonces`
-   grows without bound. Activating it needs care in one specific place: the
-   sweep deletes on `expires_at`, while verification accepts a token until
-   `exp + APPLE_CLOCK_SKEW_SECONDS`. Sweeping at exactly `expires_at` opens a
-   60-second window in which a token is still accepted but its nonce row is
-   gone — a replay window created by the cleanup itself. The sweep must lag
-   the skew allowance.
+2. **`DELETE /v1/me`, wired to the revocation service.** The service exists;
+   nothing calls it yet.
+
+3. **Nonce cleanup, actually running.** `purgeReplayableNonces` now exists and
+   applies the correct boundary, but nothing invokes it in production, so
+   `auth_nonces` still grows without bound.
+
+   The boundary is the subtle part and is now enforced in code and covered by
+   tests: the sweep deletes at `expires_at + APPLE_CLOCK_SKEW_SECONDS`, not at
+   `expires_at`. Sweeping at `expires_at` would open a 60-second window in
+   which a token is still accepted but its nonce row is gone — a replay hole
+   manufactured by the cleanup itself. `purgeExpiredNonces` takes a raw cutoff
+   and does no such reasoning, which is why a scheduler must call
+   `purgeReplayableNonces` instead.
 
 ### Not deployed
 

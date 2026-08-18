@@ -11,7 +11,13 @@
  * and lives in the iOS Keychain from then on.
  */
 
-import type { EpochSeconds, SessionRow, SqlDatabase, UserRow } from "../types";
+import type {
+	EpochSeconds,
+	SessionRow,
+	SqlDatabase,
+	SqlStatement,
+	UserRow,
+} from "../types";
 import { AccountUnavailableError, UserNotFoundError } from "./accounts";
 import { newId, nowSeconds } from "./ids";
 
@@ -59,10 +65,37 @@ export async function createSession(
 	userId: string,
 	options: { deviceName?: string | null; now?: EpochSeconds } = {},
 ): Promise<IssuedSession> {
+	const pending = await prepareSession(db, userId, options);
+	await pending.statement.run();
+	return completeSession(db, userId, pending);
+}
+
+/**
+ * A session INSERT that has been built but not run.
+ *
+ * Exists so a caller can commit session creation *together with* something
+ * else, in one batch. Apple sign-in needs exactly that: the encrypted refresh
+ * token must be stored before a session exists, because a session without a
+ * stored credential is an account that cannot meet Apple's
+ * revoke-on-deletion requirement. Handing out the statement keeps the two
+ * atomic without either repository having to know about the other.
+ */
+export interface PendingSession {
+	statement: SqlStatement;
+	id: string;
+	/** The plaintext token — meaningful only once the insert commits. */
+	token: string;
+}
+
+export async function prepareSession(
+	db: SqlDatabase,
+	userId: string,
+	options: { deviceName?: string | null; now?: EpochSeconds } = {},
+): Promise<PendingSession> {
 	const now = options.now ?? nowSeconds();
 	const token = generateSessionToken();
 	const id = newId();
-	await db
+	const statement = db
 		.prepare(
 			`INSERT INTO sessions
 			   (id, user_id, token_sha256, created_at, last_used_at, expires_at, device_name)
@@ -81,9 +114,17 @@ export async function createSession(
 			now + SESSION_TTL_SECONDS,
 			options.deviceName ?? null,
 			userId,
-		)
-		.run();
-	const session = await findSessionById(db, id);
+		);
+	return { statement, id, token };
+}
+
+/** Loads the row a `PendingSession` should have written, or says why not. */
+export async function completeSession(
+	db: SqlDatabase,
+	userId: string,
+	pending: PendingSession,
+): Promise<IssuedSession> {
+	const session = await findSessionById(db, pending.id);
 	if (!session) {
 		// Either the user does not exist or it is being deleted. Both are a
 		// refusal to issue; the caller decides how to answer without leaking
@@ -95,7 +136,7 @@ export async function createSession(
 		if (!user) throw new UserNotFoundError(userId);
 		throw new AccountUnavailableError(userId, user.state);
 	}
-	return { token, session };
+	return { token: pending.token, session };
 }
 
 /**

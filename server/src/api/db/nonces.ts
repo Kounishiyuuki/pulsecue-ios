@@ -7,6 +7,7 @@
  */
 
 import type { AuthProvider, EpochSeconds, SqlDatabase } from "../types";
+import { APPLE_CLOCK_SKEW_SECONDS } from "../auth/apple";
 import { nowSeconds } from "./ids";
 
 export class NonceAlreadyUsedError extends Error {
@@ -84,8 +85,17 @@ export async function consumeNonce(
 }
 
 /**
- * Drops nonces whose token has expired. A replay of one of these would be
- * refused for being expired, so the row has no further value.
+ * Drops nonces whose token can no longer be replayed.
+ *
+ * **The retention boundary is not `expires_at`.** Verification accepts a
+ * token until `exp + APPLE_CLOCK_SKEW_SECONDS`, so deleting the row the
+ * instant `expires_at` passes opens a window in which the token is still
+ * accepted but its nonce is gone — the cleanup would create the replay hole
+ * that the nonce exists to close. `purgeReplayableNonces` is the function to
+ * schedule; it applies the same skew the verifier does.
+ *
+ * This lower-level form takes the cutoff directly and does no reasoning about
+ * skew, which is why it is not the one a scheduler should call.
  */
 export async function purgeExpiredNonces(
 	db: SqlDatabase,
@@ -95,4 +105,37 @@ export async function purgeExpiredNonces(
 		.prepare(`DELETE FROM auth_nonces WHERE expires_at <= ?`)
 		.bind(now)
 		.run();
+}
+
+/**
+ * The sweep a scheduler should run: drops only nonces whose token the
+ * verifier would already refuse.
+ *
+ * A nonce is safe to forget once no token bound to it can still be accepted.
+ * The verifier's own boundary is `exp + APPLE_CLOCK_SKEW_SECONDS`, so the
+ * sweep lags by the same amount. Sweeping earlier would delete the replay
+ * protection for tokens that are still inside their accepted window — a
+ * cleanup job that manufactures the exact vulnerability the table exists to
+ * prevent.
+ *
+ * Returns how many rows it removed, so a future scheduled invocation has
+ * something to report without logging any nonce.
+ */
+export async function purgeReplayableNonces(
+	db: SqlDatabase,
+	now: EpochSeconds = nowSeconds(),
+	skewSeconds: EpochSeconds = APPLE_CLOCK_SKEW_SECONDS,
+): Promise<number> {
+	const cutoff = now - skewSeconds;
+	const { results } = await db
+		.prepare(`SELECT nonce_sha256 FROM auth_nonces WHERE expires_at <= ?`)
+		.bind(cutoff)
+		.all<{ nonce_sha256: string }>();
+	if (results.length === 0) return 0;
+
+	await db
+		.prepare(`DELETE FROM auth_nonces WHERE expires_at <= ?`)
+		.bind(cutoff)
+		.run();
+	return results.length;
 }

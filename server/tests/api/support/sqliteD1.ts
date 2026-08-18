@@ -28,6 +28,7 @@ import type { SqlDatabase, SqlStatement } from "../../../src/api/types";
 const MIGRATION_FILES = [
 	"0001_user_auth_foundation.sql",
 	"0002_auth_nonces.sql",
+	"0003_provider_credentials.sql",
 ];
 
 // `.href`, not the URL object: this package pulls in both the Workers and
