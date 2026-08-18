@@ -99,6 +99,9 @@ export async function handlePullWorkouts(c: Context<AuthedEnv>) {
 	const data = await pullWorkoutData(c.env.DB, user.id, since, MAX_ROWS);
 	return c.json({
 		changeSeq: data.changeSeq,
+		// True when the page was cut short: the cursor above is safe to store,
+		// but the client should pull again rather than assume it is caught up.
+		hasMore: data.hasMore,
 		sessions: data.sessions.map((row) => ({
 			id: row.id,
 			startedAt: row.started_at,

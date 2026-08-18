@@ -493,6 +493,28 @@ An **empty** upload does not advance the sequence at all: handing other
 devices a cursor move with nothing behind it would be a pointless round trip
 that looks like a change.
 
+#### Pulling in pages
+
+`GET /v1/sync/workouts?since=<seq>` returns at most 500 rows per table and a
+`changeSeq` the client may store, plus `hasMore`.
+
+The cursor is the subtle part. An earlier version returned the user's
+*current* sequence regardless of how much it had actually sent, so a pull that
+hit the row limit told the client "you are up to date at seq N" while
+withholding rows below N — the client would store N and never ask for them
+again. Permanent, silent data loss.
+
+A truncated page now reports the last sequence it delivered **completely**,
+and sets `hasMore`. Rows are read one past the limit to detect truncation, and
+any partially-covered sequence is dropped rather than half-sent. Because one
+upload writes at most 500 rows per table at a single sequence — the same
+number as the page limit — a single sequence always fits, so the cursor always
+advances and paging cannot stall.
+
+The two tables paginate independently, so the returned cursor is the lower of
+the two. Re-reading a few rows next time is harmless (the client applies them
+idempotently); skipping any is not.
+
 #### Retries are safe
 
 The guest migration will be retried over flaky networks, so a retry has to

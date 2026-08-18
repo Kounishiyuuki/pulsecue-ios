@@ -249,7 +249,25 @@ export async function currentChangeSeq(
 	return row?.seq ?? 0;
 }
 
-/** Everything of this user's written after `sinceSeq`, oldest first. */
+/**
+ * Everything of this user's written after `sinceSeq`, oldest first.
+ *
+ * The returned `changeSeq` is a **cursor the client may safely store**, and
+ * getting that right is the whole subtlety here. An earlier version returned
+ * the user's current sequence regardless of how much it had actually sent —
+ * so a pull that hit the row limit told the client "you are up to date at
+ * seq N" while silently withholding rows below N. The client would store N,
+ * never ask for them again, and lose them permanently.
+ *
+ * Now a page that is cut short reports the last sequence it delivered
+ * *completely*, and says there is more. Rows are read one past the limit to
+ * detect truncation, and any partially-delivered sequence is dropped rather
+ * than half-sent.
+ *
+ * Progress is guaranteed because one upload batch writes at most `MAX_ROWS`
+ * rows per table at a single sequence, and the page limit is the same number:
+ * a single sequence therefore always fits, so the cursor always advances.
+ */
 export async function pullWorkoutData(
 	db: SqlDatabase,
 	userId: string,
@@ -259,30 +277,77 @@ export async function pullWorkoutData(
 	sessions: WorkoutSessionRow[];
 	stepResults: StepResultRow[];
 	changeSeq: number;
+	hasMore: boolean;
 }> {
-	const sessions = await db
-		.prepare(
-			`SELECT * FROM workout_sessions
-			  WHERE user_id = ? AND change_seq > ?
-			  ORDER BY change_seq ASC, id ASC
-			  LIMIT ?`,
-		)
-		.bind(userId, sinceSeq, limit)
-		.all<WorkoutSessionRow>();
+	const currentSeq = await currentChangeSeq(db, userId);
 
-	const stepResults = await db
-		.prepare(
-			`SELECT * FROM step_results
-			  WHERE user_id = ? AND change_seq > ?
-			  ORDER BY change_seq ASC, id ASC
-			  LIMIT ?`,
-		)
-		.bind(userId, sinceSeq, limit)
-		.all<StepResultRow>();
+	const sessions = await readPage<WorkoutSessionRow>(
+		db,
+		`SELECT * FROM workout_sessions
+		  WHERE user_id = ? AND change_seq > ?
+		  ORDER BY change_seq ASC, id ASC
+		  LIMIT ?`,
+		userId,
+		sinceSeq,
+		limit,
+		currentSeq,
+	);
+	const stepResults = await readPage<StepResultRow>(
+		db,
+		`SELECT * FROM step_results
+		  WHERE user_id = ? AND change_seq > ?
+		  ORDER BY change_seq ASC, id ASC
+		  LIMIT ?`,
+		userId,
+		sinceSeq,
+		limit,
+		currentSeq,
+	);
+
+	// The two tables paginate independently, so the cursor is the lower of the
+	// two. Re-reading a few rows on the next pull is harmless — the client
+	// applies them idempotently — whereas skipping any is not.
+	const changeSeq = Math.min(sessions.cursor, stepResults.cursor);
 
 	return {
-		sessions: sessions.results,
-		stepResults: stepResults.results,
-		changeSeq: await currentChangeSeq(db, userId),
+		sessions: sessions.rows,
+		stepResults: stepResults.rows,
+		changeSeq,
+		hasMore: changeSeq < currentSeq,
 	};
+}
+
+/**
+ * Reads one page and works out how far the client may advance.
+ *
+ * Fetches `limit + 1` rows: if the extra one exists the page was cut short,
+ * and every row sharing the excluded row's sequence is dropped so no sequence
+ * is ever delivered in halves.
+ */
+async function readPage<T extends { change_seq: number }>(
+	db: SqlDatabase,
+	sql: string,
+	userId: string,
+	sinceSeq: number,
+	limit: number,
+	currentSeq: number,
+): Promise<{ rows: T[]; cursor: number }> {
+	const { results } = await db
+		.prepare(sql)
+		.bind(userId, sinceSeq, limit + 1)
+		.all<T>();
+
+	if (results.length <= limit) {
+		// Everything above `sinceSeq` fits, so the client is caught up to the
+		// user's current sequence.
+		return { rows: results, cursor: currentSeq };
+	}
+
+	// Truncated. The first excluded row names the sequence that is only
+	// partially covered; drop it entirely and stop just below it.
+	const firstExcludedSeq = (results[limit] as T).change_seq;
+	const rows = results.slice(0, limit).filter(
+		(row) => row.change_seq < firstExcludedSeq,
+	);
+	return { rows, cursor: firstExcludedSeq - 1 };
 }

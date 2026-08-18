@@ -456,3 +456,196 @@ describe("the sync endpoints", () => {
 		db.close();
 	});
 });
+
+// MARK: - Pagination must never advance the cursor past undelivered rows
+
+describe("a pull that hits the row limit", () => {
+	/** Uploads `count` separate batches, one session each, so seqs differ. */
+	async function uploadBatches(db: TestDatabase, userId: string, count: number) {
+		for (let i = 0; i < count; i += 1) {
+			await uploadWorkoutData(
+				db,
+				userId,
+				{ sessions: [session(`s${i}`)], stepResults: [] },
+				NOW,
+			);
+		}
+	}
+
+	it("does not tell the client it is caught up", async () => {
+		// The bug this closes: the pull returned the user's *current* sequence
+		// regardless of how much it actually sent. A client storing that cursor
+		// would never ask for the withheld rows again — permanent, silent data
+		// loss.
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadBatches(db, userId, 10);
+		const currentSeq = await currentChangeSeq(db, userId);
+
+		const page = await pullWorkoutData(db, userId, 0, 4);
+
+		expect(page.sessions).toHaveLength(4);
+		expect(page.hasMore).toBe(true);
+		// The cursor covers only what was delivered.
+		expect(page.changeSeq).toBeLessThan(currentSeq);
+		expect(page.changeSeq).toBe(4);
+		db.close();
+	});
+
+	it("delivers every row across successive pages, losing none", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadBatches(db, userId, 10);
+
+		const seen: string[] = [];
+		let cursor = 0;
+		let guard = 0;
+		for (;;) {
+			const page = await pullWorkoutData(db, userId, cursor, 3);
+			seen.push(...page.sessions.map((row) => row.id));
+			cursor = page.changeSeq;
+			if (!page.hasMore) break;
+			expect((guard += 1)).toBeLessThan(20); // no infinite loop
+		}
+
+		expect(seen.sort()).toEqual(
+			Array.from({ length: 10 }, (_, i) => `s${i}`).sort(),
+		);
+		expect(cursor).toBe(await currentChangeSeq(db, userId));
+		db.close();
+	});
+
+	it("never splits one sequence across two pages", async () => {
+		// A batch's rows all share a sequence. Delivering half of them and
+		// advancing past that sequence would drop the rest.
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadWorkoutData(
+			db,
+			userId,
+			{ sessions: [session("a1"), session("a2"), session("a3")], stepResults: [] },
+			NOW,
+		);
+		await uploadWorkoutData(db, userId, { sessions: [session("b1")], stepResults: [] }, NOW);
+
+		// A limit that would cut the first batch in half.
+		const page = await pullWorkoutData(db, userId, 0, 2);
+
+		// Either the whole first sequence is delivered or none of it is —
+		// never one of its three rows.
+		const delivered = page.sessions.map((row) => row.id).sort();
+		expect(delivered).not.toEqual(["a1", "a2"]);
+		// And whatever it did deliver, the cursor does not skip the rest.
+		const next = await pullWorkoutData(db, userId, page.changeSeq, 500);
+		const all = [...delivered, ...next.sessions.map((row) => row.id)].sort();
+		expect([...new Set(all)]).toEqual(["a1", "a2", "a3", "b1"]);
+		db.close();
+	});
+
+	it("reports being caught up when everything fits", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadBatches(db, userId, 3);
+
+		const page = await pullWorkoutData(db, userId, 0, 500);
+
+		expect(page.hasMore).toBe(false);
+		expect(page.changeSeq).toBe(await currentChangeSeq(db, userId));
+		db.close();
+	});
+
+	it("keeps the cursor at the lower of the two tables", async () => {
+		// Sessions and step results paginate independently. Re-reading a few
+		// rows next time is harmless; skipping any is not.
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadWorkoutData(db, userId, { sessions: [session("s1")], stepResults: [] }, NOW);
+		for (let i = 0; i < 5; i += 1) {
+			await uploadWorkoutData(
+				db,
+				userId,
+				{ sessions: [], stepResults: [stepResult(`r${i}`, "s1", i)] },
+				NOW,
+			);
+		}
+
+		const page = await pullWorkoutData(db, userId, 0, 2);
+
+		expect(page.hasMore).toBe(true);
+		expect(page.changeSeq).toBeLessThan(await currentChangeSeq(db, userId));
+		db.close();
+	});
+});
+
+describe("sequence behaviour", () => {
+	it("never decreases", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		let previous = 0;
+
+		for (let i = 0; i < 8; i += 1) {
+			const result = await uploadWorkoutData(
+				db,
+				userId,
+				{ sessions: [session(`s${i}`)], stepResults: [] },
+				NOW,
+			);
+			expect(result.changeSeq).toBeGreaterThan(previous);
+			previous = result.changeSeq;
+		}
+		db.close();
+	});
+
+	it("keeps two users' sequences independent", async () => {
+		const db = await createTestDatabase();
+		const alice = await signedIn(db, "apple-alice");
+		const bob = await signedIn(db, "apple-bob");
+
+		await uploadWorkoutData(db, alice.userId, { sessions: [session("s1")], stepResults: [] }, NOW);
+		await uploadWorkoutData(db, alice.userId, { sessions: [session("s2")], stepResults: [] }, NOW);
+
+		expect(await currentChangeSeq(db, alice.userId)).toBe(2);
+		expect(await currentChangeSeq(db, bob.userId)).toBe(0);
+		db.close();
+	});
+
+	it("does not resurrect a tombstoned record on a later pull", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadWorkoutData(db, userId, { sessions: [session("s1")], stepResults: [] }, NOW);
+		await uploadWorkoutData(
+			db,
+			userId,
+			{ sessions: [{ ...session("s1"), deleted: true }], stepResults: [] },
+			NOW,
+		);
+
+		const page = await pullWorkoutData(db, userId, 0, 500);
+
+		// One row, flagged deleted — not two, and not a live one.
+		expect(page.sessions).toHaveLength(1);
+		expect(page.sessions[0]?.deleted_at).not.toBeNull();
+		db.close();
+	});
+});
+
+describe("a deleting account cannot sync", () => {
+	it("refuses upload and pull once deletion has started", async () => {
+		const db = await createTestDatabase();
+		const { userId, token } = await signedIn(db);
+		const app = makeApp(db);
+		await app.upload(token, { sessions: [session("s1")], stepResults: [] });
+
+		const { markUserDeleting } = await import("../../src/api/db/accounts");
+		await markUserDeleting(db, userId, NOW);
+
+		// The session was revoked with the account, so both endpoints refuse.
+		expect(
+			(await app.upload(token, { sessions: [session("s2")], stepResults: [] })).status,
+		).toBe(401);
+		expect((await app.pull(token, 0)).status).toBe(401);
+		// And nothing new was written.
+		expect(await db.count("workout_sessions")).toBe(1);
+		db.close();
+	});
+});
