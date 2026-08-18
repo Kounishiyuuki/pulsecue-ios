@@ -11,6 +11,7 @@
 //  backwards would sign users out for walking into a lift.
 //
 
+import Security
 import XCTest
 @testable import Pulse_Cue
 
@@ -25,7 +26,7 @@ final class StubAccountAPI: PulseCueAccountAPI, @unchecked Sendable {
     var googleResult: Result<ServerSessionResponse, Error> = .failure(AccountAPIError.unavailable)
     var profileResult: Result<ServerAccountProfile, Error> = .failure(AccountAPIError.unavailable)
     var logoutResult: Result<Void, Error> = .success(())
-    var deleteResult: Result<Void, Error> = .success(())
+    var deleteResult: Result<AccountDeletionOutcome, Error> = .success(.deleted)
 
     private(set) var appleRequests: [AppleSignInRequest] = []
     private(set) var googleRequests: [GoogleSignInRequest] = []
@@ -53,9 +54,9 @@ final class StubAccountAPI: PulseCueAccountAPI, @unchecked Sendable {
         try logoutResult.get()
     }
 
-    func deleteAccount(sessionToken: String) async throws {
+    func deleteAccount(sessionToken: String) async throws -> AccountDeletionOutcome {
         deleteTokens.append(sessionToken)
-        try deleteResult.get()
+        return try deleteResult.get()
     }
 }
 
@@ -441,15 +442,15 @@ final class ServerSessionTokenStoreTests: XCTestCase {
         let store = makeStore()
         defer { store.deleteToken() }
 
-        XCTAssertNil(store.readToken())
+        XCTAssertEqual(store.read(), .absent)
         XCTAssertTrue(store.saveToken("first-token"))
-        XCTAssertEqual(store.readToken(), "first-token")
+        XCTAssertEqual(store.read(), .token("first-token"))
 
         XCTAssertTrue(store.saveToken("second-token"))
-        XCTAssertEqual(store.readToken(), "second-token")
+        XCTAssertEqual(store.read(), .token("second-token"))
 
         XCTAssertTrue(store.deleteToken())
-        XCTAssertNil(store.readToken())
+        XCTAssertEqual(store.read(), .absent)
     }
 
     func testDeletingNothingIsStillSuccess() throws {
@@ -465,7 +466,7 @@ final class ServerSessionTokenStoreTests: XCTestCase {
         defer { a.deleteToken(); b.deleteToken() }
 
         XCTAssertTrue(a.saveToken("token-a"))
-        XCTAssertNil(b.readToken())
+        XCTAssertEqual(b.read(), .absent)
     }
 
     func testStoredItemIsThisDeviceOnlyAfterFirstUnlock() throws {
@@ -524,7 +525,7 @@ final class ServerAccountRestoreTests: XCTestCase {
 
         XCTAssertTrue(store.state.isAuthenticated)
         XCTAssertEqual(api.profileTokens, ["stored-token"])
-        XCTAssertEqual(tokens.readToken(), "stored-token")
+        XCTAssertEqual(tokens.read(), .token("stored-token"))
     }
 
     func testRejectedSessionIsDiscarded() async {
@@ -536,7 +537,7 @@ final class ServerAccountRestoreTests: XCTestCase {
         await store.restore()
 
         XCTAssertEqual(store.state, .guest)
-        XCTAssertNil(tokens.readToken(), "a rejected session must not be kept")
+        XCTAssertEqual(tokens.read(), .absent, "a rejected session must not be kept")
     }
 
     func testTransientFailureKeepsTheSession() async {
@@ -554,7 +555,7 @@ final class ServerAccountRestoreTests: XCTestCase {
             await store.restore()
 
             XCTAssertEqual(store.state, .unreachable, "for \(failure)")
-            XCTAssertEqual(tokens.readToken(), "stored-token", "for \(failure)")
+            XCTAssertEqual(tokens.read(), .token("stored-token"), "for \(failure)")
             XCTAssertTrue(store.state.holdsSession)
         }
     }
@@ -568,7 +569,7 @@ final class ServerAccountRestoreTests: XCTestCase {
         await store.restore()
 
         XCTAssertEqual(store.state, .guest)
-        XCTAssertNil(tokens.readToken())
+        XCTAssertEqual(tokens.read(), .absent)
     }
 
     func testUnconfiguredBuildNeverCallsTheNetwork() async {
@@ -582,7 +583,7 @@ final class ServerAccountRestoreTests: XCTestCase {
         XCTAssertEqual(store.state, .notConfigured)
         XCTAssertTrue(api.profileTokens.isEmpty)
         // Nothing was destroyed just because this build has no API.
-        XCTAssertEqual(tokens.readToken(), "stored-token")
+        XCTAssertEqual(tokens.read(), .token("stored-token"))
     }
 }
 
@@ -605,7 +606,7 @@ final class ServerAccountSignInTests: XCTestCase {
         )
 
         XCTAssertTrue(store.state.isAuthenticated)
-        XCTAssertEqual(tokens.readToken(), "session-token-abc")
+        XCTAssertEqual(tokens.read(), .token("session-token-abc"))
         XCTAssertEqual(api.appleRequests.first?.identityToken, "id-token")
         XCTAssertEqual(api.appleRequests.first?.authorizationCode, "auth-code")
         XCTAssertEqual(api.appleRequests.first?.rawNonce, "raw-nonce")
@@ -628,7 +629,7 @@ final class ServerAccountSignInTests: XCTestCase {
         XCTAssertFalse(store.state.isAuthenticated)
         XCTAssertEqual(store.lastFailure, .missingProviderCredential)
         XCTAssertTrue(api.appleRequests.isEmpty, "must not reach the server")
-        XCTAssertNil(tokens.readToken())
+        XCTAssertEqual(tokens.read(), .absent)
     }
 
     func testAppleSignInRefusesWithoutATokenOrNonce() async {
@@ -655,7 +656,7 @@ final class ServerAccountSignInTests: XCTestCase {
         await store.signInWithGoogle(idToken: "google-id-token")
 
         XCTAssertTrue(store.state.isAuthenticated)
-        XCTAssertEqual(tokens.readToken(), "google-session")
+        XCTAssertEqual(tokens.read(), .token("google-session"))
         XCTAssertEqual(api.googleRequests.first?.idToken, "google-id-token")
         // There is nowhere on the request to put a userID or an email, which
         // is the point — it is not a discipline anyone has to remember.
@@ -697,7 +698,7 @@ final class ServerAccountSignInTests: XCTestCase {
 
         XCTAssertEqual(store.state, .guest)
         XCTAssertEqual(store.lastFailure, .rejected)
-        XCTAssertNil(tokens.readToken())
+        XCTAssertEqual(tokens.read(), .absent)
     }
 
     func testASessionThatCannotBeStoredIsReportedRatherThanPretended() async {
@@ -733,7 +734,7 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
 
         XCTAssertTrue(revoked)
         XCTAssertEqual(api.logoutTokens, ["stored-token"])
-        XCTAssertNil(tokens.readToken())
+        XCTAssertEqual(tokens.read(), .absent)
         XCTAssertEqual(store.state, .guest)
     }
 
@@ -747,7 +748,7 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let revoked = await store.logout()
 
         XCTAssertFalse(revoked, "the caller can see the server was not reached")
-        XCTAssertNil(tokens.readToken(), "but the device is signed out regardless")
+        XCTAssertEqual(tokens.read(), .absent, "but the device is signed out regardless")
         XCTAssertEqual(store.state, .guest)
     }
 
@@ -759,7 +760,7 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
 
         let outcome = await store.logout()
         XCTAssertTrue(outcome)
-        XCTAssertNil(tokens.readToken())
+        XCTAssertEqual(tokens.read(), .absent)
     }
 
     func testDeletionClearsTheSessionOnSuccess() async {
@@ -768,10 +769,10 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         let deleted = await store.deleteAccount()
-        XCTAssertTrue(deleted)
+        XCTAssertEqual(deleted, .deleted)
 
         XCTAssertEqual(api.deleteTokens, ["stored-token"])
-        XCTAssertNil(tokens.readToken())
+        XCTAssertEqual(tokens.read(), .absent)
         XCTAssertEqual(store.state, .guest)
     }
 
@@ -784,9 +785,9 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         let deleted = await store.deleteAccount()
-        XCTAssertFalse(deleted)
+        XCTAssertEqual(deleted, .failed)
 
-        XCTAssertEqual(tokens.readToken(), "stored-token")
+        XCTAssertEqual(tokens.read(), .token("stored-token"))
         XCTAssertEqual(store.lastFailure, .unreachable)
     }
 }
@@ -844,5 +845,117 @@ final class ServerAccountStateTests: XCTestCase {
 
     func testGuestLabelDoesNotSoundLikeAnError() {
         XCTAssertEqual(ServerAccountState.guest.statusLabel, "ゲスト（この端末に保存）")
+    }
+}
+
+// MARK: - The Keychain cannot always answer
+
+@MainActor
+final class ServerAccountKeychainUnavailableTests: XCTestCase {
+
+    func testAnUnreadableKeychainDoesNotSignTheUserOut() async {
+        // A background launch before the first unlock returns
+        // errSecInteractionNotAllowed. Reading that as "no session" would drop
+        // the user to Guest for a transient condition — and the next sign-in
+        // would overwrite a session that was there all along.
+        let api = StubAccountAPI()
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        tokens.readFailure = errSecInteractionNotAllowed
+        let store = makeStore(api: api, tokenStore: tokens)
+
+        await store.restore()
+
+        XCTAssertEqual(store.state, .unreachable)
+        XCTAssertTrue(store.state.holdsSession)
+        // Nothing was deleted, and the server was never asked.
+        XCTAssertTrue(api.profileTokens.isEmpty)
+        tokens.readFailure = nil
+        XCTAssertEqual(tokens.read(), .token("stored-token"))
+    }
+
+    func testAnEmptyKeychainIsGuest() async {
+        // The other half of the distinction: a successful read that finds
+        // nothing really is a guest.
+        let api = StubAccountAPI()
+        let store = makeStore(api: api, tokenStore: InMemoryServerSessionTokenStore())
+
+        await store.restore()
+
+        XCTAssertEqual(store.state, .guest)
+    }
+
+    func testTheTwoReadOutcomesAreNotConflated() {
+        let empty = InMemoryServerSessionTokenStore()
+        XCTAssertEqual(empty.read(), .absent)
+        XCTAssertNil(empty.tokenIfPresent())
+
+        let broken = InMemoryServerSessionTokenStore(token: "t")
+        broken.readFailure = errSecInteractionNotAllowed
+        XCTAssertEqual(broken.read(), .unavailable(errSecInteractionNotAllowed))
+        // `tokenIfPresent` collapses them, which is why restore does not use it.
+        XCTAssertNil(broken.tokenIfPresent())
+    }
+}
+
+// MARK: - 202 is not 200
+
+@MainActor
+final class ServerAccountDeletionOutcomeTests: XCTestCase {
+
+    func testAcceptedDeletionIsReportedAsPendingNotDeleted() async {
+        // The server answers 202 when the deletion is irreversible but
+        // provider revocation has not confirmed. Telling the user their
+        // account is gone would claim something the server did not say.
+        let api = StubAccountAPI()
+        api.deleteResult = .success(.pending)
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        let store = makeStore(api: api, tokenStore: tokens)
+
+        let result = await store.deleteAccount()
+
+        XCTAssertEqual(result, .pending)
+        // Either way this device is signed out.
+        XCTAssertEqual(tokens.read(), .absent)
+        XCTAssertEqual(store.state, .guest)
+    }
+
+    func testConfirmedDeletionIsReportedAsDeleted() async {
+        let api = StubAccountAPI()
+        api.deleteResult = .success(.deleted)
+        let store = makeStore(
+            api: api,
+            tokenStore: InMemoryServerSessionTokenStore(token: "stored-token")
+        )
+
+        let result = await store.deleteAccount()
+
+        XCTAssertEqual(result, .deleted)
+    }
+
+    func testAFailedDeletionKeepsTheSessionAndSaysSo() async {
+        let api = StubAccountAPI()
+        api.deleteResult = .failure(AccountAPIError.unavailable)
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        let store = makeStore(api: api, tokenStore: tokens)
+
+        let result = await store.deleteAccount()
+
+        XCTAssertEqual(result, .failed)
+        XCTAssertEqual(tokens.read(), .token("stored-token"))
+        XCTAssertEqual(store.lastFailure, .unreachable)
+    }
+
+    func testTheClientMapsStatusCodesToTheRightOutcome() async throws {
+        let client = { (status: Int) in
+            PulseCueAccountAPIClient(
+                configuration: PulseCueAPIConfiguration(rawValue: "https://api.example.com"),
+                transport: StubTransport(status: status, body: Data())
+            )
+        }
+        let deleted = try await client(200).deleteAccount(sessionToken: "t")
+        XCTAssertEqual(deleted, .deleted)
+        let pending = try await client(202).deleteAccount(sessionToken: "t")
+        XCTAssertEqual(pending, .pending)
     }
 }

@@ -32,6 +32,7 @@ struct ServerAccountSettingsSection: View {
     @State private var showDeleteConfirmation = false
     @State private var isWorking = false
     @State private var deletionFailed = false
+    @State private var deletionPending = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -75,6 +76,20 @@ struct ServerAccountSettingsSection: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("通信環境を確認して、もう一度お試しください。アカウントは削除されていません。")
+        }
+        .alert("アカウントの削除を受け付けました", isPresented: $deletionPending) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            // Truthful about a 202: the request is irreversible and this
+            // device is signed out, but the server has not confirmed that
+            // provider revocation finished.
+            Text(
+                """
+                削除処理は取り消せません。この端末からはサインアウトされました。
+                サーバー側の処理が完了するまで少し時間がかかる場合があります。
+                この端末に保存されたトレーニング記録は削除されていません。
+                """
+            )
         }
     }
 
@@ -197,9 +212,21 @@ struct ServerAccountSettingsSection: View {
     private func deleteAccount() async {
         isWorking = true
         defer { isWorking = false }
-        let deleted = await store.deleteAccount()
-        // Only tell the user it worked when it did. A failed deletion leaves
-        // the account exactly where it was.
-        deletionFailed = !deleted
+        switch await store.deleteAccount() {
+        case .deleted:
+            deletionFailed = false
+            deletionPending = false
+        case .pending:
+            // Accepted and irreversible, but the server has not finished
+            // revoking at the provider. Saying "削除しました" here would claim
+            // something the server has not confirmed.
+            deletionFailed = false
+            deletionPending = true
+        case .failed:
+            // Only tell the user it worked when it did. A failed deletion
+            // leaves the account exactly where it was.
+            deletionFailed = true
+            deletionPending = false
+        }
     }
 }

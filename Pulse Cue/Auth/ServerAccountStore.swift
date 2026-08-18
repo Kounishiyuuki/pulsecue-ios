@@ -27,6 +27,16 @@
 import Foundation
 import Combine
 
+/// What a deletion attempt achieved, as far as the app can truthfully say.
+enum AccountDeletionResult: Equatable {
+    /// The server confirmed the account is gone.
+    case deleted
+    /// Accepted and irreversible, but provider revocation has not finished.
+    case pending
+    /// The account is still there.
+    case failed
+}
+
 @MainActor
 final class ServerAccountStore: ObservableObject {
 
@@ -65,7 +75,16 @@ final class ServerAccountStore: ObservableObject {
             state = .notConfigured
             return
         }
-        guard let token = tokenStore.readToken() else {
+        let stored = tokenStore.read()
+        guard case let .token(token) = stored else {
+            if case .unavailable = stored {
+                // The Keychain could not answer — most plausibly a background
+                // launch before the first unlock. That says nothing about
+                // whether a session exists, so nothing is deleted and the user
+                // is not downgraded to Guest. Local features are unaffected.
+                state = .unreachable
+                return
+            }
             state = .guest
             return
         }
@@ -169,7 +188,7 @@ final class ServerAccountStore: ObservableObject {
             state = .authenticated(profile)
             lastFailure = nil
         } catch let error as AccountAPIError {
-            state = tokenStore.readToken() == nil ? .guest : .unreachable
+            state = tokenStore.tokenIfPresent() == nil ? .guest : .unreachable
             fail(failure(for: error))
         } catch {
             state = .guest
@@ -189,7 +208,7 @@ final class ServerAccountStore: ObservableObject {
     /// Local training data is untouched.
     @discardableResult
     func logout() async -> Bool {
-        let token = tokenStore.readToken()
+        let token = tokenStore.tokenIfPresent()
         var revokedOnServer = false
 
         if let token {
@@ -220,27 +239,31 @@ final class ServerAccountStore: ObservableObject {
     /// The server answers `202` when deletion is under way but provider
     /// revocation has not finished. That is a success: irreversible, just not
     /// complete. Either way the local session goes.
-    func deleteAccount() async -> Bool {
-        guard let token = tokenStore.readToken() else {
+    func deleteAccount() async -> AccountDeletionResult {
+        guard let token = tokenStore.tokenIfPresent() else {
             // Nothing to delete server-side; make sure we are locally clean.
             discardSession()
-            return true
+            return .deleted
         }
 
         do {
-            try await api.deleteAccount(sessionToken: token)
+            // 200 and 202 are both accepted and irreversible, but only 200
+            // means the account is actually gone. The UI has to be able to
+            // tell them apart, so the distinction is carried out of here
+            // rather than flattened into a Bool.
+            let outcome = try await api.deleteAccount(sessionToken: token)
             discardSession()
-            return true
+            return outcome == .pending ? .pending : .deleted
         } catch let error as AccountAPIError where error.invalidatesStoredSession {
             // The session is gone, so either it was already deleted or it is
             // no longer usable. Locally the outcome is the same.
             discardSession()
-            return true
+            return .deleted
         } catch {
             // The account is still there. Do not clear the session and do not
             // tell the user it worked.
             fail(.unreachable)
-            return false
+            return .failed
         }
     }
 
