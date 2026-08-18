@@ -31,6 +31,7 @@ import type { AppleClientSecretConfig } from "../auth/appleClientSecret";
 import {
 	AppleExchangeError,
 	exchangeAppleAuthorizationCode,
+	revokeAppleRefreshToken,
 } from "../auth/appleTokenExchange";
 import type { TokenCipher } from "../crypto/tokenCipher";
 import { JwksFetchError, type JwksProvider } from "../auth/jwks";
@@ -121,18 +122,12 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				now,
 			});
 
-			// Exchanged before the account is created, and against the subject
-			// the identity token already proved. A code that belongs to someone
-			// else fails here, before any row is written.
-			const exchanged = await exchangeAppleAuthorizationCode({
-				authorizationCode: parsed.data.authorizationCode,
-				config: clientSecret,
-				expectedSubject: verified.subject,
-				jwks: deps.jwks,
-				fetchImpl: deps.fetchImpl,
-				now,
-			});
-
+			// Resolved BEFORE the exchange, on purpose.
+			//
+			// Every database operation moved above the exchange is one that can
+			// no longer fail while an un-stored Apple refresh token exists. It
+			// also means a `deleting` account is turned away before Apple ever
+			// mints a credential for it, rather than after.
 			const account = await findOrCreateAccountForIdentity(
 				c.env.DB,
 				{
@@ -144,21 +139,71 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				now,
 			);
 
-			// One batch: the encrypted refresh token and the session commit
-			// together or not at all. A live session for an account whose
-			// credential was not stored is an account that cannot be deleted
-			// per Apple's requirement, so that state is made unreachable rather
-			// than merely unlikely.
-			const issued = await saveCredentialAndIssueSession(c.env.DB, cipher, {
-				userId: account.user.id,
-				credential: {
-					authIdentityId: account.identity.id,
-					provider: "apple",
-					refreshToken: exchanged.refreshToken,
-				},
-				deviceName: parsed.data.deviceName ?? null,
+			// Exchanged against the subject the identity token already proved.
+			// A code that belongs to someone else fails here.
+			const exchanged = await exchangeAppleAuthorizationCode({
+				authorizationCode: parsed.data.authorizationCode,
+				config: clientSecret,
+				expectedSubject: verified.subject,
+				jwks: deps.jwks,
+				fetchImpl: deps.fetchImpl,
 				now,
 			});
+
+			// From here a live Apple refresh token exists that only this
+			// request knows about. If it is not stored, it becomes a credential
+			// nobody can revoke and nobody can see — so a failure below must
+			// hand it back to Apple rather than drop it.
+			let issued: Awaited<ReturnType<typeof saveCredentialAndIssueSession>>;
+			try {
+				// One batch: the encrypted refresh token and the session commit
+				// together or not at all. A live session for an account whose
+				// credential was not stored is an account that cannot be deleted
+				// per Apple's requirement, so that state is unreachable rather
+				// than merely unlikely.
+				issued = await saveCredentialAndIssueSession(c.env.DB, cipher, {
+					userId: account.user.id,
+					credential: {
+						authIdentityId: account.identity.id,
+						provider: "apple",
+						refreshToken: exchanged.refreshToken,
+					},
+					deviceName: parsed.data.deviceName ?? null,
+					now,
+				});
+			} catch (persistenceError) {
+				// Best-effort compensation. Note what this deliberately does
+				// NOT do: it does not write the token anywhere for a later
+				// retry. The failure we are handling is the database, so
+				// "store it and try again" would be storing it in the thing
+				// that just failed — and storing a plaintext credential to
+				// recover from a storage failure is worse than the problem.
+				const compensation = await revokeAppleRefreshToken({
+					refreshToken: exchanged.refreshToken,
+					config: clientSecret,
+					fetchImpl: deps.fetchImpl,
+					now,
+				});
+
+				// A concurrent deletion is answered exactly as a settled one is,
+				// so the race is not a way to tell a deleting account from an
+				// unknown one.
+				if (persistenceError instanceof AccountUnavailableError) {
+					return reject(c, correlationId, "account_unavailable", 401);
+				}
+
+				// Otherwise this is our storage failing. Either way no session
+				// is issued; the reason only tells an operator whether a live
+				// Apple grant is still out there.
+				return reject(
+					c,
+					correlationId,
+					compensation.status === "revoked"
+						? "persistence_failed_credential_revoked"
+						: "persistence_failed_credential_orphaned",
+					503,
+				);
+			}
 
 			return c.json({
 				sessionToken: issued.token,
