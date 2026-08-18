@@ -544,18 +544,73 @@ So the code is exchanged during sign-in, in this order:
 
 1. Verify the identity token (signature, issuer, audience, window, nonce).
 2. Spend the nonce.
-3. Exchange the code at `https://appleid.apple.com/auth/token`, using a
+3. **Resolve the account.** Deliberately before the exchange: every database
+   operation moved above it is one that can no longer fail while an un-stored
+   Apple refresh token exists, and a `deleting` account is turned away before
+   Apple ever mints a credential for it.
+4. Exchange the code at `https://appleid.apple.com/auth/token`, using a
    freshly signed ES256 client secret.
-4. Validate Apple's response. If it carries an `id_token`, verify it and check
-   its `sub` equals the one the identity token already proved — a mismatch
-   means the code belonged to someone else, and nothing is written.
-5. Resolve the account.
+5. Validate Apple's response, including its `id_token` — see below.
 6. **In one batch:** store the encrypted refresh token *and* create the
    session.
 
-Step 6 is a batch on purpose. A live session for an account whose credential
-was not stored is an account that cannot be deleted properly, so D1 rolls both
-back together rather than leaving that state reachable.
+#### The `id_token` in the exchange response is required
+
+Not "verified if present". Treating it as optional means an attacker who can
+suppress it — or a response shape nobody expected — skips the only check that
+proves the authorization code belonged to the same person as the identity
+token that arrived with it.
+
+It is fully verified (signature against Apple's JWKS, issuer, audience,
+window, non-empty `sub`) and its subject must be **strictly equal** to the one
+the identity token already proved. A mismatch writes nothing, stores no
+credential and issues no session.
+
+The nonce check is deliberately *not* applied here. Apple does not put one on
+the exchange response — that request is authenticated by the client secret —
+so `verifyAppleIdentityClaims` (common claims) is separated from
+`verifyAppleIdentityToken` (claims **plus** nonce binding). The omission is
+explicit at the call site rather than hidden inside a verifier that quietly
+stopped checking.
+
+`access_token` is ignored and never stored: nothing calls an Apple API on the
+user's behalf, so keeping one would be holding a credential for no reason.
+
+#### Step 6 is atomic, and the trigger is why
+
+A credential stored with no session is an account holding an Apple grant that
+nobody is signed into and nothing reported a failure for.
+
+The guard used to live in the INSERT — `INSERT … SELECT … WHERE EXISTS (…
+active …)` — which is correct about *what* it writes and dangerously wrong
+about how it fails. **Inserting zero rows is a successful statement.** D1 only
+rolls a batch back when a statement errors, so against a `deleting` user the
+batch committed the credential and silently issued no session.
+
+Migration `0003` adds a `BEFORE INSERT` trigger on `sessions` that aborts when
+the user is not `active`, and the session INSERT is now unconditional. The
+refusal is a real statement failure, so the whole batch — credential included
+— rolls back. The trigger is scoped to session *creation* on purpose: a
+`deleting` account must still be able to hold its encrypted credential,
+because that is what deletion revokes with.
+
+#### A refresh token is never left orphaned
+
+Between the exchange and the commit there is a live Apple refresh token that
+only that request knows about. If persistence fails there, the token would
+stay valid at Apple with nothing on our side pointing at it — unrevokable at
+deletion, and invisible.
+
+So a persistence failure triggers a **best-effort compensating revoke** and
+the request fails with `503`. No session is issued whether or not the
+compensation succeeded, and a failed compensation is never recorded as a
+revocation.
+
+What it deliberately does *not* do is write the token somewhere for a later
+retry. The failure being handled is the database, so "store it and try again"
+would mean storing it in the thing that just failed — and persisting a
+plaintext credential to recover from a storage failure is worse than the
+problem.
 
 Because the code is single-use, a failed sign-in is **not** retryable with the
 same request body. Recovery is a fresh Apple authorization flow, which is
@@ -595,10 +650,36 @@ under the Worker secret `APPLE_TOKEN_ENCRYPTION_KEY` (base64 of 32 bytes).
   key can be configured, so a key rotation is a config change plus a
   re-encrypt pass rather than a migration.
 
-Revocation lives in `auth/appleRevocation.ts` as the service the deletion
-route will call. Its outcomes are a closed set — `revoked`,
-`nothingToRevoke`, `retryable`, `unrevocable` — because an Apple outage must
-never be recorded as a revocation that happened.
+- `provider` is re-asserted on the upsert's conflict path and the row carries a
+  composite foreign key to `auth_identities (id, provider)`. A credential
+  claiming a provider its identity does not have is therefore unrepresentable
+  — which matters because the provider name is part of the AAD, so a mismatched
+  row would be one nobody could ever decrypt.
+
+#### Revocation succeeds on HTTP 2xx, and nothing else
+
+`auth/appleRevocation.ts` is the service the deletion route will call. Its
+outcomes are a closed set — `revoked`, `nothingToRevoke`, `retryable`,
+`unrevocable` — and only `revoked` means the token is gone.
+
+**No error body is ever read as evidence of success.** An earlier version
+took `invalid_grant` out of a 400 and called it "already revoked". That
+inference is wrong: from this endpoint `invalid_grant` can equally mean the
+token was issued to a different client, or that the request was malformed.
+Apple answers 2xx when it *accepts* a revoke — including for a token it has
+already forgotten — so there is no case where a non-2xx must be read as
+success, and every case where doing so records a revocation that never
+happened.
+
+Concretely: 2xx → `revoked` and the material is erased. 5xx or a network
+failure → `retryable`, whatever the body says. 4xx → `retryable` with reason
+`providerRejected`, because a rejection is not evidence of revocation either.
+**The stored credential is only ever erased after a 2xx**, so a retry always
+still has something to retry with.
+
+`unrevocable` (a ciphertext that cannot be opened) likewise does not mean the
+token was revoked — it means we can no longer produce the credential needed to
+try.
 
 See [Apple production gates](#apple-production-gates) for what is still open.
 

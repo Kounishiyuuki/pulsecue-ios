@@ -24,6 +24,7 @@ import {
 	type IssuedSession,
 	type PendingSession,
 	completeSession,
+	explainRefusedSession,
 	prepareSession,
 } from "./sessions";
 
@@ -76,6 +77,14 @@ export async function prepareCredentialUpsert(
 			    encryption_iv, encryption_key_version, created_at, updated_at, revoked_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
 			 ON CONFLICT (auth_identity_id) DO UPDATE SET
+			   -- Re-asserted on update, not only on insert. Without this the
+			   -- conflict path keeps the row's existing provider, so the
+			   -- foreign key never sees a mismatch — and a caller passing the
+			   -- wrong provider would silently overwrite the ciphertext with
+			   -- one sealed under a different AAD, leaving a row nobody can
+			   -- decrypt. Setting it makes the constraint fire and the whole
+			   -- statement fail, so the stored credential survives intact.
+			   provider                = excluded.provider,
 			   encrypted_refresh_token = excluded.encrypted_refresh_token,
 			   encryption_iv           = excluded.encryption_iv,
 			   encryption_key_version  = excluded.encryption_key_version,
@@ -122,9 +131,16 @@ export async function saveCredentialAndIssueSession(
 		now,
 	});
 
-	await db.batch([upsert, pending.statement]);
-	// Throws `AccountUnavailableError` when the session guard refused, which
-	// is what a concurrent deletion looks like from here.
+	try {
+		await db.batch([upsert, pending.statement]);
+	} catch (error) {
+		// The session INSERT raising is what makes this atomic. A `deleting`
+		// user trips the trigger from migration 0003, the batch rolls back,
+		// and the credential UPSERT goes with it — where the old guarded
+		// INSERT wrote zero rows, succeeded, and left the credential
+		// committed with no session beside it.
+		throw await explainRefusedSession(db, params.userId, error);
+	}
 	return completeSession(db, params.userId, pending);
 }
 

@@ -5,6 +5,7 @@ import { findOrCreateAccountForIdentity } from "../../src/api/db/accounts";
 import {
 	findCredentialForIdentity,
 	prepareCredentialUpsert,
+	readRefreshToken,
 } from "../../src/api/db/providerCredentials";
 import {
 	appleErrorResponse,
@@ -16,10 +17,14 @@ import { type TestDatabase, createTestDatabase } from "./support/sqliteD1";
 
 const NOW = 1_800_000_100;
 
-async function withStoredCredential(cipher: TokenCipher, db: TestDatabase) {
+async function withStoredCredential(
+	cipher: TokenCipher,
+	db: TestDatabase,
+	subject = "apple-sub-1",
+) {
 	const account = await findOrCreateAccountForIdentity(
 		db,
-		{ provider: "apple", subject: "apple-sub-1" },
+		{ provider: "apple", subject },
 		NOW,
 	);
 	await (
@@ -63,7 +68,10 @@ describe("revoking an identity's Apple credential", () => {
 		db.close();
 	});
 
-	it("treats a token Apple already forgot as revoked, and still erases it", async () => {
+	it("does NOT erase the credential when Apple answers 400 invalid_grant", async () => {
+		// The regression that matters: a non-2xx is never evidence the token
+		// is gone, so the material must survive for a retry. Restore the old
+		// "invalid_grant means already revoked" path and this fails.
 		const db = await createTestDatabase();
 		const cipher = new TokenCipher({ version: 1, material: testEncryptionKey() });
 		const account = await withStoredCredential(cipher, db);
@@ -79,10 +87,73 @@ describe("revoking an identity's Apple credential", () => {
 			now: NOW,
 		});
 
-		expect(outcome).toEqual({ status: "revoked" });
+		expect(outcome).toEqual({
+			status: "retryable",
+			reason: "providerRejected",
+		});
+		const row = await findCredentialForIdentity(db, account.identity.id);
+		expect(row?.revoked_at).toBeNull();
+		expect(row?.encrypted_refresh_token).not.toBe("");
+		// Still decryptable, so a retry can actually use it.
+		expect(await readRefreshToken(db, cipher, account.identity.id)).toBe(
+			"stored-refresh-token",
+		);
+		db.close();
+	});
+
+	it("keeps the credential for every non-2xx status", async () => {
+		const db = await createTestDatabase();
+		const cipher = new TokenCipher({ version: 1, material: testEncryptionKey() });
+		const key = await createTestAppleSigningKey();
+
+		for (const status of [400, 401, 403, 429, 500, 503]) {
+			const account = await withStoredCredential(cipher, db, `apple-sub-${status}`);
+			const endpoint = fakeAppleEndpoint(
+				() =>
+					new Response(JSON.stringify({ error: "invalid_grant" }), { status }),
+			);
+
+			const outcome = await revokeAppleIdentityCredential({
+				db,
+				cipher,
+				config: key.config,
+				authIdentityId: account.identity.id,
+				fetchImpl: endpoint.fetchImpl,
+				now: NOW,
+			});
+
+			expect(outcome.status, `status ${status}`).toBe("retryable");
+			const row = await findCredentialForIdentity(db, account.identity.id);
+			expect(row?.revoked_at, `status ${status}`).toBeNull();
+			expect(row?.encrypted_refresh_token, `status ${status}`).not.toBe("");
+		}
+		db.close();
+	});
+
+	it("distinguishes an outage from a rejection, for the operator", async () => {
+		const db = await createTestDatabase();
+		const cipher = new TokenCipher({ version: 1, material: testEncryptionKey() });
+		const key = await createTestAppleSigningKey();
+
+		const outage = await withStoredCredential(cipher, db, "apple-sub-outage");
+		const rejected = await withStoredCredential(cipher, db, "apple-sub-rejected");
+
+		const run = (identityId: string, responder: () => Response) =>
+			revokeAppleIdentityCredential({
+				db,
+				cipher,
+				config: key.config,
+				authIdentityId: identityId,
+				fetchImpl: fakeAppleEndpoint(responder).fetchImpl,
+				now: NOW,
+			});
+
 		expect(
-			(await findCredentialForIdentity(db, account.identity.id))?.revoked_at,
-		).toBe(NOW);
+			await run(outage.identity.id, () => new Response("", { status: 503 })),
+		).toEqual({ status: "retryable", reason: "providerUnavailable" });
+		expect(
+			await run(rejected.identity.id, () => appleErrorResponse("invalid_client")),
+		).toEqual({ status: "retryable", reason: "providerRejected" });
 		db.close();
 	});
 
