@@ -24,12 +24,17 @@
  *                 `db/nonces.ts`); this function only proves the binding.
  *
  * Not here: the authorization code. Exchanging it needs an Apple client
- * secret signed with a .p8 key, and the only thing PulseCue would do with
- * the result is revoke at account deletion. That belongs with deletion, and
- * this PR deliberately adds no Apple secret of any kind.
+ * secret signed with a .p8 key, which this PR deliberately does not add.
+ *
+ * That is a deferral, not a dismissal. Apple requires an app offering Sign
+ * in with Apple to let users delete their account *and* revoke the token
+ * (`/auth/revoke`), which needs the code exchange, the refresh token in
+ * encrypted storage, and the .p8 client secret. So this is a gate that must
+ * close before Apple sign-in ships publicly — not something to pick up
+ * "later, if deletion is ever built".
  */
 
-import { type JwksProvider } from "./jwks";
+import { type JwksProvider, RemoteJwksProvider } from "./jwks";
 import {
 	type JwtClaims,
 	decodeJwt,
@@ -38,7 +43,17 @@ import {
 } from "./jwt";
 
 export const APPLE_ISSUER = "https://appleid.apple.com";
-export const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+
+/**
+ * Apple's key set, and only Apple's.
+ *
+ * The endpoint is a module constant that nothing outside this file can see,
+ * so there is no path from a request field to an outbound URL.
+ */
+export function createAppleJwksProvider(): JwksProvider {
+	return new RemoteJwksProvider({ url: APPLE_JWKS_URL });
+}
 
 /** Tolerance for clock drift between Apple, the edge, and the device. */
 export const APPLE_CLOCK_SKEW_SECONDS = 60;
@@ -138,7 +153,12 @@ function assertWindow(claims: JwtClaims, now: number): void {
 	if (now >= exp + APPLE_CLOCK_SKEW_SECONDS) {
 		throw new AppleTokenInvalidError("expired");
 	}
-	if (typeof iat === "number" && iat - APPLE_CLOCK_SKEW_SECONDS > now) {
+	// Required, not merely checked-if-present. Apple always sends `iat`, and
+	// treating an absent or non-numeric one as "fine" would let a token with
+	// a forged-looking time window through the only freshness check `exp`
+	// does not cover.
+	if (typeof iat !== "number") throw new AppleTokenInvalidError("missing iat");
+	if (iat - APPLE_CLOCK_SKEW_SECONDS > now) {
 		throw new AppleTokenInvalidError("issued in the future");
 	}
 }

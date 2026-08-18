@@ -363,7 +363,7 @@ machine-to-machine (a static import key and short-lived HMAC tokens, no
 users), while this one owns accounts and per-user data. Mixing two
 authorization models in one router would be a mistake.
 
-Routes: `GET /health`, `POST /v1/auth/apple`.
+Routes: `GET /health`, `POST /v1/auth/apple`, `POST /v1/auth/google`.
 
 ### Sign in with Apple
 
@@ -374,8 +374,8 @@ The iOS app is not trusted with identity. Everything that decides *who* the
 user is comes out of Apple's signature — `credential.user` from the client
 is deliberately ignored, and only the `sub` claim is stored. Verified on
 every request: RS256 signature against Apple's published key, issuer,
-audience (`APPLE_AUDIENCE`), expiry with a 60s skew allowance, and that
-`sha256(rawNonce)` equals the token's `nonce` claim.
+audience (`APPLE_AUDIENCE`), `exp` and `iat` with a 60s skew allowance, and
+that `sha256(rawNonce)` equals the token's `nonce` claim.
 
 The nonce is then **spent**: `auth_nonces` records it, so replaying a
 captured request body fails even though the token is still inside its
@@ -387,15 +387,144 @@ id — never in the response, because distinguishing "no such account" from
 "bad token" is an enumeration oracle. Apple's key service being unreachable
 is a `503`, not a rejection.
 
-**No Apple secret is required.** Verifying an identity token needs only
-Apple's public keys. The `.p8` signing key, Key ID and Team ID exist solely
-to *revoke* a token at account deletion, and are introduced with that work
-rather than sitting here as placeholders. `APPLE_AUDIENCE` is the app's
-bundle identifier — environment-specific but not secret.
+**No Apple secret is required *to verify a token*.** Verification needs only
+Apple's public keys, and `APPLE_AUDIENCE` is the app's bundle identifier —
+environment-specific but not secret.
 
-Apple's key set is cached in-memory per isolate and refetched once on an
-unknown `kid`, so key rotation is not an outage. No KV binding is needed to
-be correct.
+That is not the same as "Apple sign-in is finished". See
+[Apple production gates](#apple-production-gates) below for what must still
+land before it ships publicly.
+
+### Sign in with Google
+
+`POST /v1/auth/google` takes `{ idToken, deviceName? }` and returns the same
+`{ sessionToken, expiresAt, user }` shape.
+
+The same rule applies: `GIDGoogleUser` hands the app a `userID`, an email and
+a profile name, and **none of them are part of the request schema**. The
+account is keyed on the `sub` of a signature-verified token. Verified on every
+request: RS256 signature against Google's published key, issuer (allowlisted
+to Google's two documented spellings), audience (`GOOGLE_AUDIENCE`), `exp` and
+`iat` with a 60s skew allowance, and a non-empty `sub`.
+
+The audience check is the load-bearing one here. An ID token is issued *to a
+client*, and without pinning `aud` to our own client id, a token minted for
+any other Google app — including one an attacker registered five minutes ago
+— would sign its holder in. Unset config is a refusal, never "any audience".
+
+`aud` must be **exactly one string** equal to `GOOGLE_AUDIENCE`. An array is
+rejected. The JWT spec permits an array and Google's tokens for this flow do
+not use one; accepting it would mean accepting a token *also* minted for
+someone else, while the `azp` claim that exists to disambiguate that case is
+not checked here. PulseCue has exactly one server client id, so the narrow
+contract costs nothing.
+
+**No Google secret is involved.** Verifying an ID token needs only Google's
+public keys — this backend never calls a Google token endpoint and holds no
+client secret. `GOOGLE_AUDIENCE` is a client id, which is public.
+
+#### Which client id goes where
+
+Google Cloud issues **two** OAuth client ids for this setup, and swapping them
+is the mistake to avoid. The ID token's `aud` is the **Web application
+("server") client id**, *not* the iOS one:
+
+| Google Cloud client | Used as | Appears in `aud`? |
+|---|---|---|
+| **iOS** OAuth client id | `GIDClientID` in the app, and the reversed-client-id URL scheme | **No** |
+| **Web application** OAuth client id | `GIDServerClientID` in the app, and `GOOGLE_AUDIENCE` here | **Yes** |
+
+The flow: the app sets `GIDServerClientID` to the Web client id, so Google
+mints the ID token with `aud` = that Web client id. The backend compares `aud`
+against `GOOGLE_AUDIENCE`, which must hold the *same* value. The iOS client id
+never reaches the server at all.
+
+Setting `GOOGLE_AUDIENCE` to the iOS client id would reject every real token —
+a fail-closed mistake rather than a dangerous one, but a confusing outage.
+
+Two things are **not** done yet and are needed before Google sign-in works end
+to end:
+
+1. The Web application OAuth client has not been created in Google Cloud, and
+   no real client id appears anywhere in this repo — `.dev.vars.example` has a
+   placeholder only.
+2. The iOS app does not set `GIDServerClientID` yet. That is a follow-up iOS
+   PR; this one is server-only. Until it lands, tokens from the app carry the
+   iOS client id in `aud` and this endpoint will (correctly) refuse them.
+
+The existing reversed-client-id URL scheme stays as it is — it belongs to the
+iOS client id and is unaffected by any of this.
+
+**No nonce, deliberately.** Apple's nonce exists because
+`ASAuthorizationAppleIDRequest` lets the app bind a value it generated into
+the token, and spending it once turns a captured request body into a
+single-use one. Nothing equivalent reaches this endpoint today: the request
+carries only `{ idToken, deviceName? }`, and supplying a bound nonce would
+require an iOS change that is out of scope for this server-only work. The
+residual risk is small: replaying a captured body requires reading the body, and
+anyone who can read a TLS request body can equally read the session token in
+the response. If that call changes, the cheapest version needs no client
+change — record `sha256(idToken)` in `auth_nonces` (it already has a `google`
+provider value) to make each ID token usable once. That is an open decision,
+not an oversight.
+
+### Provider key sets
+
+Each provider's JWKS endpoint is a module constant inside that provider's
+file, reachable only through `createAppleJwksProvider()` /
+`createGoogleJwksProvider()`. No URL is ever passed in from a request, and
+`RemoteJwksProvider` refuses a non-HTTPS URL at construction — a tripwire so
+that a later refactor cannot quietly turn key fetching into SSRF.
+
+A fetched key set is untrusted input and is validated before use:
+
+- `keys` must be an array of objects, each with a non-empty string `kid`
+- a **duplicate `kid` rejects the whole set** — "which key signed this" must
+  not be a guess
+- a key is only usable with `kty: RSA` and non-empty `n`/`e`; `use` and `alg`
+  are optional in RFC 7517, so an omitted one is accepted while a *stated*
+  `enc` or `RS512` is not
+- a set with no usable key fails closed
+
+Anything structurally wrong is a `JwksFetchError` → **503**, never a 401: a
+provider outage is not a bad credential.
+
+Key sets are cached in-memory per isolate (6h TTL) and refetched on an unknown
+`kid`, so rotation is not an outage. Two limits keep that from being free
+outbound bandwidth for anyone who can put a random `kid` in a token header:
+
+- **cooldown** — at most one unknown-`kid` refetch per 60s per isolate; a
+  flood of bogus `kid`s costs one fetch, not one per request
+- **single-flight** — concurrent misses share one in-flight fetch rather than
+  opening a connection each
+
+`invalidate()` clears both, so an operator can still force a rotation
+immediately. No KV binding is needed to be correct.
+
+### Apple production gates
+
+Apple sign-in verifies correctly today, but it is **not shippable yet**. These
+are release blockers for public availability, not optional follow-ups:
+
+1. **Authorization code exchange, and `/auth/revoke`.** Apple requires an app
+   offering Sign in with Apple to let users delete their account *and* revoke
+   the token. That needs the `authorizationCode` exchanged for a refresh
+   token, the refresh token in encrypted storage, and a client secret signed
+   with a `.p8` key (plus Key ID and Team ID). None of it exists yet, and none
+   of it is a placeholder in this repo.
+
+   An earlier note here described the `.p8` as something to "pick up later, at
+   deletion". That was wrong, and is corrected: deletion-with-revocation is a
+   condition of offering Apple sign-in at all.
+
+2. **Nonce cleanup, actually running.** `purgeExpiredNonces` exists but
+   nothing calls it in production. Without a scheduled sweep, `auth_nonces`
+   grows without bound. Activating it needs care in one specific place: the
+   sweep deletes on `expires_at`, while verification accepts a token until
+   `exp + APPLE_CLOCK_SKEW_SECONDS`. Sweeping at exactly `expires_at` opens a
+   60-second window in which a token is still accepted but its nonce row is
+   gone — a replay window created by the cleanup itself. The sweep must lag
+   the skew allowance.
 
 ### Not deployed
 

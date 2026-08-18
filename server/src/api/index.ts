@@ -8,19 +8,22 @@
  */
 
 import { Hono } from "hono";
-import { APPLE_JWKS_URL } from "./auth/apple";
-import { RemoteJwksProvider } from "./auth/jwks";
+import { createAppleJwksProvider } from "./auth/apple";
+import { createGoogleJwksProvider } from "./auth/google";
 import { newId } from "./db/ids";
 import { makeAppleAuthHandler } from "./routes/authApple";
+import { makeGoogleAuthHandler } from "./routes/authGoogle";
 import type { ApiEnv } from "./types";
 
 const app = new Hono<{ Bindings: ApiEnv }>();
 
 /**
- * One provider per isolate, so Apple's key set is fetched once and reused
- * across requests instead of on every sign-in.
+ * One provider per isolate per issuer, so each key set is fetched once and
+ * reused across requests instead of on every sign-in. Each factory pins its
+ * own endpoint, so there is no shared "JWKS client" a URL could be passed to.
  */
-const appleJwks = new RemoteJwksProvider({ url: APPLE_JWKS_URL });
+const appleJwks = createAppleJwksProvider();
+const googleJwks = createGoogleJwksProvider();
 
 app.get("/health", (c) => c.json({ status: "ok", service: "pulsecue-api" }));
 
@@ -30,6 +33,14 @@ app.post("/v1/auth/apple", (c) =>
 		// Empty when unconfigured; verification rejects that rather than
 		// treating it as "any audience".
 		audience: c.env.APPLE_AUDIENCE ?? "",
+	})(c),
+);
+
+app.post("/v1/auth/google", (c) =>
+	makeGoogleAuthHandler({
+		jwks: googleJwks,
+		// Same fail-closed rule as Apple: unset means no one signs in.
+		audience: c.env.GOOGLE_AUDIENCE ?? "",
 	})(c),
 );
 

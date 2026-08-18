@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	NonceAlreadyUsedError,
+	NonceStoreUnavailableError,
 	consumeNonce,
 	purgeExpiredNonces,
 } from "../../src/api/db/nonces";
+import type { SqlDatabase, SqlStatement } from "../../src/api/types";
 import { createTestDatabase } from "./support/sqliteD1";
 
 describe("single-use nonces", () => {
@@ -61,6 +63,51 @@ describe("single-use nonces", () => {
 		db.close();
 	});
 
+	it("calls a database outage an outage, not a replay", async () => {
+		// A failed INSERT used to mean "already used" unconditionally, which
+		// turns a D1 incident into "invalid credentials" for every user at
+		// once — a 401 where a 503 belongs. The row is absent here, so the
+		// only honest answer is that the store is unavailable.
+		const failing = failingDatabase({ selectFinds: false });
+
+		await expect(
+			consumeNonce(failing, {
+				nonceHash: "1".repeat(64),
+				provider: "google",
+				expiresAt: 2000,
+				now: 1000,
+			}),
+		).rejects.toBeInstanceOf(NonceStoreUnavailableError);
+	});
+
+	it("calls it an outage when even the follow-up lookup fails", async () => {
+		const failing = failingDatabase({ selectThrows: true });
+
+		await expect(
+			consumeNonce(failing, {
+				nonceHash: "2".repeat(64),
+				provider: "google",
+				expiresAt: 2000,
+				now: 1000,
+			}),
+		).rejects.toBeInstanceOf(NonceStoreUnavailableError);
+	});
+
+	it("still calls a real duplicate a replay, without reading the driver's error text", async () => {
+		// The classification must not depend on D1's error wording, which
+		// differs from the SQLite double's and changes between versions.
+		const failing = failingDatabase({ selectFinds: true });
+
+		await expect(
+			consumeNonce(failing, {
+				nonceHash: "3".repeat(64),
+				provider: "google",
+				expiresAt: 2000,
+				now: 1000,
+			}),
+		).rejects.toBeInstanceOf(NonceAlreadyUsedError);
+	});
+
 	it("sweeps only nonces whose token has already expired", async () => {
 		const db = await createTestDatabase();
 		await consumeNonce(db, {
@@ -82,3 +129,38 @@ describe("single-use nonces", () => {
 		db.close();
 	});
 });
+
+/**
+ * A database whose INSERT always fails, with an error message that says
+ * nothing about why.
+ *
+ * That opacity is the point: it is how these tests prove the replay/outage
+ * classification is drawn from the table's contents rather than from a
+ * driver-specific error string.
+ */
+function failingDatabase(behavior: {
+	selectFinds?: boolean;
+	selectThrows?: boolean;
+}): SqlDatabase {
+	const statement = (sql: string, bound: unknown[]): SqlStatement => ({
+		bind: (...values: unknown[]) => statement(sql, values),
+		first: async <T>() => {
+			if (behavior.selectThrows) throw new Error("boom");
+			return behavior.selectFinds ? ({ 1: 1 } as T) : null;
+		},
+		all: async <T>() => ({ results: [] as T[] }),
+		run: async () => {
+			if (sql.trimStart().toUpperCase().startsWith("INSERT")) {
+				throw new Error("boom");
+			}
+			return undefined;
+		},
+	});
+
+	return {
+		prepare: (sql: string) => statement(sql, []),
+		batch: async () => {
+			throw new Error("boom");
+		},
+	};
+}

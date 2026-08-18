@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { StaticJwksProvider } from "../../src/api/auth/jwks";
+import { base64urlEncode } from "../../src/api/auth/jwt";
 import { findIdentity } from "../../src/api/db/accounts";
 import { findActiveSessionByToken } from "../../src/api/db/sessions";
 import { makeAppleAuthHandler } from "../../src/api/routes/authApple";
@@ -50,6 +51,13 @@ async function tokenFor(
 	return signer.sign(
 		await appleClaims({ nonce: await hashedNonce(nonce), ...overrides }),
 	);
+}
+
+/** A token with literally these segments, for shapes a signer cannot make. */
+function rawToken(header: string, payload: string): string {
+	const encode = (json: string) =>
+		base64urlEncode(new TextEncoder().encode(json));
+	return `${encode(header)}.${encode(payload)}.c2ln`;
 }
 
 describe("POST /v1/auth/apple", () => {
@@ -152,6 +160,19 @@ describe("POST /v1/auth/apple", () => {
 			{
 				identityToken: await tokenFor(signer),
 				rawNonce: "a-different-nonce",
+			},
+			// Payload is not a JSON object — must be a 401, not a crash.
+			{
+				identityToken: rawToken('{"alg":"RS256","kid":"k1"}', "null"),
+				rawNonce: RAW_NONCE,
+			},
+			{
+				identityToken: rawToken('{"alg":"RS256","kid":"k1"}', '["iss"]'),
+				rawNonce: RAW_NONCE,
+			},
+			{
+				identityToken: rawToken('{"alg":"RS256","kid":"k1"}', '"a-string"'),
+				rawNonce: RAW_NONCE,
 			},
 		];
 

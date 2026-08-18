@@ -19,6 +19,21 @@ export interface ApiEnv {
 	 * would otherwise mean "accept a token minted for any Apple client".
 	 */
 	APPLE_AUDIENCE?: string;
+	/**
+	 * The `aud` every Google ID token must carry: PulseCue's **Web
+	 * application ("server") OAuth client id**, the same value the iOS app
+	 * sets as `GIDServerClientID`.
+	 *
+	 * Not the iOS OAuth client id. That one is `GIDClientID` and the reversed
+	 * URL scheme on the app side, and it never appears in `aud` — configuring
+	 * it here would reject every real token.
+	 *
+	 * Not a secret (a client id is public), but environment-specific, so it is
+	 * configured rather than compiled in. Verification refuses to run when it
+	 * is unset: an empty audience would mean "accept a token minted for any
+	 * Google client", including one an attacker registered.
+	 */
+	GOOGLE_AUDIENCE?: string;
 }
 
 /**

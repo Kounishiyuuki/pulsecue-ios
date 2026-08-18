@@ -1,16 +1,19 @@
 /**
- * `POST /v1/auth/apple`
+ * `POST /v1/auth/google`
  *
- * Trades a verified Sign in with Apple identity token for a PulseCue
- * session. The client sends what Apple gave it plus the raw nonce it
- * generated; it does not get to say who it is.
+ * Trades a verified Google ID token for a PulseCue session. The client sends
+ * what Google gave it; it does not get to say who it is. `userID`, `email`,
+ * `displayName` and any other profile field from `GIDGoogleUser` are not part
+ * of the request schema at all — the account is keyed on the `sub` of a
+ * signature-verified token.
  *
- * Every failure answers the same way — `401 invalid_credentials`, no
- * detail. Which check failed (bad signature, wrong audience, expired,
- * replayed, account being deleted, unknown account) is exactly what an
- * attacker would iterate against, and distinguishing "no such account" from
- * "wrong token" is an enumeration oracle. The reason is logged as a short
- * code with a correlation id instead.
+ * Every failure answers the same way — `401 invalid_credentials`, no detail.
+ * Which check failed (bad signature, wrong audience, expired, unknown
+ * account, account being deleted) is exactly what an attacker would iterate
+ * against, and distinguishing "no such account" from "wrong token" is an
+ * enumeration oracle. The reason is logged as a short code with a correlation
+ * id instead. Google's key service being unreachable is a `503`: an outage
+ * must not be reported as a bad credential.
  */
 
 import type { Context } from "hono";
@@ -20,31 +23,30 @@ import {
 	findOrCreateAccountForIdentity,
 } from "../db/accounts";
 import { newId } from "../db/ids";
-import {
-	NonceAlreadyUsedError,
-	NonceStoreUnavailableError,
-	consumeNonce,
-} from "../db/nonces";
 import { createSession } from "../db/sessions";
-import { AppleTokenInvalidError, verifyAppleIdentityToken } from "../auth/apple";
+import { GoogleTokenInvalidError, verifyGoogleIdToken } from "../auth/google";
 import { JwksFetchError, type JwksProvider } from "../auth/jwks";
 import { JwtMalformedError, JwtSignatureError } from "../auth/jwt";
 import type { ApiEnv } from "../types";
 
 const requestSchema = z.object({
-	identityToken: z.string().min(1).max(8192),
-	rawNonce: z.string().min(1).max(512),
+	idToken: z.string().min(1).max(8192),
 	/** Optional label for a future "signed-in devices" screen. */
 	deviceName: z.string().min(1).max(120).optional(),
 });
 
-export interface AppleAuthDependencies {
+export interface GoogleAuthDependencies {
 	jwks: JwksProvider;
+	/**
+	 * The PulseCue **Web application (server) OAuth client id** — the value
+	 * the iOS app sets as `GIDServerClientID`, which is what Google puts in
+	 * `aud`. Not the iOS client id. Empty means "refuse", not "any".
+	 */
 	audience: string;
 	now?: () => number;
 }
 
-export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
+export function makeGoogleAuthHandler(deps: GoogleAuthDependencies) {
 	return async (c: Context<{ Bindings: ApiEnv }>) => {
 		const correlationId = newId();
 		const now = deps.now?.() ?? Math.floor(Date.now() / 1000);
@@ -54,22 +56,21 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 			return reject(c, correlationId, "malformed_request", 400);
 		}
 
-		let verified: Awaited<ReturnType<typeof verifyAppleIdentityToken>>;
+		let verified: Awaited<ReturnType<typeof verifyGoogleIdToken>>;
 		try {
-			verified = await verifyAppleIdentityToken({
-				identityToken: parsed.data.identityToken,
-				rawNonce: parsed.data.rawNonce,
+			verified = await verifyGoogleIdToken({
+				idToken: parsed.data.idToken,
 				audience: deps.audience,
 				jwks: deps.jwks,
 				now,
 			});
 		} catch (error) {
 			if (error instanceof JwksFetchError) {
-				// Apple being unreachable is our problem, not a bad credential.
+				// Google being unreachable is our problem, not a bad credential.
 				return reject(c, correlationId, "jwks_unavailable", 503);
 			}
 			if (
-				error instanceof AppleTokenInvalidError ||
+				error instanceof GoogleTokenInvalidError ||
 				error instanceof JwtMalformedError ||
 				error instanceof JwtSignatureError
 			) {
@@ -79,19 +80,14 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 		}
 
 		try {
-			// Claimed before the account is touched: a replay must not even
-			// refresh `last_seen_at`.
-			await consumeNonce(c.env.DB, {
-				nonceHash: verified.nonceHash,
-				provider: "apple",
-				expiresAt: verified.expiresAt,
-				now,
-			});
-
+			// Matching is on (provider, subject) only. A Google identity whose
+			// email happens to equal an existing Apple identity's is a
+			// different account, deliberately: an address is not proof of
+			// ownership, and merging on one is an account-takeover path.
 			const account = await findOrCreateAccountForIdentity(
 				c.env.DB,
 				{
-					provider: "apple",
+					provider: "google",
 					subject: verified.subject,
 					email: verified.email,
 					emailVerified: verified.emailVerified,
@@ -113,13 +109,6 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				},
 			});
 		} catch (error) {
-			if (error instanceof NonceAlreadyUsedError) {
-				return reject(c, correlationId, "nonce_replayed", 401);
-			}
-			if (error instanceof NonceStoreUnavailableError) {
-				// The store being down says nothing about the credential.
-				return reject(c, correlationId, "nonce_store_unavailable", 503);
-			}
 			if (error instanceof AccountUnavailableError) {
 				// Same answer as a bad token: whether an account exists and is
 				// being deleted is not the client's to learn.
@@ -139,10 +128,10 @@ function reject(
 ) {
 	console.warn(
 		JSON.stringify({
-			event: "apple_auth_rejected",
+			event: "google_auth_rejected",
 			reason,
 			correlationId,
-			// Deliberately absent: token, nonce, subject, email, user id.
+			// Deliberately absent: token, subject, email, user id.
 		}),
 	);
 	const body =

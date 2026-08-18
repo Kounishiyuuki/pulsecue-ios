@@ -68,24 +68,45 @@ export function decodeJwt(token: string): DecodedJwt {
 		throw new JwtMalformedError("empty segment");
 	}
 
-	let header: JwtHeader;
-	let claims: JwtClaims;
+	let header: unknown;
+	let claims: unknown;
 	try {
 		header = JSON.parse(new TextDecoder().decode(base64urlDecode(headerPart)));
 		claims = JSON.parse(new TextDecoder().decode(base64urlDecode(payloadPart)));
 	} catch {
 		throw new JwtMalformedError("segment is not base64url JSON");
 	}
-	if (typeof header?.alg !== "string") {
+
+	// `JSON.parse` happily returns `null`, `[]`, `"x"` or `7`, and every one of
+	// them would flow on as if it were a claim set. A later `claims.iss` on a
+	// primitive is `undefined` (a rejection, fine), but on an array it reads
+	// array members, and on `null` it throws a TypeError that would surface as
+	// a 500. A token whose payload is not a JSON object is simply not a JWT:
+	// reject it here, as the malformed credential it is, so every caller turns
+	// it into the same 401 as any other bad token.
+	if (!isJsonObject(header)) {
+		throw new JwtMalformedError("header is not a JSON object");
+	}
+	if (!isJsonObject(claims)) {
+		throw new JwtMalformedError("payload is not a JSON object");
+	}
+	if (typeof header.alg !== "string") {
 		throw new JwtMalformedError("header has no alg");
 	}
 
 	return {
-		header,
-		claims,
+		header: header as unknown as JwtHeader,
+		claims: claims as unknown as JwtClaims,
 		signingInput: new TextEncoder().encode(`${headerPart}.${payloadPart}`),
 		signature: base64urlDecode(signaturePart),
 	};
+}
+
+/** A JSON object — not null, not an array, not a primitive. */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+	return (
+		typeof value === "object" && value !== null && !Array.isArray(value)
+	);
 }
 
 /**

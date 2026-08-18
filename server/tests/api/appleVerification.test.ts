@@ -201,6 +201,26 @@ describe("claims", () => {
 		).rejects.toBeInstanceOf(AppleTokenInvalidError);
 	});
 
+	it("requires iat, and requires it to be a number", async () => {
+		// Accepting an absent or non-numeric `iat` would skip the only
+		// freshness check `exp` does not cover.
+		const signer = await createTestSigner();
+		await expect(verifyWith(signer, { iat: undefined })).rejects.toBeInstanceOf(
+			AppleTokenInvalidError,
+		);
+		await expect(verifyWith(signer, { iat: "1800000000" })).rejects.toBeInstanceOf(
+			AppleTokenInvalidError,
+		);
+	});
+
+	it("allows a little clock skew on iat", async () => {
+		const signer = await createTestSigner();
+		const identity = await verifyWith(signer, {
+			iat: NOW + APPLE_CLOCK_SKEW_SECONDS,
+		});
+		expect(identity.subject).toBeTruthy();
+	});
+
 	it("rejects a token with no sub", async () => {
 		const signer = await createTestSigner();
 		await expect(verifyWith(signer, { sub: undefined })).rejects.toBeInstanceOf(

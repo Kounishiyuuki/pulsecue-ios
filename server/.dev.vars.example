@@ -37,6 +37,30 @@ PULSECUE_IMPORT_TOKEN_SECRET=local-dev-token-signing-secret
 #
 # No Apple secret belongs here. Verifying an identity token needs only
 # Apple's public keys. The .p8 signing key / Key ID / Team ID are required
-# solely to revoke a token at account deletion, and are introduced with that
-# work — never as a placeholder.
+# for the /auth/revoke call Apple mandates at account deletion — a gate that
+# must close before Apple sign-in ships publicly — and are introduced with
+# that work rather than sitting here as placeholders.
 APPLE_AUDIENCE=com.kounishiyuuki.pulsecue
+
+# Audience for Google Sign-In ID tokens: PulseCue's **Web application
+# ("server") OAuth client id** from the Google Cloud console — the same value
+# the iOS app sets as GIDServerClientID.
+#
+# NOT the iOS OAuth client id. Google Cloud issues two client ids for this
+# setup and they are easy to swap by mistake:
+#
+#   iOS client id  -> GIDClientID, and the reversed-client-id URL scheme.
+#                     Never appears in the ID token's `aud`.
+#   Web/server     -> GIDServerClientID on the app side, GOOGLE_AUDIENCE here.
+#     client id       This is what Google puts in `aud`.
+#
+# Putting the iOS client id here would reject every real token.
+#
+# Not a secret — a client id is public — but environment-specific, so it is
+# configured rather than compiled in. Verification refuses to run when this is
+# unset, because an empty audience would mean "accept a token minted for any
+# Google client".
+#
+# No Google client secret belongs here. Verifying an ID token needs only
+# Google's public keys; the backend never calls a Google token endpoint.
+GOOGLE_AUDIENCE=REPLACE_WITH_WEB_SERVER_OAUTH_CLIENT_ID.apps.googleusercontent.com
