@@ -16,6 +16,7 @@ import { newId } from "./db/ids";
 import { type AuthedEnv, requireSession } from "./middleware/requireSession";
 import { makeAppleAuthHandler } from "./routes/authApple";
 import { makeGoogleAuthHandler } from "./routes/authGoogle";
+import { makeDeleteMeHandler } from "./routes/deleteMe";
 import { handleLogout, handleLogoutAll } from "./routes/logout";
 import { handleGetMe } from "./routes/me";
 
@@ -66,6 +67,15 @@ app.post("/v1/auth/google", (c) =>
 app.get("/v1/me", requireSession(), handleGetMe);
 app.post("/v1/auth/logout", requireSession(), handleLogout);
 app.post("/v1/auth/logout-all", requireSession(), handleLogoutAll);
+app.delete("/v1/me", requireSession(), (c) =>
+	makeDeleteMeHandler({
+		// Null when Apple is unconfigured. Deletion then keeps the account in
+		// `deleting` and retries, rather than reporting a revocation that
+		// never happened.
+		appleConfig: appleClientSecretConfigFromEnv(c.env),
+		cipher: tokenCipherFromEnv(c.env),
+	})(c),
+);
 
 app.notFound((c) =>
 	c.json({ error: { code: "not_found", message: "Route not found" } }, 404),

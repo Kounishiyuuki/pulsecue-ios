@@ -10,6 +10,7 @@ describe("account schema", () => {
 			)
 			.all<{ name: string }>();
 		expect(results.map((r) => r.name)).toEqual([
+			"account_deletions",
 			"auth_identities",
 			"auth_nonces",
 			"provider_credentials",
@@ -18,6 +19,48 @@ describe("account schema", () => {
 			"user_profiles",
 			"users",
 		]);
+		db.close();
+	});
+
+	it("hangs every user-owned table off users with a cascade", async () => {
+		// Account deletion is one `DELETE FROM users`. It stays correct only
+		// because the database decides what belongs to a user — a hand-written
+		// list of child tables is how a table added next year quietly survives
+		// a deletion.
+		const db = await createTestDatabase();
+		const { results } = await db
+			.prepare(
+				`SELECT name, sql FROM sqlite_master
+				  WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+			)
+			.all<{ name: string; sql: string }>();
+
+		const userOwned = [
+			"auth_identities",
+			"user_profiles",
+			"sessions",
+			"user_change_seq",
+			"account_deletions",
+		];
+		for (const table of userOwned) {
+			const ddl = (results.find((r) => r.name === table)?.sql ?? "").toLowerCase();
+			expect(ddl, `${table} must reference users`).toContain("references users(id)");
+			expect(ddl, `${table} must cascade`).toContain("on delete cascade");
+		}
+
+		// `provider_credentials` reaches users through the identity.
+		const credentials = (
+			results.find((r) => r.name === "provider_credentials")?.sql ?? ""
+		).toLowerCase();
+		expect(credentials).toContain("references auth_identities(id)");
+		expect(credentials).toContain("on delete cascade");
+
+		// `auth_nonces` is keyed by a nonce hash and has no owner, so there is
+		// deliberately nothing there for a deletion to sweep.
+		const nonces = (
+			results.find((r) => r.name === "auth_nonces")?.sql ?? ""
+		).toLowerCase();
+		expect(nonces).not.toContain("user_id");
 		db.close();
 	});
 

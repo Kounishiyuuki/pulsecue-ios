@@ -149,6 +149,16 @@ export interface ProviderCredentialRow {
 	revoked_at: EpochSeconds | null;
 }
 
+export interface AccountDeletionRow {
+	user_id: string;
+	requested_at: EpochSeconds;
+	attempts: number;
+	last_attempt_at: EpochSeconds | null;
+	/** A fixed code from a closed set in code. Never a provider message. */
+	last_error_code: string | null;
+	next_attempt_at: EpochSeconds;
+}
+
 export interface SessionRow {
 	id: string;
 	user_id: string;
