@@ -19,10 +19,14 @@
 //      no real sign-in starts and no fake signed-in state is created.
 //    - "ゲストで続ける"  → AuthSessionStore.continueAsGuest()
 //
-//  Even with real Apple/Google sign-in, the app stays local-first: no token
-//  persistence, no Keychain, no server token exchange, no sync. The copy
-//  makes clear that account linking / backup / sync are not active yet, and
-//  login is never required to use the app.
+//  Sign-in now exchanges the provider's signed material for a PulseCue
+//  server session, which `ServerAccountStore` owns: it verifies the session,
+//  persists the opaque token in the Keychain, and hands it back to the server
+//  if any of that fails. The local `LinkedAccount` record is written only
+//  after the server confirms, so a failed exchange leaves no link behind.
+//
+//  Sync is still not active, and login is still never required to use the
+//  app — Guest remains a complete way to use PulseCue.
 //
 
 import SwiftUI
@@ -188,46 +192,60 @@ struct LoginView: View {
         guard case let .success(authorization) = result,
               let credential = authorization.credential as? ASAuthorizationAppleIDCredential
         else { return }
-        // `credential.user` is Apple's stable, app-scoped identifier. It is what
-        // lets the link survive a relaunch and be re-validated with
-        // `ASAuthorizationAppleIDProvider`. The identityToken and
-        // authorizationCode are still never read: there is no server to send
-        // them to, so storing them would be storing a credential for nothing.
+
         let appleResult = AppleSignInResult(
             nameComponents: credential.fullName,
             email: credential.email
         )
-        authSession.completeAppleSignIn(
-            userIdentifier: credential.user,
-            displayName: appleResult.displayName,
-            email: appleResult.email
-        )
+        let rawNonce = appleRawNonce
+        appleRawNonce = nil
 
-        // Hand the *signed* material to PulseCue's server, which decides who
-        // this is. `credential.user`, the name and the email are deliberately
-        // not sent as identity — the server reads the subject out of the
-        // signature it verifies, and there is no field on the request for
-        // anything the client claims.
+        // The *signed* material is what PulseCue's server decides identity
+        // from. `credential.user`, the name and the email are deliberately not
+        // sent — the server reads the subject out of the signature it
+        // verifies, and there is no field on the request for anything the
+        // client claims. They are display fields only.
         //
         // `authorizationCode` is required, not best-effort: without it the
         // server cannot obtain the refresh token it needs to revoke at account
         // deletion, and the code cannot be re-requested later.
-        if let serverAccount,
-           let rawNonce = appleRawNonce,
-           let identityToken = credential.identityToken
-             .flatMap({ String(data: $0, encoding: .utf8) }),
-           let authorizationCode = credential.authorizationCode
-             .flatMap({ String(data: $0, encoding: .utf8) }) {
-            appleRawNonce = nil
-            Task { @MainActor in
-                await serverAccount.signInWithApple(
-                    identityToken: identityToken,
-                    authorizationCode: authorizationCode,
-                    rawNonce: rawNonce
-                )
-            }
-        } else {
-            appleRawNonce = nil
+        let identityToken = credential.identityToken
+            .flatMap { String(data: $0, encoding: .utf8) }
+        let authorizationCode = credential.authorizationCode
+            .flatMap { String(data: $0, encoding: .utf8) }
+
+        guard let serverAccount,
+              let rawNonce,
+              let identityToken,
+              let authorizationCode
+        else {
+            // No server account layer, or Apple did not give us everything the
+            // backend needs. **Nothing is recorded locally.** Writing a
+            // `LinkedAccount` here would leave the app showing a provider as
+            // attached on the strength of a sign-in that never completed
+            // server-side — which is precisely the local/server confusion the
+            // account model exists to prevent.
+            dismiss()
+            return
+        }
+
+        // The local link is written only *after* the server confirms the
+        // session. Recording it first meant a failed exchange — a missing
+        // authorization code, a 401, an unreachable backend — still left a
+        // local link behind with no account behind it.
+        Task { @MainActor in
+            let authenticated = await serverAccount.signInWithApple(
+                identityToken: identityToken,
+                authorizationCode: authorizationCode,
+                rawNonce: rawNonce
+            )
+            guard authenticated else { return }
+
+            authSession.completeAppleSignIn(
+                userIdentifier: credential.user,
+                displayName: appleResult.displayName,
+                email: appleResult.email
+            )
         }
 
         dismiss()
@@ -273,7 +291,16 @@ struct LoginView: View {
             // the token's `aud`. Unconfigured means no server sign-in is
             // attempted at all, rather than one that would be rejected.
             let idToken = user.idToken?.tokenString
-            let serverSignInIsPossible = googleServerConfig.isConfigured
+            // The runtime gate, not just a config read. Both client ids must
+            // be present *and* different: they are both
+            // `...apps.googleusercontent.com`, so pasting the iOS one into the
+            // server slot is an easy mistake that shape alone cannot catch.
+            // Getting it wrong fails closed at the backend, which presents as
+            // "sign-in is broken" — so it is refused here instead.
+            let serverSignInIsPossible =
+                googleServerConfig.isConfigured
+                && googleConfig.isConfigured
+                && googleServerConfig.isDistinct(from: googleConfig.clientID)
             // Hop to the main actor for the state update + dismiss, which are
             // both main-actor isolated. The SDK callback itself is nonisolated.
             Task { @MainActor in
@@ -281,13 +308,27 @@ struct LoginView: View {
                     displayName: displayName,
                     email: email
                 )
-                authSession.completeGoogleSignIn(
-                    userIdentifier: userID,
-                    displayName: googleResult.displayName,
-                    email: googleResult.email
+
+                guard let serverAccount, serverSignInIsPossible, let idToken else {
+                    // Server sign-in is unavailable — no account layer, or the
+                    // server client id is missing or misconfigured. Nothing is
+                    // recorded locally: a `LinkedAccount` written here would
+                    // claim a provider is attached when no PulseCue account
+                    // exists behind it.
+                    dismiss()
+                    return
+                }
+
+                // The local link follows the server, never leads it.
+                let authenticated = await serverAccount.signInWithGoogle(
+                    idToken: idToken
                 )
-                if let serverAccount, serverSignInIsPossible, let idToken {
-                    await serverAccount.signInWithGoogle(idToken: idToken)
+                if authenticated {
+                    authSession.completeGoogleSignIn(
+                        userIdentifier: userID,
+                        displayName: googleResult.displayName,
+                        email: googleResult.email
+                    )
                 }
                 dismiss()
             }

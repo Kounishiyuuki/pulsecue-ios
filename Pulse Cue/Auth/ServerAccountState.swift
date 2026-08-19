@@ -44,6 +44,15 @@ enum ServerAccountState: Equatable {
     /// user caused, and not something to retry.
     case notConfigured
 
+    /// Signed out server-side, but the token could not be removed from the
+    /// Keychain — so it may still be on disk.
+    ///
+    /// Deliberately not `.guest`. Guest means "there is definitely no session
+    /// token", and a failed delete cannot promise that: the next launch would
+    /// read the leftover token back. Saying Guest here would be a claim the
+    /// device cannot support.
+    case localCleanupFailed
+
     /// True only when the server has confirmed an active account.
     ///
     /// Nothing else may drive "Appleと連携済み" — not a stored token, not a
@@ -58,11 +67,16 @@ enum ServerAccountState: Equatable {
         return nil
     }
 
-    /// Whether a session token is being held on the device right now.
+    /// Whether a session token may be on the device right now.
+    ///
+    /// `localCleanupFailed` counts: the whole point of that state is that a
+    /// token might still be on disk.
     var holdsSession: Bool {
         switch self {
-        case .authenticated, .unreachable, .restoring: return true
-        case .guest, .signingIn, .notConfigured: return false
+        case .authenticated, .unreachable, .restoring, .localCleanupFailed:
+            return true
+        case .guest, .signingIn, .notConfigured:
+            return false
         }
     }
 
@@ -91,6 +105,8 @@ enum ServerAccountState: Equatable {
             return "オフラインのためアカウント状態を確認できません"
         case .notConfigured:
             return "アカウント機能は未設定です"
+        case .localCleanupFailed:
+            return "サインアウトは完了していません"
         }
     }
 }
@@ -107,6 +123,10 @@ enum ServerAccountFailure: Equatable {
     case notConfigured
     /// The Keychain refused to store the session, so signing in cannot stick.
     case couldNotStoreSession
+    /// The Keychain refused to remove the session, so it may still be on disk.
+    case couldNotClearSession
+    /// The Keychain could not be read, so no authenticated request is possible.
+    case credentialUnavailable
 
     var message: String {
         switch self {
@@ -120,6 +140,10 @@ enum ServerAccountFailure: Equatable {
             return "この端末ではアカウント機能をまだ利用できません。"
         case .couldNotStoreSession:
             return "この端末にサインイン情報を保存できませんでした。"
+        case .couldNotClearSession:
+            return "この端末のサインイン情報を削除できませんでした。もう一度お試しください。"
+        case .credentialUnavailable:
+            return "この端末のサインイン情報を読み取れませんでした。しばらくしてからお試しください。"
         }
     }
 }

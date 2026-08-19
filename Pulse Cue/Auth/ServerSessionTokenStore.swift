@@ -24,6 +24,12 @@
 //      carry a live session onto different hardware. Signing in again is a
 //      small cost; a session silently following a device image is not.
 //
+//  **Every operation reports failure rather than swallowing it.** A Keychain
+//  that cannot answer, cannot write, or cannot delete is not the same as one
+//  holding nothing — and the caller has to be able to tell, because "the token
+//  might still be on disk" and "there is definitely no token" lead to opposite
+//  decisions.
+//
 //  The token is only ever a `String` in memory for the length of one request.
 //  It is never logged, never put in an error, and never written anywhere else.
 //
@@ -46,12 +52,34 @@ enum SessionTokenRead: Equatable {
     case unavailable(OSStatus)
 }
 
+/// The result of writing a token.
+///
+/// A failure here must never be ignored: the caller is holding a live server
+/// session that it has just failed to persist, and something has to be done
+/// with it.
+enum SessionTokenWrite: Equatable {
+    case stored
+    case failed(OSStatus)
+}
+
+/// The result of removing a token.
+///
+/// `failed` is the one that matters. A token still on disk will be picked up
+/// by the next launch, so a caller that treats a failed delete as "signed
+/// out" is describing a state that is not true.
+enum SessionTokenDelete: Equatable {
+    case removed
+    /// Nothing was there. The end state the caller wanted, so a success.
+    case absent
+    case failed(OSStatus)
+}
+
 /// Storage for the opaque server session token.
 protocol ServerSessionTokenStoring: AnyObject, Sendable {
     func read() -> SessionTokenRead
-    /// Replaces any existing token. Returns false if the write failed.
-    @discardableResult func saveToken(_ token: String) -> Bool
-    @discardableResult func deleteToken() -> Bool
+    /// Replaces any existing token, preserving the old one if the write fails.
+    func store(_ token: String) -> SessionTokenWrite
+    func delete() -> SessionTokenDelete
 }
 
 final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @unchecked Sendable {
@@ -109,29 +137,69 @@ final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         }
     }
 
-    @discardableResult
-    func saveToken(_ token: String) -> Bool {
-        guard let data = token.data(using: .utf8) else { return false }
+    /// Update-then-add, never delete-then-add.
+    ///
+    /// The earlier version deleted the existing item first and then added the
+    /// new one, so a failing add left the user with *no* token at all — a
+    /// working session destroyed by an operation that was only supposed to
+    /// replace it. `SecItemUpdate` leaves the old item untouched when it
+    /// fails, which is the behaviour a replace should have.
+    func store(_ token: String) -> SessionTokenWrite {
+        guard let data = token.data(using: .utf8) else {
+            return .failed(errSecParam)
+        }
 
-        // Delete-then-add rather than update: it is one code path for "first
-        // sign-in" and "signed in again", and it guarantees the accessibility
-        // attribute is the one set here rather than one inherited from an
-        // older item written by an earlier version of the app.
-        SecItemDelete(baseQuery as CFDictionary)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            // Re-asserted on every write so an item created by an older build
+            // cannot keep a weaker accessibility class.
+            kSecAttrAccessible as String:
+                kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
 
-        var query = baseQuery
-        query[kSecValueData as String] = data
-        query[kSecAttrAccessible as String] =
-            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let updated = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+        switch updated {
+        case errSecSuccess:
+            return .stored
+        case errSecItemNotFound:
+            break // Nothing to update; fall through to add.
+        default:
+            // The old item is still intact, which is the point.
+            return .failed(updated)
+        }
 
-        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+        var insert = baseQuery
+        insert.merge(attributes) { _, new in new }
+        let added = SecItemAdd(insert as CFDictionary, nil)
+        switch added {
+        case errSecSuccess:
+            return .stored
+        case errSecDuplicateItem:
+            // Another writer added one between our update and our add. Retry
+            // the update against what is now there rather than deleting it.
+            let retried = SecItemUpdate(
+                baseQuery as CFDictionary,
+                attributes as CFDictionary
+            )
+            return retried == errSecSuccess ? .stored : .failed(retried)
+        default:
+            return .failed(added)
+        }
     }
 
-    @discardableResult
-    func deleteToken() -> Bool {
+    func delete() -> SessionTokenDelete {
         let status = SecItemDelete(baseQuery as CFDictionary)
-        // Nothing there is the state we wanted, so it counts as success.
-        return status == errSecSuccess || status == errSecItemNotFound
+        switch status {
+        case errSecSuccess:
+            return .removed
+        case errSecItemNotFound:
+            // Nothing there is the end state a delete wanted.
+            return .absent
+        default:
+            // The token may still be on disk. The caller must not claim to be
+            // signed out.
+            return .failed(status)
+        }
     }
 }
 
@@ -139,15 +207,24 @@ final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
 final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var token: String?
+
     /// Set to simulate a Keychain that refuses to write.
-    var failsToSave = false
+    var writeFailure: OSStatus?
+    /// Set to simulate a Keychain that cannot answer at all.
+    var readFailure: OSStatus?
+    /// Set to simulate a Keychain that refuses to delete.
+    var deleteFailure: OSStatus?
 
     init(token: String? = nil) {
         self.token = token
     }
 
-    /// Set to simulate a Keychain that cannot answer at all.
-    var readFailure: OSStatus?
+    /// The stored value, ignoring simulated failures. Test inspection only.
+    var storedToken: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return token
+    }
 
     func read() -> SessionTokenRead {
         lock.lock()
@@ -157,31 +234,32 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         return .token(token)
     }
 
-    @discardableResult
-    func saveToken(_ newToken: String) -> Bool {
+    func store(_ newToken: String) -> SessionTokenWrite {
         lock.lock()
         defer { lock.unlock() }
-        guard !failsToSave else { return false }
+        // Mirrors the real store: a failed write leaves the old value alone.
+        if let writeFailure { return .failed(writeFailure) }
         token = newToken
-        return true
+        return .stored
     }
 
-    @discardableResult
-    func deleteToken() -> Bool {
+    func delete() -> SessionTokenDelete {
         lock.lock()
         defer { lock.unlock() }
+        if let deleteFailure { return .failed(deleteFailure) }
+        guard token != nil else { return .absent }
         token = nil
-        return true
+        return .removed
     }
 }
 
 extension ServerSessionTokenStoring {
     /// The token if one was read, and `nil` for *both* absent and unavailable.
     ///
-    /// Deliberately not used by launch restore, which has to tell those two
-    /// apart. It exists for callers where the distinction genuinely does not
-    /// matter — logout and deletion, which are trying to get rid of the token
-    /// either way.
+    /// Deliberately narrow. Launch restore and account deletion must tell
+    /// those two apart — an unreadable Keychain is not an absent token — so
+    /// neither uses this. It exists for callers that are trying to get rid of
+    /// the token anyway.
     func tokenIfPresent() -> String? {
         if case let .token(value) = read() { return value }
         return nil

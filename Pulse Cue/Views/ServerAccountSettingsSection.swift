@@ -72,10 +72,18 @@ struct ServerAccountSettingsSection: View {
                 """
             )
         }
-        .alert("アカウントを削除できませんでした", isPresented: $deletionFailed) {
+        .alert("アカウントの削除を確認できませんでした", isPresented: $deletionFailed) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("通信環境を確認して、もう一度お試しください。アカウントは削除されていません。")
+            // Deliberately does not claim the account still exists — a lost
+            // response means the server may have accepted it. It says only
+            // what is true: this app could not confirm the deletion.
+            Text(
+                """
+                削除を確認できませんでした。通信環境を確認して、もう一度お試しください。
+                アカウントが削除されたかどうかは、次回のサインインで確認できます。
+                """
+            )
         }
         .alert("アカウントの削除を受け付けました", isPresented: $deletionPending) {
             Button("OK", role: .cancel) {}
@@ -161,14 +169,16 @@ struct ServerAccountSettingsSection: View {
         case .signingIn:     return "処理中"
         case .guest:         return "ローカルのみ"
         case .notConfigured: return "未設定"
+        case .localCleanupFailed: return "要再試行"
         }
     }
 
     private var badgeKind: PulseStatusBadge.Kind {
         switch store.state {
-        case .authenticated: return .success
-        case .unreachable:   return .warning
-        default:             return .info
+        case .authenticated:      return .success
+        case .unreachable:        return .warning
+        case .localCleanupFailed: return .warning
+        default:                  return .info
         }
     }
 
@@ -190,6 +200,13 @@ struct ServerAccountSettingsSection: View {
                 この端末のビルドではPulseCueアカウント機能を利用できません。\
                 アプリの機能はこれまでどおりすべて利用できます。
                 """
+        case .localCleanupFailed:
+            // Truthful rather than reassuring: the token may still be on this
+            // device, so "signed out" would be a claim we cannot support.
+            return """
+                この端末のサインイン情報を削除できませんでした。\
+                もう一度サインアウトをお試しください。トレーニング記録は削除されていません。
+                """
         case .guest, .restoring, .signingIn:
             return """
                 アカウントなしでも、記録・ルーティン・履歴などすべての機能を利用できます。\
@@ -203,10 +220,13 @@ struct ServerAccountSettingsSection: View {
     private func signOut() async {
         isWorking = true
         defer { isWorking = false }
-        // The local sign-out always happens, even if the server cannot be
-        // reached — a user must never be stuck signed in because of a network
-        // problem. Local training data is untouched either way.
-        await store.logout()
+        // The local sign-out is attempted even if the server cannot be reached
+        // — a user must never be stuck signed in because of a network problem.
+        // But it only *counts* when the token is really gone; a failed Keychain
+        // delete surfaces as `.localCleanupFailed` rather than as Guest, and
+        // the section's own copy explains it. Local training data is untouched
+        // either way.
+        _ = await store.logout()
     }
 
     private func deleteAccount() async {
@@ -214,6 +234,7 @@ struct ServerAccountSettingsSection: View {
         defer { isWorking = false }
         switch await store.deleteAccount() {
         case .deleted:
+            // The only outcome that means the account is actually gone.
             deletionFailed = false
             deletionPending = false
         case .pending:
@@ -222,9 +243,11 @@ struct ServerAccountSettingsSection: View {
             // something the server has not confirmed.
             deletionFailed = false
             deletionPending = true
-        case .failed:
-            // Only tell the user it worked when it did. A failed deletion
-            // leaves the account exactly where it was.
+        case .notConfirmed, .notAttempted:
+            // Neither of these proves anything about the account — a 401 looks
+            // identical to a first attempt whose response was lost, and a
+            // request that was never sent cannot have deleted anything. The
+            // honest answer to the user is "we could not confirm it".
             deletionFailed = true
             deletionPending = false
         }

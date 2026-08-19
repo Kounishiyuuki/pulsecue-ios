@@ -440,32 +440,32 @@ final class ServerSessionTokenStoreTests: XCTestCase {
     func testSavesReadsReplacesAndDeletes() throws {
         try skipUnlessKeychainIsAvailable()
         let store = makeStore()
-        defer { store.deleteToken() }
+        defer { _ = store.delete() }
 
         XCTAssertEqual(store.read(), .absent)
-        XCTAssertTrue(store.saveToken("first-token"))
+        XCTAssertEqual(store.store("first-token"), .stored)
         XCTAssertEqual(store.read(), .token("first-token"))
 
-        XCTAssertTrue(store.saveToken("second-token"))
+        XCTAssertEqual(store.store("second-token"), .stored)
         XCTAssertEqual(store.read(), .token("second-token"))
 
-        XCTAssertTrue(store.deleteToken())
+        XCTAssertEqual(store.delete(), .removed)
         XCTAssertEqual(store.read(), .absent)
     }
 
     func testDeletingNothingIsStillSuccess() throws {
         try skipUnlessKeychainIsAvailable()
         // "Nothing there" is the end state a delete wanted.
-        XCTAssertTrue(makeStore().deleteToken())
+        XCTAssertEqual(makeStore().delete(), .absent)
     }
 
     func testTwoStoresDoNotSeeEachOther() throws {
         try skipUnlessKeychainIsAvailable()
         let a = makeStore()
         let b = makeStore()
-        defer { a.deleteToken(); b.deleteToken() }
+        defer { _ = a.delete(); _ = b.delete() }
 
-        XCTAssertTrue(a.saveToken("token-a"))
+        XCTAssertEqual(a.store("token-a"), .stored)
         XCTAssertEqual(b.read(), .absent)
     }
 
@@ -477,8 +477,8 @@ final class ServerSessionTokenStoreTests: XCTestCase {
         let service = Self.service
         let account = "accessibility-\(UUID().uuidString)"
         let store = KeychainServerSessionTokenStore(service: service, account: account)
-        defer { store.deleteToken() }
-        XCTAssertTrue(store.saveToken("token"))
+        defer { _ = store.delete() }
+        XCTAssertEqual(store.store("token"), .stored)
 
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -708,7 +708,7 @@ final class ServerAccountSignInTests: XCTestCase {
         api.appleResult = .success(makeSession())
         api.profileResult = .success(makeProfile())
         let tokens = InMemoryServerSessionTokenStore()
-        tokens.failsToSave = true
+        tokens.writeFailure = errSecIO
         let store = makeStore(api: api, tokenStore: tokens)
 
         await store.signInWithApple(
@@ -730,9 +730,9 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
         let store = makeStore(api: api, tokenStore: tokens)
 
-        let revoked = await store.logout()
+        let result = await store.logout()
 
-        XCTAssertTrue(revoked)
+        XCTAssertEqual(result, .signedOut)
         XCTAssertEqual(api.logoutTokens, ["stored-token"])
         XCTAssertEqual(tokens.read(), .absent)
         XCTAssertEqual(store.state, .guest)
@@ -745,9 +745,9 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
         let store = makeStore(api: api, tokenStore: tokens)
 
-        let revoked = await store.logout()
+        let result = await store.logout()
 
-        XCTAssertFalse(revoked, "the caller can see the server was not reached")
+        XCTAssertEqual(result, .signedOut, "the device is signed out regardless")
         XCTAssertEqual(tokens.read(), .absent, "but the device is signed out regardless")
         XCTAssertEqual(store.state, .guest)
     }
@@ -759,7 +759,7 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         let outcome = await store.logout()
-        XCTAssertTrue(outcome)
+        XCTAssertEqual(outcome, .signedOut)
         XCTAssertEqual(tokens.read(), .absent)
     }
 
@@ -785,7 +785,7 @@ final class ServerAccountLogoutAndDeletionTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         let deleted = await store.deleteAccount()
-        XCTAssertEqual(deleted, .failed)
+        XCTAssertEqual(deleted, .notConfirmed(.unreachable))
 
         XCTAssertEqual(tokens.read(), .token("stored-token"))
         XCTAssertEqual(store.lastFailure, .unreachable)
@@ -941,7 +941,7 @@ final class ServerAccountDeletionOutcomeTests: XCTestCase {
 
         let result = await store.deleteAccount()
 
-        XCTAssertEqual(result, .failed)
+        XCTAssertEqual(result, .notConfirmed(.unreachable))
         XCTAssertEqual(tokens.read(), .token("stored-token"))
         XCTAssertEqual(store.lastFailure, .unreachable)
     }
@@ -1034,21 +1034,462 @@ final class ServerAccountSignInRejectionTests: XCTestCase {
         XCTAssertEqual(tokens.read(), .absent, "a rejected token must not be kept")
     }
 
-    func testATransientFailureAfterIssueKeepsTheToken() async {
-        // The other half: the sign-in really did work, we just could not read
-        // the profile back. Throwing the session away here would waste a
-        // successful sign-in.
+    func testATransientFailureAfterIssueHandsTheSessionBack() async {
+        // This test used to assert the opposite — that the token was kept and
+        // the state became `.unreachable`. That conflated two different
+        // situations:
+        //
+        //   *offline restore*: the token is already ours, already persisted,
+        //     and a network blip says nothing about it. It is kept.
+        //
+        //   *sign-in that never completed*: the token was issued seconds ago
+        //     and has never been recorded anywhere. Keeping it means a live
+        //     60-day session that no launch will ever find and no user can
+        //     revoke.
+        //
+        // The second is this case, so the session is handed back and the
+        // sign-in fails honestly.
         let api = StubAccountAPI()
         api.appleResult = .success(makeSession())
         api.profileResult = .failure(AccountAPIError.unavailable)
         let tokens = InMemoryServerSessionTokenStore()
         let store = makeStore(api: api, tokenStore: tokens)
 
-        await store.signInWithApple(
+        let authenticated = await store.signInWithApple(
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
-        XCTAssertEqual(store.state, .unreachable)
-        XCTAssertEqual(tokens.read(), .token("session-token-abc"))
+        XCTAssertFalse(authenticated)
+        XCTAssertFalse(store.state.isAuthenticated)
+        XCTAssertEqual(tokens.read(), .absent, "an unrecorded session is not kept")
+        XCTAssertEqual(
+            api.logoutTokens, ["session-token-abc"],
+            "and it is handed back rather than stranded"
+        )
+    }
+}
+
+// MARK: - Controllable API for real race semantics
+
+/// An API whose calls suspend until the test releases them.
+///
+/// `@MainActor` serialises *steps*, not *operations*: every one of these
+/// methods has an `await` inside it, so a second operation can start and
+/// finish while the first is parked. That is the whole class of bug these
+/// tests exist for, and it cannot be reproduced without controlling exactly
+/// where the suspension happens.
+final class ControllableAccountAPI: PulseCueAccountAPI, @unchecked Sendable {
+    var configured = true
+    var isConfigured: Bool { configured }
+
+    private let lock = NSLock()
+    private var gates: [String: CheckedContinuation<Void, Never>] = [:]
+    private var opened: Set<String> = []
+
+    var appleResult: Result<ServerSessionResponse, Error> = .failure(AccountAPIError.unavailable)
+    var googleResult: Result<ServerSessionResponse, Error> = .failure(AccountAPIError.unavailable)
+    var profileResult: Result<ServerAccountProfile, Error> = .failure(AccountAPIError.unavailable)
+    var deleteResult: Result<AccountDeletionOutcome, Error> = .success(.deleted)
+
+    private(set) var logoutTokens: [String] = []
+    private(set) var profileTokens: [String] = []
+    private(set) var deleteTokens: [String] = []
+
+    /// Suspends the named call until `release` is invoked for it.
+    var gated: Set<String> = []
+
+    private func waitIfGated(_ name: String) async {
+        let shouldWait: Bool = {
+            lock.lock(); defer { lock.unlock() }
+            return gated.contains(name) && !opened.contains(name)
+        }()
+        guard shouldWait else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if opened.contains(name) {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                gates[name] = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func release(_ name: String) {
+        lock.lock()
+        opened.insert(name)
+        let continuation = gates.removeValue(forKey: name)
+        lock.unlock()
+        continuation?.resume()
+    }
+
+    func signInWithApple(_ request: AppleSignInRequest) async throws -> ServerSessionResponse {
+        await waitIfGated("apple")
+        return try appleResult.get()
+    }
+
+    func signInWithGoogle(_ request: GoogleSignInRequest) async throws -> ServerSessionResponse {
+        await waitIfGated("google")
+        return try googleResult.get()
+    }
+
+    func fetchProfile(sessionToken: String) async throws -> ServerAccountProfile {
+        await waitIfGated("profile")
+        lock.lock(); profileTokens.append(sessionToken); lock.unlock()
+        return try profileResult.get()
+    }
+
+    func logout(sessionToken: String) async throws {
+        await waitIfGated("logout")
+        lock.lock(); logoutTokens.append(sessionToken); lock.unlock()
+    }
+
+    func deleteAccount(sessionToken: String) async throws -> AccountDeletionOutcome {
+        await waitIfGated("delete")
+        lock.lock(); deleteTokens.append(sessionToken); lock.unlock()
+        return try deleteResult.get()
+    }
+}
+
+@MainActor
+private func makeControllableStore(
+    api: ControllableAccountAPI,
+    tokenStore: InMemoryServerSessionTokenStore
+) -> ServerAccountStore {
+    ServerAccountStore(api: api, tokenStore: tokenStore, deviceName: "iPhone")
+}
+
+// MARK: - Race A/C: a stale response must not win
+
+@MainActor
+final class ServerAccountStaleOperationTests: XCTestCase {
+
+    func testAStaleRestoreCannotResurrectASignedOutSession() async {
+        // restore starts → /me suspends → logout completes → old /me returns
+        // 200. Without operation ownership the late 200 would put the app back
+        // into `authenticated` over a session the user deliberately ended.
+        let api = ControllableAccountAPI()
+        api.gated = ["profile"]
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let restoring = Task { await store.restore() }
+        await Task.yield()
+
+        let loggedOut = await store.logout()
+        XCTAssertEqual(loggedOut, .signedOut)
+
+        api.release("profile")
+        await restoring.value
+
+        XCTAssertEqual(store.state, .guest)
+        XCTAssertFalse(store.state.isAuthenticated)
+        XCTAssertEqual(tokens.read(), .absent)
+    }
+
+    func testAnOlderSignInCannotOverwriteANewerOne() async {
+        // Sign-in A starts, sign-in B starts and finishes, then A returns.
+        // A must not overwrite B's token or state — and A's own session must
+        // not be left alive on the server either.
+        let api = ControllableAccountAPI()
+        api.gated = ["google"]
+        api.googleResult = .success(makeSession(token: "session-A"))
+        api.profileResult = .success(makeProfile(providers: ["google"]))
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let first = Task { await store.signInWithGoogle(idToken: "token-A") }
+        await Task.yield()
+
+        // B supersedes A by starting a newer authoritative operation.
+        let loggedOut = await store.logout()
+        XCTAssertEqual(loggedOut, .signedOut)
+
+        api.release("google")
+        let firstSucceeded = await first.value
+
+        XCTAssertFalse(firstSucceeded)
+        XCTAssertFalse(store.state.isAuthenticated)
+        XCTAssertEqual(tokens.read(), .absent, "the stale session must not be stored")
+        // And the orphan was handed back rather than dropped.
+        XCTAssertTrue(
+            api.logoutTokens.contains("session-A"),
+            "a superseded sign-in must revoke the session it obtained"
+        )
+    }
+
+    func testAStaleSignInDoesNotWriteALocalLink() async {
+        // The store never touches LinkedAccount, and LoginView only writes one
+        // when `signInWithApple` returns true — which a superseded operation
+        // never does.
+        let api = ControllableAccountAPI()
+        api.gated = ["apple"]
+        api.appleResult = .success(makeSession(token: "session-stale"))
+        api.profileResult = .success(makeProfile())
+        let store = makeControllableStore(
+            api: api,
+            tokenStore: InMemoryServerSessionTokenStore()
+        )
+
+        let signIn = Task {
+            await store.signInWithApple(
+                identityToken: "t", authorizationCode: "c", rawNonce: "n"
+            )
+        }
+        await Task.yield()
+        _ = await store.logout()
+        api.release("apple")
+
+        let authenticated = await signIn.value
+        XCTAssertFalse(authenticated, "LoginView keys the local link off this")
+    }
+}
+
+// MARK: - Race B/D: a session we obtained but will not keep
+
+@MainActor
+final class ServerAccountOrphanSessionTests: XCTestCase {
+
+    func testAKeychainWriteFailureHandsTheSessionBack() async {
+        // The server issued a 60-day session. If we cannot persist it, leaving
+        // it alone would mean a live session nobody on this device can see or
+        // revoke.
+        let api = ControllableAccountAPI()
+        api.appleResult = .success(makeSession(token: "orphan-session"))
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore()
+        tokens.writeFailure = errSecIO
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let authenticated = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertFalse(authenticated)
+        XCTAssertFalse(store.state.isAuthenticated)
+        XCTAssertEqual(store.lastFailure, .couldNotStoreSession)
+        XCTAssertEqual(tokens.read(), .absent)
+        XCTAssertEqual(api.logoutTokens, ["orphan-session"])
+    }
+
+    func testAFailedVerificationHandsTheSessionBack() async {
+        // Sign-in got a token but could not confirm it. That is not the
+        // "offline restore" case — there the token is already ours and is
+        // kept. Here it was never recorded, so it must not be stranded.
+        let api = ControllableAccountAPI()
+        api.appleResult = .success(makeSession(token: "unverified-session"))
+        api.profileResult = .failure(AccountAPIError.unavailable)
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let authenticated = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertFalse(authenticated)
+        XCTAssertEqual(tokens.read(), .absent)
+        XCTAssertEqual(api.logoutTokens, ["unverified-session"])
+    }
+
+    func testARejectedSessionIsNotHandedBackBecauseItIsAlreadyDead() async {
+        let api = ControllableAccountAPI()
+        api.appleResult = .success(makeSession(token: "rejected-session"))
+        api.profileResult = .failure(AccountAPIError.invalidCredentials)
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let authenticated = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertFalse(authenticated)
+        XCTAssertEqual(tokens.read(), .absent)
+        XCTAssertTrue(api.logoutTokens.isEmpty, "no point revoking a dead session")
+    }
+
+    func testTheTokenIsNeverStoredBeforeItIsVerified() async {
+        // Ordering: /me is asked before the Keychain is written, so a token the
+        // server will not honour never reaches disk.
+        let api = ControllableAccountAPI()
+        api.gated = ["profile"]
+        api.appleResult = .success(makeSession(token: "unverified"))
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let signIn = Task {
+            await store.signInWithApple(
+                identityToken: "t", authorizationCode: "c", rawNonce: "n"
+            )
+        }
+        await Task.yield()
+
+        XCTAssertNil(tokens.storedToken, "nothing may be written before /me answers")
+
+        api.release("profile")
+        _ = await signIn.value
+        XCTAssertEqual(tokens.read(), .token("unverified"))
+    }
+}
+
+// MARK: - Keychain failures must not be reported as success
+
+@MainActor
+final class ServerAccountKeychainFailureTests: XCTestCase {
+
+    func testLogoutWithAFailedDeleteIsNotGuest() async {
+        // The token is still on disk, so the next launch would read it back.
+        // Showing Guest would be a claim the device cannot support.
+        let api = ControllableAccountAPI()
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        tokens.deleteFailure = errSecIO
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let result = await store.logout()
+
+        XCTAssertEqual(result, .localCleanupFailed)
+        XCTAssertEqual(store.state, .localCleanupFailed)
+        XCTAssertNotEqual(store.state, .guest)
+        XCTAssertEqual(store.lastFailure, .couldNotClearSession)
+        XCTAssertTrue(store.state.holdsSession)
+        XCTAssertEqual(tokens.storedToken, "stored-token")
+    }
+
+    func testRestoreRejectionWithAFailedDeleteIsNotGuest() async {
+        let api = ControllableAccountAPI()
+        api.profileResult = .failure(AccountAPIError.invalidCredentials)
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        tokens.deleteFailure = errSecIO
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        await store.restore()
+
+        XCTAssertEqual(store.state, .localCleanupFailed)
+        XCTAssertNotEqual(store.state, .guest)
+    }
+
+    func testASucceedingDeleteReachesGuest() async {
+        let api = ControllableAccountAPI()
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let result = await store.logout()
+        XCTAssertEqual(result, .signedOut)
+        XCTAssertEqual(store.state, .guest)
+        XCTAssertFalse(store.state.holdsSession)
+    }
+}
+
+// MARK: - Deletion contract
+
+@MainActor
+final class ServerAccountDeletionContractTests: XCTestCase {
+
+    func testAnUnreadableKeychainSendsNoRequestAndClaimsNothing() async {
+        // Without a token there is no authenticated DELETE to send — and a
+        // request never sent cannot have deleted anything.
+        let api = ControllableAccountAPI()
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        tokens.readFailure = errSecInteractionNotAllowed
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let result = await store.deleteAccount()
+
+        XCTAssertEqual(result, .notAttempted(.credentialUnavailable))
+        XCTAssertTrue(api.deleteTokens.isEmpty, "no DELETE may be sent")
+        XCTAssertEqual(store.lastFailure, .credentialUnavailable)
+        // Nothing was destroyed on the strength of a read we could not do.
+        tokens.readFailure = nil
+        XCTAssertEqual(tokens.read(), .token("stored-token"))
+    }
+
+    func testAnAbsentTokenIsNotTreatedAsAlreadyDeleted() async {
+        let api = ControllableAccountAPI()
+        let store = makeControllableStore(
+            api: api,
+            tokenStore: InMemoryServerSessionTokenStore()
+        )
+
+        let result = await store.deleteAccount()
+
+        XCTAssertEqual(result, .notAttempted(.notSignedIn))
+        XCTAssertTrue(api.deleteTokens.isEmpty)
+    }
+
+    func testOnly200MeansDeleted() async {
+        let api = ControllableAccountAPI()
+        api.deleteResult = .success(.deleted)
+        let store = makeControllableStore(
+            api: api,
+            tokenStore: InMemoryServerSessionTokenStore(token: "t")
+        )
+
+        let result = await store.deleteAccount()
+        XCTAssertEqual(result, .deleted)
+    }
+
+    func test202MeansPending() async {
+        let api = ControllableAccountAPI()
+        api.deleteResult = .success(.pending)
+        let store = makeControllableStore(
+            api: api,
+            tokenStore: InMemoryServerSessionTokenStore(token: "t")
+        )
+
+        let result = await store.deleteAccount()
+        XCTAssertEqual(result, .pending)
+    }
+
+    func test401DoesNotMeanDeleted() async {
+        // The lost-response case: the first DELETE succeeded server-side, its
+        // response never arrived, and the retry uses a token the server has
+        // already revoked. From here that is indistinguishable from a session
+        // that simply expired — so claiming deletion would be a guess.
+        let api = ControllableAccountAPI()
+        api.deleteResult = .failure(AccountAPIError.invalidCredentials)
+        let tokens = InMemoryServerSessionTokenStore(token: "revoked-token")
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let result = await store.deleteAccount()
+
+        XCTAssertEqual(result, .notConfirmed(.authenticationRequired))
+        XCTAssertNotEqual(result, .deleted)
+        // The token really is dead, so clearing it is right.
+        XCTAssertEqual(tokens.read(), .absent)
+    }
+
+    func testServerTroubleDoesNotMeanDeleted() async {
+        for error in [AccountAPIError.unavailable, .malformedResponse] {
+            let api = ControllableAccountAPI()
+            api.deleteResult = .failure(error)
+            let tokens = InMemoryServerSessionTokenStore(token: "t")
+            let store = makeControllableStore(api: api, tokenStore: tokens)
+
+            let result = await store.deleteAccount()
+
+            XCTAssertEqual(result, .notConfirmed(.unreachable), "for \(error)")
+            // The session may still be valid; it is kept.
+            XCTAssertEqual(tokens.read(), .token("t"))
+        }
+    }
+
+    func testASupersededDeletionClaimsNothing() async {
+        let api = ControllableAccountAPI()
+        api.gated = ["delete"]
+        api.deleteResult = .success(.deleted)
+        let store = makeControllableStore(
+            api: api,
+            tokenStore: InMemoryServerSessionTokenStore(token: "t")
+        )
+
+        let deleting = Task { await store.deleteAccount() }
+        await Task.yield()
+        _ = await store.logout()
+        api.release("delete")
+
+        let result = await deleting.value
+        XCTAssertEqual(result, .notAttempted(.superseded))
     }
 }
