@@ -145,34 +145,104 @@ export async function saveCredentialAndIssueSession(
 }
 
 /**
- * Opens a stored credential.
+ * What a lookup of a stored credential found.
  *
- * Returns `null` when there is nothing to revoke — no row, or one already
- * revoked. Throws `TokenDecryptError` when a row exists but cannot be read,
- * which is a real problem the caller must not silently treat as "no
- * credential": that would report a revocation that never happened.
+ * Four cases, and keeping them apart is the whole point of the type. An
+ * earlier version returned `string | null` and collapsed three of them into
+ * `null`, so a row that was **present, unrevoked, and unreadable** — an empty
+ * ciphertext, say — looked exactly like "this account never had a credential".
+ * Account deletion read that as nothing-to-revoke and hard-deleted the user
+ * while a live Apple grant was still out there, unrevoked and now untraceable.
+ *
+ * `absent` and `alreadyRevoked` are the only two that mean nothing is owed.
+ */
+export type StoredCredentialLookup =
+	/** No row at all: this identity never stored a credential. */
+	| { status: "absent" }
+	/** A row whose material was erased after a confirmed revocation. */
+	| { status: "alreadyRevoked" }
+	/** Usable. The plaintext exists only for the length of the call. */
+	| { status: "readable"; refreshToken: string }
+	/**
+	 * A row that is still live as far as the provider is concerned, but whose
+	 * material this deployment cannot turn back into a token. **Never** the
+	 * same as having no credential.
+	 */
+	| { status: "unreadable"; reason: UnreadableCredentialReason };
+
+export type UnreadableCredentialReason =
+	/** Ciphertext or IV is empty on an unrevoked row — a corrupt write. */
+	| "missingMaterial"
+	/** Wrong key, unknown key version, tampering, or an AAD mismatch. */
+	| "decryptFailed";
+
+/**
+ * Looks up a stored credential and says precisely what it found.
+ *
+ * The empty-material check applies only to rows that are **not** revoked.
+ * Revocation deliberately blanks the material in place, so an empty
+ * ciphertext on a revoked row is the expected end state — while the same
+ * emptiness on an unrevoked row means something went wrong and there may
+ * still be a live grant at the provider.
+ */
+export async function readStoredCredential(
+	db: SqlDatabase,
+	cipher: TokenCipher,
+	authIdentityId: string,
+): Promise<StoredCredentialLookup> {
+	const row = await findCredentialForIdentity(db, authIdentityId);
+	if (!row) return { status: "absent" };
+	if (row.revoked_at !== null) return { status: "alreadyRevoked" };
+
+	// Unrevoked but with nothing to decrypt. Reporting this as "no credential"
+	// is exactly the bug this type exists to prevent.
+	if (
+		row.encrypted_refresh_token.length === 0 ||
+		row.encryption_iv.length === 0
+	) {
+		return { status: "unreadable", reason: "missingMaterial" };
+	}
+
+	try {
+		const refreshToken = await cipher.open(
+			{
+				ciphertext: row.encrypted_refresh_token,
+				iv: row.encryption_iv,
+				keyVersion: row.encryption_key_version,
+			},
+			{
+				authIdentityId: row.auth_identity_id,
+				provider: row.provider,
+				purpose: REFRESH_TOKEN_PURPOSE,
+			},
+		);
+		return { status: "readable", refreshToken };
+	} catch (error) {
+		if (error instanceof TokenDecryptError) {
+			// Wrong key, unknown version, tampered ciphertext, malformed IV,
+			// AAD mismatch. All of them mean the same thing here: there may
+			// still be a live grant and we cannot produce the token to revoke
+			// it with.
+			return { status: "unreadable", reason: "decryptFailed" };
+		}
+		throw error;
+	}
+}
+
+/**
+ * The plaintext token when there is a usable one, and `null` otherwise.
+ *
+ * A convenience for callers that genuinely only want the happy path — tests,
+ * mostly. **Deletion must not use it**: collapsing `unreadable` into `null`
+ * is the bug `readStoredCredential` exists to prevent.
  */
 export async function readRefreshToken(
 	db: SqlDatabase,
 	cipher: TokenCipher,
 	authIdentityId: string,
 ): Promise<string | null> {
-	const row = await findCredentialForIdentity(db, authIdentityId);
-	if (!row || row.revoked_at !== null) return null;
-	if (row.encrypted_refresh_token.length === 0) return null;
-
-	return cipher.open(
-		{
-			ciphertext: row.encrypted_refresh_token,
-			iv: row.encryption_iv,
-			keyVersion: row.encryption_key_version,
-		},
-		{
-			authIdentityId: row.auth_identity_id,
-			provider: row.provider,
-			purpose: REFRESH_TOKEN_PURPOSE,
-		},
-	);
+	const found = await readStoredCredential(db, cipher, authIdentityId);
+	return found.status === "readable" ? found.refreshToken : null;
 }
 
 /**

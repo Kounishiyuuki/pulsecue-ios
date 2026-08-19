@@ -10,6 +10,7 @@ describe("account schema", () => {
 			)
 			.all<{ name: string }>();
 		expect(results.map((r) => r.name)).toEqual([
+			"account_deletions",
 			"auth_identities",
 			"auth_nonces",
 			"provider_credentials",
@@ -18,6 +19,55 @@ describe("account schema", () => {
 			"user_profiles",
 			"users",
 		]);
+		db.close();
+	});
+
+	it("hangs every user-owned table off users with a cascade", async () => {
+		// Account deletion is one `DELETE FROM users`. It stays correct only
+		// because the database decides what belongs to a user — a hand-written
+		// list of child tables is how a table added next year quietly survives
+		// a deletion.
+		const db = await createTestDatabase();
+		const { results } = await db
+			.prepare(
+				`SELECT name, sql FROM sqlite_master
+				  WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+			)
+			.all<{ name: string; sql: string }>();
+
+		const userOwned = [
+			"auth_identities",
+			"user_profiles",
+			"sessions",
+			"user_change_seq",
+			"account_deletions",
+		];
+		for (const table of userOwned) {
+			const ddl = (results.find((r) => r.name === table)?.sql ?? "").toLowerCase();
+			expect(ddl, `${table} must reference users`).toContain("references users(id)");
+			expect(ddl, `${table} must cascade`).toContain("on delete cascade");
+		}
+
+		// `provider_credentials` reaches users through the identity — and does
+		// so with a *composite* reference, so a credential cannot claim a
+		// provider its identity does not have. Asserted on the pair rather than
+		// on `id` alone, because the single-column form would satisfy the
+		// cascade requirement while losing the provider binding.
+		const credentials = (
+			results.find((r) => r.name === "provider_credentials")?.sql ?? ""
+		).toLowerCase();
+		expect(credentials).toMatch(
+			/references\s+auth_identities\s*\(\s*id\s*,\s*provider\s*\)/,
+		);
+		expect(credentials).toContain("on delete cascade");
+		expect(credentials).toContain("foreign key (auth_identity_id, provider)");
+
+		// `auth_nonces` is keyed by a nonce hash and has no owner, so there is
+		// deliberately nothing there for a deletion to sweep.
+		const nonces = (
+			results.find((r) => r.name === "auth_nonces")?.sql ?? ""
+		).toLowerCase();
+		expect(nonces).not.toContain("user_id");
 		db.close();
 	});
 
@@ -250,6 +300,88 @@ describe("schema constraints", () => {
 		await expect(
 			db.prepare(`UPDATE users SET state='deleting' WHERE id='u3'`).run(),
 		).rejects.toThrow();
+		db.close();
+	});
+});
+
+describe("account_deletions", () => {
+	it("accepts every error code the service can produce", async () => {
+		// The CHECK and the TypeScript union have to agree; this is the test
+		// that notices when one of them moves without the other.
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','deleting',1,1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO account_deletions (user_id, requested_at, attempts, next_attempt_at)
+				 VALUES ('u1', 1, 0, 1)`,
+			)
+			.run();
+
+		for (const code of [
+			"provider_unavailable",
+			"provider_rejected",
+			"credential_unreadable",
+		]) {
+			await db
+				.prepare(`UPDATE account_deletions SET last_error_code = ? WHERE user_id = 'u1'`)
+				.bind(code)
+				.run();
+			const row = await db
+				.prepare(`SELECT last_error_code FROM account_deletions WHERE user_id='u1'`)
+				.first<{ last_error_code: string }>();
+			expect(row?.last_error_code).toBe(code);
+		}
+		db.close();
+	});
+
+	it("allows NULL, which is where every row starts", async () => {
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','deleting',1,1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO account_deletions (user_id, requested_at, attempts, next_attempt_at)
+				 VALUES ('u1', 1, 0, 1)`,
+			)
+			.run();
+
+		const row = await db
+			.prepare(`SELECT last_error_code FROM account_deletions WHERE user_id='u1'`)
+			.first<{ last_error_code: string | null }>();
+		expect(row?.last_error_code).toBeNull();
+		db.close();
+	});
+
+	it("refuses anything outside the closed set", async () => {
+		// Including the shape a leaked provider message would take.
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','deleting',1,1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO account_deletions (user_id, requested_at, attempts, next_attempt_at)
+				 VALUES ('u1', 1, 0, 1)`,
+			)
+			.run();
+
+		for (const bad of [
+			"something_else",
+			"invalid_grant",
+			"AADSTS50011: reply url does not match",
+			"",
+		]) {
+			await expect(
+				db
+					.prepare(`UPDATE account_deletions SET last_error_code = ? WHERE user_id = 'u1'`)
+					.bind(bad)
+					.run(),
+				`should refuse ${bad}`,
+			).rejects.toThrow();
+		}
 		db.close();
 	});
 });

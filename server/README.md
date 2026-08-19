@@ -373,6 +373,7 @@ Routes:
 | `GET /v1/me` | bearer session |
 | `POST /v1/auth/logout` | bearer session |
 | `POST /v1/auth/logout-all` | bearer session |
+| `DELETE /v1/me` | bearer session |
 
 ### Authenticated requests
 
@@ -452,6 +453,154 @@ follow-up rather than half-built.
 `sessions.last_used_at` is likewise still set only at creation: touching it on
 every authenticated request is a write per read, and nothing consumes the
 column yet.
+
+### Account deletion
+
+`DELETE /v1/me` destroys the caller's PulseCue account. Two steps, and the
+order is the design:
+
+1. The account becomes `deleting` and **every session is revoked**, in one
+   commit. From that instant it cannot be signed into or used, whatever
+   happens next.
+2. Provider revocation is attempted once, synchronously, so the common case
+   finishes while the user is still looking at the screen.
+
+`200 {"status":"deleted"}` when it finished. `202 {"status":"pending"}` when
+step 2 could not complete — the deletion is real and irreversible, it is just
+not done.
+
+**A failed provider revocation never puts the account back.** It stays
+`deleting`, its sessions stay revoked, and the work is retried. Returning a
+user to `active` because Apple had a bad minute would silently resurrect an
+account they asked to destroy. Retrying the HTTP call is safe and in practice
+impossible: step 1 revoked the session that authorised the request, so a
+second attempt cannot authenticate. A client seeing `401` after a delete
+should read it as done.
+
+Apple's refresh token is revoked **before** any row is removed. Removing them
+first would destroy the only copy of the token and leave the Apple grant alive
+with nothing left to revoke it with.
+
+The hard delete is one `DELETE FROM users`. Every user-owned table cascades,
+so the *database* decides what belongs to a user rather than a list in a file
+that someone has to remember to update; a schema test asserts each table
+declares the cascade, and a deletion test asserts every table is empty
+afterwards and that another user is untouched. `auth_nonces` is keyed by a
+nonce hash with no owner, so there is deliberately nothing there to sweep.
+
+#### Google accounts
+
+PulseCue holds no Google refresh token — the ID token flow never issues one —
+so there is nothing to revoke, and no revocation call is invented for a
+credential that does not exist. **Deleting a PulseCue account is not deleting
+a Google account**; the two are separate, and only the identity row goes away
+here.
+
+#### Retry state
+
+`account_deletions` (migration `0004`) holds `attempts`, `last_attempt_at`, a
+`last_error_code` from a closed set in code, and `next_attempt_at` with a
+15-minute backoff. Never a provider message and never PII: the row describes a
+job, not a person.
+
+It carries no completion column. A finished deletion removes the user and the
+cascade removes this row with it, so "still here" means "still owed" and the
+two cannot disagree.
+
+`processDueAccountDeletions` is the boundary a scheduled invocation would
+call. **Nothing invokes it yet** — creating a Cron trigger is a production
+resource change and is not part of this work — but it exists and is tested, so
+wiring it up later is configuration rather than design.
+
+#### When a credential cannot be decrypted
+
+A lost key, a wrong key version, a corrupt row or an AAD mismatch means the
+stored ciphertext cannot be opened.
+
+An earlier version of this PR **deleted the account anyway**, reasoning that
+an unreadable ciphertext is not a usable credential. That reasoning is about
+*our* copy, and it answers the wrong question: the grant at Apple is
+unaffected by whether we can read our copy of it. Hard-deleting would destroy
+the only record that the grant exists while reporting the deletion as
+complete — and Apple's requirement is that the token is **revoked**, which we
+would have neither done nor be able to do.
+
+So the deletion stays owed:
+
+- the account remains `deleting`
+- its sessions remain revoked, and sign-in remains impossible
+- the credential material is **kept**, because it is the only thing that could
+  ever be recovered if the key is restored
+- `last_error_code` is `credential_unreadable`, and a fixed non-PII code is
+  logged for an operator
+
+A test proves the pending state is recoverable rather than a dead end: once
+the correct key is available again, the same deletion completes and Apple is
+contacted exactly once.
+
+#### "Nothing to revoke" is a narrow claim
+
+A credential lookup returns one of four states, and keeping them apart is
+load-bearing:
+
+| State | Meaning | Deletion |
+|---|---|---|
+| `absent` | no row — a Google identity, or an Apple one from before the exchange | may finish |
+| `alreadyRevoked` | row blanked after a confirmed 2xx | may finish |
+| `readable` | usable token | revoke, then finish |
+| `unreadable` | row present, **unrevoked**, material unusable | **stays pending** |
+
+The lookup used to return `string | null` and collapsed three of those into
+`null`. An unrevoked row with an empty ciphertext therefore looked exactly
+like "this account never had a credential", so deletion hard-deleted the user
+while a live Apple grant stayed alive — and, with the row gone, untraceable.
+
+`unreadable` covers an empty ciphertext, an empty or malformed IV, a corrupt
+ciphertext, an unknown key version, a wrong key, and an AAD mismatch. All of
+them mean the same thing: the grant may still be live and we cannot produce
+the token to revoke it with. Empty material on an *already revoked* row is the
+expected end state and still completes.
+
+#### Failing before or after the durable transition
+
+`DELETE /v1/me` is two phases, and which one failed decides what the client is
+told:
+
+**Phase 1 — the durable transition.** One batch: the account becomes
+`deleting` and every session is revoked. Until it commits, nothing has been
+accepted; a failure rolls the batch back and the account is still `active`. A
+service failure here is reported as one, and the caller's session still works
+so they can retry.
+
+**Phase 2 — processing.** Credential lookup, revocation, the hard-delete
+decision. By now the deletion *is* durably accepted, so an unexpected failure
+is answered `202`, not `500`. Returning an error would tell the user their
+deletion failed while their account is already `deleting` and every session is
+dead — the response contradicting the state is the bug.
+
+The boundary is an explicit `transitionCommitted` flag rather than something
+implied by control flow, so a Phase 1 failure can never be laundered into a
+`202`. Unexpected Phase 2 failures log the fixed code
+`account_deletion_processing_failed` with a correlation id and nothing else —
+no user id, subject, email, credential material, or underlying error, since
+repository errors quote the values they failed on.
+
+The `202` body says `"Your account deletion is in progress"`, worded so no
+substring of it can be misread as a completion claim.
+
+#### What may finish a deletion
+
+Hard delete happens under exactly two conditions:
+
+- every Apple credential was revoked with a **confirmed HTTP 2xx**, or
+- there was no provider credential to revoke at all
+
+Google reaches the second case by construction — the ID token flow never
+issues a refresh token, so no revocation is invented for it.
+
+Everything else keeps the deletion pending, with the reason recorded
+distinctly: `provider_unavailable` (network or 5xx), `provider_rejected` (a
+4xx, which is not evidence of revocation either), or `credential_unreadable`.
 
 ### Sign in with Apple
 
