@@ -422,6 +422,26 @@ tamper with.
 Revocation is one UPDATE and takes effect on the next request, which is the
 whole point of storing sessions rather than making them self-contained.
 
+**What is idempotent, and what is not.** The revocation *mutation* is:
+revoking an already-revoked session changes nothing and keeps the original
+`revoked_at`. The HTTP endpoint is a different question and is deliberately
+not exempt from authentication — replaying the same bearer after a successful
+logout meets the session middleware first, which no longer recognises that
+token and normalises it to `401 invalid_session` like any other revoked
+credential.
+
+| Call | Result |
+|---|---|
+| first `POST /v1/auth/logout` | `200` |
+| same raw token again | `401 invalid_session` |
+| repeated repository-level revoke | no-op, original `revoked_at` kept |
+
+A client should read that `401` as success rather than retrying: the user is
+logged out either way. Carving out an exception so a revoked bearer could
+still reach the handler would turn logout into a route that accepts dead
+credentials — a strictly worse trade for a status code the client does not
+need.
+
 **Session rotation is not implemented.** `shouldRotate` exists and is unused.
 Rotating inside the session lifecycle means a window where old and new tokens
 are both valid, a race when two devices rotate at once, and a client that can
@@ -517,6 +537,56 @@ So the deletion stays owed:
 A test proves the pending state is recoverable rather than a dead end: once
 the correct key is available again, the same deletion completes and Apple is
 contacted exactly once.
+
+#### "Nothing to revoke" is a narrow claim
+
+A credential lookup returns one of four states, and keeping them apart is
+load-bearing:
+
+| State | Meaning | Deletion |
+|---|---|---|
+| `absent` | no row — a Google identity, or an Apple one from before the exchange | may finish |
+| `alreadyRevoked` | row blanked after a confirmed 2xx | may finish |
+| `readable` | usable token | revoke, then finish |
+| `unreadable` | row present, **unrevoked**, material unusable | **stays pending** |
+
+The lookup used to return `string | null` and collapsed three of those into
+`null`. An unrevoked row with an empty ciphertext therefore looked exactly
+like "this account never had a credential", so deletion hard-deleted the user
+while a live Apple grant stayed alive — and, with the row gone, untraceable.
+
+`unreadable` covers an empty ciphertext, an empty or malformed IV, a corrupt
+ciphertext, an unknown key version, a wrong key, and an AAD mismatch. All of
+them mean the same thing: the grant may still be live and we cannot produce
+the token to revoke it with. Empty material on an *already revoked* row is the
+expected end state and still completes.
+
+#### Failing before or after the durable transition
+
+`DELETE /v1/me` is two phases, and which one failed decides what the client is
+told:
+
+**Phase 1 — the durable transition.** One batch: the account becomes
+`deleting` and every session is revoked. Until it commits, nothing has been
+accepted; a failure rolls the batch back and the account is still `active`. A
+service failure here is reported as one, and the caller's session still works
+so they can retry.
+
+**Phase 2 — processing.** Credential lookup, revocation, the hard-delete
+decision. By now the deletion *is* durably accepted, so an unexpected failure
+is answered `202`, not `500`. Returning an error would tell the user their
+deletion failed while their account is already `deleting` and every session is
+dead — the response contradicting the state is the bug.
+
+The boundary is an explicit `transitionCommitted` flag rather than something
+implied by control flow, so a Phase 1 failure can never be laundered into a
+`202`. Unexpected Phase 2 failures log the fixed code
+`account_deletion_processing_failed` with a correlation id and nothing else —
+no user id, subject, email, credential material, or underlying error, since
+repository errors quote the values they failed on.
+
+The `202` body says `"Your account deletion is in progress"`, worded so no
+substring of it can be misread as a completion claim.
 
 #### What may finish a deletion
 
