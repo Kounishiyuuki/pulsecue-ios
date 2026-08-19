@@ -11,7 +11,13 @@
  * and lives in the iOS Keychain from then on.
  */
 
-import type { EpochSeconds, SessionRow, SqlDatabase, UserRow } from "../types";
+import type {
+	EpochSeconds,
+	SessionRow,
+	SqlDatabase,
+	SqlStatement,
+	UserRow,
+} from "../types";
 import { AccountUnavailableError, UserNotFoundError } from "./accounts";
 import { newId, nowSeconds } from "./ids";
 
@@ -50,27 +56,87 @@ export interface IssuedSession {
 /**
  * Issues a session, but only for an `active` user.
  *
- * The state test is part of the INSERT rather than a separate SELECT, so a
- * deletion committed in between cannot slip a session through: the row
- * simply is not written, and the caller gets `AccountUnavailableError`.
+ * The state test lives in a **trigger** (migration 0003), not in the INSERT.
+ * That distinction is the whole point: a guarded `INSERT … WHERE EXISTS`
+ * writes zero rows for a `deleting` user and *succeeds*, so a batch
+ * containing it commits everything else. The trigger makes the same case a
+ * statement failure, which is what a batch can actually roll back.
  */
 export async function createSession(
 	db: SqlDatabase,
 	userId: string,
 	options: { deviceName?: string | null; now?: EpochSeconds } = {},
 ): Promise<IssuedSession> {
+	const pending = await prepareSession(db, userId, options);
+	try {
+		await pending.statement.run();
+	} catch (error) {
+		throw await explainRefusedSession(db, userId, error);
+	}
+	return completeSession(db, userId, pending);
+}
+
+/**
+ * Turns a refused session INSERT into the error the caller expects.
+ *
+ * The trigger and the foreign key both raise, and they mean different things
+ * — being deleted versus never existing — so the state is read back rather
+ * than guessed from the driver's message, which differs between D1 and the
+ * SQLite double the tests run against.
+ */
+export async function explainRefusedSession(
+	db: SqlDatabase,
+	userId: string,
+	original: unknown,
+): Promise<unknown> {
+	const user = await db
+		.prepare(`SELECT state FROM users WHERE id = ?`)
+		.bind(userId)
+		.first<{ state: UserRow["state"] }>();
+	if (!user) return new UserNotFoundError(userId);
+	if (user.state !== "active") {
+		return new AccountUnavailableError(userId, user.state);
+	}
+	// The user is fine, so this was something else entirely — a constraint
+	// elsewhere in the batch, or a real database fault. Do not disguise it as
+	// an account problem.
+	return original;
+}
+
+/**
+ * A session INSERT that has been built but not run.
+ *
+ * Exists so a caller can commit session creation *together with* something
+ * else, in one batch. Apple sign-in needs exactly that: the encrypted refresh
+ * token must be stored before a session exists, because a session without a
+ * stored credential is an account that cannot meet Apple's
+ * revoke-on-deletion requirement. Handing out the statement keeps the two
+ * atomic without either repository having to know about the other.
+ */
+export interface PendingSession {
+	statement: SqlStatement;
+	id: string;
+	/** The plaintext token — meaningful only once the insert commits. */
+	token: string;
+}
+
+export async function prepareSession(
+	db: SqlDatabase,
+	userId: string,
+	options: { deviceName?: string | null; now?: EpochSeconds } = {},
+): Promise<PendingSession> {
 	const now = options.now ?? nowSeconds();
 	const token = generateSessionToken();
 	const id = newId();
-	await db
+	// Unconditional on purpose. The `active` check is the trigger in migration
+	// 0003, so a refusal is a statement *failure* that rolls a batch back —
+	// where the old `WHERE EXISTS` form quietly wrote nothing and let the rest
+	// of the batch commit.
+	const statement = db
 		.prepare(
 			`INSERT INTO sessions
 			   (id, user_id, token_sha256, created_at, last_used_at, expires_at, device_name)
-			 SELECT ?, ?, ?, ?, ?, ?, ?
-			 WHERE EXISTS (
-			   SELECT 1 FROM users
-			   WHERE id = ? AND state = 'active' AND deleted_at IS NULL
-			 )`,
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.bind(
 			id,
@@ -80,10 +146,17 @@ export async function createSession(
 			now,
 			now + SESSION_TTL_SECONDS,
 			options.deviceName ?? null,
-			userId,
-		)
-		.run();
-	const session = await findSessionById(db, id);
+		);
+	return { statement, id, token };
+}
+
+/** Loads the row a `PendingSession` should have written, or says why not. */
+export async function completeSession(
+	db: SqlDatabase,
+	userId: string,
+	pending: PendingSession,
+): Promise<IssuedSession> {
+	const session = await findSessionById(db, pending.id);
 	if (!session) {
 		// Either the user does not exist or it is being deleted. Both are a
 		// refusal to issue; the caller decides how to answer without leaking
@@ -95,7 +168,7 @@ export async function createSession(
 		if (!user) throw new UserNotFoundError(userId);
 		throw new AccountUnavailableError(userId, user.state);
 	}
-	return { token, session };
+	return { token: pending.token, session };
 }
 
 /**

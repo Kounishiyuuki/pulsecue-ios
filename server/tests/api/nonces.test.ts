@@ -4,7 +4,9 @@ import {
 	NonceStoreUnavailableError,
 	consumeNonce,
 	purgeExpiredNonces,
+	purgeReplayableNonces,
 } from "../../src/api/db/nonces";
+import { APPLE_CLOCK_SKEW_SECONDS } from "../../src/api/auth/apple";
 import type { SqlDatabase, SqlStatement } from "../../src/api/types";
 import { createTestDatabase } from "./support/sqliteD1";
 
@@ -126,6 +128,81 @@ describe("single-use nonces", () => {
 		await purgeExpiredNonces(db, 2000);
 
 		expect(await db.count("auth_nonces")).toBe(1);
+		db.close();
+	});
+});
+
+describe("the sweep a scheduler should run", () => {
+	it("keeps a nonce for as long as the verifier would still accept its token", async () => {
+		// The cleanup must lag the verifier's skew allowance. Sweeping at
+		// exactly `expires_at` would delete the replay protection for a token
+		// that is still inside its accepted window — a cleanup job that
+		// manufactures the vulnerability the table exists to prevent.
+		const db = await createTestDatabase();
+		const expiresAt = 10_000;
+		await consumeNonce(db, {
+			nonceHash: "1".repeat(64),
+			provider: "apple",
+			expiresAt,
+			now: 9_000,
+		});
+
+		const removed = await purgeReplayableNonces(
+			db,
+			// One second before the verifier stops accepting the token.
+			expiresAt + APPLE_CLOCK_SKEW_SECONDS - 1,
+		);
+
+		expect(removed).toBe(0);
+		expect(await db.count("auth_nonces")).toBe(1);
+		db.close();
+	});
+
+	it("sweeps once the token can no longer be accepted at all", async () => {
+		const db = await createTestDatabase();
+		const expiresAt = 10_000;
+		await consumeNonce(db, {
+			nonceHash: "2".repeat(64),
+			provider: "apple",
+			expiresAt,
+			now: 9_000,
+		});
+
+		const removed = await purgeReplayableNonces(
+			db,
+			expiresAt + APPLE_CLOCK_SKEW_SECONDS,
+		);
+
+		expect(removed).toBe(1);
+		expect(await db.count("auth_nonces")).toBe(0);
+		db.close();
+	});
+
+	it("leaves live nonces alone and reports what it removed", async () => {
+		const db = await createTestDatabase();
+		for (const [hash, expiresAt] of [
+			["3".repeat(64), 1_000],
+			["4".repeat(64), 2_000],
+			["5".repeat(64), 90_000],
+		] as const) {
+			await consumeNonce(db, {
+				nonceHash: hash,
+				provider: "apple",
+				expiresAt,
+				now: 500,
+			});
+		}
+
+		const removed = await purgeReplayableNonces(db, 10_000);
+
+		expect(removed).toBe(2);
+		expect(await db.count("auth_nonces")).toBe(1);
+		db.close();
+	});
+
+	it("is a no-op on an empty table", async () => {
+		const db = await createTestDatabase();
+		expect(await purgeReplayableNonces(db, 10_000)).toBe(0);
 		db.close();
 	});
 });

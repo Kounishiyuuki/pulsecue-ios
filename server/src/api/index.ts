@@ -9,7 +9,9 @@
 
 import { Hono } from "hono";
 import { createAppleJwksProvider } from "./auth/apple";
+import { appleClientSecretConfigFromEnv } from "./auth/appleClientSecret";
 import { createGoogleJwksProvider } from "./auth/google";
+import { tokenCipherFromEnv } from "./crypto/tokenCipher";
 import { newId } from "./db/ids";
 import { makeAppleAuthHandler } from "./routes/authApple";
 import { makeGoogleAuthHandler } from "./routes/authGoogle";
@@ -33,6 +35,13 @@ app.post("/v1/auth/apple", (c) =>
 		// Empty when unconfigured; verification rejects that rather than
 		// treating it as "any audience".
 		audience: c.env.APPLE_AUDIENCE ?? "",
+		// Both null when Apple is not configured for this deployment, and the
+		// handler then answers 503 rather than signing anyone in: an account
+		// created without a stored refresh token could not be deleted the way
+		// Apple requires, and the authorization code cannot be re-requested
+		// later to repair it.
+		clientSecret: appleClientSecretConfigFromEnv(c.env),
+		cipher: tokenCipherFromEnv(c.env),
 	})(c),
 );
 
