@@ -14,10 +14,10 @@
  */
 
 import type { EpochSeconds, SqlDatabase } from "../types";
-import { type TokenCipher, TokenDecryptError } from "../crypto/tokenCipher";
+import type { TokenCipher } from "../crypto/tokenCipher";
 import {
 	markCredentialRevoked,
-	readRefreshToken,
+	readStoredCredential,
 } from "../db/providerCredentials";
 import type { AppleClientSecretConfig } from "./appleClientSecret";
 import {
@@ -68,21 +68,36 @@ export async function revokeAppleIdentityCredential(
 ): Promise<RevokeIdentityOutcome> {
 	const now = input.now ?? Math.floor(Date.now() / 1000);
 
-	let refreshToken: string | null;
-	try {
-		refreshToken = await readRefreshToken(
-			input.db,
-			input.cipher,
-			input.authIdentityId,
-		);
-	} catch (error) {
-		if (error instanceof TokenDecryptError) {
+	const stored = await readStoredCredential(
+		input.db,
+		input.cipher,
+		input.authIdentityId,
+	);
+
+	switch (stored.status) {
+		case "absent":
+			// This identity never stored a credential — a Google identity, or
+			// an Apple one from before the exchange existed.
+			return { status: "nothingToRevoke" };
+
+		case "alreadyRevoked":
+			// The material was blanked after a confirmed 2xx. Nothing is owed.
+			return { status: "nothingToRevoke" };
+
+		case "unreadable":
+			// A row that is still live as far as Apple is concerned, whose
+			// material we cannot turn back into a token. Emphatically NOT the
+			// same as having no credential: reporting it as such would let
+			// deletion hard-delete the account while the grant stays alive and
+			// becomes untraceable. Nothing is sent to Apple, and the row is
+			// left exactly as it is so a restored key can still recover it.
 			return { status: "unrevocable", reason: "decryptFailed" };
-		}
-		throw error;
+
+		case "readable":
+			break;
 	}
 
-	if (refreshToken === null) return { status: "nothingToRevoke" };
+	const refreshToken = stored.refreshToken;
 
 	const outcome: AppleRevocationOutcome = await revokeAppleRefreshToken({
 		refreshToken,
