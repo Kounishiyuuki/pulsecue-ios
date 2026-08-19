@@ -363,7 +363,95 @@ machine-to-machine (a static import key and short-lived HMAC tokens, no
 users), while this one owns accounts and per-user data. Mixing two
 authorization models in one router would be a mistake.
 
-Routes: `GET /health`, `POST /v1/auth/apple`, `POST /v1/auth/google`.
+Routes:
+
+| Route | Auth |
+|---|---|
+| `GET /health` | none |
+| `POST /v1/auth/apple` | none (sign-in) |
+| `POST /v1/auth/google` | none (sign-in) |
+| `GET /v1/me` | bearer session |
+| `POST /v1/auth/logout` | bearer session |
+| `POST /v1/auth/logout-all` | bearer session |
+
+### Authenticated requests
+
+`Authorization: Bearer <opaque session token>`. The token is hashed and looked
+up; `findActiveSessionByToken` joins `users`, so the account's state is
+re-checked on **every** request and a session cannot outlive its account even
+if a revocation were somehow missed.
+
+Six different facts get one answer, `401 invalid_session`: missing header,
+malformed header, unknown token, expired, revoked, and account-being-deleted.
+Telling them apart would let a caller probe which tokens ever existed, and
+would make account deletion observable from outside. A test asserts the six
+responses are byte-identical apart from the correlation id.
+
+The bearer parser is deliberately strict — one scheme, one token, no internal
+whitespace. A lenient parser is how a token ends up read from somewhere it was
+never meant to be. The raw token never reaches a log.
+
+The middleware is attached **per route**, not globally. A global guard that a
+future sign-in route silently inherits locks users out; one a future
+authenticated route silently misses is caught by that route's own tests. The
+second failure is the recoverable one.
+
+### `GET /v1/me`
+
+An explicit allowlist, not a row — `SELECT *` reaching a client is how a
+schema change quietly becomes a disclosure. Returns the user id, state,
+display name, creation time, which providers are linked and when, and the
+caller's own session expiry.
+
+Deliberately absent: the **provider subject** (it is the account key, and
+echoing it back turns a stolen session into a correlatable identity across
+services), the **email** (the app has no use for it, and Apple's private relay
+address is not something to surface without a reason), the session token hash,
+and any credential material. Pinned by a test that asserts the exact key set
+and greps the response for each of them.
+
+### Logout
+
+`POST /v1/auth/logout` revokes exactly the session that authenticated the
+request — signing out of a phone must not sign out the iPad.
+`POST /v1/auth/logout-all` is the deliberate opposite, for a lost device. Both
+scope by the authenticated user; there is no user id in either request to
+tamper with.
+
+Revocation is one UPDATE and takes effect on the next request, which is the
+whole point of storing sessions rather than making them self-contained.
+
+**What is idempotent, and what is not.** The revocation *mutation* is:
+revoking an already-revoked session changes nothing and keeps the original
+`revoked_at`. The HTTP endpoint is a different question and is deliberately
+not exempt from authentication — replaying the same bearer after a successful
+logout meets the session middleware first, which no longer recognises that
+token and normalises it to `401 invalid_session` like any other revoked
+credential.
+
+| Call | Result |
+|---|---|
+| first `POST /v1/auth/logout` | `200` |
+| same raw token again | `401 invalid_session` |
+| repeated repository-level revoke | no-op, original `revoked_at` kept |
+
+A client should read that `401` as success rather than retrying: the user is
+logged out either way. Carving out an exception so a revoked bearer could
+still reach the handler would turn logout into a route that accepts dead
+credentials — a strictly worse trade for a status code the client does not
+need.
+
+**Session rotation is not implemented.** `shouldRotate` exists and is unused.
+Rotating inside the session lifecycle means a window where old and new tokens
+are both valid, a race when two devices rotate at once, and a client that can
+lose the new token mid-swap. None of that is worth solving before there is a
+client that needs it, so `/v1/me` returns `session.expiresAt` instead and the
+app can prompt a fresh sign-in before the 60 days lapse. Recorded as a
+follow-up rather than half-built.
+
+`sessions.last_used_at` is likewise still set only at creation: touching it on
+every authenticated request is a write per read, and nothing consumes the
+column yet.
 
 ### Sign in with Apple
 
