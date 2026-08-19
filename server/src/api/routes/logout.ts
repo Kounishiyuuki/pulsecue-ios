@@ -1,11 +1,22 @@
 /**
  * `POST /v1/auth/logout` and `POST /v1/auth/logout-all`.
  *
- * Both are **idempotent**, which matters more than it sounds: the iOS client
- * must be able to log out while the network is unreliable, and a retry that
- * errored would leave the user unable to complete the action. Calling logout
- * on an already-revoked session is a success — the requested end state is the
- * one that holds.
+ * **What is idempotent, and what is not.** The revocation *mutation* is:
+ * revoking an already-revoked session changes nothing and keeps the original
+ * `revoked_at`, so a repeated repository call cannot rewrite history. The
+ * HTTP endpoint is a different question, and deliberately not exempt from
+ * authentication — replaying the same bearer after a successful logout hits
+ * the session middleware first, which no longer recognises that token and
+ * normalises it to `401 invalid_session` like any other revoked credential.
+ *
+ * So: first call `200`, same raw token again `401`. That is the contract, and
+ * it is the right one. Carving out an exception so a revoked bearer could
+ * still reach this handler would turn logout into a route that accepts dead
+ * credentials — a strictly worse trade for a status code the client does not
+ * need, since the user is logged out either way.
+ *
+ * A client should therefore treat `401` from logout as success, not as
+ * something to retry: the requested end state already holds.
  *
  * Logout revokes exactly the session that authenticated the request. Other
  * devices keep working; signing out of a phone must not sign out the iPad.
