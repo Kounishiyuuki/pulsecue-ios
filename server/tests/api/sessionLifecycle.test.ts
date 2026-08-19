@@ -314,18 +314,21 @@ describe("POST /v1/auth/logout", () => {
 		db.close();
 	});
 
-	it("is idempotent, so a retry over a flaky network still succeeds", async () => {
+	it("answers 401 when the same bearer is replayed, because it is now revoked", async () => {
+		// The endpoint is NOT exempt from authentication. A second logout with
+		// the same raw token meets the session middleware first, which no
+		// longer recognises it — so it is normalised to 401 exactly like any
+		// other revoked credential. The user is logged out either way, which is
+		// why a client should read this 401 as success rather than retrying.
 		const db = await createTestDatabase();
 		const { token } = await signedInUser(db);
 
 		expect((await makeApp(db)("/v1/auth/logout", { token })).status).toBe(200);
-		// The second call authenticates with a now-revoked token, so it is a
-		// 401 — but the user is logged out, which is the requested end state.
 		expect((await makeApp(db)("/v1/auth/logout", { token })).status).toBe(401);
 		db.close();
 	});
 
-	it("keeps the original revocation time when called twice at the repository level", async () => {
+	it("is idempotent as a mutation: a second revoke keeps the original time", async () => {
 		const db = await createTestDatabase();
 		const { session } = await signedInUser(db);
 
@@ -389,7 +392,11 @@ describe("POST /v1/auth/logout-all", () => {
 		db.close();
 	});
 
-	it("is idempotent when there is nothing left to revoke", async () => {
+	it("can be called again from a new session once the old ones are gone", async () => {
+		// Not a claim that the *same* bearer works twice — it does not, the
+		// middleware rejects it. This is the useful property: revoking
+		// everything does not put the account into a state where a later
+		// logout-all fails.
 		const db = await createTestDatabase();
 		const { token, account } = await signedInUser(db);
 		await makeApp(db)("/v1/auth/logout-all", { token });

@@ -421,6 +421,26 @@ tamper with.
 Revocation is one UPDATE and takes effect on the next request, which is the
 whole point of storing sessions rather than making them self-contained.
 
+**What is idempotent, and what is not.** The revocation *mutation* is:
+revoking an already-revoked session changes nothing and keeps the original
+`revoked_at`. The HTTP endpoint is a different question and is deliberately
+not exempt from authentication — replaying the same bearer after a successful
+logout meets the session middleware first, which no longer recognises that
+token and normalises it to `401 invalid_session` like any other revoked
+credential.
+
+| Call | Result |
+|---|---|
+| first `POST /v1/auth/logout` | `200` |
+| same raw token again | `401 invalid_session` |
+| repeated repository-level revoke | no-op, original `revoked_at` kept |
+
+A client should read that `401` as success rather than retrying: the user is
+logged out either way. Carving out an exception so a revoked bearer could
+still reach the handler would turn logout into a route that accepts dead
+credentials — a strictly worse trade for a status code the client does not
+need.
+
 **Session rotation is not implemented.** `shouldRotate` exists and is unused.
 Rotating inside the session lifecycle means a window where old and new tokens
 are both valid, a race when two devices rotate at once, and a client that can
