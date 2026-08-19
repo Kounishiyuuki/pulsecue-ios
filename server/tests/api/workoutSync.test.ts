@@ -649,3 +649,136 @@ describe("a deleting account cannot sync", () => {
 		db.close();
 	});
 });
+
+describe("a sequence larger than one page", () => {
+	it("delivers it whole rather than stalling forever", async () => {
+		// The failure this closes: dropping the partially-covered sequence
+		// left the page empty AND the cursor unmoved, so a client would ask
+		// the same question for ever and never receive those rows.
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		// One batch, three rows, all at the same sequence.
+		await uploadWorkoutData(
+			db,
+			userId,
+			{ sessions: [session("a1"), session("a2"), session("a3")], stepResults: [] },
+			NOW,
+		);
+
+		const page = await pullWorkoutData(db, userId, 0, 2);
+
+		// Over the limit, on purpose — the alternative is no progress at all.
+		expect(page.sessions.map((row) => row.id).sort()).toEqual(["a1", "a2", "a3"]);
+		expect(page.changeSeq).toBeGreaterThan(0);
+		db.close();
+	});
+
+	it("still terminates when every batch exceeds the page", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		for (const prefix of ["a", "b", "c"]) {
+			await uploadWorkoutData(
+				db,
+				userId,
+				{
+					sessions: [
+						session(`${prefix}1`),
+						session(`${prefix}2`),
+						session(`${prefix}3`),
+					],
+					stepResults: [],
+				},
+				NOW,
+			);
+		}
+
+		const seen: string[] = [];
+		let cursor = 0;
+		let rounds = 0;
+		for (;;) {
+			const page = await pullWorkoutData(db, userId, cursor, 2);
+			seen.push(...page.sessions.map((row) => row.id));
+			expect(page.changeSeq).toBeGreaterThan(cursor); // progress every time
+			cursor = page.changeSeq;
+			if (!page.hasMore) break;
+			expect((rounds += 1)).toBeLessThan(10);
+		}
+
+		expect(seen.sort()).toEqual([
+			"a1", "a2", "a3", "b1", "b2", "b3", "c1", "c2", "c3",
+		]);
+		db.close();
+	});
+
+	it("does not duplicate rows across pages", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		for (let i = 0; i < 6; i += 1) {
+			await uploadWorkoutData(
+				db,
+				userId,
+				{ sessions: [session(`s${i}a`), session(`s${i}b`)], stepResults: [] },
+				NOW,
+			);
+		}
+
+		const seen: string[] = [];
+		let cursor = 0;
+		for (let guard = 0; guard < 20; guard += 1) {
+			const page = await pullWorkoutData(db, userId, cursor, 3);
+			seen.push(...page.sessions.map((row) => row.id));
+			cursor = page.changeSeq;
+			if (!page.hasMore) break;
+		}
+
+		expect(seen.length).toBe(new Set(seen).size);
+		expect(seen.length).toBe(12);
+		db.close();
+	});
+
+	it("returns an empty page once the client is caught up", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadWorkoutData(db, userId, { sessions: [session("s1")], stepResults: [] }, NOW);
+		const seq = await currentChangeSeq(db, userId);
+
+		const page = await pullWorkoutData(db, userId, seq, 500);
+
+		expect(page.sessions).toHaveLength(0);
+		expect(page.stepResults).toHaveLength(0);
+		expect(page.hasMore).toBe(false);
+		expect(page.changeSeq).toBe(seq);
+		db.close();
+	});
+
+	it("delivers a page of exactly the limit without claiming more", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		for (let i = 0; i < 3; i += 1) {
+			await uploadWorkoutData(
+				db, userId, { sessions: [session(`s${i}`)], stepResults: [] }, NOW,
+			);
+		}
+
+		const page = await pullWorkoutData(db, userId, 0, 3);
+
+		expect(page.sessions).toHaveLength(3);
+		expect(page.hasMore).toBe(false);
+		expect(page.changeSeq).toBe(await currentChangeSeq(db, userId));
+		db.close();
+	});
+
+	it("picks up rows written after a page was served", async () => {
+		const db = await createTestDatabase();
+		const { userId } = await signedIn(db);
+		await uploadWorkoutData(db, userId, { sessions: [session("s1")], stepResults: [] }, NOW);
+		const first = await pullWorkoutData(db, userId, 0, 500);
+		expect(first.hasMore).toBe(false);
+
+		await uploadWorkoutData(db, userId, { sessions: [session("s2")], stepResults: [] }, NOW);
+		const second = await pullWorkoutData(db, userId, first.changeSeq, 500);
+
+		expect(second.sessions.map((row) => row.id)).toEqual(["s2"]);
+		db.close();
+	});
+});

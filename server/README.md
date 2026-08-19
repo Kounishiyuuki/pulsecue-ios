@@ -515,6 +515,16 @@ The two tables paginate independently, so the returned cursor is the lower of
 the two. Re-reading a few rows next time is harmless (the client applies them
 idempotently); skipping any is not.
 
+A sequence bigger than one page is handled explicitly rather than relied upon
+not to happen: it is delivered **whole**, over the limit. Dropping it would
+leave the page empty *and* the cursor unmoved — the client would ask the same
+question forever — and splitting it would strand the remainder. In practice
+one upload writes at most 500 rows per table at a single sequence, the same as
+the page limit, so this only opens if the limit is set lower; making it
+correct anyway means the two numbers are not a silent coupling someone can
+break later. A test walks a whole stack of oversized batches and asserts the
+cursor advances on every round.
+
 #### Retries are safe
 
 The guest migration will be retried over flaky networks, so a retry has to

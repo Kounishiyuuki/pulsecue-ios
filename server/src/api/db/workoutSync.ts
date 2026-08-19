@@ -264,9 +264,14 @@ export async function currentChangeSeq(
  * detect truncation, and any partially-delivered sequence is dropped rather
  * than half-sent.
  *
- * Progress is guaranteed because one upload batch writes at most `MAX_ROWS`
- * rows per table at a single sequence, and the page limit is the same number:
- * a single sequence therefore always fits, so the cursor always advances.
+ * A sequence bigger than one page is handled explicitly rather than relied
+ * upon not to happen: it is delivered whole, over the limit. Dropping it
+ * would leave the page empty *and* the cursor unmoved, which stalls the
+ * client forever — and splitting it would strand the remainder. In practice
+ * one upload writes at most `MAX_SYNC_ROWS_PER_SEQUENCE` rows per table at a
+ * single sequence, so this path only opens if the page limit is set below
+ * that; making it correct anyway means the two numbers are not a silent
+ * coupling anyone can break later.
  */
 export async function pullWorkoutData(
 	db: SqlDatabase,
@@ -283,10 +288,7 @@ export async function pullWorkoutData(
 
 	const sessions = await readPage<WorkoutSessionRow>(
 		db,
-		`SELECT * FROM workout_sessions
-		  WHERE user_id = ? AND change_seq > ?
-		  ORDER BY change_seq ASC, id ASC
-		  LIMIT ?`,
+		"workout_sessions",
 		userId,
 		sinceSeq,
 		limit,
@@ -294,10 +296,7 @@ export async function pullWorkoutData(
 	);
 	const stepResults = await readPage<StepResultRow>(
 		db,
-		`SELECT * FROM step_results
-		  WHERE user_id = ? AND change_seq > ?
-		  ORDER BY change_seq ASC, id ASC
-		  LIMIT ?`,
+		"step_results",
 		userId,
 		sinceSeq,
 		limit,
@@ -318,6 +317,14 @@ export async function pullWorkoutData(
 }
 
 /**
+ * The most rows one upload can write to one table at a single sequence.
+ *
+ * The route enforces the same number on an upload payload. It bounds the
+ * "sequence bigger than a page" fallback below, so that query stays finite.
+ */
+export const MAX_SYNC_ROWS_PER_SEQUENCE = 500;
+
+/**
  * Reads one page and works out how far the client may advance.
  *
  * Fetches `limit + 1` rows: if the extra one exists the page was cut short,
@@ -326,14 +333,20 @@ export async function pullWorkoutData(
  */
 async function readPage<T extends { change_seq: number }>(
 	db: SqlDatabase,
-	sql: string,
+	table: "workout_sessions" | "step_results",
 	userId: string,
 	sinceSeq: number,
 	limit: number,
 	currentSeq: number,
 ): Promise<{ rows: T[]; cursor: number }> {
+	// The table name is a literal union, never caller input.
+	const pageSql = `SELECT * FROM ${table}
+		  WHERE user_id = ? AND change_seq > ?
+		  ORDER BY change_seq ASC, id ASC
+		  LIMIT ?`;
+
 	const { results } = await db
-		.prepare(sql)
+		.prepare(pageSql)
 		.bind(userId, sinceSeq, limit + 1)
 		.all<T>();
 
@@ -349,5 +362,25 @@ async function readPage<T extends { change_seq: number }>(
 	const rows = results.slice(0, limit).filter(
 		(row) => row.change_seq < firstExcludedSeq,
 	);
-	return { rows, cursor: firstExcludedSeq - 1 };
+
+	if (rows.length > 0) {
+		return { rows, cursor: firstExcludedSeq - 1 };
+	}
+
+	// Nothing survived the filter: this single sequence is larger than the
+	// page. Returning the empty page would leave the cursor exactly where it
+	// was and the client would ask the same question forever. Deliver the
+	// sequence whole instead — bounded, because one upload cannot write more
+	// than `MAX_SYNC_ROWS_PER_SEQUENCE` rows to one table at one sequence.
+	const whole = await db
+		.prepare(
+			`SELECT * FROM ${table}
+			  WHERE user_id = ? AND change_seq = ?
+			  ORDER BY id ASC
+			  LIMIT ?`,
+		)
+		.bind(userId, firstExcludedSeq, MAX_SYNC_ROWS_PER_SEQUENCE)
+		.all<T>();
+
+	return { rows: whole.results, cursor: firstExcludedSeq };
 }
