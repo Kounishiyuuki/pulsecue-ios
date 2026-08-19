@@ -39,7 +39,13 @@ final class FormGuide3DUITests: XCTestCase {
                       "play/pause control missing")
         XCTAssertTrue(app.buttons["再生速度 0.5x"].exists, "0.5x control missing")
         XCTAssertTrue(app.buttons["再生速度 1.0x"].exists, "1.0x control missing")
-        XCTAssertTrue(app.buttons["視点 正面"].exists || app.buttons["視点 側面"].exists,
+
+        // The camera row sits below the fixed-height 3D canvas. On compact
+        // heights SwiftUI does not materialize it until the sheet scrolls.
+        app.swipeUp()
+        let frontCamera = app.buttons["視点 正面"]
+        let sideCamera = app.buttons["視点 側面"]
+        XCTAssertTrue(frontCamera.waitForExistence(timeout: 3) || sideCamera.waitForExistence(timeout: 3),
                       "camera preset control missing")
 
         // Text guide remains accessible through progressive disclosure.
