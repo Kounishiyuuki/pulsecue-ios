@@ -188,7 +188,18 @@ final class ServerAccountStore: ObservableObject {
             state = .authenticated(profile)
             lastFailure = nil
         } catch let error as AccountAPIError {
-            state = tokenStore.tokenIfPresent() == nil ? .guest : .unreachable
+            if error.invalidatesStoredSession {
+                // The server rejected the token it had just issued us, or the
+                // account went away between the two calls. Keeping it would
+                // leave a token that can never work and make the next launch
+                // look like a mysterious sign-out.
+                discardSession()
+            } else {
+                // A transient failure *after* the token was stored: the
+                // sign-in itself worked, we simply could not read the profile
+                // back. Keep the session and let launch restore confirm it.
+                state = tokenStore.tokenIfPresent() == nil ? .guest : .unreachable
+            }
             fail(failure(for: error))
         } catch {
             state = .guest

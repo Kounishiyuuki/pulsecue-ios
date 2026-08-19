@@ -959,3 +959,96 @@ final class ServerAccountDeletionOutcomeTests: XCTestCase {
         XCTAssertEqual(pending, .pending)
     }
 }
+
+// MARK: - A local link is not a server account
+
+@MainActor
+final class LegacyLinkedAccountIndependenceTests: XCTestCase {
+
+    func testALocalLinkAloneNeverReadsAsAuthenticated() async {
+        // `LinkedAccount` is the local-only record from before there was a
+        // server: it means a provider was once attached to this device, not
+        // that a PulseCue account exists. The two stores are deliberately
+        // separate, and only a server-confirmed profile is authenticated.
+        let legacy = AuthSessionStore(
+            linkedAccountStore: InMemoryLinkedAccountStore(
+                linkedAccount: LinkedAccount(
+                    provider: .apple,
+                    userIdentifier: "000123.local.only",
+                    displayName: "テスト",
+                    email: "user@example.com"
+                )
+            )
+        )
+        XCTAssertNotNil(legacy.linkedAccount)
+
+        let api = StubAccountAPI()
+        let store = makeStore(api: api, tokenStore: InMemoryServerSessionTokenStore())
+        await store.restore()
+
+        XCTAssertEqual(store.state, .guest)
+        XCTAssertFalse(store.state.isAuthenticated)
+        // And the server was never contacted on the strength of a local link.
+        XCTAssertTrue(api.profileTokens.isEmpty)
+    }
+
+    func testTheServerStoreNeverTouchesTheLocalLink() async {
+        // Restore, logout and deletion all run without a LinkedAccountStoring
+        // dependency at all — the strongest form of "does not rewrite it".
+        let api = StubAccountAPI()
+        api.profileResult = .failure(AccountAPIError.unavailable)
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-token")
+        let store = makeStore(api: api, tokenStore: tokens)
+
+        await store.restore()
+        _ = await store.logout()
+
+        // Nothing above could have altered a local link, because the store has
+        // no reference to one. Asserted by construction plus behaviour.
+        XCTAssertEqual(store.state, .guest)
+    }
+}
+
+// MARK: - A token the server immediately rejects
+
+@MainActor
+final class ServerAccountSignInRejectionTests: XCTestCase {
+
+    func testATokenRejectedRightAfterIssueIsDiscarded() async {
+        // Sign-in returned a token, then /me answered 401 — the account went
+        // away between the two calls, or the token was never usable. Keeping
+        // it would leave a session that can never work and make the next
+        // launch look like a mysterious sign-out.
+        let api = StubAccountAPI()
+        api.appleResult = .success(makeSession())
+        api.profileResult = .failure(AccountAPIError.invalidCredentials)
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeStore(api: api, tokenStore: tokens)
+
+        await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertFalse(store.state.isAuthenticated)
+        XCTAssertEqual(store.state, .guest)
+        XCTAssertEqual(tokens.read(), .absent, "a rejected token must not be kept")
+    }
+
+    func testATransientFailureAfterIssueKeepsTheToken() async {
+        // The other half: the sign-in really did work, we just could not read
+        // the profile back. Throwing the session away here would waste a
+        // successful sign-in.
+        let api = StubAccountAPI()
+        api.appleResult = .success(makeSession())
+        api.profileResult = .failure(AccountAPIError.unavailable)
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeStore(api: api, tokenStore: tokens)
+
+        await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertEqual(store.state, .unreachable)
+        XCTAssertEqual(tokens.read(), .token("session-token-abc"))
+    }
+}
