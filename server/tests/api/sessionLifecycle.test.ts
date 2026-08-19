@@ -488,3 +488,48 @@ describe("session creation under the active-user trigger", () => {
 		db.close();
 	});
 });
+
+describe("boundaries the session layer must get exactly right", () => {
+	it("accepts a session up to, but not at, its expiry", async () => {
+		// `expires_at > now`, so the session dies exactly on its expiry second
+		// rather than a second later.
+		const db = await createTestDatabase();
+		const { token, session } = await signedInUser(db);
+
+		expect(
+			(await makeApp(db, session.expires_at - 1)("/v1/me", { token })).status,
+		).toBe(200);
+		expect(
+			(await makeApp(db, session.expires_at)("/v1/me", { token })).status,
+		).toBe(401);
+		db.close();
+	});
+
+	it("does not lock an account out after logout-all", async () => {
+		// Revoking every session must not be mistaken for disabling the
+		// account: a fresh sign-in has to keep working.
+		const db = await createTestDatabase();
+		const { account, token } = await signedInUser(db);
+		await makeApp(db)("/v1/auth/logout-all", { token });
+
+		const fresh = await createSession(db, account.user.id, { now: NOW });
+
+		expect((await makeApp(db)("/v1/me", { token: fresh.token })).status).toBe(200);
+		db.close();
+	});
+
+	it("keeps last_used_at out of every authorization decision", async () => {
+		// The column exists and is never updated. That is only safe while
+		// nothing authorizes on it — a stale value must not shorten or extend
+		// a session.
+		const db = await createTestDatabase();
+		const { token, session } = await signedInUser(db);
+		await db
+			.prepare(`UPDATE sessions SET last_used_at = ? WHERE id = ?`)
+			.bind(0, session.id)
+			.run();
+
+		expect((await makeApp(db)("/v1/me", { token })).status).toBe(200);
+		db.close();
+	});
+});

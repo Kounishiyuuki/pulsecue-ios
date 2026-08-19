@@ -11,6 +11,7 @@ import {
 	requestAccountDeletion,
 } from "../../src/api/db/accountDeletion";
 import {
+	AccountUnavailableError,
 	findIdentity,
 	findOrCreateAccountForIdentity,
 	findUserById,
@@ -629,6 +630,245 @@ describe("a credential that cannot be decrypted", () => {
 		expect(
 			await findActiveSessionByToken(db, other.token, NOW + 1),
 		).not.toBeNull();
+		db.close();
+	});
+});
+
+// MARK: - Every way a credential can become unusable
+
+describe("a credential that is present but unusable", () => {
+	/** Runs a deletion with the stored ciphertext damaged in some way. */
+	async function deleteWithDamagedCredential(
+		damage: (db: TestDatabase, identityId: string) => Promise<void>,
+	) {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		await damage(db, account.identity.id);
+		const del = makeApp(db, { cipher: c });
+
+		const response = await del(token);
+		return { db, del, account, response };
+	}
+
+	it("does not complete when the ciphertext has been tampered with", async () => {
+		const { db, del, account, response } = await deleteWithDamagedCredential(
+			async (database, identityId) => {
+				const row = await findCredentialForIdentity(database, identityId);
+				// Flip the ciphertext; the GCM tag will refuse it.
+				const flipped = (row?.encrypted_refresh_token ?? "").split("").reverse().join("");
+				await database
+					.prepare(
+						`UPDATE provider_credentials SET encrypted_refresh_token = ? WHERE auth_identity_id = ?`,
+					)
+					.bind(flipped, identityId)
+					.run();
+			},
+		);
+
+		expect(response.status).toBe(202);
+		expect((await findUserById(db, account.user.id))?.state).toBe("deleting");
+		expect(
+			(await findAccountDeletion(db, account.user.id))?.last_error_code,
+		).toBe("credential_unreadable");
+		// Apple was never asked with a credential we could not read.
+		expect(del.apple.requests).toHaveLength(0);
+		db.close();
+	});
+
+	it("does not complete when the row names a key version we do not hold", async () => {
+		const { db, del, account, response } = await deleteWithDamagedCredential(
+			async (database, identityId) => {
+				await database
+					.prepare(
+						`UPDATE provider_credentials SET encryption_key_version = ? WHERE auth_identity_id = ?`,
+					)
+					.bind(99, identityId)
+					.run();
+			},
+		);
+
+		expect(response.status).toBe(202);
+		expect((await findUserById(db, account.user.id))?.state).toBe("deleting");
+		expect(del.apple.requests).toHaveLength(0);
+		db.close();
+	});
+
+	it("does not complete when the IV has been lost", async () => {
+		const { db, account, response } = await deleteWithDamagedCredential(
+			async (database, identityId) => {
+				await database
+					.prepare(
+						`UPDATE provider_credentials SET encryption_iv = ? WHERE auth_identity_id = ?`,
+					)
+					.bind("AAAAAAAAAAAAAAAA", identityId)
+					.run();
+			},
+		);
+
+		expect(response.status).toBe(202);
+		expect((await findUserById(db, account.user.id))?.state).toBe("deleting");
+		db.close();
+	});
+});
+
+describe("revocation outcomes at the deletion boundary", () => {
+	async function deleteWith(responder: () => Response) {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		const del = makeApp(db, { cipher: c, appleResponder: responder });
+		const response = await del(token);
+		return { db, account, response, del };
+	}
+
+	it("completes on any 2xx, not only 200", async () => {
+		for (const status of [200, 202, 204]) {
+			const { db, account, response } = await deleteWith(
+				() => new Response(status === 204 ? null : "", { status }),
+			);
+			expect(response.status, `apple ${status}`).toBe(200);
+			expect(await findUserById(db, account.user.id)).toBeNull();
+			db.close();
+		}
+	});
+
+	it("keeps the account for every non-2xx, and says which kind", async () => {
+		const cases: Array<[() => Response, string]> = [
+			[() => appleErrorResponse("invalid_grant"), "provider_rejected"],
+			[() => appleErrorResponse("invalid_client", 401), "provider_rejected"],
+			[() => new Response("", { status: 403 }), "provider_rejected"],
+			[() => new Response("", { status: 500 }), "provider_unavailable"],
+			[() => new Response("", { status: 503 }), "provider_unavailable"],
+		];
+		for (const [responder, expectedCode] of cases) {
+			const { db, account, response } = await deleteWith(responder);
+
+			expect(response.status).toBe(202);
+			const user = await findUserById(db, account.user.id);
+			expect(user?.state).toBe("deleting");
+			expect(
+				(await findAccountDeletion(db, account.user.id))?.last_error_code,
+			).toBe(expectedCode);
+			// The credential survives so a retry has something to retry with.
+			expect(
+				(await findCredentialForIdentity(db, account.identity.id))?.revoked_at,
+			).toBeNull();
+			db.close();
+		}
+	});
+});
+
+describe("running the processor more than once", () => {
+	it("does not revoke twice or resurrect the account", async () => {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account } = await signedIn(db, c);
+		await requestAccountDeletion(db, account.user.id, NOW);
+		const key = await createTestAppleSigningKey();
+		const endpoint = fakeAppleEndpoint(() => new Response("", { status: 200 }));
+		const deps = { db, appleConfig: key.config, cipher: c, fetchImpl: endpoint.fetchImpl };
+
+		const first = await processAccountDeletion(deps, account.user.id, NOW);
+		const second = await processAccountDeletion(deps, account.user.id, NOW);
+		const third = await processDueAccountDeletions(deps, NOW);
+
+		expect(first).toEqual({ status: "completed" });
+		// The user is gone, so later runs have nothing to do — and Apple is
+		// not asked again for a token that no longer exists here.
+		expect(second).toEqual({ status: "notPending" });
+		expect(third).toEqual({ completed: 0, stillPending: 0 });
+		expect(endpoint.requests).toHaveLength(1);
+		expect(await findUserById(db, account.user.id)).toBeNull();
+		db.close();
+	});
+
+	it("never returns a pending account to active", async () => {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		const del = makeApp(db, {
+			cipher: c,
+			appleResponder: () => new Response("", { status: 503 }),
+		});
+		await del(token);
+
+		const key = await createTestAppleSigningKey();
+		const endpoint = fakeAppleEndpoint(() => new Response("", { status: 503 }));
+		const deps = { db, appleConfig: key.config, cipher: c, fetchImpl: endpoint.fetchImpl };
+		for (let i = 0; i < 3; i += 1) {
+			await processAccountDeletion(deps, account.user.id, NOW + i * 1_000);
+		}
+
+		const user = await findUserById(db, account.user.id);
+		expect(user?.state).toBe("deleting");
+		expect(user?.deleted_at).toBe(NOW);
+		db.close();
+	});
+});
+
+// MARK: - A deleting account cannot come back
+
+describe("sign-in while a deletion is pending", () => {
+	it("refuses a Google sign-in and creates no session", async () => {
+		// The account resolution path refuses a non-active user, so a fresh
+		// provider sign-in cannot resurrect an account whose deletion is still
+		// owed — even while it waits on Apple.
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		const del = makeApp(db, {
+			cipher: c,
+			appleResponder: () => new Response("", { status: 503 }),
+		});
+		await del(token);
+        expect((await findUserById(db, account.user.id))?.state).toBe("deleting");
+
+		const { findOrCreateAccountForIdentity: resolve } = await import(
+			"../../src/api/db/accounts"
+		);
+		await expect(
+			resolve(db, { provider: "apple", subject: "apple-sub-1" }, NOW + 100),
+		).rejects.toBeInstanceOf(AccountUnavailableError);
+
+		// The row is still there — deletion *revokes* sessions rather than
+		// removing them — but none of them authenticates any more.
+		expect(await findActiveSessionByToken(db, token, NOW + 100)).toBeNull();
+		db.close();
+	});
+
+	it("refuses a new session even if account resolution were bypassed", async () => {
+		// Belt and braces: the database itself refuses, so no future caller
+		// can reintroduce the hole by skipping the resolution check.
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		const del = makeApp(db, {
+			cipher: c,
+			appleResponder: () => new Response("", { status: 503 }),
+		});
+		await del(token);
+
+		await expect(
+			createSession(db, account.user.id, { now: NOW + 100 }),
+		).rejects.toBeInstanceOf(AccountUnavailableError);
+		db.close();
+	});
+
+	it("keeps every old session dead for the whole pending period", async () => {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		const second = await createSession(db, account.user.id, { now: NOW });
+		const del = makeApp(db, {
+			cipher: c,
+			appleResponder: () => new Response("", { status: 503 }),
+		});
+		await del(token);
+
+		for (const dead of [token, second.token]) {
+			expect(await findActiveSessionByToken(db, dead, NOW + 10_000)).toBeNull();
+		}
 		db.close();
 	});
 });
