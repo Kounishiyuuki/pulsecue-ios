@@ -80,13 +80,6 @@ protocol ServerSessionTokenStoring: AnyObject, Sendable {
     /// Replaces any existing token, preserving the old one if the write fails.
     func store(_ token: String) -> SessionTokenWrite
     func delete() -> SessionTokenDelete
-    /// Removes the token **only if** the stored value is still `token`.
-    ///
-    /// The difference matters when an abandoned operation cleans up after
-    /// itself: a plain `delete()` would take whatever is there, including a
-    /// token a *newer* sign-in had just stored. Matching first means an
-    /// operation can only ever remove its own work.
-    func delete(ifMatching token: String) -> SessionTokenDelete
 }
 
 final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @unchecked Sendable {
@@ -209,25 +202,6 @@ final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         }
     }
 
-    func delete(ifMatching token: String) -> SessionTokenDelete {
-        // Read-then-delete is not atomic, but the alternative — deleting
-        // unconditionally — is unconditionally wrong: it would destroy a
-        // newer operation's token. The window here is small and the failure
-        // mode is benign (a stale token survives and is revoked server-side
-        // anyway), whereas the blind delete's failure mode is signing a user
-        // out of the session they just created.
-        switch read() {
-        case .token(token):
-            return delete()
-        case .token:
-            // Somebody else's token is stored now. Leave it alone.
-            return .absent
-        case .absent:
-            return .absent
-        case let .unavailable(status):
-            return .failed(status)
-        }
-    }
 }
 
 /// In-memory store for tests and previews. Never used in a shipping build.
@@ -311,19 +285,6 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         return .removed
     }
 
-    func delete(ifMatching expected: String) -> SessionTokenDelete {
-        lock.lock()
-        if let readFailure {
-            lock.unlock()
-            return .failed(readFailure)
-        }
-        guard token == expected else {
-            lock.unlock()
-            return .absent
-        }
-        lock.unlock()
-        return delete()
-    }
 }
 
 extension ServerSessionTokenStoring {

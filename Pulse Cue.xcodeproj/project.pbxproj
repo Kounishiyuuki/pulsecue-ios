@@ -7,8 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AAB10C000000000000002015 /* ProviderAuthorizationBridges.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002014 /* ProviderAuthorizationBridges.swift */; };
+		AAB10C000000000000002013 /* ProviderSignInCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002012 /* ProviderSignInCoordinator.swift */; };
 		AAB10C000000000000002011 /* ServerAccountSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */; };
 		AAB10C00000000000000200F /* ServerAccountSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200E /* ServerAccountSessionTests.swift */; };
+		AAB10C000000000000002031 /* ProviderSignInGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002030 /* ProviderSignInGateTests.swift */; };
 		AAB10C00000000000000200D /* ServerAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200C /* ServerAccountStore.swift */; };
 		AAB10C00000000000000200B /* ServerAccountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200A /* ServerAccountState.swift */; };
 		AAB10C000000000000002009 /* GoogleServerSignInConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */; };
@@ -308,8 +311,11 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAB10C000000000000002014 /* ProviderAuthorizationBridges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderAuthorizationBridges.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002012 /* ProviderSignInCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSignInCoordinator.swift; sourceTree = "<group>"; };
 		AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountSettingsSection.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000200E /* ServerAccountSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountSessionTests.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002030 /* ProviderSignInGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSignInGateTests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000200C /* ServerAccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountStore.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000200A /* ServerAccountState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountState.swift; sourceTree = "<group>"; };
 		AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleServerSignInConfig.swift; sourceTree = "<group>"; };
@@ -775,6 +781,8 @@
 		AAB10C0000000000000000C0 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
+				AAB10C000000000000002014 /* ProviderAuthorizationBridges.swift */,
+				AAB10C000000000000002012 /* ProviderSignInCoordinator.swift */,
 				AAB10C00000000000000200C /* ServerAccountStore.swift */,
 				AAB10C00000000000000200A /* ServerAccountState.swift */,
 				AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */,
@@ -898,6 +906,7 @@
 			isa = PBXGroup;
 			children = (
 				AAB10C00000000000000200E /* ServerAccountSessionTests.swift */,
+				AAB10C000000000000002030 /* ProviderSignInGateTests.swift */,
 				C0FFEE0000000000000A0063 /* LocalAccountLinkTests.swift */,
 				C0FFEE0000000000000A0053 /* HealthKitInputAssistTests.swift */,
 				C0FFEE0000000000000A0041 /* QuickPlanTargetDurationTests.swift */,
@@ -1171,6 +1180,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAB10C000000000000002015 /* ProviderAuthorizationBridges.swift in Sources */,
+				AAB10C000000000000002013 /* ProviderSignInCoordinator.swift in Sources */,
 				AAB10C000000000000002011 /* ServerAccountSettingsSection.swift in Sources */,
 				AAB10C00000000000000200D /* ServerAccountStore.swift in Sources */,
 				AAB10C00000000000000200B /* ServerAccountState.swift in Sources */,
@@ -1357,6 +1368,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AAB10C00000000000000200F /* ServerAccountSessionTests.swift in Sources */,
+				AAB10C000000000000002031 /* ProviderSignInGateTests.swift in Sources */,
 				C0FFEE0000000000000B0063 /* LocalAccountLinkTests.swift in Sources */,
 				C0FFEE0000000000000B0053 /* HealthKitInputAssistTests.swift in Sources */,
 				C0FFEE0000000000000B0041 /* QuickPlanTargetDurationTests.swift in Sources */,

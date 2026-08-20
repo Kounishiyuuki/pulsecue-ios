@@ -799,15 +799,30 @@ struct SettingsView: View {
 
                 Divider().opacity(0.4)
 
-                // Says exactly what the app does. There is no PulseCue account
-                // and no server, so there is nothing to delete remotely —
-                // claiming otherwise either way would be misleading.
-                Text("Apple・Googleとの連携はこの端末内のプロフィールに保存されます。PulseCueのアカウントは作成されず、データが別端末と同期・バックアップされることはありません。連携を解除しても、トレーニング記録などの端末内データは削除されません。")
+                // Says exactly what the app does, which is now two different
+                // things. When a server session is held a PulseCue account
+                // really does exist, so the old blanket
+                // 「アカウントは作成されません」 would be a false statement to
+                // show that user. Neither wording promises sync: nothing syncs
+                // yet in either case, and saying otherwise is the kind of
+                // promise someone only discovers is false after losing a phone.
+                Text(localLinkFootnote)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// The footnote under the local link card.
+    ///
+    /// Split on whether a *server-confirmed* session exists — not on whether a
+    /// local link exists, which says nothing about the server.
+    private var localLinkFootnote: String {
+        if serverAccount.state.isAuthenticated {
+            return "Apple・Googleとの連携はこの端末内のプロフィールに保存されます。PulseCueアカウントは作成済みで、アカウントの削除は「アカウント」セクションから行えます。トレーニング記録などの端末内データはまだ同期・バックアップされません。連携を解除しても端末内データは削除されません。"
+        }
+        return "Apple・Googleとの連携はこの端末内のプロフィールに保存されます。PulseCueアカウントは作成されず、データが別端末と同期・バックアップされることはありません。連携を解除しても、トレーニング記録などの端末内データは削除されません。"
     }
 
     // MARK: - Help / onboarding replay

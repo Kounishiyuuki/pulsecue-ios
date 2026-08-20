@@ -91,6 +91,44 @@ enum LogoutResult: Equatable {
     case localCleanupFailed
 }
 
+/// Permission to run one provider sign-in, start to finish.
+///
+/// Held from before the provider SDK is invoked until the flow ends, however
+/// it ends. Its existence is what stops a second provider flow starting
+/// alongside the first.
+struct ProviderSignInPermit: Equatable {
+    fileprivate let id: UInt64
+    let provider: AuthProviderKind
+
+    #if DEBUG
+    /// A permit the store will always reject.
+    ///
+    /// For tests that drive the store directly while asserting a *refusal* —
+    /// they still have to pass something, and passing a forgeable-looking
+    /// valid permit would defeat the check being tested. Debug-only, so
+    /// production has no way to mint one.
+    static func rejectedPlaceholder(
+        provider: AuthProviderKind
+    ) -> ProviderSignInPermit {
+        ProviderSignInPermit(id: .max, provider: provider)
+    }
+    #endif
+}
+
+/// The answer to "may I start a provider sign-in right now?".
+enum ProviderSignInPreparation: Equatable {
+    /// Go ahead — and only now may the provider SDK be touched.
+    case allowed(ProviderSignInPermit)
+    /// A server session is already held on this device. Sign out first.
+    case existingSession
+    /// The Keychain could not be read, so we cannot prove none is held.
+    case credentialUnavailable
+    /// Another provider sign-in is already under way.
+    case busy
+    /// The account API is not configured in this build.
+    case notConfigured
+}
+
 @MainActor
 final class ServerAccountStore: ObservableObject {
 
@@ -104,6 +142,15 @@ final class ServerAccountStore: ObservableObject {
 
     /// Bumped by every authoritative operation; see `beginOperation`.
     private var operationGeneration: UInt64 = 0
+
+    /// The outstanding provider sign-in permit, if any.
+    ///
+    /// Separate from `operationGeneration` on purpose. The generation says
+    /// which operation owns the auth *state*; this says a provider flow is in
+    /// progress — which begins earlier, when the user taps, and must hold
+    /// across provider UI the app does not control.
+    private var activePermit: ProviderSignInPermit?
+    private var nextPermitID: UInt64 = 0
 
     init(
         api: any PulseCueAccountAPI,
@@ -137,27 +184,81 @@ final class ServerAccountStore: ObservableObject {
         generation == operationGeneration
     }
 
-    // MARK: - Sign-in preflight
+    // MARK: - Provider sign-in reservation
 
-    /// Whether a new sign-in may start, judged from the Keychain itself.
+    /// Decides whether a provider sign-in may start, **before** the provider
+    /// SDK is touched.
     ///
-    /// Deliberately not from `state`. The UI state can disagree with the disk
-    /// after a failed write or delete, an interrupted launch, or a
-    /// `localCleanupFailed` the user has not resolved — and the question here
-    /// is "does this device already hold a server session", which only the
-    /// Keychain can answer.
-    private func mayStartSignIn() -> ServerAccountFailure? {
-        switch tokenStore.read() {
-        case .absent:
-            return nil
-        case .token:
-            // Overwriting it would strand the existing server session.
-            return .existingSessionHeld
-        case .unavailable:
-            // We cannot prove there is no session, and proceeding would risk
-            // overwriting one we simply could not see.
-            return .credentialUnavailable
+    /// This is the authoritative gate. The UI may also disable a button, but
+    /// nothing may reach `ASAuthorizationController` or `GIDSignIn` without a
+    /// permit from here — otherwise the provider's own account state can
+    /// change while PulseCue still holds a session for somebody else. For
+    /// Google that is not hypothetical: the SDK switches its locally selected
+    /// account as soon as the sheet completes, so a sign-in we would later
+    /// refuse still leaves the device pointing at a different Google account.
+    ///
+    /// Two things it deliberately does **not** do:
+    ///
+    ///   It does not consult `state`. Only the Keychain knows whether this
+    ///   device holds a session; `state` can disagree after a failed write, an
+    ///   interrupted launch, or an unresolved `localCleanupFailed`.
+    ///
+    ///   It does not bump the operation generation on refusal. A refused
+    ///   sign-in changed nothing, so invalidating an in-flight restore would
+    ///   strand it — leaving `.restoring` on screen for a tap that was turned
+    ///   away.
+    func prepareProviderSignIn(
+        provider: AuthProviderKind
+    ) -> ProviderSignInPreparation {
+        guard api.isConfigured else {
+            fail(.notConfigured)
+            return .notConfigured
         }
+
+        // One provider flow at a time. Without this, tapping Apple and Google
+        // together passes both preflights — each sees an empty Keychain — and
+        // opens two authorization sheets.
+        if activePermit != nil {
+            return .busy
+        }
+
+        switch tokenStore.read() {
+        case .token:
+            // Overwriting it would strand the existing server session, and the
+            // provider SDK would have changed its own account for nothing.
+            fail(.existingSessionHeld)
+            return .existingSession
+
+        case .unavailable:
+            // Unreadable is not empty. Proceeding risks overwriting a session
+            // we simply could not see.
+            if !state.holdsSession {
+                state = .unreachable
+            }
+            fail(.credentialUnavailable)
+            return .credentialUnavailable
+
+        case .absent:
+            nextPermitID &+= 1
+            let permit = ProviderSignInPermit(id: nextPermitID, provider: provider)
+            activePermit = permit
+            return .allowed(permit)
+        }
+    }
+
+    /// Ends a provider flow, however it ended.
+    ///
+    /// Must be called for success, failure, cancellation and SDK error alike —
+    /// a leaked permit would leave the app permanently `busy` and unable to
+    /// sign in at all.
+    func finishProviderSignIn(_ permit: ProviderSignInPermit) {
+        guard activePermit == permit else { return }
+        activePermit = nil
+    }
+
+    /// Whether this permit is the outstanding one.
+    private func isHolding(_ permit: ProviderSignInPermit) -> Bool {
+        activePermit == permit
     }
 
     // MARK: - Launch restore
@@ -239,10 +340,12 @@ final class ServerAccountStore: ObservableObject {
     /// whether it may record anything of its own.
     @discardableResult
     func signInWithApple(
+        permit: ProviderSignInPermit,
         identityToken: String,
         authorizationCode: String,
         rawNonce: String
     ) async -> Bool {
+        guard isHolding(permit) else { return false }
         guard api.isConfigured else {
             fail(.notConfigured)
             return false
@@ -253,7 +356,7 @@ final class ServerAccountStore: ObservableObject {
         }
 
         let device = deviceName
-        return await completeSignIn { api in
+        return await completeSignIn(permit: permit) { api in
             try await api.signInWithApple(
                 AppleSignInRequest(
                     identityToken: identityToken,
@@ -271,7 +374,11 @@ final class ServerAccountStore: ObservableObject {
     /// profile name are not identity as far as the server is concerned, and
     /// there is nowhere on the request to put them.
     @discardableResult
-    func signInWithGoogle(idToken: String) async -> Bool {
+    func signInWithGoogle(
+        permit: ProviderSignInPermit,
+        idToken: String
+    ) async -> Bool {
+        guard isHolding(permit) else { return false }
         guard api.isConfigured else {
             fail(.notConfigured)
             return false
@@ -282,7 +389,7 @@ final class ServerAccountStore: ObservableObject {
         }
 
         let device = deviceName
-        return await completeSignIn { api in
+        return await completeSignIn(permit: permit) { api in
             try await api.signInWithGoogle(
                 GoogleSignInRequest(idToken: idToken, deviceName: device)
             )
@@ -295,28 +402,33 @@ final class ServerAccountStore: ObservableObject {
     /// the server *before* it is persisted, and every failure after the server
     /// issued it hands the token back rather than dropping it.
     private func completeSignIn(
+        permit: ProviderSignInPermit,
         _ exchange: (any PulseCueAccountAPI) async throws -> ServerSessionResponse
     ) async -> Bool {
-        let generation = beginOperation()
-
-        // Preflight, before the provider SDK or the backend is touched. A
-        // rejection here means no session was ever minted, so there is nothing
-        // to orphan and nothing to clean up.
-        if let refusal = mayStartSignIn() {
-            // The existing session, and the state describing it, are left
-            // exactly as they were — a refusal is not a downgrade.
-            //
-            // The one adjustment: if the Keychain could not be read and the
-            // state currently claims no session, that claim is not one the
-            // device can support. It may well be holding a token we simply
-            // could not see, so it says "unknown" rather than "Guest".
-            if refusal == .credentialUnavailable, !state.holdsSession {
-                state = .unreachable
-            }
-            fail(refusal)
+        // The second gate, and not redundant with `prepareProviderSignIn`.
+        //
+        // That one ran before the provider UI opened; the user then spent
+        // however long they liked inside Apple's or Google's sheet, and
+        // anything could have happened here meanwhile — a restore completing,
+        // a session arriving. Re-reading now closes that window, so a token
+        // that appeared while the sheet was up is never overwritten.
+        guard isHolding(permit) else { return false }
+        switch tokenStore.read() {
+        case .token:
+            fail(.existingSessionHeld)
             return false
+        case .unavailable:
+            if !state.holdsSession { state = .unreachable }
+            fail(.credentialUnavailable)
+            return false
+        case .absent:
+            break
         }
 
+        // Only now does this become the authoritative operation. Bumping the
+        // generation earlier would let a *refused* sign-in strand an in-flight
+        // restore.
+        let generation = beginOperation()
         state = .signingIn
 
         let response: ServerSessionResponse
@@ -397,19 +509,13 @@ final class ServerAccountStore: ObservableObject {
         }
 
         guard isCurrent(generation) else {
-            // Defence in depth, and currently unreachable: nothing suspends
-            // between the write above and this check, so on the main actor no
-            // other operation can interleave here. It is kept because that is
-            // a property of today's code rather than of the design — insert
-            // one `await` above and it becomes reachable immediately.
+            // Unreachable today: nothing suspends between the write above and
+            // this check, so on the main actor no other operation can
+            // interleave. Kept as a plain refusal.
             //
-            // If it ever does run, it removes *its own* write and nothing
-            // else. The match on the token value is the point: a plain
-            // `delete()` would take whatever is stored, which by then could be
-            // a newer sign-in's token — signing the user out of the session
-            // they just created. `delete(ifMatching:)` is unit-tested
-            // directly for exactly that.
-            _ = tokenStore.delete(ifMatching: token)
+            // It deliberately deletes nothing. A cleanup that removed "the
+            // stored token" could remove a *newer* sign-in's token — a worse
+            // outcome than leaving a session the server expires on its own.
             await abandon(token, reason: "superseded_sign_in")
             return false
         }

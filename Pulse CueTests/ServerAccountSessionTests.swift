@@ -99,6 +99,41 @@ private func makeProfile(
     )
 }
 
+/// Takes a permit for a test that is exercising the store directly.
+///
+/// Production always goes through `ProviderSignInCoordinator`; these tests
+/// drive the store beneath it, so they take the permit the coordinator would.
+@MainActor
+private func permitFor(
+    _ store: ServerAccountStore,
+    _ provider: AuthProviderKind
+) -> ProviderSignInPermit {
+    guard case let .allowed(permit) = store.prepareProviderSignIn(provider: provider) else {
+        // A refusal here means the test's precondition is not what it thinks.
+        // A placeholder permit keeps the call compiling and the store will
+        // reject it, which is the correct outcome for a refused sign-in.
+        return .rejectedPlaceholder(provider: provider)
+    }
+    return permit
+}
+
+/// Hands a parked sign-in's permit back, so a second provider sign-in can start
+/// while the first is still inside the backend exchange.
+///
+/// The reservation makes that impossible through the real UI, and
+/// `ProviderSignInGateTests` is what proves it. These tests are aimed one layer
+/// lower — at the operation generation guard, which has to hold *even if* two
+/// exchanges somehow end up in flight at once. Released only after the first
+/// flow is provably parked, so its own permit check has already passed: that
+/// reproduces the race without weakening the store.
+@MainActor
+private func releasePermit(
+    _ permit: ProviderSignInPermit,
+    on store: ServerAccountStore
+) {
+    store.finishProviderSignIn(permit)
+}
+
 @MainActor
 private func makeStore(
     api: StubAccountAPI,
@@ -600,6 +635,7 @@ final class ServerAccountSignInTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "id-token",
             authorizationCode: "auth-code",
             rawNonce: "raw-nonce"
@@ -621,6 +657,7 @@ final class ServerAccountSignInTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "id-token",
             authorizationCode: "",
             rawNonce: "raw-nonce"
@@ -637,6 +674,7 @@ final class ServerAccountSignInTests: XCTestCase {
             let api = StubAccountAPI()
             let store = makeStore(api: api, tokenStore: InMemoryServerSessionTokenStore())
             await store.signInWithApple(
+                permit: permitFor(store, .apple),
                 identityToken: token,
                 authorizationCode: "code",
                 rawNonce: nonce
@@ -653,7 +691,7 @@ final class ServerAccountSignInTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore()
         let store = makeStore(api: api, tokenStore: tokens)
 
-        await store.signInWithGoogle(idToken: "google-id-token")
+        await store.signInWithGoogle(permit: permitFor(store, .google), idToken: "google-id-token")
 
         XCTAssertTrue(store.state.isAuthenticated)
         XCTAssertEqual(tokens.read(), .token("google-session"))
@@ -667,7 +705,7 @@ final class ServerAccountSignInTests: XCTestCase {
         let api = StubAccountAPI()
         let store = makeStore(api: api, tokenStore: InMemoryServerSessionTokenStore())
 
-        await store.signInWithGoogle(idToken: "")
+        await store.signInWithGoogle(permit: permitFor(store, .google), idToken: "")
 
         XCTAssertEqual(store.lastFailure, .missingProviderCredential)
         XCTAssertTrue(api.googleRequests.isEmpty)
@@ -679,7 +717,7 @@ final class ServerAccountSignInTests: XCTestCase {
         api.configured = false
         let store = makeStore(api: api, tokenStore: InMemoryServerSessionTokenStore())
 
-        await store.signInWithGoogle(idToken: "google-id-token")
+        await store.signInWithGoogle(permit: permitFor(store, .google), idToken: "google-id-token")
 
         XCTAssertFalse(store.state.isAuthenticated)
         XCTAssertEqual(store.lastFailure, .notConfigured)
@@ -693,6 +731,7 @@ final class ServerAccountSignInTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -712,6 +751,7 @@ final class ServerAccountSignInTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1026,6 +1066,7 @@ final class ServerAccountSignInRejectionTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1056,6 +1097,7 @@ final class ServerAccountSignInRejectionTests: XCTestCase {
         let store = makeStore(api: api, tokenStore: tokens)
 
         let authenticated = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1237,7 +1279,7 @@ final class ServerAccountStaleOperationTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore()
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
-        let first = Task { await store.signInWithGoogle(idToken: "token-A") }
+        let first = Task { await store.signInWithGoogle(permit: permitFor(store, .google), idToken: "token-A") }
         await api.waitUntilEntered("google")
 
         // B supersedes A by starting a newer authoritative operation.
@@ -1272,6 +1314,7 @@ final class ServerAccountStaleOperationTests: XCTestCase {
 
         let signIn = Task {
             await store.signInWithApple(
+                permit: permitFor(store, .apple),
                 identityToken: "t", authorizationCode: "c", rawNonce: "n"
             )
         }
@@ -1301,6 +1344,7 @@ final class ServerAccountOrphanSessionTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let authenticated = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1322,6 +1366,7 @@ final class ServerAccountOrphanSessionTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let authenticated = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1338,6 +1383,7 @@ final class ServerAccountOrphanSessionTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let authenticated = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1358,6 +1404,7 @@ final class ServerAccountOrphanSessionTests: XCTestCase {
 
         let signIn = Task {
             await store.signInWithApple(
+                permit: permitFor(store, .apple),
                 identityToken: "t", authorizationCode: "c", rawNonce: "n"
             )
         }
@@ -1548,6 +1595,7 @@ final class ServerAccountExistingSessionTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let authenticated = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1566,7 +1614,7 @@ final class ServerAccountExistingSessionTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore(token: "session-A")
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
-        let authenticated = await store.signInWithGoogle(idToken: "id-token")
+        let authenticated = await store.signInWithGoogle(permit: permitFor(store, .google), idToken: "id-token")
 
         XCTAssertFalse(authenticated)
         XCTAssertEqual(store.lastFailure, .existingSessionHeld)
@@ -1585,6 +1633,7 @@ final class ServerAccountExistingSessionTests: XCTestCase {
         XCTAssertTrue(store.state.isAuthenticated)
 
         _ = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1606,10 +1655,11 @@ final class ServerAccountExistingSessionTests: XCTestCase {
             let authenticated: Bool
             if provider == "apple" {
                 authenticated = await store.signInWithApple(
+                    permit: permitFor(store, .apple),
                     identityToken: "t", authorizationCode: "c", rawNonce: "n"
                 )
             } else {
-                authenticated = await store.signInWithGoogle(idToken: "id-token")
+                authenticated = await store.signInWithGoogle(permit: permitFor(store, .google), idToken: "id-token")
             }
 
             XCTAssertFalse(authenticated, "\(provider)")
@@ -1630,6 +1680,7 @@ final class ServerAccountExistingSessionTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let authenticated = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
 
@@ -1664,6 +1715,7 @@ final class ServerAccountWriteFailureReconciliationTests: XCTestCase {
         tokens.readFailureAfterWrite = readFailureAfterwards
 
         _ = await store.signInWithApple(
+            permit: permitFor(store, .apple),
             identityToken: "t", authorizationCode: "c", rawNonce: "n"
         )
         return (store, api, tokens)
@@ -1721,15 +1773,21 @@ final class ServerAccountDoubleSignInTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore()
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
+        let applePermit = permitFor(store, .apple)
         let appleSignIn = Task {
             await store.signInWithApple(
+                permit: applePermit,
                 identityToken: "t", authorizationCode: "c", rawNonce: "n"
             )
         }
         // A real handshake: B does not start until A is provably parked.
         await api.waitUntilEntered("apple")
+        releasePermit(applePermit, on: store)
 
-        let googleSucceeded = await store.signInWithGoogle(idToken: "id-token")
+        let googleSucceeded = await store.signInWithGoogle(
+            permit: permitFor(store, .google),
+            idToken: "id-token"
+        )
         XCTAssertTrue(googleSucceeded)
         XCTAssertEqual(tokens.read(), .token("session-B"))
 
@@ -1760,13 +1818,19 @@ final class ServerAccountDoubleSignInTests: XCTestCase {
         let tokens = InMemoryServerSessionTokenStore()
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
+        let applePermit = permitFor(store, .apple)
         let appleSignIn = Task {
             await store.signInWithApple(
+                permit: applePermit,
                 identityToken: "t", authorizationCode: "c", rawNonce: "n"
             )
         }
         await api.waitUntilEntered("apple")
-        _ = await store.signInWithGoogle(idToken: "id-token")
+        releasePermit(applePermit, on: store)
+        _ = await store.signInWithGoogle(
+            permit: permitFor(store, .google),
+            idToken: "id-token"
+        )
         api.release("apple")
         _ = await appleSignIn.value
 
@@ -1786,49 +1850,24 @@ final class ServerAccountDoubleSignInTests: XCTestCase {
             let tokens = InMemoryServerSessionTokenStore()
             let store = makeControllableStore(api: api, tokenStore: tokens)
 
+            let applePermit = permitFor(store, .apple)
             let appleSignIn = Task {
                 await store.signInWithApple(
+                    permit: applePermit,
                     identityToken: "t", authorizationCode: "c", rawNonce: "n"
                 )
             }
             await api.waitUntilEntered("apple")
-            _ = await store.signInWithGoogle(idToken: "id-token")
+            releasePermit(applePermit, on: store)
+            _ = await store.signInWithGoogle(
+                permit: permitFor(store, .google),
+                idToken: "id-token"
+            )
             api.release("apple")
             let appleSucceeded = await appleSignIn.value
 
             XCTAssertFalse(appleSucceeded)
             XCTAssertEqual(tokens.read(), .token("session-B"))
         }
-    }
-}
-
-// MARK: - Token-matched deletion
-
-final class KeychainMatchedDeleteTests: XCTestCase {
-
-    func testItOnlyRemovesItsOwnToken() {
-        let store = InMemoryServerSessionTokenStore(token: "mine")
-
-        XCTAssertEqual(store.delete(ifMatching: "mine"), .removed)
-        XCTAssertEqual(store.read(), .absent)
-    }
-
-    func testItLeavesSomebodyElsesTokenAlone() {
-        // The whole point: a stale operation cleaning up must not remove the
-        // token a newer sign-in has just written.
-        let store = InMemoryServerSessionTokenStore(token: "newer")
-
-        XCTAssertEqual(store.delete(ifMatching: "older"), .absent)
-        XCTAssertEqual(store.read(), .token("newer"), "the newer token survives")
-    }
-
-    func testAnUnreadableKeychainIsAFailureNotASilentNoOp() {
-        let store = InMemoryServerSessionTokenStore(token: "mine")
-        store.readFailure = errSecInteractionNotAllowed
-
-        XCTAssertEqual(
-            store.delete(ifMatching: "mine"),
-            .failed(errSecInteractionNotAllowed)
-        )
     }
 }
