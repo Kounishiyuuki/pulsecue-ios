@@ -149,6 +149,32 @@ export interface ProviderCredentialRow {
 	revoked_at: EpochSeconds | null;
 }
 
+export interface WorkoutSessionRow {
+	id: string;
+	user_id: string;
+	started_at: EpochSeconds;
+	ended_at: EpochSeconds | null;
+	title: string | null;
+	change_seq: number;
+	updated_at: EpochSeconds;
+	deleted_at: EpochSeconds | null;
+}
+
+export interface StepResultRow {
+	id: string;
+	user_id: string;
+	session_id: string;
+	exercise_name: string;
+	order_index: number;
+	reps: number | null;
+	weight_kg: number | null;
+	duration_seconds: number | null;
+	completed_at: EpochSeconds | null;
+	change_seq: number;
+	updated_at: EpochSeconds;
+	deleted_at: EpochSeconds | null;
+}
+
 export interface AccountDeletionRow {
 	user_id: string;
 	requested_at: EpochSeconds;

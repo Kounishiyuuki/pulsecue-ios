@@ -374,6 +374,8 @@ Routes:
 | `POST /v1/auth/logout` | bearer session |
 | `POST /v1/auth/logout-all` | bearer session |
 | `DELETE /v1/me` | bearer session |
+| `POST /v1/sync/workouts` | bearer session |
+| `GET /v1/sync/workouts` | bearer session |
 
 ### Authenticated requests
 
@@ -453,6 +455,107 @@ follow-up rather than half-built.
 `sessions.last_used_at` is likewise still set only at creation: touching it on
 every authenticated request is a write per read, and nothing consumes the
 column yet.
+
+### First sync slice — workouts
+
+`POST /v1/sync/workouts` uploads workout sessions and step results;
+`GET /v1/sync/workouts?since=<seq>` reads back everything newer than a cursor.
+
+**This is not full multi-device sync.** There is no conflict resolution beyond
+last-write-wins per record, and no client pulls from it yet. Calling it
+"同期完了" in the UI would be a promise a user only discovers is false when
+they lose a phone — the honest description is an *account migration and first
+backup slice*.
+
+Scope is deliberately two tables. Routines, gyms, day logs and meals are not
+here: a sync design is easier to get right on the smallest genuinely useful
+thing, and everything added later hangs off the same `user_id` + `change_seq`
+shape.
+
+#### Ids come from the client
+
+The app already generates UUIDs offline. Rewriting them on upload would make
+the device and the server disagree about what a record is called, which makes
+a retry indistinguishable from a new record — so the client's id is the id.
+
+That makes ownership the thing to get right, and it is why the primary key is
+**`(user_id, id)`** rather than `id`:
+
+- Two users can hold the same UUID without either overwriting the other. With
+  a bare `id` key, a client that replayed someone else's UUID would land on
+  their row. A test uploads the same UUID as two users and asserts each sees
+  only their own.
+- Every query is forced to carry a user. There is no way to write one that
+  "forgets" whose data it is reading, because the key does not permit it.
+
+`step_results` references its session through `(user_id, session_id)`, so a
+step result cannot point at another user's session — unrepresentable rather
+than merely discouraged.
+
+#### The sequence and the rows move together
+
+The failure this design exists to prevent: writing a synced row in one commit
+and bumping `user_change_seq` in another. A reader then sees either a
+published sequence with no rows behind it, or rows a pull never returns
+because the cursor did not advance past them. Both are silent data loss.
+
+So an upload is exactly one `db.batch()`:
+
+1. `UPDATE user_change_seq SET seq = seq + 1`
+2. every row inserted with `change_seq = (SELECT seq FROM user_change_seq …)`
+
+Statement 1 runs first inside the transaction, so the subquery reads the new
+value. If anything fails, D1 rolls the whole batch back and neither the
+sequence nor a single row moved. A test forces a mid-batch constraint failure
+and asserts the cursor is unchanged.
+
+An **empty** upload does not advance the sequence at all: handing other
+devices a cursor move with nothing behind it would be a pointless round trip
+that looks like a change.
+
+#### Pulling in pages
+
+`GET /v1/sync/workouts?since=<seq>` returns at most 500 rows per table and a
+`changeSeq` the client may store, plus `hasMore`.
+
+The cursor is the subtle part. An earlier version returned the user's
+*current* sequence regardless of how much it had actually sent, so a pull that
+hit the row limit told the client "you are up to date at seq N" while
+withholding rows below N — the client would store N and never ask for them
+again. Permanent, silent data loss.
+
+A truncated page now reports the last sequence it delivered **completely**,
+and sets `hasMore`. Rows are read one past the limit to detect truncation, and
+any partially-covered sequence is dropped rather than half-sent. Because one
+upload writes at most 500 rows per table at a single sequence — the same
+number as the page limit — a single sequence always fits, so the cursor always
+advances and paging cannot stall.
+
+The two tables paginate independently, so the returned cursor is the lower of
+the two. Re-reading a few rows next time is harmless (the client applies them
+idempotently); skipping any is not.
+
+A sequence bigger than one page is handled explicitly rather than relied upon
+not to happen: it is delivered **whole**, over the limit. Dropping it would
+leave the page empty *and* the cursor unmoved — the client would ask the same
+question forever — and splitting it would strand the remainder. In practice
+one upload writes at most 500 rows per table at a single sequence, the same as
+the page limit, so this only opens if the limit is set lower; making it
+correct anyway means the two numbers are not a silent coupling someone can
+break later. A test walks a whole stack of oversized batches and asserts the
+cursor advances on every round.
+
+#### Retries are safe
+
+The guest migration will be retried over flaky networks, so a retry has to
+converge rather than accumulate. Uploads upsert on `(user_id, id)`: three
+identical uploads leave one row. The sequence *does* advance each time, which
+is correct — the rows really were rewritten, and a cursor that skipped them
+would be the bug.
+
+Deletes are tombstones (`deleted_at`), not row removals, so another device
+learns the record is gone. Hard deletion happens with the account, through the
+same cascade as everything else.
 
 ### Account deletion
 

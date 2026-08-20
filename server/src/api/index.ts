@@ -18,6 +18,10 @@ import { makeAppleAuthHandler } from "./routes/authApple";
 import { makeGoogleAuthHandler } from "./routes/authGoogle";
 import { makeDeleteMeHandler } from "./routes/deleteMe";
 import { handleLogout, handleLogoutAll } from "./routes/logout";
+import {
+	handlePullWorkouts,
+	makeUploadWorkoutsHandler,
+} from "./routes/syncWorkouts";
 import { handleGetMe } from "./routes/me";
 
 const app = new Hono<AuthedEnv>();
@@ -67,6 +71,10 @@ app.post("/v1/auth/google", (c) =>
 app.get("/v1/me", requireSession(), handleGetMe);
 app.post("/v1/auth/logout", requireSession(), handleLogout);
 app.post("/v1/auth/logout-all", requireSession(), handleLogoutAll);
+// The first sync slice. Not full multi-device sync — see the README.
+app.post("/v1/sync/workouts", requireSession(), makeUploadWorkoutsHandler());
+app.get("/v1/sync/workouts", requireSession(), handlePullWorkouts);
+
 app.delete("/v1/me", requireSession(), (c) =>
 	makeDeleteMeHandler({
 		// Null when Apple is unconfigured. Deletion then keeps the account in
