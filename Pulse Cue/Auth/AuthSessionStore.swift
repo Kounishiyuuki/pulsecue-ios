@@ -2,19 +2,24 @@
 //  AuthSessionStore.swift
 //  Pulse Cue
 //
-//  The app's account state. PulseCue has no server and no PulseCue account:
-//  signing in with Apple or Google *links* a provider identity to this
-//  device's local profile, so the app can show who is linked and restore that
-//  display after a relaunch. Nothing syncs, nothing is backed up, and nothing
-//  is stored anywhere but this device.
+//  The **local** provider link, and nothing more. A PulseCue server account
+//  now exists and is owned by `ServerAccountStore`; this type records only
+//  which provider identity is attached to this device's profile, so the app
+//  can show it again after a relaunch.
+//
+//  Keeping the two apart is the point. A record here means a provider was
+//  linked on this device — never that a server account exists — and only a
+//  server-confirmed session may drive signed-in wording. Nothing here syncs
+//  or is backed up.
 //
 //  Guest is always a complete way to use the app. Linking and unlinking never
 //  touch workouts, routines, history, gyms or health entries — those are
 //  local data that was never owned by the link.
 //
-//  No token, authorization code or client secret is read or persisted here.
-//  The provider SDKs own credentials; this store keeps a stable identifier
-//  and the display fields the user already sees.
+//  No token, authorization code or client secret is read or persisted *here*.
+//  `ServerAccountStore` handles the provider tokens and the server session;
+//  this store keeps a stable identifier and the display fields the user
+//  already sees.
 //
 
 import Foundation

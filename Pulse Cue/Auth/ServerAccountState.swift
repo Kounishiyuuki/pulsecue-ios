@@ -127,6 +127,8 @@ enum ServerAccountFailure: Equatable {
     case couldNotClearSession
     /// The Keychain could not be read, so no authenticated request is possible.
     case credentialUnavailable
+    /// A server session is already held on this device; sign out first.
+    case existingSessionHeld
 
     var message: String {
         switch self {
@@ -144,6 +146,8 @@ enum ServerAccountFailure: Equatable {
             return "この端末のサインイン情報を削除できませんでした。もう一度お試しください。"
         case .credentialUnavailable:
             return "この端末のサインイン情報を読み取れませんでした。しばらくしてからお試しください。"
+        case .existingSessionHeld:
+            return "すでにサインインしています。別のアカウントでサインインするには、先にサインアウトしてください。"
         }
     }
 }

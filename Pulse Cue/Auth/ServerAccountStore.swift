@@ -31,6 +31,15 @@
 //  takes a generation and re-checks it after each `await`, before touching
 //  state or the Keychain.
 //
+//  **One session at a time.** While a server session is stored on this
+//  device, a new Apple/Google sign-in is refused before the provider SDK or
+//  the backend is touched. Signing in again would mint a second server
+//  session and overwrite the first in the Keychain, leaving the original
+//  valid on the server with nothing here tracking it — an orphan nobody can
+//  revoke. Account switching is a real feature with real edge cases; refusing
+//  is the small, honest version of it, and explicit logout is the only thing
+//  that ends a session's life.
+//
 //  **Guest is untouched.** Everything below is additive. With no API
 //  configured, no session, or no network, every local feature works exactly
 //  as it did, and local training data is never deleted by anything in this
@@ -126,6 +135,29 @@ final class ServerAccountStore: ObservableObject {
     /// touching the Keychain — never once at the top and assumed thereafter.
     private func isCurrent(_ generation: UInt64) -> Bool {
         generation == operationGeneration
+    }
+
+    // MARK: - Sign-in preflight
+
+    /// Whether a new sign-in may start, judged from the Keychain itself.
+    ///
+    /// Deliberately not from `state`. The UI state can disagree with the disk
+    /// after a failed write or delete, an interrupted launch, or a
+    /// `localCleanupFailed` the user has not resolved — and the question here
+    /// is "does this device already hold a server session", which only the
+    /// Keychain can answer.
+    private func mayStartSignIn() -> ServerAccountFailure? {
+        switch tokenStore.read() {
+        case .absent:
+            return nil
+        case .token:
+            // Overwriting it would strand the existing server session.
+            return .existingSessionHeld
+        case .unavailable:
+            // We cannot prove there is no session, and proceeding would risk
+            // overwriting one we simply could not see.
+            return .credentialUnavailable
+        }
     }
 
     // MARK: - Launch restore
@@ -266,6 +298,25 @@ final class ServerAccountStore: ObservableObject {
         _ exchange: (any PulseCueAccountAPI) async throws -> ServerSessionResponse
     ) async -> Bool {
         let generation = beginOperation()
+
+        // Preflight, before the provider SDK or the backend is touched. A
+        // rejection here means no session was ever minted, so there is nothing
+        // to orphan and nothing to clean up.
+        if let refusal = mayStartSignIn() {
+            // The existing session, and the state describing it, are left
+            // exactly as they were — a refusal is not a downgrade.
+            //
+            // The one adjustment: if the Keychain could not be read and the
+            // state currently claims no session, that claim is not one the
+            // device can support. It may well be holding a token we simply
+            // could not see, so it says "unknown" rather than "Guest".
+            if refusal == .credentialUnavailable, !state.holdsSession {
+                state = .unreachable
+            }
+            fail(refusal)
+            return false
+        }
+
         state = .signingIn
 
         let response: ServerSessionResponse
@@ -325,21 +376,40 @@ final class ServerAccountStore: ObservableObject {
         }
 
         // Persist only after the session is confirmed usable.
+        guard isCurrent(generation) else {
+            // Checked immediately before the write, not only after `/me`.
+            await abandon(token, reason: "superseded_sign_in")
+            return false
+        }
         guard tokenStore.store(token) == .stored else {
             // A session we cannot persist would evaporate at the next launch
             // and look like a random sign-out — while staying alive on the
             // server the whole time.
             await abandon(token, reason: "keychain_store_failed")
             guard isCurrent(generation) else { return false }
-            state = .guest
             fail(.couldNotStoreSession)
+            // **Do not assume the device now holds nothing.** A failed write
+            // says nothing about what was already there — an older token may
+            // still be on disk, or the Keychain may be unreadable. Guess wrong
+            // and the UI shows Guest over a live credential. Ask instead.
+            reconcileStateWithKeychain()
             return false
         }
 
         guard isCurrent(generation) else {
-            // Superseded between the write and here. Whoever superseded us now
-            // owns the Keychain, so this token is handed back rather than
-            // fought over.
+            // Defence in depth, and currently unreachable: nothing suspends
+            // between the write above and this check, so on the main actor no
+            // other operation can interleave here. It is kept because that is
+            // a property of today's code rather than of the design — insert
+            // one `await` above and it becomes reachable immediately.
+            //
+            // If it ever does run, it removes *its own* write and nothing
+            // else. The match on the token value is the point: a plain
+            // `delete()` would take whatever is stored, which by then could be
+            // a newer sign-in's token — signing the user out of the session
+            // they just created. `delete(ifMatching:)` is unit-tested
+            // directly for exactly that.
+            _ = tokenStore.delete(ifMatching: token)
             await abandon(token, reason: "superseded_sign_in")
             return false
         }
@@ -487,6 +557,26 @@ final class ServerAccountStore: ObservableObject {
             state = .localCleanupFailed
             fail(.couldNotClearSession)
             return .localCleanupFailed
+        }
+    }
+
+    /// Sets the state from what the Keychain actually holds.
+    ///
+    /// Used after a write fails, where the interesting question is not "did my
+    /// write succeed" — it plainly did not — but "what does this device hold
+    /// now". Only a confirmed-empty Keychain permits Guest.
+    private func reconcileStateWithKeychain() {
+        switch tokenStore.read() {
+        case .absent:
+            // Confirmed empty: Guest is a claim the device can support.
+            state = api.isConfigured ? .guest : .notConfigured
+        case .token:
+            // A session credential is on this device. Whatever else is true,
+            // the app is not signed out.
+            state = .localCleanupFailed
+        case .unavailable:
+            // Cannot prove it is empty, so cannot claim to be signed out.
+            state = .unreachable
         }
     }
 

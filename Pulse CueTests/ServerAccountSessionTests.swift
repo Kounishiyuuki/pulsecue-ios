@@ -1098,11 +1098,48 @@ final class ControllableAccountAPI: PulseCueAccountAPI, @unchecked Sendable {
     /// Suspends the named call until `release` is invoked for it.
     var gated: Set<String> = []
 
+    private var arrivals: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var arrived: Set<String> = []
+
+    /// Suspends until the gated call has actually been entered.
+    ///
+    /// `Task.yield()` only offers the scheduler a chance to run the other
+    /// task; it does not promise it reached anything in particular. Tests that
+    /// relied on it were asserting on a hope. This is a real handshake: the
+    /// competing operation does not start until the first one is provably
+    /// parked inside the gate.
+    func waitUntilEntered(_ name: String) async {
+        let alreadyThere: Bool = {
+            lock.lock(); defer { lock.unlock() }
+            return arrived.contains(name)
+        }()
+        guard !alreadyThere else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if arrived.contains(name) {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                arrivals[name, default: []].append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    private func noteArrival(_ name: String) {
+        lock.lock()
+        arrived.insert(name)
+        let waiting = arrivals.removeValue(forKey: name) ?? []
+        lock.unlock()
+        for continuation in waiting { continuation.resume() }
+    }
+
     private func waitIfGated(_ name: String) async {
         let shouldWait: Bool = {
             lock.lock(); defer { lock.unlock() }
             return gated.contains(name) && !opened.contains(name)
         }()
+        noteArrival(name)
         guard shouldWait else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             lock.lock()
@@ -1176,7 +1213,7 @@ final class ServerAccountStaleOperationTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let restoring = Task { await store.restore() }
-        await Task.yield()
+        await api.waitUntilEntered("profile")
 
         let loggedOut = await store.logout()
         XCTAssertEqual(loggedOut, .signedOut)
@@ -1201,7 +1238,7 @@ final class ServerAccountStaleOperationTests: XCTestCase {
         let store = makeControllableStore(api: api, tokenStore: tokens)
 
         let first = Task { await store.signInWithGoogle(idToken: "token-A") }
-        await Task.yield()
+        await api.waitUntilEntered("google")
 
         // B supersedes A by starting a newer authoritative operation.
         let loggedOut = await store.logout()
@@ -1238,7 +1275,7 @@ final class ServerAccountStaleOperationTests: XCTestCase {
                 identityToken: "t", authorizationCode: "c", rawNonce: "n"
             )
         }
-        await Task.yield()
+        await api.waitUntilEntered("apple")
         _ = await store.logout()
         api.release("apple")
 
@@ -1324,7 +1361,7 @@ final class ServerAccountOrphanSessionTests: XCTestCase {
                 identityToken: "t", authorizationCode: "c", rawNonce: "n"
             )
         }
-        await Task.yield()
+        await api.waitUntilEntered("profile")
 
         XCTAssertNil(tokens.storedToken, "nothing may be written before /me answers")
 
@@ -1485,11 +1522,313 @@ final class ServerAccountDeletionContractTests: XCTestCase {
         )
 
         let deleting = Task { await store.deleteAccount() }
-        await Task.yield()
+        await api.waitUntilEntered("delete")
         _ = await store.logout()
         api.release("delete")
 
         let result = await deleting.value
         XCTAssertEqual(result, .notAttempted(.superseded))
+    }
+}
+
+// MARK: - One session at a time
+
+@MainActor
+final class ServerAccountExistingSessionTests: XCTestCase {
+
+    func testAppleSignInIsRefusedWhileASessionIsHeld() async {
+        // Signing in again would mint a second server session and overwrite
+        // the first in the Keychain, leaving the original valid on the server
+        // with nothing here tracking it. Refuse before the provider SDK or the
+        // backend is touched, so no second session is ever minted.
+        let api = ControllableAccountAPI()
+        api.appleResult = .success(makeSession(token: "session-B"))
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore(token: "session-A")
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let authenticated = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertFalse(authenticated)
+        XCTAssertEqual(store.lastFailure, .existingSessionHeld)
+        // Nothing reached the backend, so nothing was issued to orphan.
+        XCTAssertTrue(api.profileTokens.isEmpty)
+        XCTAssertTrue(api.logoutTokens.isEmpty)
+        // The existing session is untouched, and not revoked behind the user.
+        XCTAssertEqual(tokens.read(), .token("session-A"))
+    }
+
+    func testGoogleSignInIsRefusedWhileASessionIsHeld() async {
+        let api = ControllableAccountAPI()
+        api.googleResult = .success(makeSession(token: "session-B"))
+        let tokens = InMemoryServerSessionTokenStore(token: "session-A")
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let authenticated = await store.signInWithGoogle(idToken: "id-token")
+
+        XCTAssertFalse(authenticated)
+        XCTAssertEqual(store.lastFailure, .existingSessionHeld)
+        XCTAssertTrue(api.profileTokens.isEmpty)
+        XCTAssertEqual(tokens.read(), .token("session-A"))
+    }
+
+    func testRefusalDoesNotDropTheUserToGuest() async {
+        // The refusal must not itself be a downgrade: the existing session is
+        // still the current one.
+        let api = ControllableAccountAPI()
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore(token: "session-A")
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+        await store.restore()
+        XCTAssertTrue(store.state.isAuthenticated)
+
+        _ = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertTrue(store.state.isAuthenticated, "still signed in as before")
+        XCTAssertNotEqual(store.state, .guest)
+    }
+
+    func testSignInIsRefusedWhenTheKeychainCannotBeRead() async {
+        // Unreadable is not empty. Proceeding could overwrite a session we
+        // simply could not see.
+        for provider in ["apple", "google"] {
+            let api = ControllableAccountAPI()
+            api.appleResult = .success(makeSession(token: "session-B"))
+            api.googleResult = .success(makeSession(token: "session-B"))
+            let tokens = InMemoryServerSessionTokenStore(token: "session-A")
+            tokens.readFailure = errSecInteractionNotAllowed
+            let store = makeControllableStore(api: api, tokenStore: tokens)
+
+            let authenticated: Bool
+            if provider == "apple" {
+                authenticated = await store.signInWithApple(
+                    identityToken: "t", authorizationCode: "c", rawNonce: "n"
+                )
+            } else {
+                authenticated = await store.signInWithGoogle(idToken: "id-token")
+            }
+
+            XCTAssertFalse(authenticated, "\(provider)")
+            XCTAssertEqual(store.lastFailure, .credentialUnavailable, "\(provider)")
+            XCTAssertTrue(api.profileTokens.isEmpty, "\(provider)")
+            XCTAssertNotEqual(store.state, .guest, "\(provider)")
+            // Nothing was written over a Keychain we could not read.
+            tokens.readFailure = nil
+            XCTAssertEqual(tokens.read(), .token("session-A"), "\(provider)")
+        }
+    }
+
+    func testSignInProceedsWhenTheKeychainIsConfirmedEmpty() async {
+        let api = ControllableAccountAPI()
+        api.appleResult = .success(makeSession(token: "session-new"))
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let authenticated = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+
+        XCTAssertTrue(authenticated)
+        XCTAssertEqual(tokens.read(), .token("session-new"))
+    }
+}
+
+// MARK: - A failed write must reconcile with the disk
+
+@MainActor
+final class ServerAccountWriteFailureReconciliationTests: XCTestCase {
+
+    /// Signs in against an empty Keychain whose write then fails, leaving
+    /// `leftover` behind (whatever the disk turns out to hold afterwards).
+    private func signInWithFailingWrite(
+        leftover: String?,
+        readFailureAfterwards: OSStatus? = nil
+    ) async -> (ServerAccountStore, ControllableAccountAPI, InMemoryServerSessionTokenStore) {
+        let api = ControllableAccountAPI()
+        api.appleResult = .success(makeSession(token: "session-new"))
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        tokens.writeFailure = errSecIO
+        // The preflight must still see an empty Keychain — otherwise the
+        // sign-in is refused and the write never happens. `leftover` is what
+        // the disk turns out to hold *afterwards*, which is what
+        // reconciliation has to cope with.
+        tokens.tokenAfterFailedWrite = leftover
+        tokens.readFailureAfterWrite = readFailureAfterwards
+
+        _ = await store.signInWithApple(
+            identityToken: "t", authorizationCode: "c", rawNonce: "n"
+        )
+        return (store, api, tokens)
+    }
+
+    func testAConfirmedEmptyKeychainMayReachGuest() async {
+        let (store, api, _) = await signInWithFailingWrite(leftover: nil)
+
+        XCTAssertEqual(store.state, .guest)
+        XCTAssertFalse(store.state.holdsSession)
+        XCTAssertEqual(store.lastFailure, .couldNotStoreSession)
+        // The session we could not persist was handed back.
+        XCTAssertEqual(api.logoutTokens, ["session-new"])
+    }
+
+    func testARetainedTokenForbidsGuest() async {
+        // The write failed but an older token is still on disk. Showing Guest
+        // would put the UI at odds with what the device actually holds — and
+        // the next launch would restore that token.
+        let (store, api, _) = await signInWithFailingWrite(leftover: "session-old")
+
+        XCTAssertNotEqual(store.state, .guest)
+        XCTAssertEqual(store.state, .localCleanupFailed)
+        XCTAssertTrue(store.state.holdsSession)
+        XCTAssertEqual(api.logoutTokens, ["session-new"], "only the new one")
+    }
+
+    func testAnUnreadableKeychainForbidsGuest() async {
+        // We cannot prove the device holds nothing, so we cannot claim to be
+        // signed out.
+        let (store, _, _) = await signInWithFailingWrite(
+            leftover: nil,
+            readFailureAfterwards: errSecInteractionNotAllowed
+        )
+
+        XCTAssertNotEqual(store.state, .guest)
+        XCTAssertEqual(store.state, .unreachable)
+        XCTAssertTrue(store.state.holdsSession)
+    }
+}
+
+// MARK: - Two real sign-ins racing
+
+@MainActor
+final class ServerAccountDoubleSignInTests: XCTestCase {
+
+    func testTheNewerSignInWinsAndTheOlderRevokesItsOwnSession() async {
+        // Apple A parks inside the backend exchange; Google B runs to
+        // completion; then A resumes holding a session nobody wants.
+        let api = ControllableAccountAPI()
+        api.gated = ["apple"]
+        api.appleResult = .success(makeSession(token: "session-A"))
+        api.googleResult = .success(makeSession(token: "session-B"))
+        api.profileResult = .success(makeProfile(providers: ["google"]))
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let appleSignIn = Task {
+            await store.signInWithApple(
+                identityToken: "t", authorizationCode: "c", rawNonce: "n"
+            )
+        }
+        // A real handshake: B does not start until A is provably parked.
+        await api.waitUntilEntered("apple")
+
+        let googleSucceeded = await store.signInWithGoogle(idToken: "id-token")
+        XCTAssertTrue(googleSucceeded)
+        XCTAssertEqual(tokens.read(), .token("session-B"))
+
+        api.release("apple")
+        let appleSucceeded = await appleSignIn.value
+
+        XCTAssertFalse(appleSucceeded, "the stale sign-in must not win")
+        // B's token survives untouched — A must not delete or overwrite it.
+        XCTAssertEqual(tokens.read(), .token("session-B"))
+        XCTAssertTrue(store.state.isAuthenticated)
+        // And A handed its own session back rather than stranding it.
+        XCTAssertTrue(api.logoutTokens.contains("session-A"))
+        XCTAssertFalse(
+            api.logoutTokens.contains("session-B"),
+            "the winner's session must not be revoked by the loser"
+        )
+    }
+
+    func testAStaleSignInNeverDeletesTheWinnersToken() async {
+        // The same shape, with the stale operation resuming after the winner
+        // has already stored its token. A blind `delete()` here would sign the
+        // user out of the session they just created.
+        let api = ControllableAccountAPI()
+        api.gated = ["apple"]
+        api.appleResult = .success(makeSession(token: "session-A"))
+        api.googleResult = .success(makeSession(token: "session-B"))
+        api.profileResult = .success(makeProfile())
+        let tokens = InMemoryServerSessionTokenStore()
+        let store = makeControllableStore(api: api, tokenStore: tokens)
+
+        let appleSignIn = Task {
+            await store.signInWithApple(
+                identityToken: "t", authorizationCode: "c", rawNonce: "n"
+            )
+        }
+        await api.waitUntilEntered("apple")
+        _ = await store.signInWithGoogle(idToken: "id-token")
+        api.release("apple")
+        _ = await appleSignIn.value
+
+        XCTAssertEqual(tokens.read(), .token("session-B"))
+        XCTAssertTrue(store.state.isAuthenticated)
+    }
+
+    func testTheRaceIsStableAcrossRepeatedRuns() async {
+        // Deterministic, not lucky: the handshake means this holds every time
+        // rather than depending on scheduler timing.
+        for _ in 0..<20 {
+            let api = ControllableAccountAPI()
+            api.gated = ["apple"]
+            api.appleResult = .success(makeSession(token: "session-A"))
+            api.googleResult = .success(makeSession(token: "session-B"))
+            api.profileResult = .success(makeProfile())
+            let tokens = InMemoryServerSessionTokenStore()
+            let store = makeControllableStore(api: api, tokenStore: tokens)
+
+            let appleSignIn = Task {
+                await store.signInWithApple(
+                    identityToken: "t", authorizationCode: "c", rawNonce: "n"
+                )
+            }
+            await api.waitUntilEntered("apple")
+            _ = await store.signInWithGoogle(idToken: "id-token")
+            api.release("apple")
+            let appleSucceeded = await appleSignIn.value
+
+            XCTAssertFalse(appleSucceeded)
+            XCTAssertEqual(tokens.read(), .token("session-B"))
+        }
+    }
+}
+
+// MARK: - Token-matched deletion
+
+final class KeychainMatchedDeleteTests: XCTestCase {
+
+    func testItOnlyRemovesItsOwnToken() {
+        let store = InMemoryServerSessionTokenStore(token: "mine")
+
+        XCTAssertEqual(store.delete(ifMatching: "mine"), .removed)
+        XCTAssertEqual(store.read(), .absent)
+    }
+
+    func testItLeavesSomebodyElsesTokenAlone() {
+        // The whole point: a stale operation cleaning up must not remove the
+        // token a newer sign-in has just written.
+        let store = InMemoryServerSessionTokenStore(token: "newer")
+
+        XCTAssertEqual(store.delete(ifMatching: "older"), .absent)
+        XCTAssertEqual(store.read(), .token("newer"), "the newer token survives")
+    }
+
+    func testAnUnreadableKeychainIsAFailureNotASilentNoOp() {
+        let store = InMemoryServerSessionTokenStore(token: "mine")
+        store.readFailure = errSecInteractionNotAllowed
+
+        XCTAssertEqual(
+            store.delete(ifMatching: "mine"),
+            .failed(errSecInteractionNotAllowed)
+        )
     }
 }

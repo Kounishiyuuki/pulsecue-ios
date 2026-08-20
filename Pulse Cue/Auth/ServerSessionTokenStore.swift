@@ -80,6 +80,13 @@ protocol ServerSessionTokenStoring: AnyObject, Sendable {
     /// Replaces any existing token, preserving the old one if the write fails.
     func store(_ token: String) -> SessionTokenWrite
     func delete() -> SessionTokenDelete
+    /// Removes the token **only if** the stored value is still `token`.
+    ///
+    /// The difference matters when an abandoned operation cleans up after
+    /// itself: a plain `delete()` would take whatever is there, including a
+    /// token a *newer* sign-in had just stored. Matching first means an
+    /// operation can only ever remove its own work.
+    func delete(ifMatching token: String) -> SessionTokenDelete
 }
 
 final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @unchecked Sendable {
@@ -201,6 +208,26 @@ final class KeychainServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
             return .failed(status)
         }
     }
+
+    func delete(ifMatching token: String) -> SessionTokenDelete {
+        // Read-then-delete is not atomic, but the alternative — deleting
+        // unconditionally — is unconditionally wrong: it would destroy a
+        // newer operation's token. The window here is small and the failure
+        // mode is benign (a stale token survives and is revoked server-side
+        // anyway), whereas the blind delete's failure mode is signing a user
+        // out of the session they just created.
+        switch read() {
+        case .token(token):
+            return delete()
+        case .token:
+            // Somebody else's token is stored now. Leave it alone.
+            return .absent
+        case .absent:
+            return .absent
+        case let .unavailable(status):
+            return .failed(status)
+        }
+    }
 }
 
 /// In-memory store for tests and previews. Never used in a shipping build.
@@ -219,6 +246,29 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         self.token = token
     }
 
+    /// Appears on reads *after* a failed write.
+    ///
+    /// Models a disk that turns out to hold a token even though the preflight
+    /// saw none — another process, or a partially-landed write. Without it the
+    /// reconciliation path is unreachable from the normal flow, because the
+    /// preflight refuses a sign-in when a token is already present.
+    var tokenAfterFailedWrite: String?
+
+    /// Applies once, on the first read *after* a failed write.
+    ///
+    /// Lets a test model "the write failed and the Keychain is now unreadable"
+    /// — the case where the app cannot prove whether a session is on disk.
+    var readFailureAfterWrite: OSStatus?
+    private var sawFailedWrite = false
+
+    /// Sets the stored value directly, bypassing the simulated write failure.
+    /// Test setup only: models what the disk already held.
+    func setTokenForTesting(_ value: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        token = value
+    }
+
     /// The stored value, ignoring simulated failures. Test inspection only.
     var storedToken: String? {
         lock.lock()
@@ -230,6 +280,12 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         lock.lock()
         defer { lock.unlock() }
         if let readFailure { return .unavailable(readFailure) }
+        if sawFailedWrite, let readFailureAfterWrite {
+            return .unavailable(readFailureAfterWrite)
+        }
+        if sawFailedWrite, let tokenAfterFailedWrite {
+            return .token(tokenAfterFailedWrite)
+        }
         guard let token else { return .absent }
         return .token(token)
     }
@@ -238,7 +294,10 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         lock.lock()
         defer { lock.unlock() }
         // Mirrors the real store: a failed write leaves the old value alone.
-        if let writeFailure { return .failed(writeFailure) }
+        if let writeFailure {
+            sawFailedWrite = true
+            return .failed(writeFailure)
+        }
         token = newToken
         return .stored
     }
@@ -250,6 +309,20 @@ final class InMemoryServerSessionTokenStore: ServerSessionTokenStoring, @uncheck
         guard token != nil else { return .absent }
         token = nil
         return .removed
+    }
+
+    func delete(ifMatching expected: String) -> SessionTokenDelete {
+        lock.lock()
+        if let readFailure {
+            lock.unlock()
+            return .failed(readFailure)
+        }
+        guard token == expected else {
+            lock.unlock()
+            return .absent
+        }
+        lock.unlock()
+        return delete()
     }
 }
 

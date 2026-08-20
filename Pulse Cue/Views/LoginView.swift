@@ -6,17 +6,17 @@
 //  `PulseUI` primitives and driven by `AuthSessionStore`.
 //
 //  Actions:
-//    - "Sign in with Apple" → real Apple flow via `SignInWithAppleButton`
-//      (PR #114). Only sanitized, non-sensitive display metadata (name/email)
-//      reaches `AuthSessionStore.completeAppleSignIn`; the identityToken,
-//      authorizationCode, and Apple `user` identifier are never read or stored.
+//    - "Sign in with Apple" → real Apple flow via `SignInWithAppleButton`.
+//      The identityToken, authorizationCode and raw nonce ARE read and sent to
+//      PulseCue's backend, which verifies them and issues a server session.
+//      `credential.user`, the name and the email are display fields only and
+//      are never sent as identity.
 //    - "Googleで続ける" → real Google Sign-In via the GoogleSignIn SDK when a
-//      real iOS OAuth client is configured (PR #115). Only sanitized
-//      name/email reaches `AuthSessionStore.completeGoogleSignIn`; the idToken,
-//      accessToken, refreshToken, serverAuthCode, and user identifier are
-//      never read or stored. While the Info.plist client ID is the documented
-//      placeholder, the button is disabled and a "設定準備中" note is shown —
-//      no real sign-in starts and no fake signed-in state is created.
+//      real iOS OAuth client *and* a distinct server client are configured.
+//      The idToken IS read and sent to the backend; the accessToken,
+//      refreshToken, serverAuthCode and userID are not. While either client id
+//      is the documented placeholder — or the two are equal — sign-in is
+//      refused rather than faked.
 //    - "ゲストで続ける"  → AuthSessionStore.continueAsGuest()
 //
 //  Sign-in now exchanges the provider's signed material for a PulseCue
@@ -229,11 +229,25 @@ struct LoginView: View {
             return
         }
 
+        // Everything the async work needs is extracted here, as plain values.
+        // The `ASAuthorizationAppleIDCredential` itself is a live
+        // AuthenticationServices object; capturing it in a Task that then
+        // awaits two network round trips keeps the whole credential — and the
+        // token data hanging off it — alive far longer than the flow needs.
+        // Copying out the four strings lets it go at the end of this function.
+        let providerUserID = credential.user
+        let displayName = appleResult.displayName
+        let email = appleResult.email
+
         // The local link is written only *after* the server confirms the
         // session. Recording it first meant a failed exchange — a missing
         // authorization code, a 401, an unreachable backend — still left a
         // local link behind with no account behind it.
-        Task { @MainActor in
+        //
+        // `providerUserID` is for that local record only. It is never sent to
+        // the backend as identity: the server reads the subject out of the
+        // signature it verified, and `AppleSignInRequest` has no field for it.
+        Task { @MainActor [authSession, serverAccount] in
             let authenticated = await serverAccount.signInWithApple(
                 identityToken: identityToken,
                 authorizationCode: authorizationCode,
@@ -242,9 +256,9 @@ struct LoginView: View {
             guard authenticated else { return }
 
             authSession.completeAppleSignIn(
-                userIdentifier: credential.user,
-                displayName: appleResult.displayName,
-                email: appleResult.email
+                userIdentifier: providerUserID,
+                displayName: displayName,
+                email: email
             )
         }
 

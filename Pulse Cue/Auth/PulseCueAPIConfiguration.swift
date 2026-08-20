@@ -16,7 +16,7 @@
 //
 //  Only the account features fail closed. Everything PulseCue does today —
 //  Home, My Gym, Quick Plan, Runner, History, Progress, health input — works
-//  exactly as before with no server at all, and that has to stay true.
+//  exactly as before even with no server reachable, and that has to stay true.
 //
 //  The URL is validated rather than trusted: HTTPS only, a real host, and no
 //  embedded credentials. A misconfigured build should refuse to talk to
