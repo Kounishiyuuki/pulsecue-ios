@@ -427,6 +427,7 @@ final class AccountAPIErrorClassificationTests: XCTestCase {
 
 // MARK: - Keychain store
 
+@MainActor
 final class ServerSessionTokenStoreTests: XCTestCase {
 
     private func makeStore() -> KeychainServerSessionTokenStore {

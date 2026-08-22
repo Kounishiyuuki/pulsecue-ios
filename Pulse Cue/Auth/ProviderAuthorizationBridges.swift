@@ -41,19 +41,22 @@ final class AppleAuthorizationBridge: NSObject, AppleAuthorizing {
     /// Held only for the lifetime of one authorization.
     private var controller: ASAuthorizationController?
     /// Resolved once per authorization, before anything is presented.
+    ///
+    /// Set before `performRequests` and cleared when the authorization ends,
+    /// so `presentationAnchor(for:)` always has the real one to return.
     private var anchor: ASPresentationAnchor?
 
-    private let anchorProvider: () -> ASPresentationAnchor?
-    private let startRequests: (ASAuthorizationController) -> Void
+    private let anchorProvider: @MainActor () -> ASPresentationAnchor?
+    private let startRequests: @MainActor (ASAuthorizationController) -> Void
 
     /// Both dependencies are injected so the no-anchor path is testable
     /// without a window, and so a test can prove `performRequests` was never
     /// called rather than inferring it from an outcome.
     init(
-        anchorProvider: @escaping () -> ASPresentationAnchor? = {
+        anchorProvider: @escaping @MainActor () -> ASPresentationAnchor? = {
             ProviderPresentation.keyWindow()
         },
-        startRequests: @escaping (ASAuthorizationController) -> Void = {
+        startRequests: @escaping @MainActor (ASAuthorizationController) -> Void = {
             $0.performRequests()
         }
     ) {
@@ -159,11 +162,17 @@ extension AppleAuthorizationBridge: ASAuthorizationControllerPresentationContext
     func presentationAnchor(
         for controller: ASAuthorizationController
     ) -> ASPresentationAnchor {
-        // Resolved before `performRequests`, so by the time Apple asks there
-        // is always a real one. The fallback exists only because the delegate
-        // signature is non-optional; it is unreachable, and re-resolving a
-        // window here would reintroduce the empty-window case this removed.
-        anchor ?? ASPresentationAnchor()
+        // No `?? ASPresentationAnchor()`. An empty, unattached window is not a
+        // fallback — it is a window Apple cannot present in — and an
+        // unreachable one still reads as a supported case to the next person
+        // editing this. `authorize()` refuses to start without a real anchor,
+        // so by the time Apple asks, `anchor` is set.
+        guard let anchor else {
+            preconditionFailure(
+                "Apple asked for a presentation anchor outside an authorization"
+            )
+        }
+        return anchor
     }
 }
 

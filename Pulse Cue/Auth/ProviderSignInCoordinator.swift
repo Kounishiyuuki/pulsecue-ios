@@ -73,32 +73,49 @@ protocol GoogleAuthorizing: AnyObject {
     func authorize() async -> ProviderAuthorizationOutcome<GoogleAuthorization>
 }
 
-/// Why a sign-in did not start or did not finish.
+/// How a sign-in ended.
 enum ProviderSignInOutcome: Equatable {
     case signedIn
     /// The user backed out of the provider sheet.
     case cancelled
-    /// The provider SDK failed.
+    /// The provider SDK failed, or returned something unusable.
     case providerFailed
-    /// Refused before the SDK was touched.
+    /// PulseCue refused it. See `ProviderSignInRefusal` for when.
     case refused(ProviderSignInRefusal)
 }
 
+/// Why PulseCue refused a sign-in.
+///
+/// These do **not** all happen at the same point, and the difference decides
+/// whether there is provider-side state to clean up afterwards:
+///
+///   *Before the SDK* — `existingSession`, `credentialUnavailable`, `busy`,
+///     `notConfigured`. No sheet opened, nothing on the device changed, and
+///     there is nothing to undo.
+///
+///   *After the SDK succeeded* — `superseded`, `serverRefused`. The user
+///     completed an authorization, so the provider's own state has already
+///     moved (for Google, the device's selected account). PulseCue's session
+///     does not exist, so the flow puts its provider state back.
 enum ProviderSignInRefusal: Equatable {
-    /// A logout, deletion or restore retired this flow while its sheet was open.
-    ///
-    /// Not a failure the user caused, and deliberately not reported as one:
-    /// they asked for the newer thing, and they got it.
-    case superseded
-    /// A server session is already held; sign out first.
+    /// A server session is already held; sign out first. Refused pre-SDK.
     case existingSession
-    /// The Keychain could not be read, so none can be ruled out.
+    /// The Keychain could not be read, so none can be ruled out. Pre-SDK.
     case credentialUnavailable
-    /// Another provider sign-in is already running.
+    /// Another provider sign-in is already running. Pre-SDK.
     case busy
-    /// This build has no account API, or Google's config is unusable.
+    /// This build has no account API, or Google's config is unusable. Pre-SDK.
     case notConfigured
-    /// The backend refused, or the session could not be completed.
+
+    /// A logout, deletion or restore retired this flow.
+    ///
+    /// Post-SDK: it can land while the sheet is open, during `/auth/*`, or
+    /// during `/me`. Not a failure the user caused — they asked for the newer
+    /// thing and got it — but the provider state this flow created is undone.
+    case superseded
+
+    /// The backend refused, or the session could not be completed. Post-SDK,
+    /// with the same provider-state cleanup as `superseded`.
     case serverRefused
 }
 
@@ -110,7 +127,7 @@ final class ProviderSignInCoordinator {
     private let google: any GoogleAuthorizing
     private let googleConfigurationIsUsable: () -> Bool
     private let recordLink: (LinkedAccount) -> Void
-    private let signOutGoogleSDK: @MainActor () -> Void
+    private let googleSDKSession: GoogleSDKSessionOwnership
 
     init(
         account: ServerAccountStore,
@@ -118,16 +135,14 @@ final class ProviderSignInCoordinator {
         google: any GoogleAuthorizing,
         googleConfigurationIsUsable: @escaping () -> Bool,
         recordLink: @escaping (LinkedAccount) -> Void,
-        signOutGoogleSDK: @escaping @MainActor () -> Void = {
-            GoogleSessionManager.shared.signOut()
-        }
+        googleSDKSession: GoogleSDKSessionOwnership? = nil
     ) {
         self.account = account
         self.apple = apple
         self.google = google
         self.googleConfigurationIsUsable = googleConfigurationIsUsable
         self.recordLink = recordLink
-        self.signOutGoogleSDK = signOutGoogleSDK
+        self.googleSDKSession = googleSDKSession ?? .shared
     }
 
     func signInWithApple() async -> ProviderSignInOutcome {
@@ -184,13 +199,26 @@ final class ProviderSignInCoordinator {
             case .failed:
                 return .providerFailed
             case let .authorized(authorization):
-                // Retired while the sheet was open. Google is the case that
-                // needs cleaning up after: by now the SDK has already switched
-                // the device's selected account, so stopping the backend
-                // exchange alone would leave PulseCue holding one account and
-                // the Google SDK pointing at another.
+                // The device has already switched Google accounts — that
+                // happened inside the sheet, before this line. From here on
+                // this flow owns the SDK's session and is responsible for
+                // putting it back if PulseCue's own sign-in does not complete.
+                self.googleSDKSession.claim(permit)
+
+                // Every unsuccessful exit runs the cleanup, including the ones
+                // that suspend first: the flow can go stale during
+                // `/auth/google` or during `/me`, long after the checks below.
+                // `committed` is set only once a PulseCue session genuinely
+                // exists, so "we changed the device's Google account for
+                // nothing" is not a state this can end in.
+                var committed = false
+                defer {
+                    if !committed {
+                        self.googleSDKSession.signOutIfOwned(by: permit)
+                    }
+                }
+
                 guard self.account.isProviderSignInCurrent(permit) else {
-                    self.signOutStaleGoogleSession()
                     return .refused(.superseded)
                 }
 
@@ -198,7 +226,16 @@ final class ProviderSignInCoordinator {
                     permit: permit,
                     idToken: authorization.idToken
                 )
-                guard signedIn else { return .refused(.serverRefused) }
+                guard signedIn else {
+                    // Distinguishable only by asking: the store returns the
+                    // same `false` whether the server said no or a logout
+                    // retired this flow mid-request.
+                    return .refused(
+                        self.account.isProviderSignInCurrent(permit)
+                            ? .serverRefused
+                            : .superseded
+                    )
+                }
 
                 self.recordLink(
                     LinkedAccount(
@@ -208,25 +245,14 @@ final class ProviderSignInCoordinator {
                         email: authorization.email
                     )
                 )
+                // A PulseCue session now exists and is persisted, so this
+                // flow's Google session is the one the app wants. Ownership
+                // stays with the permit even after it is released below —
+                // that is what stops an older flow claiming it later.
+                committed = true
                 return .signedIn
             }
         }
-    }
-
-    /// Undoes a stale Google authorization's effect on the SDK's own state.
-    ///
-    /// Guarded, because the naive version is a bug of its own: if a *newer*
-    /// Google sign-in has already started and legitimately selected an
-    /// account, a late cleanup from the old flow would sign the user out of
-    /// the one they actually wanted. Only run when no Google flow currently
-    /// owns that state.
-    ///
-    /// Best-effort by nature — `signOut` is local and cannot fail usefully —
-    /// and never `disconnect`, which revokes the app's grant entirely and
-    /// would make the user re-approve scopes they never withdrew.
-    private func signOutStaleGoogleSession() {
-        guard !account.hasActiveProviderSignIn(for: .google) else { return }
-        signOutGoogleSDK()
     }
 
     /// Takes the permit, runs the flow, and always gives the permit back.

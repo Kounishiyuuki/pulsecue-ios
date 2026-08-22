@@ -1,0 +1,103 @@
+//
+//  GoogleSDKSessionOwnership.swift
+//  Pulse Cue
+//
+//  Which authorization flow created the Google SDK's current session.
+//
+//  This exists because two things that look like the same question are not:
+//
+//    "is a Google sign-in running right now?"   → the active permit
+//    "whose Google account is the SDK on?"      → this
+//
+//  The permit ends when its flow ends. The SDK's session does not: `GIDSignIn`
+//  keeps the selected account after the flow that selected it has finished, is
+//  released, and is long forgotten. Reading `activePermit == nil` as "nobody
+//  owns the Google session" is therefore wrong, and wrong in an expensive
+//  direction — it was enough to make a stale flow's cleanup sign the user out
+//  of an account a *newer, successful* sign-in had just established.
+//
+//  So ownership is tracked separately and by identity:
+//
+//    flow A authorizes    → A owns the SDK session
+//    A goes stale, cleans up while it still owns  → sign out, owner cleared
+//    flow B authorizes    → B owns it
+//    B succeeds, B's permit is released           → **B still owns it**
+//    A finally unwinds and tries to clean up      → not the owner, no-op
+//
+//  What is deliberately *not* used as the ownership key: the Google user id,
+//  the email, the subject. Those identify a person; this identifies a local
+//  attempt. Keying on identity would make two sign-ins of the same account
+//  indistinguishable, which is exactly the case that has to be told apart.
+//
+//  Nothing here restores a previous Google account. The only two outcomes are
+//  "sign out of the session my own flow created" and "leave it alone", which
+//  is all that is needed and all that can be done safely.
+//
+
+import Foundation
+
+@MainActor
+final class GoogleSDKSessionOwnership {
+
+    /// Shared because the SDK's session is shared.
+    ///
+    /// `LoginView` builds a fresh `ProviderSignInCoordinator` for every tap, so
+    /// per-coordinator state would forget the owner between attempts — and
+    /// forgetting is what the ABA bug was made of.
+    static let shared = GoogleSDKSessionOwnership()
+
+    private(set) var owner: ProviderSignInPermit?
+    private let signOutSDK: @MainActor () -> Void
+
+    init(
+        signOutSDK: @escaping @MainActor () -> Void = {
+            GoogleSessionManager.shared.signOut()
+        }
+    ) {
+        self.signOutSDK = signOutSDK
+    }
+
+    /// Records that this flow's authorization created the SDK's current session.
+    ///
+    /// Called as soon as `GIDSignIn` reports success — deliberately *not* after
+    /// the backend exchange. By the time the callback returns, the device has
+    /// already switched accounts; waiting for the server would leave a window
+    /// where the SDK has an owner-less session that no cleanup can attribute.
+    func claim(_ permit: ProviderSignInPermit) {
+        owner = permit
+    }
+
+    /// Signs out of the SDK, but only on behalf of the flow that owns it.
+    ///
+    /// The guard is the whole point. A late-unwinding stale flow calling an
+    /// unconditional `signOut()` would take down whatever session is current,
+    /// including one a newer flow legitimately established.
+    func signOutIfOwned(by permit: ProviderSignInPermit) {
+        guard owner == permit else { return }
+        owner = nil
+        signOutSDK()
+    }
+
+    /// Ends the current Google session outright, whoever established it.
+    ///
+    /// For account deletion: the PulseCue account is gone, so leaving the
+    /// device signed into the Google account that backed it is precisely the
+    /// ownership split this file exists to prevent. Clearing the owner first
+    /// means a stale flow arriving afterwards finds nothing of its own to
+    /// clean up and cannot sign a *future* flow out.
+    func releaseAndSignOut() {
+        guard owner != nil else { return }
+        owner = nil
+        signOutSDK()
+    }
+
+    /// Forgets the owner without touching the SDK.
+    ///
+    /// For a PulseCue sign-out, which by existing policy does not end the
+    /// Google SDK's own session — unlinking is the action that does that. The
+    /// record is dropped anyway so that no later cleanup can act on a flow
+    /// whose PulseCue session has already been deliberately ended.
+    func release() {
+        owner = nil
+    }
+}

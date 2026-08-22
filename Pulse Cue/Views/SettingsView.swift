@@ -749,7 +749,7 @@ struct SettingsView: View {
                             Text("ログイン・アカウント設定")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text("ゲストのまま使えます。Apple でサインインすることもできます。データはこの端末内にのみ保存されます。")
+                            Text("ゲストのまま使えます。Apple・Googleでサインインすることもできます。トレーニング記録は現在この端末に保存されます。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
@@ -842,10 +842,21 @@ struct SettingsView: View {
                 + "トレーニング記録などの端末内データは、まだ同期・バックアップされません。"
                 + localData
 
-        case .guest, .notConfigured:
-            // Confirmed: no server session on this device.
+        case .guest:
+            // Guest is a fact about *this device* — not signed in — and not a
+            // fact about the server. A PulseCue account may well exist and be
+            // reachable from another device, so "アカウントは作成されず" would
+            // be asserting something this app has no way to know.
             return base
-                + "PulseCueアカウントは作成されず、データが別端末と同期・バックアップされることはありません。"
+                + "現在この端末ではPulseCueアカウントにサインインしていません。"
+                + "データが別端末と同期・バックアップされることはありません。"
+                + localData
+
+        case .notConfigured:
+            // The only branch that can truthfully say no account is created:
+            // this build has no account API to create one with.
+            return base
+                + "このビルドではPulseCueアカウントは作成されず、データが別端末と同期・バックアップされることはありません。"
                 + localData
 
         case .restoring, .signingIn, .unreachable:

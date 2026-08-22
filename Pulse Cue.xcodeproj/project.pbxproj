@@ -10,6 +10,7 @@
 		AAB10C000000000000002015 /* ProviderAuthorizationBridges.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002014 /* ProviderAuthorizationBridges.swift */; };
 		AAB10C000000000000002013 /* ProviderSignInCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002012 /* ProviderSignInCoordinator.swift */; };
 		AAB10C000000000000002011 /* ServerAccountSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */; };
+		AAB10C000000000000002037 /* GoogleSDKSessionOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002036 /* GoogleSDKSessionOwnership.swift */; };
 		AAB10C000000000000002033 /* AppleSignInButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002032 /* AppleSignInButton.swift */; };
 		AAB10C00000000000000200F /* ServerAccountSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000200E /* ServerAccountSessionTests.swift */; };
 		AAB10C000000000000002035 /* ProviderPermitEpochTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000002034 /* ProviderPermitEpochTests.swift */; };
@@ -316,6 +317,7 @@
 		AAB10C000000000000002014 /* ProviderAuthorizationBridges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderAuthorizationBridges.swift; sourceTree = "<group>"; };
 		AAB10C000000000000002012 /* ProviderSignInCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSignInCoordinator.swift; sourceTree = "<group>"; };
 		AAB10C000000000000002010 /* ServerAccountSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountSettingsSection.swift; sourceTree = "<group>"; };
+		AAB10C000000000000002036 /* GoogleSDKSessionOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleSDKSessionOwnership.swift; sourceTree = "<group>"; };
 		AAB10C000000000000002032 /* AppleSignInButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignInButton.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000200E /* ServerAccountSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAccountSessionTests.swift; sourceTree = "<group>"; };
 		AAB10C000000000000002034 /* ProviderPermitEpochTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderPermitEpochTests.swift; sourceTree = "<group>"; };
@@ -788,6 +790,7 @@
 			children = (
 				AAB10C000000000000002014 /* ProviderAuthorizationBridges.swift */,
 				AAB10C000000000000002012 /* ProviderSignInCoordinator.swift */,
+				AAB10C000000000000002036 /* GoogleSDKSessionOwnership.swift */,
 				AAB10C00000000000000200C /* ServerAccountStore.swift */,
 				AAB10C00000000000000200A /* ServerAccountState.swift */,
 				AAB10C000000000000002008 /* GoogleServerSignInConfig.swift */,
@@ -1188,6 +1191,7 @@
 			files = (
 				AAB10C000000000000002015 /* ProviderAuthorizationBridges.swift in Sources */,
 				AAB10C000000000000002013 /* ProviderSignInCoordinator.swift in Sources */,
+				AAB10C000000000000002037 /* GoogleSDKSessionOwnership.swift in Sources */,
 				AAB10C000000000000002011 /* ServerAccountSettingsSection.swift in Sources */,
 				AAB10C00000000000000200D /* ServerAccountStore.swift in Sources */,
 				AAB10C00000000000000200B /* ServerAccountState.swift in Sources */,

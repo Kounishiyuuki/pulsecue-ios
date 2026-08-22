@@ -15,6 +15,7 @@
 //  returned afterwards.
 //
 
+import AuthenticationServices
 import XCTest
 @testable import Pulse_Cue
 
@@ -111,7 +112,7 @@ private final class LinkRecorder {
 
 @MainActor
 private func makeGate(
-    tokens: InMemoryServerSessionTokenStore = InMemoryServerSessionTokenStore(),
+    tokens: InMemoryServerSessionTokenStore? = nil,
     api: StubAccountAPI = StubAccountAPI(),
     googleConfigurationIsUsable: @escaping () -> Bool = { true }
 ) -> Gate {
@@ -120,6 +121,7 @@ private func makeGate(
     api.appleResult = .success(gateSession())
     api.googleResult = .success(gateSession())
     api.profileResult = .success(gateProfile())
+    let tokens = tokens ?? InMemoryServerSessionTokenStore()
     let account = ServerAccountStore(
         api: api,
         tokenStore: tokens,
@@ -463,13 +465,25 @@ final class AppleAuthorizationAnchorTests: XCTestCase {
         // empty, unattached window. Apple then has nowhere real to present, and
         // the app sits holding a permit waiting for a callback that may never
         // arrive. Refusing to start is the only honest option.
+        //
+        // The spy finishes any authorization it is handed, via the delegate
+        // Apple would normally call. Without that, restoring the fallback
+        // makes this test hang instead of fail — and a hang is a much worse
+        // signal than a failed assertion when someone reintroduces the bug.
         var performRequestsCount = 0
-        let bridge = AppleAuthorizationBridge(
+        var bridge: AppleAuthorizationBridge?
+        bridge = AppleAuthorizationBridge(
             anchorProvider: { nil },
-            startRequests: { _ in performRequestsCount += 1 }
+            startRequests: { controller in
+                performRequestsCount += 1
+                bridge?.authorizationController(
+                    controller: controller,
+                    didCompleteWithError: ASAuthorizationError(.canceled)
+                )
+            }
         )
 
-        let outcome = await bridge.authorize()
+        let outcome = await bridge!.authorize()
 
         guard case .failed = outcome else {
             return XCTFail("expected .failed, got \(outcome)")
@@ -479,5 +493,4 @@ final class AppleAuthorizationAnchorTests: XCTestCase {
             "no authorization may be started without a real anchor"
         )
     }
-
 }

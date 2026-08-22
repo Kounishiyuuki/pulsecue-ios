@@ -132,10 +132,19 @@ private final class LinkSpy {
     func record(_ account: LinkedAccount) { recorded.append(account) }
 }
 
+/// Counts SDK sign-outs, and lets a test read who currently owns the session.
+///
+/// Wrapping the real ownership type rather than replacing it: the guard being
+/// tested lives inside `GoogleSDKSessionOwnership`, so a double that
+/// reimplemented it would prove nothing.
 @MainActor
 private final class GoogleSDKSignOutSpy {
     private(set) var signOutCount = 0
-    func signOut() { signOutCount += 1 }
+    private(set) lazy var ownership = GoogleSDKSessionOwnership(
+        signOutSDK: { [weak self] in self?.signOutCount += 1 }
+    )
+
+    var owner: ProviderSignInPermit? { ownership.owner }
 }
 
 // MARK: - Fixtures
@@ -202,7 +211,7 @@ private func makeRig() -> Rig {
         google: google,
         googleConfigurationIsUsable: { true },
         recordLink: { links.record($0) },
-        signOutGoogleSDK: { googleSDK.signOut() }
+        googleSDKSession: googleSDK.ownership
     )
     return Rig(
         account: account,
@@ -579,11 +588,15 @@ final class ProviderPermitIdentityTests: XCTestCase {
         XCTAssertEqual(rig.backendExchanges, 0)
     }
 
-    func testAStaleGoogleCleanupDoesNotDisturbANewerGoogleFlow() async {
-        // The cleanup added for stale Google flows must not become its own
-        // bug: if a newer Google sign-in has legitimately selected an account,
-        // the old flow's late cleanup would sign the user out of the one they
-        // actually chose.
+    func testAPermitAloneDoesNotConferGoogleSDKOwnership() async {
+        // A newer flow that has only *reserved* the slot has not touched the
+        // SDK, so it owns nothing yet — and the stale flow must still put back
+        // the Google session it really did create. Deferring to the newer
+        // permit here would strand the stale flow's account selection with
+        // nobody left to undo it.
+        //
+        // The protection that does matter — a newer flow that has actually
+        // authorized — is `testAStaleFlowCannotSignOutACompletedNewerFlow`.
         let rig = makeRig()
 
         let staleSignIn = Task { await rig.coordinator.signInWithGoogle() }
@@ -591,7 +604,7 @@ final class ProviderPermitIdentityTests: XCTestCase {
         rig.tokens.setTokenForTesting("session-being-signed-out")
         _ = await rig.account.logout()
 
-        // A newer Google flow takes the floor before the old callback returns.
+        // A newer flow reserves the slot, but never reaches the SDK.
         let newer = rig.account.prepareProviderSignIn(provider: .google)
         guard case .allowed = newer else {
             return XCTFail("a new Google flow should be able to start")
@@ -601,8 +614,296 @@ final class ProviderPermitIdentityTests: XCTestCase {
         _ = await staleSignIn.value
 
         XCTAssertEqual(
-            rig.googleSDK.signOutCount, 0,
-            "the newer Google flow owns the SDK state now"
+            rig.googleSDK.signOutCount, 1,
+            "the stale flow still owns the session it created"
         )
+        XCTAssertNil(rig.googleSDK.owner)
+    }
+}
+
+// MARK: - Google SDK session ownership
+
+//  The distinction these tests exist for:
+//
+//    the permit  — "is a Google sign-in running?"     ends with the flow
+//    ownership   — "whose account is the SDK on?"     outlives the flow
+//
+//  Reading the first as the second is what let a stale flow's cleanup sign the
+//  user out of an account a newer, successful sign-in had just established.
+//  Every test below arranges for `activePermit == nil` before the stale
+//  cleanup runs, so nothing can pass by accident on permit state.
+
+@MainActor
+final class GoogleSDKSessionOwnershipTests: XCTestCase {
+
+    /// Starts a Google flow whose sheet completes immediately and which then
+    /// parks inside the named backend call.
+    ///
+    /// The sheet is finished first on purpose: these tests are about the
+    /// window *after* Google's SDK has succeeded — ownership has been claimed,
+    /// the device's account has already changed — while PulseCue is still
+    /// waiting on the server.
+    private func startParkedGoogleFlow(
+        _ rig: Rig,
+        gate: String
+    ) async -> Task<ProviderSignInOutcome, Never> {
+        rig.google.parking.finish()
+        rig.api.gated = [gate]
+        let flow = Task { await rig.coordinator.signInWithGoogle() }
+        await rig.api.waitUntilEntered(gate)
+        return flow
+    }
+
+    func testAFlowOwnsTheSDKSessionAsSoonAsAuthorizationSucceeds() async {
+        // Claimed before the backend answers, because the device's account has
+        // already changed by then. Waiting for the server would leave a window
+        // where the SDK session has no owner and no cleanup can attribute it.
+        let rig = makeRig()
+        let flow = await startParkedGoogleFlow(rig, gate: "google")
+
+        XCTAssertNotNil(rig.googleSDK.owner, "ownership starts at SDK success")
+
+        rig.api.release("google")
+        _ = await flow.value
+    }
+
+    func testOwnershipSurvivesTheSuccessfulFlowsPermitRelease() async {
+        let rig = makeRig()
+        rig.google.parking.finish()
+
+        let outcome = await rig.coordinator.signInWithGoogle()
+
+        XCTAssertEqual(outcome, .signedIn)
+        XCTAssertFalse(
+            rig.account.isProviderSignInCurrent(rig.googleSDK.owner!),
+            "the permit is released once the flow ends"
+        )
+        XCTAssertNotNil(
+            rig.googleSDK.owner,
+            "but the SDK session is still owned by the flow that made it"
+        )
+        XCTAssertEqual(rig.googleSDK.signOutCount, 0)
+    }
+
+    func testALogoutDuringTheBackendExchangeCleansUpTheSDKSession() async {
+        // PulseCue detects the stale flow and refuses the session — but
+        // without this, the device stays signed into the Google account that
+        // flow selected, with no PulseCue session to match.
+        let rig = makeRig()
+        let flow = await startParkedGoogleFlow(rig, gate: "google")
+
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        rig.api.release("google")
+        let outcome = await flow.value
+
+        XCTAssertEqual(outcome, .refused(.superseded))
+        XCTAssertEqual(rig.googleSDK.signOutCount, 1, "the SDK session is put back")
+        XCTAssertNil(rig.googleSDK.owner)
+        XCTAssertNil(rig.tokens.storedToken)
+        XCTAssertTrue(rig.links.recorded.isEmpty)
+        XCTAssertFalse(rig.account.state.isAuthenticated)
+    }
+
+    func testADeletionDuringTheBackendExchangeCleansUpTheSDKSession() async {
+        let rig = makeRig()
+        let flow = await startParkedGoogleFlow(rig, gate: "google")
+
+        rig.tokens.setTokenForTesting("session-being-deleted")
+        let deletion = await rig.account.deleteAccount()
+
+        rig.api.release("google")
+        let outcome = await flow.value
+
+        XCTAssertEqual(deletion, .deleted)
+        XCTAssertEqual(outcome, .refused(.superseded))
+        XCTAssertEqual(rig.googleSDK.signOutCount, 1)
+        XCTAssertNil(rig.googleSDK.owner)
+    }
+
+    func testARestoreDuringTheBackendExchangeCleansUpTheSDKSession() async {
+        let rig = makeRig()
+        let flow = await startParkedGoogleFlow(rig, gate: "google")
+
+        rig.tokens.setTokenForTesting("stored-session")
+        await rig.account.restore()
+
+        rig.api.release("google")
+        let outcome = await flow.value
+
+        XCTAssertEqual(outcome, .refused(.superseded))
+        XCTAssertEqual(rig.googleSDK.signOutCount, 1)
+        XCTAssertEqual(
+            rig.tokens.storedToken, "stored-session",
+            "the restored session is untouched"
+        )
+    }
+
+    func testALogoutDuringTheProfileFetchCleansUpTheSDKSession() async {
+        // The later window: the server has already issued a token, so the
+        // existing compensation hands that back — and the Google SDK state
+        // this flow created has to go back too.
+        let rig = makeRig()
+        let flow = await startParkedGoogleFlow(rig, gate: "profile")
+
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        rig.api.release("profile")
+        let outcome = await flow.value
+
+        XCTAssertEqual(outcome, .refused(.superseded))
+        XCTAssertEqual(rig.googleSDK.signOutCount, 1)
+        XCTAssertNil(rig.googleSDK.owner)
+        XCTAssertNil(rig.tokens.storedToken, "no session is persisted")
+        XCTAssertTrue(rig.links.recorded.isEmpty)
+        XCTAssertFalse(rig.account.state.isAuthenticated)
+        XCTAssertTrue(
+            rig.api.logoutTokens.contains("session-from-stale-google"),
+            "the orphaned server session is handed back"
+        )
+    }
+
+    func testAStaleFlowCannotSignOutACompletedNewerFlow() async {
+        // The ABA case, and the reason ownership is tracked at all.
+        //
+        // A is parked in the backend and retired. B then runs to completion
+        // and *releases its permit*, so `activePermit` is nil — the state in
+        // which the old `hasActiveProviderSignIn` check answered "nobody owns
+        // the Google session" and signed the user out of B's account.
+        let rig = makeRig()
+        let flowA = await startParkedGoogleFlow(rig, gate: "google")
+
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        // B runs on an ungated backend and finishes completely.
+        rig.api.gated = []
+        rig.google.parking.finish()
+        let outcomeB = await rig.coordinator.signInWithGoogle()
+        XCTAssertEqual(outcomeB, .signedIn)
+
+        let ownerAfterB = rig.googleSDK.owner
+        XCTAssertNotNil(ownerAfterB)
+        XCTAssertFalse(
+            rig.account.isProviderSignInCurrent(ownerAfterB!),
+            "B's permit must already be released for this test to mean anything"
+        )
+        let signOutsBeforeA = rig.googleSDK.signOutCount
+
+        // Only now does A unwind.
+        rig.api.release("google")
+        let outcomeA = await flowA.value
+
+        XCTAssertEqual(outcomeA, .refused(.superseded))
+        XCTAssertEqual(
+            rig.googleSDK.signOutCount, signOutsBeforeA,
+            "A must not sign out the session B established"
+        )
+        XCTAssertEqual(rig.googleSDK.owner, ownerAfterB, "B still owns it")
+        XCTAssertEqual(rig.tokens.storedToken, "session-from-stale-google")
+        XCTAssertTrue(rig.account.state.isAuthenticated)
+        XCTAssertEqual(rig.links.recorded.count, 1, "only B recorded a link")
+    }
+
+    func testTheABARaceIsStableAcrossRepeatedRuns() async {
+        for _ in 0..<20 {
+            let rig = makeRig()
+            // A's sheet completes at once; A then parks in the backend.
+            rig.google.parking.finish()
+            rig.api.gated = ["google"]
+            let flowA = Task { await rig.coordinator.signInWithGoogle() }
+            await rig.api.waitUntilEntered("google")
+
+            rig.tokens.setTokenForTesting("session-being-signed-out")
+            _ = await rig.account.logout()
+
+            rig.api.gated = []
+            rig.google.parking.finish()
+            _ = await rig.coordinator.signInWithGoogle()
+            let ownerAfterB = rig.googleSDK.owner
+            let signOutsBeforeA = rig.googleSDK.signOutCount
+
+            rig.api.release("google")
+            _ = await flowA.value
+
+            XCTAssertEqual(rig.googleSDK.signOutCount, signOutsBeforeA)
+            XCTAssertEqual(rig.googleSDK.owner, ownerAfterB)
+            XCTAssertTrue(rig.account.state.isAuthenticated)
+        }
+    }
+
+    func testAServerRefusalCleansUpTheSDKSessionExactlyOnce() async {
+        // Not a race: the server simply said no. The device's Google account
+        // still changed, so it is put back.
+        let rig = makeRig()
+        rig.google.parking.finish()
+        rig.api.googleResult = .failure(AccountAPIError.invalidCredentials)
+
+        let outcome = await rig.coordinator.signInWithGoogle()
+
+        XCTAssertEqual(outcome, .refused(.serverRefused))
+        XCTAssertEqual(rig.googleSDK.signOutCount, 1)
+        XCTAssertNil(rig.googleSDK.owner)
+        XCTAssertTrue(rig.links.recorded.isEmpty)
+        XCTAssertFalse(rig.account.state.isAuthenticated)
+    }
+
+    func testAFailingFlowDoesNotCleanUpAfterOwnershipMovedOn() async {
+        // A fails late, but B already owns the SDK session by then.
+        let rig = makeRig()
+        let flowA = await startParkedGoogleFlow(rig, gate: "google")
+
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        rig.api.gated = []
+        rig.google.parking.finish()
+        _ = await rig.coordinator.signInWithGoogle()
+        let ownerAfterB = rig.googleSDK.owner
+        let signOutsBeforeA = rig.googleSDK.signOutCount
+
+        // A's backend call now fails outright rather than being superseded.
+        rig.api.googleResult = .failure(AccountAPIError.invalidCredentials)
+        rig.api.release("google")
+        _ = await flowA.value
+
+        XCTAssertEqual(rig.googleSDK.signOutCount, signOutsBeforeA)
+        XCTAssertEqual(rig.googleSDK.owner, ownerAfterB)
+    }
+
+    func testAnOldFlowsPermitReleaseDoesNotDisturbTheNewerOwner() async {
+        let rig = makeRig()
+        let flowA = await startParkedGoogleFlow(rig, gate: "google")
+
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        rig.api.gated = []
+        rig.google.parking.finish()
+        _ = await rig.coordinator.signInWithGoogle()
+        let ownerAfterB = rig.googleSDK.owner
+
+        rig.api.release("google")
+        _ = await flowA.value
+
+        // A's `defer` has now run both its cleanup and its permit release.
+        XCTAssertEqual(rig.googleSDK.owner, ownerAfterB)
+        XCTAssertTrue(rig.account.state.isAuthenticated)
+        XCTAssertEqual(rig.tokens.storedToken, "session-from-stale-google")
+    }
+
+    func testAnAppleFlowNeverClaimsGoogleSDKOwnership() async {
+        // Apple has no persistent client-side session to own, and inventing
+        // one would mean inventing sign-outs to match.
+        let rig = makeRig()
+        rig.apple.parking.finish()
+        rig.api.appleResult = .failure(AccountAPIError.invalidCredentials)
+
+        _ = await rig.coordinator.signInWithApple()
+
+        XCTAssertNil(rig.googleSDK.owner)
+        XCTAssertEqual(rig.googleSDK.signOutCount, 0)
     }
 }

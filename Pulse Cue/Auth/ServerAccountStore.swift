@@ -302,15 +302,6 @@ final class ServerAccountStore: ObservableObject {
         isHolding(permit, as: permit.provider)
     }
 
-    /// Whether a *live* provider flow for this provider is outstanding.
-    ///
-    /// For deciding whether a stale flow's cleanup would step on a newer
-    /// flow's toes. Not a permission check — nothing may act on the account
-    /// from this alone.
-    func hasActiveProviderSignIn(for provider: AuthProviderKind) -> Bool {
-        activePermit?.provider == provider
-    }
-
     /// Retires every outstanding provider flow.
     ///
     /// Called at the top of each authoritative operation, **before its first

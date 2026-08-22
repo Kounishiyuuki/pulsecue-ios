@@ -29,6 +29,14 @@ import SwiftUI
 struct ServerAccountSettingsSection: View {
     @ObservedObject var store: ServerAccountStore
 
+    /// Who currently owns the Google SDK's session. Injectable for tests;
+    /// shared in the app, because the SDK's session is shared.
+    var googleSDKSession: GoogleSDKSessionOwnership?
+
+    private var googleSession: GoogleSDKSessionOwnership {
+        googleSDKSession ?? .shared
+    }
+
     @State private var showDeleteConfirmation = false
     @State private var isWorking = false
     @State private var deletionFailed = false
@@ -207,10 +215,15 @@ struct ServerAccountSettingsSection: View {
                 この端末のサインイン情報を削除できませんでした。\
                 もう一度サインアウトをお試しください。トレーニング記録は削除されていません。
                 """
-        case .guest, .restoring, .signingIn:
+        case .guest:
             return """
-                アカウントなしでも、記録・ルーティン・履歴などすべての機能を利用できます。\
-                データはこの端末内に保存されます。
+                サインインしていなくても、記録・ルーティン・履歴などすべての機能を利用できます。\
+                トレーニング記録は現在この端末に保存されます。
+                """
+        case .restoring, .signingIn:
+            return """
+                アカウントの状態を確認しています。\
+                記録・ルーティン・履歴などすべての機能はそのまま利用できます。
                 """
         }
     }
@@ -227,6 +240,13 @@ struct ServerAccountSettingsSection: View {
         // the section's own copy explains it. Local training data is untouched
         // either way.
         _ = await store.logout()
+
+        // The Google SDK's own session is deliberately left alone: by existing
+        // policy a PulseCue sign-out is not a Google sign-out — unlinking is
+        // the action that ends that. But the ownership record is dropped, so a
+        // provider flow that unwinds later cannot "clean up" on behalf of a
+        // session this sign-out already ended.
+        googleSession.release()
     }
 
     private func deleteAccount() async {
@@ -235,9 +255,17 @@ struct ServerAccountSettingsSection: View {
         switch await store.deleteAccount() {
         case .deleted:
             // The only outcome that means the account is actually gone.
+            //
+            // With no PulseCue account left, a device still signed into the
+            // Google account that backed it is the ownership split we are
+            // trying to avoid, so that session ends here too.
+            googleSession.releaseAndSignOut()
             deletionFailed = false
             deletionPending = false
         case .pending:
+            // Accepted and irreversible — the account is going away — so the
+            // local Google session is ended on the same reasoning as `.deleted`.
+            googleSession.releaseAndSignOut()
             // Accepted and irreversible, but the server has not finished
             // revoking at the provider. Saying "削除しました" here would claim
             // something the server has not confirmed.
