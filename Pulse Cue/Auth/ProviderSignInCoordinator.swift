@@ -128,6 +128,7 @@ final class ProviderSignInCoordinator {
     private let googleConfigurationIsUsable: () -> Bool
     private let recordLink: (LinkedAccount) -> Void
     private let googleSDKSession: GoogleSDKSessionOwnership
+    private let sdkInvocations: ProviderSDKInvocationLease
 
     init(
         account: ServerAccountStore,
@@ -135,7 +136,8 @@ final class ProviderSignInCoordinator {
         google: any GoogleAuthorizing,
         googleConfigurationIsUsable: @escaping () -> Bool,
         recordLink: @escaping (LinkedAccount) -> Void,
-        googleSDKSession: GoogleSDKSessionOwnership? = nil
+        googleSDKSession: GoogleSDKSessionOwnership? = nil,
+        sdkInvocations: ProviderSDKInvocationLease? = nil
     ) {
         self.account = account
         self.apple = apple
@@ -143,6 +145,7 @@ final class ProviderSignInCoordinator {
         self.googleConfigurationIsUsable = googleConfigurationIsUsable
         self.recordLink = recordLink
         self.googleSDKSession = googleSDKSession ?? .shared
+        self.sdkInvocations = sdkInvocations ?? .shared
     }
 
     func signInWithApple() async -> ProviderSignInOutcome {
@@ -193,33 +196,54 @@ final class ProviderSignInCoordinator {
         }
 
         return await run(provider: .google) { [google] permit in
+            // Taken before `GIDSignIn` is touched and held until its callback
+            // has actually been dealt with. While it is held no second Google
+            // SDK call may start, which is what stops an earlier call's
+            // completion from landing on top of a later, finished one.
+            guard let ticket = self.sdkInvocations.acquire(.google) else {
+                return .refused(.busy)
+            }
+            // Every abnormal exit still frees it; the normal path releases
+            // explicitly below and this becomes a no-op.
+            defer { self.sdkInvocations.release(ticket) }
+
             switch await google.authorize() {
             case .cancelled:
                 return .cancelled
             case .failed:
                 return .providerFailed
             case let .authorized(authorization):
-                // The device has already switched Google accounts — that
-                // happened inside the sheet, before this line. From here on
-                // this flow owns the SDK's session and is responsible for
-                // putting it back if PulseCue's own sign-in does not complete.
+                // Currency is checked *before* claiming ownership, so a stale
+                // callback never registers itself as the owner of anything.
+                guard self.account.isProviderSignInCurrent(permit) else {
+                    // Stale, and the device's Google account has already been
+                    // switched by the completion that just returned. Sign out
+                    // of it here, while the lease still guarantees no newer
+                    // Google flow exists to be harmed by an unowned sign-out.
+                    self.googleSDKSession.signOutCurrentSession()
+                    return .refused(.superseded)
+                }
+
+                // Current, so this flow owns what the SDK now holds, and is
+                // responsible for putting it back if PulseCue's own sign-in
+                // does not complete.
                 self.googleSDKSession.claim(permit)
 
-                // Every unsuccessful exit runs the cleanup, including the ones
-                // that suspend first: the flow can go stale during
-                // `/auth/google` or during `/me`, long after the checks below.
-                // `committed` is set only once a PulseCue session genuinely
-                // exists, so "we changed the device's Google account for
-                // nothing" is not a state this can end in.
+                // The SDK call itself is over. Releasing now lets a later
+                // Google sign-in start while this one waits on the network —
+                // the backend-phase race, which ownership handles rather than
+                // the lease.
+                self.sdkInvocations.release(ticket)
+
+                // Every unsuccessful exit from here runs the owner-checked
+                // cleanup, including the ones that suspend first: the flow can
+                // go stale during `/auth/google` or during `/me`. `committed`
+                // is set only once a PulseCue session genuinely exists.
                 var committed = false
                 defer {
                     if !committed {
                         self.googleSDKSession.signOutIfOwned(by: permit)
                     }
-                }
-
-                guard self.account.isProviderSignInCurrent(permit) else {
-                    return .refused(.superseded)
                 }
 
                 let signedIn = await self.account.signInWithGoogle(

@@ -78,26 +78,23 @@ final class GoogleSDKSessionOwnership {
         signOutSDK()
     }
 
-    /// Ends the current Google session outright, whoever established it.
+    /// Ends the Google SDK's session whoever established it, and whether or
+    /// not this process knows who that was.
     ///
-    /// For account deletion: the PulseCue account is gone, so leaving the
-    /// device signed into the Google account that backed it is precisely the
-    /// ownership split this file exists to prevent. Clearing the owner first
-    /// means a stale flow arriving afterwards finds nothing of its own to
-    /// clean up and cannot sign a *future* flow out.
-    func releaseAndSignOut() {
-        guard owner != nil else { return }
+    /// The owner record is in memory only, and it has to be: it identifies a
+    /// *local attempt*, and attempts do not survive a relaunch. The SDK's
+    /// session does. So after a restart the app can be signed into Google with
+    /// `owner == nil`, and a cleanup conditional on having an owner would
+    /// quietly do nothing in exactly the case that matters most —
+    ///
+    ///   launch → Google session restored by the SDK, owner nil
+    ///   delete my PulseCue account → server says it is gone
+    ///   ...and the device stays signed into the Google account behind it.
+    ///
+    /// For deliberate, destructive account actions there is no version of
+    /// "leave it alone" that is right, so this does not ask who owns it.
+    func signOutCurrentSession() {
         owner = nil
         signOutSDK()
-    }
-
-    /// Forgets the owner without touching the SDK.
-    ///
-    /// For a PulseCue sign-out, which by existing policy does not end the
-    /// Google SDK's own session — unlinking is the action that does that. The
-    /// record is dropped anyway so that no later cleanup can act on a flow
-    /// whose PulseCue session has already been deliberately ended.
-    func release() {
-        owner = nil
     }
 }

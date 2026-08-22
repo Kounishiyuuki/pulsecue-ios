@@ -907,3 +907,409 @@ final class GoogleSDKSessionOwnershipTests: XCTestCase {
         XCTAssertEqual(rig.googleSDK.signOutCount, 0)
     }
 }
+
+// MARK: - Google SDK invocation serialization (reverse ABA)
+
+//  The ordering the backend-phase ABA tests above cannot reach.
+//
+//  There, A had already *finished* with the SDK and was waiting on the
+//  network. Here A is still inside `GIDSignIn.signIn` — its callback has not
+//  returned — when a logout retires it. If B were allowed to start its own
+//  SDK call at that point, B could complete a whole sign-in and *then* A's
+//  callback would land, moving the SDK's own account onto A's, behind B's
+//  back. No check after the fact can undo that: by the time A's completion
+//  handler runs, the SDK's state has already changed.
+//
+//  So the invariant is checked one step earlier than "was A stale?" — it is
+//  that B's SDK call cannot start at all while A's is outstanding.
+
+@MainActor
+final class GoogleSDKInvocationLeaseTests: XCTestCase {
+
+    /// A Google authorizer whose callback is held open on demand.
+    ///
+    /// Models `GIDSignIn.signIn` mid-flight: invoked, sheet up, no callback
+    /// yet — the window this whole suite is about.
+    @MainActor
+    private final class GatedGoogleAuthorizer: GoogleAuthorizing {
+        private(set) var invocations = 0
+        private var entered: CheckedContinuation<Void, Never>?
+        private var hasEntered = false
+        private var release: CheckedContinuation<Void, Never>?
+        private var released = false
+
+        func authorize() async -> ProviderAuthorizationOutcome<GoogleAuthorization> {
+            invocations += 1
+            hasEntered = true
+            entered?.resume()
+            entered = nil
+            // Only the *first* call parks. A second one is the thing these
+            // tests forbid, so it must return rather than hang: a deadlocked
+            // suite is a much worse signal than a failed assertion when
+            // someone removes the serialization.
+            if invocations == 1, !released {
+                await withCheckedContinuation { self.release = $0 }
+            }
+            return .authorized(
+                GoogleAuthorization(
+                    idToken: "google-id-token",
+                    providerUserID: "google-user",
+                    displayName: nil,
+                    email: nil
+                )
+            )
+        }
+
+        func waitUntilInvoked() async {
+            guard !hasEntered else { return }
+            await withCheckedContinuation { self.entered = $0 }
+        }
+
+        func completeCallback() {
+            released = true
+            release?.resume()
+            release = nil
+        }
+
+    }
+
+    private struct LeaseRig {
+        let account: ServerAccountStore
+        let coordinator: ProviderSignInCoordinator
+        let google: GatedGoogleAuthorizer
+        let api: ControllableAccountAPI
+        let tokens: InMemoryServerSessionTokenStore
+        let signOut: GoogleSDKSignOutSpy
+        let lease: ProviderSDKInvocationLease
+        let links: LinkSpy
+    }
+
+    private func makeLeaseRig() -> LeaseRig {
+        let api = ControllableAccountAPI()
+        api.googleResult = .success(epochSession(token: "session-from-google"))
+        api.profileResult = .success(epochProfile())
+        let tokens = InMemoryServerSessionTokenStore()
+        let account = ServerAccountStore(api: api, tokenStore: tokens, deviceName: "iPhone")
+        let google = GatedGoogleAuthorizer()
+        let signOut = GoogleSDKSignOutSpy()
+        let lease = ProviderSDKInvocationLease()
+        let links = LinkSpy()
+        let coordinator = ProviderSignInCoordinator(
+            account: account,
+            apple: ParkingAppleAuthorizer(),
+            google: google,
+            googleConfigurationIsUsable: { true },
+            recordLink: { links.record($0) },
+            googleSDKSession: signOut.ownership,
+            sdkInvocations: lease
+        )
+        return LeaseRig(
+            account: account,
+            coordinator: coordinator,
+            google: google,
+            api: api,
+            tokens: tokens,
+            signOut: signOut,
+            lease: lease,
+            links: links
+        )
+    }
+
+    func testASecondGoogleSDKCallCannotStartWhileTheFirstIsOutstanding() async {
+        // The exact reverse-ABA ordering, pinned step by step.
+        let rig = makeLeaseRig()
+
+        let flowA = Task { await rig.coordinator.signInWithGoogle() }
+        await rig.google.waitUntilInvoked()
+        XCTAssertEqual(rig.google.invocations, 1)
+        XCTAssertTrue(rig.lease.isBusy(.google), "A's SDK call is outstanding")
+
+        // A loses its authority, but its SDK call is still in Google's hands.
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+        XCTAssertFalse(rig.account.isProviderSignInCurrent(
+            ProviderSignInPermit.rejectedPlaceholder(provider: .google)
+        ))
+        XCTAssertTrue(
+            rig.lease.isBusy(.google),
+            "losing the permit must not free the SDK call"
+        )
+
+        // B tries while A is still pending.
+        let outcomeB = await rig.coordinator.signInWithGoogle()
+
+        XCTAssertEqual(outcomeB, .refused(.busy))
+        XCTAssertEqual(
+            rig.google.invocations, 1,
+            "B must not start a second GIDSignIn call while A is outstanding"
+        )
+        XCTAssertEqual(rig.api.googleSignInCount, 0)
+
+        // Only now does A come back.
+        rig.google.completeCallback()
+        let outcomeA = await flowA.value
+
+        XCTAssertEqual(outcomeA, .refused(.superseded))
+        XCTAssertEqual(
+            rig.signOut.signOutCount, 1,
+            "A's own SDK state is cleaned up, with no newer flow to harm"
+        )
+        XCTAssertFalse(rig.lease.isBusy(.google), "the lease is freed")
+        XCTAssertEqual(rig.api.googleSignInCount, 0)
+        XCTAssertNil(rig.tokens.storedToken)
+        XCTAssertTrue(rig.links.recorded.isEmpty)
+        XCTAssertFalse(rig.account.state.isAuthenticated)
+    }
+
+    func testANewGoogleSignInSucceedsOnceTheStaleCallbackHasReturned() async {
+        let rig = makeLeaseRig()
+
+        let flowA = Task { await rig.coordinator.signInWithGoogle() }
+        await rig.google.waitUntilInvoked()
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        rig.google.completeCallback()
+        _ = await flowA.value
+        XCTAssertFalse(rig.lease.isBusy(.google))
+
+        // B may now run for real; its call does not park.
+        let outcomeB = await rig.coordinator.signInWithGoogle()
+
+        XCTAssertEqual(outcomeB, .signedIn)
+        XCTAssertEqual(rig.google.invocations, 2)
+        XCTAssertEqual(rig.tokens.storedToken, "session-from-google")
+        XCTAssertTrue(rig.account.state.isAuthenticated)
+        XCTAssertEqual(rig.links.recorded.count, 1)
+    }
+
+    func testAStalePendingCallbackNeverClaimsOwnership() async {
+        // Currency is checked before ownership is claimed, so a stale callback
+        // cannot register itself as the owner of anything.
+        let rig = makeLeaseRig()
+
+        let flowA = Task { await rig.coordinator.signInWithGoogle() }
+        await rig.google.waitUntilInvoked()
+        rig.tokens.setTokenForTesting("session-being-signed-out")
+        _ = await rig.account.logout()
+
+        rig.google.completeCallback()
+        _ = await flowA.value
+
+        XCTAssertNil(rig.signOut.owner, "a stale flow owns nothing")
+    }
+
+    func testACancelledSDKCallFreesTheLease() async {
+        // The lease must be freed by the SDK call *ending*, however it ends,
+        // or the app can never sign in with Google again.
+        let rig = makeLeaseRig()
+        rig.google.completeCallback()
+        _ = await rig.coordinator.signInWithGoogle()
+
+        XCTAssertFalse(rig.lease.isBusy(.google))
+    }
+
+    func testAnAppleSignInIsNotBlockedByAPendingGoogleCall() async {
+        // Apple has no persistent client-side session, and blocking it behind
+        // Google's SDK would be an unrelated regression.
+        let rig = makeLeaseRig()
+
+        let flowA = Task { await rig.coordinator.signInWithGoogle() }
+        await rig.google.waitUntilInvoked()
+
+        XCTAssertTrue(rig.lease.isBusy(.google))
+        XCTAssertFalse(rig.lease.isBusy(.apple))
+
+        rig.google.completeCallback()
+        _ = await flowA.value
+    }
+
+    func testTheReverseABAOrderingIsStableAcrossRepeatedRuns() async {
+        for _ in 0..<20 {
+            let rig = makeLeaseRig()
+
+            let flowA = Task { await rig.coordinator.signInWithGoogle() }
+            await rig.google.waitUntilInvoked()
+            rig.tokens.setTokenForTesting("session-being-signed-out")
+            _ = await rig.account.logout()
+
+            let outcomeB = await rig.coordinator.signInWithGoogle()
+            XCTAssertEqual(outcomeB, .refused(.busy))
+            XCTAssertEqual(rig.google.invocations, 1)
+
+            rig.google.completeCallback()
+            _ = await flowA.value
+
+            XCTAssertEqual(rig.signOut.signOutCount, 1)
+            XCTAssertFalse(rig.lease.isBusy(.google))
+        }
+    }
+}
+
+// MARK: - Cross-launch cleanup
+
+//  The owner record is in memory. The Google SDK's session is on disk.
+//
+//  So the ordinary case after a relaunch is: signed into Google, `owner ==
+//  nil`. Any cleanup written as `if owner != nil` does nothing there — and
+//  "there" includes deleting your account the morning after signing in, which
+//  is precisely when leaving the device signed into the backing Google
+//  account is least acceptable.
+
+@MainActor
+final class GoogleSDKCrossLaunchCleanupTests: XCTestCase {
+
+    private struct DeletionRig {
+        let store: ServerAccountStore
+        let api: StubAccountAPI
+        let tokens: InMemoryServerSessionTokenStore
+        let signOut: GoogleSDKSignOutSpy
+        let links: RecordingLinkedAccountStore
+        let section: ServerAccountSettingsSection
+    }
+
+    private func makeDeletionRig(
+        outcome: Result<AccountDeletionOutcome, Error> = .success(.deleted)
+    ) -> DeletionRig {
+        let api = StubAccountAPI()
+        api.deleteResult = outcome
+        let tokens = InMemoryServerSessionTokenStore(token: "session-token")
+        let store = ServerAccountStore(api: api, tokenStore: tokens, deviceName: "iPhone")
+        let signOut = GoogleSDKSignOutSpy()
+        let links = RecordingLinkedAccountStore(
+            initial: LinkedAccount(provider: .google, userIdentifier: "google-user")
+        )
+        let authSession = AuthSessionStore(
+            initialState: .signedIn(
+                AuthSession(provider: .google, userIdentifier: "google-user")
+            ),
+            linkedAccountStore: links,
+            googleSession: NoopGoogleSessionManager()
+        )
+        let section = ServerAccountSettingsSection(
+            store: store,
+            googleSDKSession: signOut.ownership,
+            authSession: authSession
+        )
+        return DeletionRig(
+            store: store,
+            api: api,
+            tokens: tokens,
+            signOut: signOut,
+            links: links,
+            section: section
+        )
+    }
+
+    func testDeletingTheAccountSignsOutOfGoogleEvenWithNoOwnerRecorded() async {
+        // Exactly the post-relaunch shape: a live Google session, and nothing
+        // in memory that knows whose it was.
+        let rig = makeDeletionRig()
+        XCTAssertNil(rig.signOut.owner, "a fresh launch knows of no owner")
+
+        await rig.section.deleteAccount()
+
+        XCTAssertEqual(
+            rig.signOut.signOutCount, 1,
+            "an absent owner record is not a reason to leave Google signed in"
+        )
+        XCTAssertNil(rig.signOut.owner)
+        XCTAssertNil(rig.tokens.storedToken)
+        XCTAssertNil(rig.links.linkedAccount, "the local link is dropped too")
+    }
+
+    func testAPendingDeletionAlsoCleansUpTheProviderSession() async {
+        // 202 means accepted and irreversible. The account is going away, so
+        // the local cleanup is the same as for 200.
+        let rig = makeDeletionRig(outcome: .success(.pending))
+
+        await rig.section.deleteAccount()
+
+        XCTAssertEqual(rig.signOut.signOutCount, 1)
+        XCTAssertNil(rig.links.linkedAccount)
+    }
+
+    func testAnUnconfirmedDeletionCleansUpNothing() async {
+        // A 401 is indistinguishable from a successful first attempt whose
+        // response was lost, so neither proves the account is gone. Signing
+        // out of Google or dropping the link here would act on a deletion that
+        // may never have happened.
+        let rig = makeDeletionRig(outcome: .failure(AccountAPIError.unavailable))
+
+        await rig.section.deleteAccount()
+
+        XCTAssertEqual(rig.signOut.signOutCount, 0)
+        XCTAssertNotNil(rig.links.linkedAccount)
+    }
+
+    func testSigningOutEndsTheGoogleSessionRatherThanJustForgettingIt() async {
+        // The combination that cannot be defended is "drop the owner record,
+        // leave the SDK signed in": a live session with nothing tracking it.
+        let rig = makeDeletionRig()
+
+        await rig.section.signOut()
+
+        XCTAssertEqual(rig.signOut.signOutCount, 1)
+        XCTAssertNil(rig.signOut.owner)
+        XCTAssertEqual(rig.store.state, .guest)
+    }
+
+    func testAFailedKeychainDeleteStillReportsLocalCleanupFailed() async {
+        // Google's session and PulseCue's session are different credentials.
+        // Ending the first says nothing about the second, and must not upgrade
+        // the state to a sign-out the Keychain did not actually perform.
+        let rig = makeDeletionRig()
+        rig.tokens.deleteFailure = errSecInteractionNotAllowed
+
+        await rig.section.signOut()
+
+        XCTAssertEqual(rig.signOut.signOutCount, 1, "the user's intent is honoured")
+        XCTAssertEqual(
+            rig.store.state, .localCleanupFailed,
+            "but PulseCue is not signed out while its token may remain"
+        )
+    }
+
+    func testRestoringASessionDoesNotSignOutOfGoogle() async {
+        // Restore invalidates in-flight provider flows; it does not tear down
+        // an established Google session on every launch.
+        let rig = makeDeletionRig()
+        rig.api.profileResult = .success(
+            ServerAccountProfile(
+                user: .init(id: "user-1", state: "active", displayName: nil, createdAt: 1),
+                linkedProviders: [.init(provider: "google", linkedAt: 1)],
+                session: .init(expiresAt: 1_800_000_000)
+            )
+        )
+
+        await rig.store.restore()
+
+        XCTAssertTrue(rig.store.state.isAuthenticated)
+        XCTAssertEqual(rig.signOut.signOutCount, 0)
+        XCTAssertNotNil(rig.links.linkedAccount)
+    }
+}
+
+/// A `LinkedAccountStoring` that just remembers, for asserting on.
+@MainActor
+private final class RecordingLinkedAccountStore: LinkedAccountStoring {
+    private(set) var linkedAccount: LinkedAccount?
+
+    init(initial: LinkedAccount?) {
+        linkedAccount = initial
+    }
+
+    func save(_ account: LinkedAccount) { linkedAccount = account }
+    func clear() { linkedAccount = nil }
+}
+
+/// A Google session manager that touches no SDK.
+///
+/// The Google sign-out under test is the one the *ownership* type performs;
+/// this keeps `AuthSessionStore`'s own unlink path from adding a second,
+/// unrelated call to the count.
+@MainActor
+private final class NoopGoogleSessionManager: GoogleSessionManaging {
+    func restorePreviousSignIn() async -> RestoredGoogleUser? { nil }
+    func signOut() {}
+}

@@ -33,6 +33,10 @@ struct ServerAccountSettingsSection: View {
     /// shared in the app, because the SDK's session is shared.
     var googleSDKSession: GoogleSDKSessionOwnership?
 
+    /// The local provider link, cleared when the account is confirmed deleted.
+    /// Optional so previews and focused tests can leave it out.
+    var authSession: AuthSessionStore?
+
     private var googleSession: GoogleSDKSessionOwnership {
         googleSDKSession ?? .shared
     }
@@ -230,7 +234,7 @@ struct ServerAccountSettingsSection: View {
 
     // MARK: - Actions
 
-    private func signOut() async {
+    func signOut() async {
         isWorking = true
         defer { isWorking = false }
         // The local sign-out is attempted even if the server cannot be reached
@@ -241,15 +245,35 @@ struct ServerAccountSettingsSection: View {
         // either way.
         _ = await store.logout()
 
-        // The Google SDK's own session is deliberately left alone: by existing
-        // policy a PulseCue sign-out is not a Google sign-out — unlinking is
-        // the action that ends that. But the ownership record is dropped, so a
-        // provider flow that unwinds later cannot "clean up" on behalf of a
-        // session this sign-out already ended.
-        googleSession.release()
+        // The user asked to sign out, so the provider session goes too.
+        //
+        // The previous policy — drop the ownership record but leave the SDK
+        // signed in — was the one combination that could not be defended: it
+        // left a live Google session with nothing tracking it, so no later
+        // cleanup could attribute it and the device stayed pointed at an
+        // account PulseCue no longer had any session for.
+        //
+        // `signOut`, never `disconnect`: this ends the session, it does not
+        // revoke the app's grant and force the user to re-approve scopes.
+        //
+        // Note what this does *not* change: whether PulseCue is signed out.
+        // That is decided by the Keychain alone, above. If the token could not
+        // be deleted the state stays `.localCleanupFailed`, and a successful
+        // Google sign-out does not upgrade it — they are separate credentials
+        // and only one of them is PulseCue's session.
+        googleSession.signOutCurrentSession()
     }
 
-    private func deleteAccount() async {
+    /// Drops the on-device provider link after a confirmed deletion.
+    ///
+    /// The link is what makes the UI say "Appleと連携済み". With the account
+    /// deleted, leaving it would claim a connection to an account that no
+    /// longer exists. Training data is untouched — the link never owned it.
+    private func clearLocalProviderLink() {
+        authSession?.unlinkAccount()
+    }
+
+    func deleteAccount() async {
         isWorking = true
         defer { isWorking = false }
         switch await store.deleteAccount() {
@@ -258,20 +282,27 @@ struct ServerAccountSettingsSection: View {
             //
             // With no PulseCue account left, a device still signed into the
             // Google account that backed it is the ownership split we are
-            // trying to avoid, so that session ends here too.
-            googleSession.releaseAndSignOut()
+            // trying to avoid, so that session ends here too — unconditionally,
+            // because after a relaunch the in-memory owner is nil while the
+            // SDK session is very much still there.
+            googleSession.signOutCurrentSession()
+            clearLocalProviderLink()
             deletionFailed = false
             deletionPending = false
         case .pending:
             // Accepted and irreversible — the account is going away — so the
             // local Google session is ended on the same reasoning as `.deleted`.
-            googleSession.releaseAndSignOut()
+            googleSession.signOutCurrentSession()
+            clearLocalProviderLink()
             // Accepted and irreversible, but the server has not finished
             // revoking at the provider. Saying "削除しました" here would claim
             // something the server has not confirmed.
             deletionFailed = false
             deletionPending = true
         case .notConfirmed, .notAttempted:
+            // Nothing is cleaned up here on purpose. Neither outcome proves
+            // the account is gone, and signing out of Google or dropping the
+            // local link would act on a deletion that may never have happened.
             // Neither of these proves anything about the account — a 401 looks
             // identical to a first attempt whose response was lost, and a
             // request that was never sent cannot have deleted anything. The

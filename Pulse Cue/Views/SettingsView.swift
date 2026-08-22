@@ -739,7 +739,7 @@ struct SettingsView: View {
                 // The PulseCue server account. Separate from the local link
                 // above on purpose: a local link means a provider was once
                 // attached to this device, never that a server account exists.
-                ServerAccountSettingsSection(store: serverAccount)
+                ServerAccountSettingsSection(store: serverAccount, authSession: authSession)
 
                 Button {
                     showLoginSheet = true
