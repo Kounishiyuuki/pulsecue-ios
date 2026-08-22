@@ -704,13 +704,18 @@ struct SettingsView: View {
 
     // MARK: - Account (read-only status shell)
 
-    /// Account / login entry for the auth shell. Shows the current local
-    /// usage state and opens the Login UI (PR #113) in a sheet. Apple is a
-    /// real Sign in with Apple flow (PR #114); Google Sign-In (PR #115) stays
-    /// disabled until real OAuth values replace the Info.plist placeholder.
-    /// Either way the app stays local-first — no token persistence — and
-    /// nothing here gates app usage: login is optional and existing features
-    /// stay available.
+    /// Account / login entry. Shows the current usage state and opens the
+    /// Login UI in a sheet.
+    ///
+    /// Two separate things are on display here and they are not the same
+    /// question: the **local provider link** (an Apple or Google identity
+    /// attached to this device's profile) and the **PulseCue server account**
+    /// owned by `ServerAccountStore`. A link is not an account.
+    ///
+    /// A server session token *is* persisted now, in the Keychain — the older
+    /// "no token persistence" note here described the local-only era and was
+    /// simply untrue. What has not changed: nothing gates app usage. Signing
+    /// in is optional, and every local feature works without it.
     private var accountCard: some View {
         glassCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -816,13 +821,49 @@ struct SettingsView: View {
 
     /// The footnote under the local link card.
     ///
-    /// Split on whether a *server-confirmed* session exists — not on whether a
-    /// local link exists, which says nothing about the server.
+    /// Keyed to the *server* state, and deliberately not a two-way split. The
+    /// distinction that has to survive here is between "there is no account"
+    /// and "we cannot tell right now" — collapsing those is how a UI ends up
+    /// telling someone their account does not exist because their train went
+    /// into a tunnel.
+    ///
+    /// The local link is a separate fact and is stated separately: it lives on
+    /// this device either way, and it never implies a server account.
     private var localLinkFootnote: String {
-        if serverAccount.state.isAuthenticated {
-            return "Apple・Googleとの連携はこの端末内のプロフィールに保存されます。PulseCueアカウントは作成済みで、アカウントの削除は「アカウント」セクションから行えます。トレーニング記録などの端末内データはまだ同期・バックアップされません。連携を解除しても端末内データは削除されません。"
+        let base = "Apple・Googleとの連携はこの端末内のプロフィールに保存されます。"
+        let localData = "連携を解除しても、トレーニング記録などの端末内データは削除されません。"
+
+        switch serverAccount.state {
+        case .authenticated:
+            // An account demonstrably exists, so promising the opposite would
+            // be false. Sync still does not, and is not implied.
+            return base
+                + "PulseCueアカウントは作成済みです（アカウントの削除は「アカウント」セクションから行えます）。"
+                + "トレーニング記録などの端末内データは、まだ同期・バックアップされません。"
+                + localData
+
+        case .guest, .notConfigured:
+            // Confirmed: no server session on this device.
+            return base
+                + "PulseCueアカウントは作成されず、データが別端末と同期・バックアップされることはありません。"
+                + localData
+
+        case .restoring, .signingIn, .unreachable:
+            // Not "no account" — unknown. The device may well hold a session
+            // that simply could not be confirmed.
+            return base
+                + "PulseCueアカウントの状態は現在確認できません。"
+                + "いずれの場合も、データが別端末と同期・バックアップされることはありません。"
+                + localData
+
+        case .localCleanupFailed:
+            // Sign-out did not finish locally: a credential may still be on
+            // the device, so neither "signed out" nor "no account" is true.
+            return base
+                + "サインアウトが完了しておらず、この端末にサインイン情報が残っている可能性があります。"
+                + "データが別端末と同期・バックアップされることはありません。"
+                + localData
         }
-        return "Apple・Googleとの連携はこの端末内のプロフィールに保存されます。PulseCueアカウントは作成されず、データが別端末と同期・バックアップされることはありません。連携を解除しても、トレーニング記録などの端末内データは削除されません。"
     }
 
     // MARK: - Help / onboarding replay

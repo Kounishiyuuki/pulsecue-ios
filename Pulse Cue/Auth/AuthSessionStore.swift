@@ -145,9 +145,15 @@ final class AuthSessionStore: ObservableObject {
 
     /// Detaches the provider identity from this device and returns to guest.
     ///
-    /// This is *not* account deletion and *not* data deletion: there is no
-    /// server account to delete, and every workout, routine, session, gym and
-    /// health entry stays exactly where it was.
+    /// This is *not* account deletion and *not* data deletion. Every workout,
+    /// routine, session, gym and health entry stays exactly where it was.
+    ///
+    /// It also does not touch the PulseCue server account, which may well
+    /// exist — `ServerAccountStore` owns that, and deleting it is a separate,
+    /// explicit action. The older note here said there was no server account
+    /// to delete; that stopped being true when the account layer landed, and
+    /// leaving it would have described unlinking as more final than it is.
+    /// Removing the local link only forgets which provider this device showed.
     func unlinkAccount() {
         if linkedAccountStore.linkedAccount?.provider == .google {
             googleSession.signOut()

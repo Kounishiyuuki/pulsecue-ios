@@ -143,27 +143,19 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
             PulseSectionHeader("続ける方法", icon: "rectangle.portrait.and.arrow.right")
 
-            // A plain button, deliberately not `SignInWithAppleButton`.
+            // Apple's own control, wrapped — see `AppleSignInButton`.
             //
-            // That control starts Apple's authorization the instant it is
-            // tapped, which leaves no room for the Keychain check that decides
-            // whether a sign-in may happen at all. Going through the
-            // coordinator puts the permit first and the SDK second.
-            Button {
-                Task { await startSignIn(.apple) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "apple.logo")
-                    Text("Appleでサインイン")
-                        .font(.headline)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
+            // Deliberately not `SignInWithAppleButton`, which begins the
+            // authorization the instant it is tapped and leaves no room for
+            // the Keychain preflight. This one only reports the tap, so the
+            // permit still comes first and the SDK second.
+            AppleSignInButton {
+                await startSignIn(.apple)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.black)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
             .disabled(isSigningIn)
+            .opacity(isSigningIn ? 0.5 : 1)
 
             Button("ゲストで続ける") {
                 authSession.continueAsGuest()
@@ -288,6 +280,11 @@ struct LoginView: View {
             return "この端末ではアカウント機能をまだ利用できません。"
         case .serverRefused:
             return "サインインできませんでした。もう一度お試しください。"
+        case .superseded:
+            // Sign-out, deletion or a launch restore overtook this attempt.
+            // The user asked for that newer thing and got it, so this is not
+            // an error to apologise for — it explains why the tap did nothing.
+            return "サインアウトなどの操作が行われたため、このサインインは取り消されました。"
         }
     }
 }

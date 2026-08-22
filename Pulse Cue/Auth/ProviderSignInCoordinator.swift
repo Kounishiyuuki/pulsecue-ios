@@ -85,6 +85,11 @@ enum ProviderSignInOutcome: Equatable {
 }
 
 enum ProviderSignInRefusal: Equatable {
+    /// A logout, deletion or restore retired this flow while its sheet was open.
+    ///
+    /// Not a failure the user caused, and deliberately not reported as one:
+    /// they asked for the newer thing, and they got it.
+    case superseded
     /// A server session is already held; sign out first.
     case existingSession
     /// The Keychain could not be read, so none can be ruled out.
@@ -105,19 +110,24 @@ final class ProviderSignInCoordinator {
     private let google: any GoogleAuthorizing
     private let googleConfigurationIsUsable: () -> Bool
     private let recordLink: (LinkedAccount) -> Void
+    private let signOutGoogleSDK: @MainActor () -> Void
 
     init(
         account: ServerAccountStore,
         apple: any AppleAuthorizing,
         google: any GoogleAuthorizing,
         googleConfigurationIsUsable: @escaping () -> Bool,
-        recordLink: @escaping (LinkedAccount) -> Void
+        recordLink: @escaping (LinkedAccount) -> Void,
+        signOutGoogleSDK: @escaping @MainActor () -> Void = {
+            GoogleSessionManager.shared.signOut()
+        }
     ) {
         self.account = account
         self.apple = apple
         self.google = google
         self.googleConfigurationIsUsable = googleConfigurationIsUsable
         self.recordLink = recordLink
+        self.signOutGoogleSDK = signOutGoogleSDK
     }
 
     func signInWithApple() async -> ProviderSignInOutcome {
@@ -128,6 +138,15 @@ final class ProviderSignInCoordinator {
             case .failed:
                 return .providerFailed
             case let .authorized(authorization):
+                // Retired while Apple's sheet was open. Drop the values and
+                // stop: nothing local was changed by the authorization, so
+                // unlike Google there is no provider state to put back.
+                // Apple's credential is not a persistent client-side session,
+                // and a fake sign-out here would only invent a state change.
+                guard self.account.isProviderSignInCurrent(permit) else {
+                    return .refused(.superseded)
+                }
+
                 let signedIn = await self.account.signInWithApple(
                     permit: permit,
                     identityToken: authorization.identityToken,
@@ -165,6 +184,16 @@ final class ProviderSignInCoordinator {
             case .failed:
                 return .providerFailed
             case let .authorized(authorization):
+                // Retired while the sheet was open. Google is the case that
+                // needs cleaning up after: by now the SDK has already switched
+                // the device's selected account, so stopping the backend
+                // exchange alone would leave PulseCue holding one account and
+                // the Google SDK pointing at another.
+                guard self.account.isProviderSignInCurrent(permit) else {
+                    self.signOutStaleGoogleSession()
+                    return .refused(.superseded)
+                }
+
                 let signedIn = await self.account.signInWithGoogle(
                     permit: permit,
                     idToken: authorization.idToken
@@ -182,6 +211,22 @@ final class ProviderSignInCoordinator {
                 return .signedIn
             }
         }
+    }
+
+    /// Undoes a stale Google authorization's effect on the SDK's own state.
+    ///
+    /// Guarded, because the naive version is a bug of its own: if a *newer*
+    /// Google sign-in has already started and legitimately selected an
+    /// account, a late cleanup from the old flow would sign the user out of
+    /// the one they actually wanted. Only run when no Google flow currently
+    /// owns that state.
+    ///
+    /// Best-effort by nature — `signOut` is local and cannot fail usefully —
+    /// and never `disconnect`, which revokes the app's grant entirely and
+    /// would make the user re-approve scopes they never withdrew.
+    private func signOutStaleGoogleSession() {
+        guard !account.hasActiveProviderSignIn(for: .google) else { return }
+        signOutGoogleSDK()
     }
 
     /// Takes the permit, runs the flow, and always gives the permit back.

@@ -1137,6 +1137,14 @@ final class ControllableAccountAPI: PulseCueAccountAPI, @unchecked Sendable {
     private(set) var profileTokens: [String] = []
     private(set) var deleteTokens: [String] = []
 
+    /// Backend sign-in exchanges actually reached.
+    ///
+    /// Counted at entry, before the gate, so a call that parks still counts —
+    /// the point is that the server was contacted at all, which is the moment
+    /// a session can be minted.
+    private(set) var appleSignInCount = 0
+    private(set) var googleSignInCount = 0
+
     /// Suspends the named call until `release` is invoked for it.
     var gated: Set<String> = []
 
@@ -1204,11 +1212,13 @@ final class ControllableAccountAPI: PulseCueAccountAPI, @unchecked Sendable {
     }
 
     func signInWithApple(_ request: AppleSignInRequest) async throws -> ServerSessionResponse {
+        lock.lock(); appleSignInCount += 1; lock.unlock()
         await waitIfGated("apple")
         return try appleResult.get()
     }
 
     func signInWithGoogle(_ request: GoogleSignInRequest) async throws -> ServerSessionResponse {
+        lock.lock(); googleSignInCount += 1; lock.unlock()
         await waitIfGated("google")
         return try googleResult.get()
     }

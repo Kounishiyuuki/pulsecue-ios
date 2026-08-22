@@ -97,8 +97,23 @@ enum LogoutResult: Equatable {
 /// it ends. Its existence is what stops a second provider flow starting
 /// alongside the first.
 struct ProviderSignInPermit: Equatable {
+    /// Unique per permit, and never reused.
+    ///
+    /// Identity rather than a flag, because "a permit is outstanding" is not
+    /// the question. After a logout invalidates permit A and the user signs in
+    /// again as permit B, A's callback can still arrive — and a boolean
+    /// reservation would wave it through, because *something* is outstanding.
     fileprivate let id: UInt64
+
     let provider: AuthProviderKind
+
+    /// The provider-flow epoch this permit was minted in.
+    ///
+    /// Every authoritative operation — restore, logout, account deletion —
+    /// advances the epoch, which retires every permit issued before it. The
+    /// second half of a two-part check: `id` catches a permit that was replaced,
+    /// `epoch` catches one that was invalidated with nothing put in its place.
+    fileprivate let epoch: UInt64
 
     #if DEBUG
     /// A permit the store will always reject.
@@ -110,7 +125,7 @@ struct ProviderSignInPermit: Equatable {
     static func rejectedPlaceholder(
         provider: AuthProviderKind
     ) -> ProviderSignInPermit {
-        ProviderSignInPermit(id: .max, provider: provider)
+        ProviderSignInPermit(id: .max, provider: provider, epoch: .max)
     }
     #endif
 }
@@ -151,6 +166,19 @@ final class ServerAccountStore: ObservableObject {
     /// across provider UI the app does not control.
     private var activePermit: ProviderSignInPermit?
     private var nextPermitID: UInt64 = 0
+
+    /// Advanced by every authoritative operation, retiring outstanding permits.
+    ///
+    /// The provider sheet belongs to Apple or Google, not to PulseCue. It can
+    /// stay on screen for as long as the user likes, and the app keeps running
+    /// underneath it — so "sign out" or "delete my account" can complete while
+    /// an authorization is still open. Without this, the callback that arrives
+    /// afterwards finds an empty Keychain, exchanges its credential, and
+    /// *resurrects* the session the user just deliberately ended.
+    ///
+    /// So authority flows one way: a later operation retires an earlier permit,
+    /// and a retired permit can never do anything again.
+    private var providerFlowEpoch: UInt64 = 0
 
     init(
         api: any PulseCueAccountAPI,
@@ -240,7 +268,11 @@ final class ServerAccountStore: ObservableObject {
 
         case .absent:
             nextPermitID &+= 1
-            let permit = ProviderSignInPermit(id: nextPermitID, provider: provider)
+            let permit = ProviderSignInPermit(
+                id: nextPermitID,
+                provider: provider,
+                epoch: providerFlowEpoch
+            )
             activePermit = permit
             return .allowed(permit)
         }
@@ -251,14 +283,63 @@ final class ServerAccountStore: ObservableObject {
     /// Must be called for success, failure, cancellation and SDK error alike —
     /// a leaked permit would leave the app permanently `busy` and unable to
     /// sign in at all.
+    ///
+    /// Matched on identity, never blind. A stale flow's `defer` runs whenever
+    /// its callback finally returns, which may be long after a logout retired
+    /// it and the user started a fresh sign-in: clearing `activePermit`
+    /// unconditionally there would cancel the *new* flow on the old one's way
+    /// out.
     func finishProviderSignIn(_ permit: ProviderSignInPermit) {
         guard activePermit == permit else { return }
         activePermit = nil
     }
 
-    /// Whether this permit is the outstanding one.
-    private func isHolding(_ permit: ProviderSignInPermit) -> Bool {
-        activePermit == permit
+    /// Whether a provider flow may still act on the account.
+    ///
+    /// Checked by the coordinator after the provider SDK returns, so a stale
+    /// authorization stops before it is handed to a sign-in call at all.
+    func isProviderSignInCurrent(_ permit: ProviderSignInPermit) -> Bool {
+        isHolding(permit, as: permit.provider)
+    }
+
+    /// Whether a *live* provider flow for this provider is outstanding.
+    ///
+    /// For deciding whether a stale flow's cleanup would step on a newer
+    /// flow's toes. Not a permission check — nothing may act on the account
+    /// from this alone.
+    func hasActiveProviderSignIn(for provider: AuthProviderKind) -> Bool {
+        activePermit?.provider == provider
+    }
+
+    /// Retires every outstanding provider flow.
+    ///
+    /// Called at the top of each authoritative operation, **before its first
+    /// `await`**. That ordering is the whole protection: once the operation
+    /// suspends, a provider callback can run, and by then the permit has to be
+    /// dead already.
+    private func invalidateActiveProviderSignIn() {
+        providerFlowEpoch &+= 1
+        activePermit = nil
+    }
+
+    /// Whether this permit is outstanding, for this provider, in this epoch.
+    ///
+    /// Three questions, because they fail in three different ways:
+    ///
+    ///   `provider` — an Apple permit handed to the Google exchange, which
+    ///     would sign the user in through a credential the permit never
+    ///     authorized.
+    ///   `epoch` — a permit retired by a logout, delete or restore, with
+    ///     nothing put in its place.
+    ///   `activePermit ==` — a permit that was replaced by a newer one, which
+    ///     an "is anything outstanding?" test would let through (ABA).
+    private func isHolding(
+        _ permit: ProviderSignInPermit,
+        as provider: AuthProviderKind
+    ) -> Bool {
+        permit.provider == provider
+            && permit.epoch == providerFlowEpoch
+            && activePermit == permit
     }
 
     // MARK: - Launch restore
@@ -273,6 +354,10 @@ final class ServerAccountStore: ObservableObject {
     /// The third and fourth lines are the ones that matter. They look similar
     /// from the call site and mean opposite things.
     func restore() async {
+        // Retires any provider flow whose sheet is still open. Whatever that
+        // authorization eventually returns, the session it would create is not
+        // the one this restore is about to establish.
+        invalidateActiveProviderSignIn()
         let generation = beginOperation()
 
         guard api.isConfigured else {
@@ -345,7 +430,7 @@ final class ServerAccountStore: ObservableObject {
         authorizationCode: String,
         rawNonce: String
     ) async -> Bool {
-        guard isHolding(permit) else { return false }
+        guard isHolding(permit, as: .apple) else { return false }
         guard api.isConfigured else {
             fail(.notConfigured)
             return false
@@ -356,7 +441,7 @@ final class ServerAccountStore: ObservableObject {
         }
 
         let device = deviceName
-        return await completeSignIn(permit: permit) { api in
+        return await completeSignIn(permit: permit, as: .apple) { api in
             try await api.signInWithApple(
                 AppleSignInRequest(
                     identityToken: identityToken,
@@ -378,7 +463,7 @@ final class ServerAccountStore: ObservableObject {
         permit: ProviderSignInPermit,
         idToken: String
     ) async -> Bool {
-        guard isHolding(permit) else { return false }
+        guard isHolding(permit, as: .google) else { return false }
         guard api.isConfigured else {
             fail(.notConfigured)
             return false
@@ -389,7 +474,7 @@ final class ServerAccountStore: ObservableObject {
         }
 
         let device = deviceName
-        return await completeSignIn(permit: permit) { api in
+        return await completeSignIn(permit: permit, as: .google) { api in
             try await api.signInWithGoogle(
                 GoogleSignInRequest(idToken: idToken, deviceName: device)
             )
@@ -403,6 +488,7 @@ final class ServerAccountStore: ObservableObject {
     /// issued it hands the token back rather than dropping it.
     private func completeSignIn(
         permit: ProviderSignInPermit,
+        as provider: AuthProviderKind,
         _ exchange: (any PulseCueAccountAPI) async throws -> ServerSessionResponse
     ) async -> Bool {
         // The second gate, and not redundant with `prepareProviderSignIn`.
@@ -412,7 +498,11 @@ final class ServerAccountStore: ObservableObject {
         // anything could have happened here meanwhile — a restore completing,
         // a session arriving. Re-reading now closes that window, so a token
         // that appeared while the sheet was up is never overwritten.
-        guard isHolding(permit) else { return false }
+        //
+        // The permit is re-validated here too, not only in the coordinator. A
+        // logout that landed while the sheet was open has already retired it,
+        // and this is the layer that must not be bypassable.
+        guard isHolding(permit, as: provider) else { return false }
         switch tokenStore.read() {
         case .token:
             fail(.existingSessionHeld)
@@ -557,6 +647,10 @@ final class ServerAccountStore: ObservableObject {
     /// Local training data is untouched.
     @discardableResult
     func logout() async -> LogoutResult {
+        // Before the first `await`, and before anything else: a sign-out must
+        // retire an open authorization, or its callback signs the user back in
+        // moments after they asked to leave.
+        invalidateActiveProviderSignIn()
         let generation = beginOperation()
         let token = tokenStore.tokenIfPresent()
 
@@ -586,6 +680,9 @@ final class ServerAccountStore: ObservableObject {
     /// account is gone; `202` means accepted and unfinished; anything else
     /// means the app does not know.
     func deleteAccount() async -> AccountDeletionResult {
+        // As with logout, and for a worse failure: a stale callback here would
+        // create a brand-new session for an account the user just deleted.
+        invalidateActiveProviderSignIn()
         let generation = beginOperation()
 
         // Read the token explicitly rather than through `tokenIfPresent`: an

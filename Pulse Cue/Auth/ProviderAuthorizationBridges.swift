@@ -40,12 +40,44 @@ final class AppleAuthorizationBridge: NSObject, AppleAuthorizing {
     private var rawNonce: String?
     /// Held only for the lifetime of one authorization.
     private var controller: ASAuthorizationController?
+    /// Resolved once per authorization, before anything is presented.
+    private var anchor: ASPresentationAnchor?
+
+    private let anchorProvider: () -> ASPresentationAnchor?
+    private let startRequests: (ASAuthorizationController) -> Void
+
+    /// Both dependencies are injected so the no-anchor path is testable
+    /// without a window, and so a test can prove `performRequests` was never
+    /// called rather than inferring it from an outcome.
+    init(
+        anchorProvider: @escaping () -> ASPresentationAnchor? = {
+            ProviderPresentation.keyWindow()
+        },
+        startRequests: @escaping (ASAuthorizationController) -> Void = {
+            $0.performRequests()
+        }
+    ) {
+        self.anchorProvider = anchorProvider
+        self.startRequests = startRequests
+        super.init()
+    }
 
     func authorize() async -> ProviderAuthorizationOutcome<AppleAuthorization> {
         // A second concurrent authorization would overwrite the continuation
         // and strand the first. The coordinator's permit already prevents it;
         // this refuses rather than relying on that.
         guard continuation == nil else { return .failed }
+
+        // Resolved up front, and a missing anchor stops the flow here.
+        //
+        // The previous version fell back to a bare `ASPresentationAnchor()`.
+        // That is an empty, unattached window: Apple has nowhere real to
+        // present, and the user is left with an authorization that either
+        // never appears or appears detached from the app — while PulseCue
+        // holds a permit and waits for a callback that may never come.
+        // Refusing to start is the honest outcome.
+        guard let resolvedAnchor = anchorProvider() else { return .failed }
+        anchor = resolvedAnchor
 
         // Apple receives sha256(rawNonce) and echoes it inside the signed
         // identity token; the server receives the raw value and recomputes the
@@ -63,7 +95,7 @@ final class AppleAuthorizationBridge: NSObject, AppleAuthorizing {
             controller.delegate = self
             controller.presentationContextProvider = self
             self.controller = controller
-            controller.performRequests()
+            self.startRequests(controller)
         }
     }
 
@@ -72,6 +104,7 @@ final class AppleAuthorizationBridge: NSObject, AppleAuthorizing {
         continuation = nil
         controller = nil
         rawNonce = nil
+        anchor = nil
         pending?.resume(returning: outcome)
     }
 }
@@ -126,7 +159,11 @@ extension AppleAuthorizationBridge: ASAuthorizationControllerPresentationContext
     func presentationAnchor(
         for controller: ASAuthorizationController
     ) -> ASPresentationAnchor {
-        ProviderPresentation.keyWindow() ?? ASPresentationAnchor()
+        // Resolved before `performRequests`, so by the time Apple asks there
+        // is always a real one. The fallback exists only because the delegate
+        // signature is non-optional; it is unreachable, and re-resolving a
+        // window here would reintroduce the empty-window case this removed.
+        anchor ?? ASPresentationAnchor()
     }
 }
 

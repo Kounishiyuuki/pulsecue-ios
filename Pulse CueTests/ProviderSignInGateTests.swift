@@ -452,3 +452,32 @@ final class ProviderSignInLinkRecordingTests: XCTestCase {
         XCTAssertEqual(gate.account.state, .guest, "cancelling is not a failure")
     }
 }
+
+// MARK: - H: no anchor, no authorization
+
+@MainActor
+final class AppleAuthorizationAnchorTests: XCTestCase {
+
+    func testNoAuthorizationIsStartedWithoutAPresentationAnchor() async {
+        // The bridge used to fall back to a bare `ASPresentationAnchor()` — an
+        // empty, unattached window. Apple then has nowhere real to present, and
+        // the app sits holding a permit waiting for a callback that may never
+        // arrive. Refusing to start is the only honest option.
+        var performRequestsCount = 0
+        let bridge = AppleAuthorizationBridge(
+            anchorProvider: { nil },
+            startRequests: { _ in performRequestsCount += 1 }
+        )
+
+        let outcome = await bridge.authorize()
+
+        guard case .failed = outcome else {
+            return XCTFail("expected .failed, got \(outcome)")
+        }
+        XCTAssertEqual(
+            performRequestsCount, 0,
+            "no authorization may be started without a real anchor"
+        )
+    }
+
+}
