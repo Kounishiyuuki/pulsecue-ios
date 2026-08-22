@@ -13,6 +13,7 @@ struct ContentView: View {
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var authSession: AuthSessionStore
+    @EnvironmentObject var serverAccount: ServerAccountStore
 
     @State private var selectedTab: AppTab = .today
     @StateObject private var runnerPresenter = RunnerPresenter()
@@ -69,6 +70,11 @@ struct ContentView: View {
             // and a link the provider no longer honours quietly falls back to
             // guest.
             await authSession.restoreLinkedAccount()
+            // Confirm any stored PulseCue session with the server. A rejected
+            // session is discarded; a network failure keeps it and leaves the
+            // account state unknown rather than signing the user out for
+            // being offline. Neither outcome affects local features.
+            await serverAccount.restore()
         }
         // Keep the cover's presentation in lock-step with the authoritative
         // workout state: a workout becoming active presents it; a finished one
@@ -185,4 +191,10 @@ private enum PulseCueUITestFixtureSeeder {
         .environmentObject(SettingsStore())
         .environmentObject(RunnerViewModel(settings: SettingsStore()))
         .environmentObject(AuthSessionStore())
+        .environmentObject(
+            ServerAccountStore(
+                api: PulseCueAccountAPIClient(configuration: PulseCueAPIConfiguration(rawValue: nil)),
+                tokenStore: InMemoryServerSessionTokenStore()
+            )
+        )
 }
