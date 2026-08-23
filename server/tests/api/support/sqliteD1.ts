@@ -30,6 +30,7 @@ const MIGRATION_FILES = [
 	"0002_auth_nonces.sql",
 	"0003_provider_credentials.sql",
 	"0004_account_deletions.sql",
+	"0005_workout_sync.sql",
 ];
 
 // `.href`, not the URL object: this package pulls in both the Workers and
@@ -59,13 +60,29 @@ interface SqliteLike {
 
 /** A prepared statement that still knows how to execute itself. */
 interface BoundStatement extends SqlStatement {
-	readonly __execute: () => void;
+	readonly __execute: () => unknown[];
+}
+
+/** One statement as D1 would meter it. */
+export interface RecordedQuery {
+	sql: string;
+	/** Bind parameters. D1 allows at most 100 per query. */
+	bindings: number;
 }
 
 export interface TestDatabase extends SqlDatabase {
 	close(): void;
 	/** Row count helper for assertions about partial state. */
 	count(table: string): Promise<number>;
+	/**
+	 * Every statement issued, including each one inside a `batch()`.
+	 *
+	 * D1 meters batched statements individually against the 1000-per-
+	 * invocation limit, so a test that counted a batch as one query would
+	 * report a budget the production platform does not agree with.
+	 */
+	recorded(): RecordedQuery[];
+	resetRecording(): void;
 }
 
 /**
@@ -82,21 +99,41 @@ export async function createTestDatabase(): Promise<TestDatabase> {
 	const db = new DatabaseSync(":memory:");
 	db.exec(readMigrationSql());
 
+	const log: RecordedQuery[] = [];
+	const record = (sql: string, bound: unknown[]) => {
+		log.push({ sql, bindings: bound.length });
+	};
+
 	const makeStatement = (sql: string, bound: unknown[]): BoundStatement => ({
 		bind: (...values: unknown[]) => makeStatement(sql, values),
 		first: async <T>() => {
+			record(sql, bound);
 			const row = db.prepare(sql).get(...bound);
 			return row === undefined ? null : (plain(row) as T);
 		},
 		all: async <T>() => ({
-			results: db
+			results: (record(sql, bound), db)
 				.prepare(sql)
 				.all(...bound)
 				.map(plain) as T[],
 		}),
-		run: async () => db.prepare(sql).run(...bound),
+		run: async () => {
+			record(sql, bound);
+			return db.prepare(sql).run(...bound);
+		},
 		__execute: () => {
-			db.prepare(sql).run(...bound);
+			record(sql, bound);
+			// D1 returns each batched statement's rows, and the upload path
+			// now reads its sequence out of the batch itself. A double that
+			// dropped them would make that code untestable here.
+			const statement = db.prepare(sql);
+			if (/^\s*select/i.test(sql)) {
+				return (statement.all(...bound) as unknown[]).map((row) => ({
+					...(row as Record<string, unknown>),
+				}));
+			}
+			statement.run(...bound);
+			return [];
 		},
 	});
 
@@ -107,19 +144,25 @@ export async function createTestDatabase(): Promise<TestDatabase> {
 		// what lets a test prove the production code is atomic.
 		batch: async (statements: SqlStatement[]) => {
 			db.exec("BEGIN");
+			let rows: unknown[][];
 			try {
-				for (const statement of statements) {
-					(statement as BoundStatement).__execute();
-				}
+				rows = statements.map((statement) =>
+					(statement as BoundStatement).__execute(),
+				);
 				db.exec("COMMIT");
 			} catch (error) {
 				db.exec("ROLLBACK");
 				throw error;
 			}
-			return statements.map(() => ({
-				results: [],
+			return rows.map((results) => ({
+				results,
 				success: true,
 			})) as never;
+		},
+
+		recorded: () => [...log],
+		resetRecording: () => {
+			log.length = 0;
 		},
 
 		count: async (table: string) => {

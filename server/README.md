@@ -374,6 +374,8 @@ Routes:
 | `POST /v1/auth/logout` | bearer session |
 | `POST /v1/auth/logout-all` | bearer session |
 | `DELETE /v1/me` | bearer session |
+| `POST /v1/sync/workouts` | bearer session |
+| `GET /v1/sync/workouts` | bearer session |
 
 ### Authenticated requests
 
@@ -453,6 +455,202 @@ follow-up rather than half-built.
 `sessions.last_used_at` is likewise still set only at creation: touching it on
 every authenticated request is a write per read, and nothing consumes the
 column yet.
+
+### First sync slice — workouts
+
+`POST /v1/sync/workouts` uploads workout sessions and step results;
+`GET /v1/sync/workouts?since=<seq>` reads back everything newer than a cursor.
+
+**This is not full multi-device sync.** There is no conflict resolution beyond
+last-write-wins per record, and no client pulls from it yet. Calling it
+"同期完了" in the UI would be a promise a user only discovers is false when
+they lose a phone — the honest description is an *account migration and first
+backup slice*.
+
+Scope is deliberately two tables. Routines, gyms, day logs and meals are not
+here: a sync design is easier to get right on the smallest genuinely useful
+thing, and everything added later hangs off the same `user_id` + `change_seq`
+shape.
+
+#### Limits, and where they come from
+
+One upload writes at most **500 records, sessions and step results counted
+together**. Not 500 of each: D1 meters every statement in a batch against its
+1000-queries-per-invocation limit, so two independent 500s allowed a request
+whose batch alone issued 1002 statements — accepted by the API and then
+refused by the platform. The worst case at the combined cap is counted rather
+than estimated (2 auth + 6 session preflight + 7 tombstone preflight + 502
+batch = 517), and a test measures it against both D1 ceilings.
+
+Id lookups are chunked at 90 per query, because D1 allows at most 100 bind
+parameters per query and each lookup also binds the user id.
+
+The limit lives in the repository, not only in the route. An internal caller
+that wrote an oversized sequence would produce data the pull path cannot
+deliver — permanent loss for that user — so the rule sits where every caller
+must pass it.
+
+#### Conflict policy, v1: a tombstone is terminal
+
+Once a record is deleted on the server, that id is finished. An upload
+composed before the delete still carries the record as live, and a plain
+upsert would clear `deleted_at`; because the resurrection gets its own
+sequence, every device would then pull the record back. The delete would undo
+itself with nothing reporting a problem.
+
+So a live upload targeting a tombstoned id is refused with **409
+`record_deleted`**. Re-sending the same delete is fine and idempotent. A
+record that genuinely needs to come back gets a new id, which is unambiguous
+in a way that reviving one never is.
+
+Client clocks are deliberately not used to decide this. Real conflict
+resolution belongs to a later sync layer; guessing at it now with `updatedAt`
+would be worse than a rule that is simple and honest.
+
+#### A session tombstone and its step results
+
+Deleting a session tombstones **that session row only**. Its step results are
+separate sync records with their own ids, and they keep whatever state they
+were last uploaded with — they are not tombstoned as a side effect, and their
+`change_seq` does not move.
+
+A client must therefore treat the session tombstone as authoritative for the
+whole session: do not show step results whose parent session is tombstoned,
+even though those rows still arrive as live. The alternative — cascading the
+tombstone across every child on the server — would write an unbounded number
+of rows inside one upload's sequence, which is exactly the shape the row cap
+exists to prevent.
+
+For the same reason a live update to a child step result is still accepted
+after its parent has been tombstoned: the composite foreign key requires the
+parent row to exist, and a tombstone is still a row. Both behaviours are
+pinned by tests.
+
+Terminal-tombstone is per id, not per tree: tombstoning a session does not
+make its children's ids terminal.
+
+#### An account that stops being active
+
+Both endpoints refuse a user whose account is `deleting`, and they do not
+rely on the session middleware to have caught it: another request can start a
+deletion after this one was authenticated. Writes are refused by database
+triggers, inside the same transaction as the write, so there is no window
+between the check and the commit. Reads join `users` in the query that
+produces the data.
+
+Both endpoints also re-check the account **after** everything a pull response
+would contain has been read. The per-query guards each refuse a deleting
+account, but they ask at different moments, and D1 does not run a pull's
+queries in one read transaction — so a deletion committing between them would
+otherwise yield a page of sessions from before and no step results from
+after, returned as a 200 that looks exactly like "you are caught up". The
+final check throws instead, and nothing read so far reaches the client: no
+rows, no cursor, no `hasMore`. A hard-deleted account counts as not active,
+and nothing in this schema moves an account back to `active`.
+
+#### A sequence larger than the write limit
+
+Cannot be produced through the repository. If one is ever found anyway, the
+pull **fails** rather than returning the first page and advancing the cursor
+past the rest — that would destroy the remainder permanently while reporting
+success. A sync that fails loudly can be retried; data that has been skipped
+cannot be recovered.
+
+It is a **500 `sync_sequence_invariant_violation`**, deliberately not a 503.
+Retrying cannot help: the stored data violates an invariant the write path
+cannot produce, so it fails identically every time until somebody looks at
+it. The response carries no rows, no cursor and no SQL — only a code to
+search the logs for.
+
+#### Duplicate ids in one request
+
+Refused with 400. Resolving them by statement order would make the outcome
+depend on something neither the client nor a reviewer can predict.
+
+#### Ids come from the client
+
+The app already generates UUIDs offline. Rewriting them on upload would make
+the device and the server disagree about what a record is called, which makes
+a retry indistinguishable from a new record — so the client's id is the id.
+
+That makes ownership the thing to get right, and it is why the primary key is
+**`(user_id, id)`** rather than `id`:
+
+- Two users can hold the same UUID without either overwriting the other. With
+  a bare `id` key, a client that replayed someone else's UUID would land on
+  their row. A test uploads the same UUID as two users and asserts each sees
+  only their own.
+- Every query is forced to carry a user. There is no way to write one that
+  "forgets" whose data it is reading, because the key does not permit it.
+
+`step_results` references its session through `(user_id, session_id)`, so a
+step result cannot point at another user's session — unrepresentable rather
+than merely discouraged.
+
+#### The sequence and the rows move together
+
+The failure this design exists to prevent: writing a synced row in one commit
+and bumping `user_change_seq` in another. A reader then sees either a
+published sequence with no rows behind it, or rows a pull never returns
+because the cursor did not advance past them. Both are silent data loss.
+
+So an upload is exactly one `db.batch()`:
+
+1. `UPDATE user_change_seq SET seq = seq + 1`
+2. every row inserted with `change_seq = (SELECT seq FROM user_change_seq …)`
+
+Statement 1 runs first inside the transaction, so the subquery reads the new
+value. If anything fails, D1 rolls the whole batch back and neither the
+sequence nor a single row moved. A test forces a mid-batch constraint failure
+and asserts the cursor is unchanged.
+
+An **empty** upload does not advance the sequence at all: handing other
+devices a cursor move with nothing behind it would be a pointless round trip
+that looks like a change.
+
+#### Pulling in pages
+
+`GET /v1/sync/workouts?since=<seq>` returns at most 500 rows per table and a
+`changeSeq` the client may store, plus `hasMore`.
+
+The cursor is the subtle part. An earlier version returned the user's
+*current* sequence regardless of how much it had actually sent, so a pull that
+hit the row limit told the client "you are up to date at seq N" while
+withholding rows below N — the client would store N and never ask for them
+again. Permanent, silent data loss.
+
+A truncated page now reports the last sequence it delivered **completely**,
+and sets `hasMore`. Rows are read one past the limit to detect truncation, and
+any partially-covered sequence is dropped rather than half-sent. Because one
+upload writes at most 500 rows per table at a single sequence — the same
+number as the page limit — a single sequence always fits, so the cursor always
+advances and paging cannot stall.
+
+The two tables paginate independently, so the returned cursor is the lower of
+the two. Re-reading a few rows next time is harmless (the client applies them
+idempotently); skipping any is not.
+
+A sequence bigger than one page is handled explicitly rather than relied upon
+not to happen: it is delivered **whole**, over the limit. Dropping it would
+leave the page empty *and* the cursor unmoved — the client would ask the same
+question forever — and splitting it would strand the remainder. In practice
+one upload writes at most 500 rows per table at a single sequence, the same as
+the page limit, so this only opens if the limit is set lower; making it
+correct anyway means the two numbers are not a silent coupling someone can
+break later. A test walks a whole stack of oversized batches and asserts the
+cursor advances on every round.
+
+#### Retries are safe
+
+The guest migration will be retried over flaky networks, so a retry has to
+converge rather than accumulate. Uploads upsert on `(user_id, id)`: three
+identical uploads leave one row. The sequence *does* advance each time, which
+is correct — the rows really were rewritten, and a cursor that skipped them
+would be the bug.
+
+Deletes are tombstones (`deleted_at`), not row removals, so another device
+learns the record is gone. Hard deletion happens with the account, through the
+same cascade as everything else.
 
 ### Account deletion
 
