@@ -3,13 +3,15 @@
 //  Pulse Cue
 //
 //  What PulseCue remembers about an Apple or Google link, and where it keeps
-//  it. There is no PulseCue account and no server: linking records, on this
-//  device only, which provider identity the user attached to their local
-//  profile so the app can show it again after a relaunch.
+//  it. This is the **local** record only: it says which provider identity the
+//  user attached to this device's profile, so the app can show it again after
+//  a relaunch. The PulseCue server account is a separate thing, owned by
+//  `ServerAccountStore`, and a record here never implies one exists.
 //
 //  Nothing here is a credential. No identity token, authorization code,
-//  access token, refresh token or client secret is ever read, let alone
-//  stored — the provider SDKs own all of that. What is kept is the provider's
+//  access token, refresh token or client secret is stored in this record —
+//  the server session lives in the Keychain, behind `ServerAccountStore`.
+//  What is kept is the provider's
 //  stable user identifier plus the display name and email the user already
 //  sees on screen.
 //
