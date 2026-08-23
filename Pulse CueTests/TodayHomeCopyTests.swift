@@ -5,7 +5,8 @@
 //  Guards two Home contracts touched by the UI-simplification PR:
 //   - the condition copy maps purely to recording completeness (0...4) and
 //     makes no health/physiological claim,
-//   - the tab set is the intended 4 tabs (no lingering Runner tab).
+//   - the tab set is the intended 4 tabs (see `PrimaryNavigationTests` for
+//     what those four are and why).
 //
 
 import Testing
@@ -52,7 +53,7 @@ struct TodayHomeCopyTests {
     // MARK: - Tab structure
 
     @Test func tabSetIsTheFourIntendedTabs() {
-        #expect(AppTab.allCases == [.today, .workout, .history, .settings])
+        #expect(AppTab.allCases == [.home, .training, .nutrition, .me])
         #expect(AppTab.allCases.count == 4)
     }
 }

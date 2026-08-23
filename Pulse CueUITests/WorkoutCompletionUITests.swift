@@ -27,11 +27,11 @@ final class WorkoutCompletionUITests: XCTestCase {
         return app
     }
 
-    /// Opens the ワークアウト tab and starts the fixture routine.
+    /// Opens the トレーニング tab and starts the fixture routine.
     private func startFixtureWorkout(_ app: XCUIApplication) {
-        let workoutTab = app.tabBars.buttons["ワークアウト"]
-        XCTAssertTrue(workoutTab.waitForExistence(timeout: 20), "workout tab not found")
-        workoutTab.tap()
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20), "training tab not found")
+        trainingTab.tap()
 
         let start = app.buttons["このまま開始"].firstMatch
         XCTAssertTrue(start.waitForExistence(timeout: 15), "start button not found")
@@ -68,10 +68,16 @@ final class WorkoutCompletionUITests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 10), "completion CTA not found")
         done.tap()
 
-        // The Runner cover closes, revealing the tab bar again.
-        let historyTab = app.tabBars.buttons["履歴"]
-        XCTAssertTrue(historyTab.waitForExistence(timeout: 15), "Runner cover did not dismiss")
-        historyTab.tap()
+        // The Runner cover closes, revealing the tab bar again. History is no
+        // longer a tab: it is reached from Training, which is where the
+        // completed workout came from.
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 15), "Runner cover did not dismiss")
+        trainingTab.tap()
+
+        let historyEntry = app.buttons["履歴"].firstMatch
+        XCTAssertTrue(historyEntry.waitForExistence(timeout: 15), "History entry not found in Training")
+        historyEntry.tap()
 
         XCTAssertTrue(
             app.staticTexts["最近のトレーニング"].waitForExistence(timeout: 15),

@@ -53,6 +53,20 @@ struct WorkoutView: View {
         }
         .navigationTitle("ルーティンを選択")
         .navigationBarTitleDisplayMode(.inline)
+        // History lives under Training rather than in the tab bar. Past
+        // workouts are something you look at while deciding what to do next,
+        // so it belongs beside routine selection — and a toolbar item keeps it
+        // one tap away without changing the surface below it.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    HistoryView()
+                } label: {
+                    Label("履歴", systemImage: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("履歴")
+            }
+        }
         .sheet(item: $editorRoutine, onDismiss: startPendingRoutine) { routine in
             NavigationStack {
                 RoutineEditorView(routine: routine, onStart: requestStartFromEditor)
