@@ -109,25 +109,21 @@ struct TodayView: View {
         HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings)
     }
 
-    /// Most recent logged body weight in the dashboard window — the
-    /// "current weight" used to compute the profile-based calorie target,
-    /// mirroring Nutrition's `latestWeight`. `recentLogs` is date-descending,
-    /// so the first entry with a weight is the latest. `nil` when no weight
-    /// is logged; `UserProfile.targetIntake` then falls back to goal weight.
-    private var latestLoggedWeight: Double? {
-        recentLogs.first(where: { $0.weightKg != nil })?.weightKg
-    }
+    /// The weight the calorie target is computed from.
+    ///
+    /// Resolved through the shared resolver rather than read out of
+    /// `recentLogs`: that query is bounded to the fourteen days this
+    /// dashboard displays, and using a presentation window inside a
+    /// calculation made Home and Nutrition disagree whenever the last weigh-in
+    /// was older than a fortnight.
+    ///
+    /// Cached rather than fetched per render, and refreshed when the logs
+    /// change.
+    @State private var targetWeightKg: Double?
 
-    /// Today's intake calorie target. Prefers the manual `HealthTargets`
-    /// override; when none is set it falls back to the profile-calculated
-    /// target (the same value Nutrition shows) so Today and Nutrition agree
-    /// after profile/goal setup without requiring a manual target.
-    private var intakeCalorieTarget: Int? {
-        GoalCalculator.effectiveIntakeTarget(
-            manualTarget: resolvedTargets.intakeCalories,
-            profileTarget: profiles.first?.targetIntake(currentWeightKg: latestLoggedWeight)
-        )
-    }
+    /// Latest weight for *display* in the personal status row. Unbounded
+    /// likewise, so the row and the target never describe different weigh-ins.
+    private var latestLoggedWeight: Double? { targetWeightKg }
 
     var body: some View {
         ZStack {
@@ -172,9 +168,17 @@ struct TodayView: View {
             RoutinePickerSheet(onSelect: { pendingRoutine = $0 })
         }
         .task {
+            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
+                modelContext: modelContext
+            )
             ensureTodayLogExists()
             _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
             recomputeProgressSummary()
+        }
+        .onChange(of: recentLogs) { _, _ in
+            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
+                modelContext: modelContext
+            )
         }
         .onChange(of: sessions.count) { _, _ in recomputeProgressSummary() }
         .onChange(of: stepResults.count) { _, _ in recomputeProgressSummary() }
@@ -330,17 +334,27 @@ struct TodayView: View {
         ]
         let targets = resolvedTargets
         return LazyVGrid(columns: columns, spacing: 12) {
+            // Shows the same figure as the card above and as the Nutrition
+            // tab. It used to read `DayLog.intakeCalories` directly, so on a
+            // day with confirmed meals Home displayed two different intake
+            // numbers — and tapping this one opened an editor whose value no
+            // screen would ever show.
             metricCard(
                 icon: "fork.knife",
                 title: "摂取",
-                value: todayLog?.intakeCalories.map { formatInt($0) },
+                value: HomeIntakeTile.displayedKcal(for: nutritionSummary)
+                    .map { formatInt($0) },
                 unit: "kcal",
                 accent: Color(red: 0.32, green: 0.66, blue: 0.97),
                 field: .nutrition,
                 targetSubtitle: kcalSubtitle(
-                    current: todayLog?.intakeCalories,
-                    target: intakeCalorieTarget
-                )
+                    current: HomeIntakeTile.displayedKcal(for: nutritionSummary),
+                    target: nutritionSummary.targetKcal
+                ),
+                action: HomeIntakeTile.opensNutrition(for: nutritionSummary)
+                    ? onOpenNutrition
+                    : nil,
+                actionHint: HomeIntakeTile.accessibilityHint(for: nutritionSummary)
             )
             metricCard(
                 icon: "flame.fill",
@@ -440,11 +454,19 @@ struct TodayView: View {
         unit: String?,
         accent: Color,
         field: DayLogField,
-        targetSubtitle: TargetSubtitle?
+        targetSubtitle: TargetSubtitle?,
+        /// Overrides the default quick-input action. Used where manual entry
+        /// would not be honoured.
+        action: (() -> Void)? = nil,
+        actionHint: String? = nil
     ) -> some View {
         let isMissing = (value == nil)
         return Button {
-            openField(field)
+            if let action {
+                action()
+            } else {
+                openField(field)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
@@ -508,6 +530,7 @@ struct TodayView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(metricAccessibilityLabel(title: title, value: value, unit: unit, subtitle: targetSubtitle))
+        .accessibilityHint(actionHint ?? "\(title)を入力")
     }
 
     @ViewBuilder

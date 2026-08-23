@@ -184,7 +184,7 @@ struct TodayTrainingCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
                         .font(.caption.weight(.semibold))
-                    Text("メニューを作る")
+                    Text(showsPlanOptions ? "作成方法を閉じる" : "メニューを作る")
                         .font(.subheadline.weight(.semibold))
                     Image(systemName: showsPlanOptions ? "chevron.up" : "chevron.down")
                         .font(.caption2.weight(.bold))
@@ -195,8 +195,7 @@ struct TodayTrainingCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("メニューを作る")
-            .accessibilityHint(showsPlanOptions ? "閉じる" : "作成方法を表示")
+            .accessibilityLabel(showsPlanOptions ? "作成方法を閉じる" : "メニューを作る")
 
             if showsPlanOptions {
                 TodayGymPlanCard()

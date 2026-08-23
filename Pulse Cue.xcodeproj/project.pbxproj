@@ -64,6 +64,7 @@
 		5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910B6185D8234DA3924900CF /* TodayView.swift */; };
 		AAB10C000000000000004006 /* CompactPersonalStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004005 /* CompactPersonalStatus.swift */; };
 		AAB10C000000000000004004 /* TodayNutritionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004003 /* TodayNutritionCard.swift */; };
+		AAB10C00000000000000700F /* HomeIntakeTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000700E /* HomeIntakeTile.swift */; };
 		AAB10C000000000000004002 /* TodayTrainingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004001 /* TodayTrainingCard.swift */; };
 		5AEBFF52ACB44904A23658E1 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF0ACB38DB845A4A9DF79AD /* SettingsStore.swift */; };
 		5BAEAE269491457F91CF3F92 /* Pulse_CueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6355ADBE9A944771A1BDA149 /* Pulse_CueApp.swift */; };
@@ -94,6 +95,7 @@
 		552B89A3F23845E2AB09FCE8 /* TodayHomeCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */; };
 		AAB10C000000000000003006 /* PrimaryNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000003005 /* PrimaryNavigationTests.swift */; };
 		AAB10C000000000000004008 /* HomeHierarchyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004007 /* HomeHierarchyTests.swift */; };
+		AAB10C00000000000000700D /* HomeNutritionWiringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000700C /* HomeNutritionWiringTests.swift */; };
 		659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */; };
 		D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */; };
 		D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */; };
@@ -275,6 +277,7 @@
 		C3960979DDE14A1FB59387D8 /* RecentMealSuggestionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */; };
 		56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */; };
 		AAB10C00000000000000500D /* DailyNutritionSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000500C /* DailyNutritionSummary.swift */; };
+		AAB10C00000000000000700B /* LatestBodyWeightResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000700A /* LatestBodyWeightResolver.swift */; };
 		AAB10C00000000000000500B /* RoutineLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000500A /* RoutineLibrary.swift */; };
 		C5CEC54C66AC4334A1BAD50E /* ProteinTotalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */; };
 		7B1F2A0142F84A0D9C58E001 /* FavoriteMealTemplateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */; };
@@ -405,6 +408,7 @@
 		910B6185D8234DA3924900CF /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004005 /* CompactPersonalStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/CompactPersonalStatus.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004003 /* TodayNutritionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/TodayNutritionCard.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000700E /* HomeIntakeTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/HomeIntakeTile.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004001 /* TodayTrainingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/TodayTrainingCard.swift; sourceTree = "<group>"; };
 		92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataSeeder.swift; sourceTree = "<group>"; };
 		9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLogQuickInputSheet.swift; sourceTree = "<group>"; };
@@ -425,6 +429,7 @@
 		7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayHomeCopyTests.swift; sourceTree = "<group>"; };
 		AAB10C000000000000003005 /* PrimaryNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimaryNavigationTests.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004007 /* HomeHierarchyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHierarchyTests.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000700C /* HomeNutritionWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeNutritionWiringTests.swift; sourceTree = "<group>"; };
 		EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPresenterTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLogHealthSummaryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLedgerTests.swift; sourceTree = "<group>"; };
@@ -597,6 +602,7 @@
 		478EFA19587A4E3AAB28442D /* RecentMealSuggestionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentMealSuggestionsTests.swift; sourceTree = "<group>"; };
 		A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotals.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000500C /* DailyNutritionSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyNutritionSummary.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000700A /* LatestBodyWeightResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatestBodyWeightResolver.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000500A /* RoutineLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineLibrary.swift; sourceTree = "<group>"; };
 		B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotalsTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteMealTemplateStore.swift; sourceTree = "<group>"; };
@@ -689,6 +695,7 @@
 				910B6185D8234DA3924900CF /* TodayView.swift */,
 				AAB10C000000000000004005 /* CompactPersonalStatus.swift */,
 				AAB10C000000000000004003 /* TodayNutritionCard.swift */,
+				AAB10C00000000000000700E /* HomeIntakeTile.swift */,
 				AAB10C000000000000004001 /* TodayTrainingCard.swift */,
 				2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */,
 				D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */,
@@ -738,6 +745,7 @@
 				B99AB8D9412B44279A2C8329 /* RecentMealSuggestions.swift */,
 				A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */,
 				AAB10C00000000000000500C /* DailyNutritionSummary.swift */,
+				AAB10C00000000000000700A /* LatestBodyWeightResolver.swift */,
 				AAB10C00000000000000500A /* RoutineLibrary.swift */,
 				7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */,
 				7B1F2A0142F84A0D9C58F003 /* BarcodeSymbology.swift */,
@@ -967,6 +975,7 @@
 				7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */,
 				AAB10C000000000000003005 /* PrimaryNavigationTests.swift */,
 				AAB10C000000000000004007 /* HomeHierarchyTests.swift */,
+				AAB10C00000000000000700C /* HomeNutritionWiringTests.swift */,
 				EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */,
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
 				D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */,
@@ -1290,6 +1299,7 @@
 				5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */,
 				AAB10C000000000000004006 /* CompactPersonalStatus.swift in Sources */,
 				AAB10C000000000000004004 /* TodayNutritionCard.swift in Sources */,
+				AAB10C00000000000000700F /* HomeIntakeTile.swift in Sources */,
 				AAB10C000000000000004002 /* TodayTrainingCard.swift in Sources */,
 				DA57885887FA409498252986 /* WorkoutView.swift in Sources */,
 				D17104DB1A8E4001B0DA1701 /* DayLogStore.swift in Sources */,
@@ -1311,6 +1321,7 @@
 				60D421512EF948E294CA1206 /* RecentMealSuggestions.swift in Sources */,
 				56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */,
 				AAB10C00000000000000500D /* DailyNutritionSummary.swift in Sources */,
+				AAB10C00000000000000700B /* LatestBodyWeightResolver.swift in Sources */,
 				AAB10C00000000000000500B /* RoutineLibrary.swift in Sources */,
 				7B1F2A0142F84A0D9C58E001 /* FavoriteMealTemplateStore.swift in Sources */,
 				7B1F2A0142F84A0D9C58E003 /* BarcodeSymbology.swift in Sources */,
@@ -1439,6 +1450,7 @@
 				552B89A3F23845E2AB09FCE8 /* TodayHomeCopyTests.swift in Sources */,
 				AAB10C000000000000003006 /* PrimaryNavigationTests.swift in Sources */,
 				AAB10C000000000000004008 /* HomeHierarchyTests.swift in Sources */,
+				AAB10C00000000000000700D /* HomeNutritionWiringTests.swift in Sources */,
 				659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,

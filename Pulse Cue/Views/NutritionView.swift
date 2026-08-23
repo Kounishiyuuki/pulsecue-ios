@@ -94,7 +94,7 @@ struct NutritionView: View {
                 settings: targetStore.settings
             ).intakeCalories,
             profileTargetKcal: profiles.first?.targetIntake(
-                currentWeightKg: latestWeight
+                currentWeightKg: targetWeightKg
             )
         )
     }
@@ -107,10 +107,12 @@ struct NutritionView: View {
         dailySummary.targetKcal
     }
 
-    private var latestWeight: Double? {
-        let logs = allDayLogs.sorted { $0.date > $1.date }
-        return logs.first(where: { $0.weightKg != nil })?.weightKg
-    }
+    /// The weight the calorie target is computed from.
+    ///
+    /// Shared with Home through `LatestBodyWeightResolver` so both screens
+    /// resolve the same weigh-in. Cached and refreshed with the logs rather
+    /// than sorting the whole history on every render.
+    @State private var targetWeightKg: Double?
 
     var body: some View {
         ZStack {
@@ -138,6 +140,16 @@ struct NutritionView: View {
         }
         .navigationTitle("栄養")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
+                modelContext: modelContext
+            )
+        }
+        .onChange(of: allDayLogs) { _, _ in
+            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
+                modelContext: modelContext
+            )
+        }
         .sheet(item: $sheetMode) { mode in
             MealEntrySheet(mode: mode)
         }
@@ -613,10 +625,16 @@ struct NutritionView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                if targetKcal != nil {
-                    // Clarifies the target is the profile-calculated value
-                    // (UserProfile.targetIntake), consistent with Today.
+                switch dailySummary.targetSource {
+                case .profileDerived:
+                    // Worked out from the profile and the latest weigh-in.
                     PulseStatusBadge("計算目標", kind: .info)
+                case .manualOverride:
+                    // The user typed this one in; calling it 計算目標 would
+                    // credit the app with a number it did not calculate.
+                    PulseStatusBadge("設定目標", kind: .info)
+                case .unset:
+                    EmptyView()
                 }
             }
 

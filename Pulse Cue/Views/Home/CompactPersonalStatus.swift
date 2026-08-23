@@ -77,6 +77,8 @@ struct CompactPersonalStatus: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
+                    .padding(.vertical, 6)
+                    .frame(minHeight: 44)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -85,11 +87,16 @@ struct CompactPersonalStatus: View {
                 .accessibilityHint("体重を入力")
                 .accessibilityAddTraits(.isButton)
             } else {
-                Button("体重を記録", action: onTapWeight)
-                    .font(.footnote.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AppTheme.accent)
-                    .accessibilityHint("体重を入力")
+                Button(action: onTapWeight) {
+                    Text("体重を記録")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("体重を入力")
             }
         }
         .padding(.vertical, 12)

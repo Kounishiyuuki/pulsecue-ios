@@ -29,6 +29,34 @@
 
 import Foundation
 
+/// Who owns today's intake figure.
+///
+/// The invariant: **a confirmed meal, once it exists, makes meals
+/// authoritative for the whole day.** The manual `DayLog` value is only a
+/// fallback for a day with no confirmed meals at all, and a day holding only
+/// *pending* rows counts as having none — an unconfirmed estimate is not
+/// intake.
+///
+/// Callers need this, not just the number. A screen that offers manual
+/// calorie entry while meals own the day would accept a value it then refuses
+/// to display anywhere, so the entry point has to follow the ownership.
+enum NutritionIntakeSource: Equatable {
+    case confirmedMeals
+    case manualDayLog
+    /// Nothing recorded for the day.
+    case none
+}
+
+/// Where the day's calorie target came from.
+///
+/// Only so the UI can name it truthfully: a manually set target described as
+/// 「計算目標」 tells the user the app worked it out when they typed it in.
+enum NutritionTargetSource: Equatable {
+    case manualOverride
+    case profileDerived
+    case unset
+}
+
 struct DailyNutritionSummary: Equatable {
     /// Confirmed intake for the day. `nil` when nothing is recorded at all.
     let consumedKcal: Int?
@@ -38,6 +66,17 @@ struct DailyNutritionSummary: Equatable {
     let targetKcal: Int?
     let proteinGrams: Int
     let proteinTargetGrams: Int
+    /// Who owns `consumedKcal`. See `NutritionIntakeSource`.
+    let intakeSource: NutritionIntakeSource
+    let targetSource: NutritionTargetSource
+
+    /// Whether a manual calorie entry would actually change what is shown.
+    ///
+    /// False once meals own the day: the value would be stored and then
+    /// ignored by every screen, which is worse than not offering it.
+    var acceptsManualIntakeEntry: Bool {
+        intakeSource != .confirmedMeals
+    }
 
     /// What is left of the target.
     ///
@@ -69,12 +108,21 @@ struct DailyNutritionSummary: Equatable {
             profileTarget: profileTargetKcal
         )
         let protein = ProteinTotals.daily(meals: confirmedMeals, kcalTarget: target)
+        let consumedValue = consumed(dayLog: dayLog, confirmedMeals: confirmedMeals)
 
         return DailyNutritionSummary(
-            consumedKcal: consumed(dayLog: dayLog, confirmedMeals: confirmedMeals),
+            consumedKcal: consumedValue,
             targetKcal: target,
             proteinGrams: protein.confirmedGrams,
-            proteinTargetGrams: protein.targetGrams
+            proteinTargetGrams: protein.targetGrams,
+            intakeSource: intakeSource(
+                confirmedMeals: confirmedMeals,
+                consumed: consumedValue
+            ),
+            targetSource: targetSource(
+                manual: manualTargetKcal,
+                resolved: target
+            )
         )
     }
 
@@ -91,6 +139,24 @@ struct DailyNutritionSummary: Equatable {
     /// which `NutritionLedger` has already cleared for exactly that case — so
     /// an unconfirmed estimate reads as "not recorded" rather than as intake,
     /// on both screens.
+    private static func intakeSource(
+        confirmedMeals: [MealEntry],
+        consumed: Int?
+    ) -> NutritionIntakeSource {
+        if !confirmedMeals.isEmpty { return .confirmedMeals }
+        return consumed == nil ? .none : .manualDayLog
+    }
+
+    private static func targetSource(
+        manual: Int?,
+        resolved: Int?
+    ) -> NutritionTargetSource {
+        guard resolved != nil else { return .unset }
+        // `GoalCalculator` prefers the override, so a resolved target equal to
+        // an existing override came from it.
+        return manual != nil ? .manualOverride : .profileDerived
+    }
+
     private static func consumed(
         dayLog: DayLog?,
         confirmedMeals: [MealEntry]
