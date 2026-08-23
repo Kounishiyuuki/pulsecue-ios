@@ -516,6 +516,45 @@ async function anyTombstoned(
 }
 
 /**
+ * The one condition that decides whether an account may sync.
+ *
+ * A function rather than a string so every caller spells it the same way. The
+ * middleware asks the same question earlier, and two places drifting apart on
+ * what "active" means is how a deleting account ends up served.
+ */
+function activeUser(alias: string): string {
+	return `${alias}.state = 'active'`;
+}
+
+/**
+ * Refuses unless the account is active *right now*.
+ *
+ * Used as the last thing a pull does. A pull is several queries, and D1 does
+ * not run them in one read transaction, so an account deletion committing
+ * between two of them yields a page assembled from two different worlds —
+ * sessions from before, step results from after. Returning that with a 200
+ * tells the client it is caught up, when what it actually has is half of a
+ * deleted account's data.
+ *
+ * An absent row counts as not active: a hard delete has already removed it,
+ * and there is no path in this schema that puts an account back to 'active',
+ * so absence is terminal rather than transient.
+ */
+async function assertAccountActive(
+	db: SqlDatabase,
+	userId: string,
+): Promise<void> {
+	const row = await db
+		.prepare(
+			`SELECT 1 AS ok FROM users AS u WHERE u.id = ? AND ${activeUser("u")}`,
+		)
+		.bind(userId)
+		.first<{ ok: number }>();
+
+	if (!row) throw new SyncAccountNotActiveError();
+}
+
+/**
  * This user's current sequence, readable only while the account is active.
  *
  * The session middleware already checked the account, but that was a
@@ -533,7 +572,7 @@ async function activeUserChangeSeq(
 			`SELECT s.seq AS seq
 			   FROM user_change_seq AS s
 			   JOIN users AS u ON u.id = s.user_id
-			  WHERE s.user_id = ? AND u.state = 'active'`,
+			  WHERE s.user_id = ? AND ${activeUser("u")}`,
 		)
 		.bind(userId)
 		.first<{ seq: number }>();
@@ -614,12 +653,25 @@ export async function pullWorkoutData(
 	// two. Re-reading a few rows on the next pull is harmless — the client
 	// applies them idempotently — whereas skipping any is not.
 	const changeSeq = Math.min(sessions.cursor, stepResults.cursor);
+	const hasMore = changeSeq < snapshotSeq;
+
+	// Last, after every value this response would carry has been read.
+	//
+	// The per-query guards above are not enough on their own: they make each
+	// query individually refuse a deleting account, but the queries run at
+	// different moments. A deletion committing between them leaves the earlier
+	// results in hand and the later ones empty — a page that is internally
+	// inconsistent and, returned as 200, indistinguishable from "you are up to
+	// date". This throws instead, and because it throws before the object
+	// below is built, nothing read so far escapes: no rows, no cursor, no
+	// `hasMore` for the client to act on.
+	await assertAccountActive(db, userId);
 
 	return {
 		sessions: sessions.rows,
 		stepResults: stepResults.rows,
 		changeSeq,
-		hasMore: changeSeq < snapshotSeq,
+		hasMore,
 	};
 }
 
@@ -646,7 +698,7 @@ async function readPage<T extends { change_seq: number }>(
 	const pageSql = `SELECT t.* FROM ${table} AS t
 		  JOIN users AS u ON u.id = t.user_id
 		  WHERE t.user_id = ?
-		    AND u.state = 'active'
+		    AND ${activeUser("u")}
 		    AND t.change_seq > ?
 		    AND t.change_seq <= ?
 		  ORDER BY t.change_seq ASC, t.id ASC
@@ -693,7 +745,7 @@ async function readPage<T extends { change_seq: number }>(
 			`SELECT t.* FROM ${table} AS t
 			   JOIN users AS u ON u.id = t.user_id
 			  WHERE t.user_id = ?
-			    AND u.state = 'active'
+			    AND ${activeUser("u")}
 			    AND t.change_seq = ?
 			  ORDER BY t.id ASC
 			  LIMIT ?`,

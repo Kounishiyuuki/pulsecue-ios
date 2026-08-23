@@ -146,7 +146,7 @@ export async function handlePullWorkouts(c: Context<AuthedEnv>) {
 		if (error instanceof SyncCorruptSequenceError) {
 			// Fail closed. The alternative is a page that silently drops rows
 			// and a cursor that moves past them, which loses them for good.
-			return unavailable(c, newId());
+			return invariantViolation(c, newId());
 		}
 		throw error;
 	}
@@ -222,20 +222,30 @@ function accountGone(c: Context<AuthedEnv>, correlationId: string) {
 	);
 }
 
-/** Stored data this endpoint refuses to serve incorrectly. */
-function unavailable(c: Context<AuthedEnv>, correlationId: string) {
+/**
+ * Stored data this endpoint refuses to serve incorrectly.
+ *
+ * A 500 with a stable code, deliberately not a 503. A 503 invites the client
+ * to retry, and retrying changes nothing here: the stored data violates an
+ * invariant the write path cannot produce, so it will keep failing until
+ * somebody looks at it. Saying "temporarily unavailable" would be false.
+ *
+ * The body carries no row counts, sequence numbers or SQL — only a code an
+ * operator can search the logs for.
+ */
+function invariantViolation(c: Context<AuthedEnv>, correlationId: string) {
 	console.error(
 		JSON.stringify({
 			event: "sync_failed",
-			reason: "oversized_change_sequence",
+			reason: "sync_sequence_invariant_violation",
 			correlationId,
 		}),
 	);
 	return c.json(
 		{
 			error: {
-				code: "sync_unavailable",
-				message: "Sync is temporarily unavailable for this account.",
+				code: "sync_sequence_invariant_violation",
+				message: "Sync cannot be completed for this account.",
 				correlationId,
 			},
 		},

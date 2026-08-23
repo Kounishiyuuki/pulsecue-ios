@@ -1009,3 +1009,298 @@ describe("the migration's write triggers", () => {
 		}
 	});
 });
+
+// ---------------------------------------------------------------------------
+// A pull is several queries, and an account can be deleted between them
+// ---------------------------------------------------------------------------
+
+//  D1 does not run a pull's queries in one read transaction. Each query
+//  individually refuses a deleting account — but they ask at different
+//  moments, so a deletion committing in the middle leaves the earlier results
+//  in hand and the later ones empty.
+//
+//  Returned as 200, that page is indistinguishable from "you are caught up",
+//  which is why it is worth more than a shrug: the client would store the
+//  cursor and act on a half-read view of an account that no longer exists.
+//
+//  These tests commit the deletion *after the sessions query has actually
+//  returned rows*, which is the only ordering that reproduces it. A test that
+//  merely deleted the account and then pulled would pass against the broken
+//  code too.
+
+/**
+ * Runs `deletion` at the moment the `workout_sessions` page query resolves.
+ *
+ * Ordered rather than raced: the hook awaits the deletion inside the query's
+ * own resolution, so by the time the pull moves on to step results the
+ * account is provably gone.
+ */
+function deletingAfterSessionsRead(
+	db: TestDatabase,
+	deletion: () => Promise<void>,
+): { db: TestDatabase; sessionsWereRead: () => boolean } {
+	let sessionsRead = false;
+
+	const wrapped: TestDatabase = {
+		...db,
+		prepare: (sql: string) => {
+			const statement = db.prepare(sql);
+			if (sessionsRead || !sql.includes("FROM workout_sessions")) {
+				return statement;
+			}
+			return {
+				...statement,
+				bind: (...values: unknown[]) => {
+					const bound = statement.bind(...values);
+					return {
+						...bound,
+						all: async <T>() => {
+							const page = await bound.all<T>();
+							sessionsRead = true;
+							await deletion();
+							return page;
+						},
+					};
+				},
+			};
+		},
+	};
+
+	return { db: wrapped, sessionsWereRead: () => sessionsRead };
+}
+
+describe("an account deleted midway through a pull", () => {
+	it("does not produce a partial page when the account starts deleting", async () => {
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1")], stepResults: [step("r1", "s1")] },
+				NOW,
+			);
+
+			const race = deletingAfterSessionsRead(db, async () => {
+				await requestAccountDeletion(db, user.userId, NOW);
+			});
+
+			await expect(
+				pullWorkoutData(race.db, user.userId, 0, 500),
+			).rejects.toBeInstanceOf(SyncAccountNotActiveError);
+
+			// The point of the test: the sessions really had been read, so this
+			// is the interleaving that used to yield a partial 200.
+			expect(race.sessionsWereRead()).toBe(true);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("does not produce a partial page when the account is hard deleted", async () => {
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1")], stepResults: [step("r1", "s1")] },
+				NOW,
+			);
+
+			const race = deletingAfterSessionsRead(db, async () => {
+				// The row is gone entirely; "not active" has to cover absent.
+				await requestAccountDeletion(db, user.userId, NOW);
+				await db
+					.prepare(`DELETE FROM users WHERE id = ?`)
+					.bind(user.userId)
+					.run();
+			});
+
+			await expect(
+				pullWorkoutData(race.db, user.userId, 0, 500),
+			).rejects.toBeInstanceOf(SyncAccountNotActiveError);
+			expect(race.sessionsWereRead()).toBe(true);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("returns 403 through the route, with no rows and no cursor", async () => {
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1")], stepResults: [step("r1", "s1")] },
+				NOW,
+			);
+
+			// The session stays usable so the request reaches the repository;
+			// only the account state changes mid-pull.
+			const race = deletingAfterSessionsRead(db, async () => {
+				await db
+					.prepare(
+						`UPDATE users SET state = 'deleting', deleted_at = ? WHERE id = ?`,
+					)
+					.bind(NOW, user.userId)
+					.run();
+			});
+
+			const app = makeApp(race.db);
+			const response = await app.pull(user.token);
+
+			expect(response.status).not.toBe(200);
+			expect(response.status).toBe(403);
+
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body).not.toHaveProperty("sessions");
+			expect(body).not.toHaveProperty("stepResults");
+			expect(body).not.toHaveProperty("changeSeq");
+			expect(body).not.toHaveProperty("hasMore");
+			// And nothing that was already read leaked into the body.
+			expect(JSON.stringify(body)).not.toContain("s1");
+			expect(race.sessionsWereRead()).toBe(true);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("leaves a pull that stays active completely unchanged", async () => {
+		// The recheck must not cost the normal path anything.
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			const upload = await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1")], stepResults: [step("r1", "s1")] },
+				NOW,
+			);
+
+			const page = await pullWorkoutData(db, user.userId, 0, 500);
+
+			expect(page.sessions.map((r) => r.id)).toEqual(["s1"]);
+			expect(page.stepResults.map((r) => r.id)).toEqual(["r1"]);
+			expect(page.changeSeq).toBe(upload.changeSeq);
+			expect(page.hasMore).toBe(false);
+		} finally {
+			db.close();
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The HTTP contract for stored data that cannot be served
+// ---------------------------------------------------------------------------
+
+describe("an oversized stored sequence", () => {
+	it("is a 500 with a stable code, not a retryable 503", async () => {
+		// Retrying cannot fix it: the data violates an invariant the write
+		// path cannot produce, so it fails identically every time. A 503 would
+		// invite the client to keep asking.
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			for (let i = 0; i < MAX_SYNC_ROWS_PER_SEQUENCE + 1; i += 1) {
+				await db
+					.prepare(
+						`INSERT INTO workout_sessions
+						   (id, user_id, started_at, ended_at, title, change_seq, updated_at, deleted_at)
+						 VALUES (?, ?, ?, ?, 's', 1, ?, NULL)`,
+					)
+					.bind(`s${i}`, user.userId, NOW, NOW + 1, NOW)
+					.run();
+			}
+			await db
+				.prepare(`UPDATE user_change_seq SET seq = 1 WHERE user_id = ?`)
+				.bind(user.userId)
+				.run();
+
+			const app = makeApp(db);
+			const response = await app.pull(user.token);
+
+			expect(response.status).toBe(500);
+			const body = (await response.json()) as {
+				error: { code: string; message: string };
+			};
+			expect(body.error.code).toBe("sync_sequence_invariant_violation");
+			// No cursor for the client to store or advance.
+			expect(body).not.toHaveProperty("changeSeq");
+			expect(body).not.toHaveProperty("sessions");
+			// Nothing internal leaked.
+			expect(JSON.stringify(body)).not.toMatch(/SELECT|change_seq|workout_sessions/);
+		} finally {
+			db.close();
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// What a session tombstone means for its step results
+// ---------------------------------------------------------------------------
+
+describe("tombstoning a session", () => {
+	it("does not tombstone its step results", async () => {
+		// Documented rather than changed: this is the v1 contract, and the
+		// README says the same thing. The parent's tombstone is what ends the
+		// session's visibility; the children are separate sync records with
+		// their own ids and their own tombstones.
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1")], stepResults: [step("r1", "s1")] },
+				NOW,
+			);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1", { deleted: true })], stepResults: [] },
+				NOW,
+			);
+
+			const page = await pullWorkoutData(db, user.userId, 0, 500);
+			expect(page.sessions.find((r) => r.id === "s1")?.deleted_at).not.toBeNull();
+			expect(page.stepResults.find((r) => r.id === "r1")?.deleted_at).toBeNull();
+		} finally {
+			db.close();
+		}
+	});
+
+	it("still accepts a live update to a child step result", async () => {
+		// The composite foreign key only requires the parent row to exist, and
+		// a tombstone is still a row. Pinned so the behaviour is deliberate
+		// rather than discovered later.
+		const db = await createTestDatabase();
+		try {
+			const user = await signedIn(db);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1")], stepResults: [step("r1", "s1")] },
+				NOW,
+			);
+			await uploadWorkoutData(
+				db,
+				user.userId,
+				{ sessions: [session("s1", { deleted: true })], stepResults: [] },
+				NOW,
+			);
+
+			await expect(
+				uploadWorkoutData(
+					db,
+					user.userId,
+					{ sessions: [], stepResults: [step("r1", "s1", { reps: 12 })] },
+					NOW,
+				),
+			).resolves.toMatchObject({ stepResults: 1 });
+		} finally {
+			db.close();
+		}
+	});
+});

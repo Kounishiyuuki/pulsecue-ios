@@ -507,6 +507,28 @@ Client clocks are deliberately not used to decide this. Real conflict
 resolution belongs to a later sync layer; guessing at it now with `updatedAt`
 would be worse than a rule that is simple and honest.
 
+#### A session tombstone and its step results
+
+Deleting a session tombstones **that session row only**. Its step results are
+separate sync records with their own ids, and they keep whatever state they
+were last uploaded with — they are not tombstoned as a side effect, and their
+`change_seq` does not move.
+
+A client must therefore treat the session tombstone as authoritative for the
+whole session: do not show step results whose parent session is tombstoned,
+even though those rows still arrive as live. The alternative — cascading the
+tombstone across every child on the server — would write an unbounded number
+of rows inside one upload's sequence, which is exactly the shape the row cap
+exists to prevent.
+
+For the same reason a live update to a child step result is still accepted
+after its parent has been tombstoned: the composite foreign key requires the
+parent row to exist, and a tombstone is still a row. Both behaviours are
+pinned by tests.
+
+Terminal-tombstone is per id, not per tree: tombstoning a session does not
+make its children's ids terminal.
+
 #### An account that stops being active
 
 Both endpoints refuse a user whose account is `deleting`, and they do not
@@ -516,6 +538,16 @@ triggers, inside the same transaction as the write, so there is no window
 between the check and the commit. Reads join `users` in the query that
 produces the data.
 
+Both endpoints also re-check the account **after** everything a pull response
+would contain has been read. The per-query guards each refuse a deleting
+account, but they ask at different moments, and D1 does not run a pull's
+queries in one read transaction — so a deletion committing between them would
+otherwise yield a page of sessions from before and no step results from
+after, returned as a 200 that looks exactly like "you are caught up". The
+final check throws instead, and nothing read so far reaches the client: no
+rows, no cursor, no `hasMore`. A hard-deleted account counts as not active,
+and nothing in this schema moves an account back to `active`.
+
 #### A sequence larger than the write limit
 
 Cannot be produced through the repository. If one is ever found anyway, the
@@ -523,6 +555,12 @@ pull **fails** rather than returning the first page and advancing the cursor
 past the rest — that would destroy the remainder permanently while reporting
 success. A sync that fails loudly can be retried; data that has been skipped
 cannot be recovered.
+
+It is a **500 `sync_sequence_invariant_violation`**, deliberately not a 503.
+Retrying cannot help: the stored data violates an invariant the write path
+cannot produce, so it fails identically every time until somebody looks at
+it. The response carries no rows, no cursor and no SQL — only a code to
+search the logs for.
 
 #### Duplicate ids in one request
 
