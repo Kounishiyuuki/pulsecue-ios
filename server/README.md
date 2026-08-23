@@ -472,6 +472,63 @@ here: a sync design is easier to get right on the smallest genuinely useful
 thing, and everything added later hangs off the same `user_id` + `change_seq`
 shape.
 
+#### Limits, and where they come from
+
+One upload writes at most **500 records, sessions and step results counted
+together**. Not 500 of each: D1 meters every statement in a batch against its
+1000-queries-per-invocation limit, so two independent 500s allowed a request
+whose batch alone issued 1002 statements — accepted by the API and then
+refused by the platform. The worst case at the combined cap is counted rather
+than estimated (2 auth + 6 session preflight + 7 tombstone preflight + 502
+batch = 517), and a test measures it against both D1 ceilings.
+
+Id lookups are chunked at 90 per query, because D1 allows at most 100 bind
+parameters per query and each lookup also binds the user id.
+
+The limit lives in the repository, not only in the route. An internal caller
+that wrote an oversized sequence would produce data the pull path cannot
+deliver — permanent loss for that user — so the rule sits where every caller
+must pass it.
+
+#### Conflict policy, v1: a tombstone is terminal
+
+Once a record is deleted on the server, that id is finished. An upload
+composed before the delete still carries the record as live, and a plain
+upsert would clear `deleted_at`; because the resurrection gets its own
+sequence, every device would then pull the record back. The delete would undo
+itself with nothing reporting a problem.
+
+So a live upload targeting a tombstoned id is refused with **409
+`record_deleted`**. Re-sending the same delete is fine and idempotent. A
+record that genuinely needs to come back gets a new id, which is unambiguous
+in a way that reviving one never is.
+
+Client clocks are deliberately not used to decide this. Real conflict
+resolution belongs to a later sync layer; guessing at it now with `updatedAt`
+would be worse than a rule that is simple and honest.
+
+#### An account that stops being active
+
+Both endpoints refuse a user whose account is `deleting`, and they do not
+rely on the session middleware to have caught it: another request can start a
+deletion after this one was authenticated. Writes are refused by database
+triggers, inside the same transaction as the write, so there is no window
+between the check and the commit. Reads join `users` in the query that
+produces the data.
+
+#### A sequence larger than the write limit
+
+Cannot be produced through the repository. If one is ever found anyway, the
+pull **fails** rather than returning the first page and advancing the cursor
+past the rest — that would destroy the remainder permanently while reporting
+success. A sync that fails loudly can be retried; data that has been skipped
+cannot be recovered.
+
+#### Duplicate ids in one request
+
+Refused with 400. Resolving them by statement order would make the outcome
+depend on something neither the client nor a reviewer can predict.
+
 #### Ids come from the client
 
 The app already generates UUIDs offline. Rewriting them on upload would make

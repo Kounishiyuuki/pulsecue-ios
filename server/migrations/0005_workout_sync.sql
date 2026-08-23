@@ -81,3 +81,85 @@ CREATE INDEX idx_step_results_pull
 
 CREATE INDEX idx_step_results_session
   ON step_results (user_id, session_id);
+
+-- ---------------------------------------------------------------------------
+-- Write-time invariants, enforced by the database rather than by the caller.
+--
+-- Both of the rules below were previously checked only in application code,
+-- and both had the same shape of hole: the check ran, the code awaited
+-- something, and by the time the write landed the answer had changed. A
+-- request that passed the session middleware while the account was active
+-- could commit rows after another request moved that account to 'deleting';
+-- a stale upload could clear a tombstone written after it was composed.
+--
+-- Triggers close those windows because they run *inside the same transaction
+-- as the write*. There is no gap to lose a race in, and no internal caller —
+-- present or future, route or script — that can route around them.
+--
+-- `RAISE(ABORT, ...)` rolls the whole batch back, so an upload never lands
+-- half of its rows.
+
+-- 1. Only an active account may have sync rows written for it.
+--
+-- Deleting an account is the destructive, irreversible action in this system;
+-- accepting new data for one that is on its way out means writing rows the
+-- deletion has already walked past.
+
+CREATE TRIGGER trg_workout_sessions_require_active_user_insert
+BEFORE INSERT ON workout_sessions
+FOR EACH ROW
+WHEN (SELECT state FROM users WHERE id = NEW.user_id) <> 'active'
+BEGIN
+  SELECT RAISE(ABORT, 'sync_user_not_active');
+END;
+
+CREATE TRIGGER trg_workout_sessions_require_active_user_update
+BEFORE UPDATE ON workout_sessions
+FOR EACH ROW
+WHEN (SELECT state FROM users WHERE id = NEW.user_id) <> 'active'
+BEGIN
+  SELECT RAISE(ABORT, 'sync_user_not_active');
+END;
+
+CREATE TRIGGER trg_step_results_require_active_user_insert
+BEFORE INSERT ON step_results
+FOR EACH ROW
+WHEN (SELECT state FROM users WHERE id = NEW.user_id) <> 'active'
+BEGIN
+  SELECT RAISE(ABORT, 'sync_user_not_active');
+END;
+
+CREATE TRIGGER trg_step_results_require_active_user_update
+BEFORE UPDATE ON step_results
+FOR EACH ROW
+WHEN (SELECT state FROM users WHERE id = NEW.user_id) <> 'active'
+BEGIN
+  SELECT RAISE(ABORT, 'sync_user_not_active');
+END;
+
+-- 2. A tombstone is terminal.
+--
+-- v1 conflict policy: once a record is deleted on the server, that id is
+-- finished. An upload composed before the delete still carries the record as
+-- live, and a plain upsert would clear `deleted_at` and bring it back — on
+-- every other device too, since the resurrection gets its own change_seq.
+--
+-- Re-sending the same delete is fine (deleted_at stays set); only clearing it
+-- is refused. A record that genuinely needs to come back gets a new id, which
+-- is unambiguous in a way that reviving an id never is.
+
+CREATE TRIGGER trg_workout_sessions_tombstone_is_terminal
+BEFORE UPDATE ON workout_sessions
+FOR EACH ROW
+WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'sync_tombstone_is_terminal');
+END;
+
+CREATE TRIGGER trg_step_results_tombstone_is_terminal
+BEFORE UPDATE ON step_results
+FOR EACH ROW
+WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'sync_tombstone_is_terminal');
+END;
