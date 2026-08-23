@@ -15,7 +15,7 @@ struct ContentView: View {
     @EnvironmentObject var authSession: AuthSessionStore
     @EnvironmentObject var serverAccount: ServerAccountStore
 
-    @State private var selectedTab: AppTab = .today
+    @State private var selectedTab: AppTab = PrimaryNavigation.defaultTab
     @StateObject private var runnerPresenter = RunnerPresenter()
 
     var body: some View {
@@ -24,33 +24,48 @@ struct ContentView: View {
                 TodayView(onResumeRunner: { runnerPresenter.resume(isRunning: runnerViewModel.isRunning) })
             }
             .tabItem {
-                Label("今日", systemImage: "sun.max")
+                Label(
+                    PrimaryNavigation.label(for: .home),
+                    systemImage: PrimaryNavigation.icon(for: .home)
+                )
             }
-            .tag(AppTab.today)
+            .tag(AppTab.home)
 
+            // Routine selection is the root of Training; History lives inside
+            // it, one tap from here, because you look at past workouts in the
+            // course of deciding what to do next.
             NavigationStack {
                 WorkoutView()
             }
             .tabItem {
-                Label("ワークアウト", systemImage: "list.bullet.rectangle")
+                Label(
+                    PrimaryNavigation.label(for: .training),
+                    systemImage: PrimaryNavigation.icon(for: .training)
+                )
             }
-            .tag(AppTab.workout)
+            .tag(AppTab.training)
 
             NavigationStack {
-                HistoryView()
+                NutritionView()
             }
             .tabItem {
-                Label("履歴", systemImage: "clock.arrow.circlepath")
+                Label(
+                    PrimaryNavigation.label(for: .nutrition),
+                    systemImage: PrimaryNavigation.icon(for: .nutrition)
+                )
             }
-            .tag(AppTab.history)
+            .tag(AppTab.nutrition)
 
             NavigationStack {
-                SettingsView()
+                MeView()
             }
             .tabItem {
-                Label("設定", systemImage: "gearshape")
+                Label(
+                    PrimaryNavigation.label(for: .me),
+                    systemImage: PrimaryNavigation.icon(for: .me)
+                )
             }
-            .tag(AppTab.settings)
+            .tag(AppTab.me)
         }
         .tint(AppTheme.accent)
         .toolbarBackground(AppTheme.cardBackground.opacity(0.96), for: .tabBar)

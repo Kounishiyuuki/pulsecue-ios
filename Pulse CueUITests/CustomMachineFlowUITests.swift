@@ -36,8 +36,12 @@ final class CustomMachineFlowUITests: XCTestCase {
 
         // 1. The fixture gives the app an active gym. Enter My Gym from
         //    the stable Settings route rather than the Today card sheet
-        //    path that varies with dashboard state.
-        app.tabBars.buttons["設定"].tap()
+        //    path that varies with dashboard state. Settings is no longer a
+        //    tab; it is reached from マイページ.
+        app.tabBars.buttons["マイページ"].tap()
+        let settingsEntry = app.buttons["設定"].firstMatch
+        XCTAssertTrue(settingsEntry.waitForExistence(timeout: 8), "Settings entry not found in Me")
+        settingsEntry.tap()
         let settingsMyGymEntry = app.staticTexts["ジムを登録してメニューを生成"]
         XCTAssertTrue(settingsMyGymEntry.waitForExistence(timeout: 8), "Settings My Gym entry not found")
         settingsMyGymEntry.tap()
