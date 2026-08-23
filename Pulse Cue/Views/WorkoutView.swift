@@ -349,7 +349,7 @@ struct WorkoutView: View {
     /// The routine library: only routines the user explicitly saved.
     /// Workout-generated routines (Quick Plan "この内容で開始") stay out of the
     /// list while remaining valid Runner / History targets.
-    private var savedRoutines: [Routine] { routines.filter { $0.origin == .userSaved } }
+    private var savedRoutines: [Routine] { RoutineLibrary.startable(from: routines) }
 
     private var filteredRoutines: [Routine] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)

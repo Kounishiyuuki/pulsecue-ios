@@ -44,6 +44,8 @@ struct NutritionView: View {
     private var profiles: [UserProfile]
 
     @StateObject private var favoriteTemplates = FavoriteMealTemplateStore()
+    /// Same resolver Home uses, so a manual intake target moves both screens.
+    @StateObject private var targetStore = HealthTargetStore()
 
     @State private var sheetMode: MealEntrySheet.Mode?
     @State private var pendingSlotForChoice: MealSlot?
@@ -76,12 +78,33 @@ struct NutritionView: View {
         todaysMeals.filter { $0.status == .pending && $0.source == .ai }
     }
 
+    /// The day's figures, from the same helper Home uses.
+    ///
+    /// Previously this screen summed confirmed meals itself and read the
+    /// profile target directly, while Home applied the manual `HealthTargets`
+    /// override and read `DayLog.intakeCalories`. Same day, same stored data,
+    /// different numbers on the two screens — and a quick calorie input that
+    /// appeared on one of them and not the other.
+    private var dailySummary: DailyNutritionSummary {
+        DailyNutritionSummary.make(
+            dayLog: todaysDayLog,
+            confirmedMeals: confirmedMeals,
+            manualTargetKcal: HealthTargetResolver.resolveAll(
+                date: Date(),
+                settings: targetStore.settings
+            ).intakeCalories,
+            profileTargetKcal: profiles.first?.targetIntake(
+                currentWeightKg: latestWeight
+            )
+        )
+    }
+
     private var confirmedKcal: Int {
-        confirmedMeals.reduce(0) { $0 + $1.kcal }
+        dailySummary.consumedKcal ?? 0
     }
 
     private var targetKcal: Int? {
-        profiles.first?.targetIntake(currentWeightKg: latestWeight)
+        dailySummary.targetKcal
     }
 
     private var latestWeight: Double? {

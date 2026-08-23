@@ -35,7 +35,12 @@ struct HomeTrainingSummary: Equatable {
     let currentStepTitle: String?
     let currentSet: Int?
     let totalSets: Int?
-    /// Whether the user has any routine to start at all.
+    /// Whether the picker this card leads to has anything in it.
+    ///
+    /// Not "are there any Routine rows": Quick Plan writes
+    /// `.workoutGenerated` routines that never appear in the library, and
+    /// counting those produced a Start button that opened an empty list.
+    /// `RoutineLibrary` answers the same question the picker does.
     let hasRoutines: Bool
     /// Name of the most recently completed workout, if any.
     let lastWorkoutName: String?
@@ -48,6 +53,8 @@ struct TodayTrainingCard: View {
     let onPrimaryAction: () -> Void
 
     @State private var showsPlanOptions = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -55,16 +62,24 @@ struct TodayTrainingCard: View {
 
             statusLine
 
-            Button(action: onPrimaryAction) {
+            Button(action: primaryAction) {
                 HStack(spacing: 10) {
-                    Image(systemName: summary.isRunning ? "figure.run" : "play.fill")
-                        .font(.system(size: 15, weight: .bold))
+                    if !isAccessibilitySize {
+                        Image(systemName: summary.isRunning ? "figure.run" : "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                    }
                     Text(primaryTitle)
                         .font(.headline)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .opacity(0.85)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: isAccessibilitySize ? .center : .leading
+                        )
+                    if !isAccessibilitySize {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .opacity(0.85)
+                    }
                 }
                 .foregroundStyle(.white)
                 .padding(.vertical, 15)
@@ -78,22 +93,45 @@ struct TodayTrainingCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel(primaryAccessibilityLabel)
 
-            planOptions
+            // With nothing to start, the primary CTA *is* the create action,
+            // so the secondary row would repeat it under the same name and
+            // send the user somewhere else. One label, one destination.
+            if Self.showsPlanDisclosure(for: summary, expanded: showsPlanOptions) {
+                planOptions
+            }
         }
         .padding(16)
         .pulseCard()
         .accessibilityElement(children: .contain)
     }
 
+    /// True from the first accessibility size upward.
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "figure.strengthtraining.traditional")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.accent)
-            Text("今日のトレーニング")
-                .font(.headline)
-            Spacer(minLength: 0)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                headerIcon
+                headerTitle
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                headerIcon
+                headerTitle
+            }
         }
+    }
+
+    private var headerIcon: some View {
+        Image(systemName: "figure.strengthtraining.traditional")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.accent)
+    }
+
+    private var headerTitle: some View {
+        Text("今日のトレーニング")
+            .font(.headline)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// One line of context, never more. During a workout it is the exercise
@@ -118,7 +156,10 @@ struct TodayTrainingCard: View {
             Text("前回: \(last)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                // Wraps at accessibility sizes rather than losing the name,
+                // which is the only thing this line carries.
+                .lineLimit(isAccessibilitySize ? 3 : 1)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -138,9 +179,7 @@ struct TodayTrainingCard: View {
     private var planOptions: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showsPlanOptions.toggle()
-                }
+                setPlanOptions(!showsPlanOptions)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
@@ -165,9 +204,58 @@ struct TodayTrainingCard: View {
         }
     }
 
-    private var primaryTitle: String {
+    // MARK: - CTA contract
+    //
+    // Static so the rules can be tested directly. A test that only checked
+    // the summary values it was handed would pass no matter what the card
+    // rendered, which is the mistake these replace.
+
+    /// The one filled action, chosen by state. Never more than one.
+    static func primaryTitle(for summary: HomeTrainingSummary) -> String {
         if summary.isRunning { return "続ける" }
         return summary.hasRoutines ? "ワークアウトを開始" : "メニューを作る"
+    }
+
+    /// With no startable routine there is nothing to start, so the primary
+    /// button opens the creation options instead of the empty picker.
+    static func primaryOpensPlanOptions(for summary: HomeTrainingSummary) -> Bool {
+        !summary.isRunning && !summary.hasRoutines
+    }
+
+    /// Whether the secondary 「メニューを作る」 row is shown.
+    ///
+    /// Hidden while it would duplicate the primary CTA's label, and hidden
+    /// mid-workout, where the only thing to offer is 続ける.
+    static func showsPlanDisclosure(
+        for summary: HomeTrainingSummary,
+        expanded: Bool
+    ) -> Bool {
+        if summary.isRunning { return expanded }
+        return summary.hasRoutines || expanded
+    }
+
+    private var primaryTitle: String { Self.primaryTitle(for: summary) }
+
+    private var primaryOpensPlanOptions: Bool {
+        Self.primaryOpensPlanOptions(for: summary)
+    }
+
+    private func primaryAction() {
+        guard primaryOpensPlanOptions else {
+            onPrimaryAction()
+            return
+        }
+        setPlanOptions(true)
+    }
+
+    /// Respects Reduce Motion: the disclosure still opens, it just does not
+    /// animate for someone who asked the system not to.
+    private func setPlanOptions(_ open: Bool) {
+        if reduceMotion {
+            showsPlanOptions = open
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) { showsPlanOptions = open }
+        }
     }
 
     private var primaryAccessibilityLabel: String {

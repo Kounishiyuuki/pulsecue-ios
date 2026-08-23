@@ -31,76 +31,89 @@ struct CompactPersonalStatus: View {
     /// Distance to the goal weight, already formatted. Optional because a
     /// goal is optional.
     let goalDifferenceText: String?
-    /// Opens the day's quick input.
-    let onTapRecord: () -> Void
+    /// Opens the weight quick input.
+    ///
+    /// Only the weight portion is the button. The row used to be one large
+    /// tap target labelled 今日の記録 that opened weight entry — a promise the
+    /// label did not make, and one a VoiceOver user had no way to predict.
+    let onTapWeight: () -> Void
 
     var body: some View {
-        Button(action: onTapRecord) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("今日の記録")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Text("\(recordedCount) / \(totalCount) 入力済み")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                }
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("今日の記録")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("\(recordedCount) / \(totalCount) 入力済み")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(recordAccessibilityLabel)
 
-                if let weightText {
-                    Divider()
-                        .frame(height: 26)
+            Spacer(minLength: 0)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("体重")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 6) {
-                            Text(weightText)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            if let goalDifferenceText {
-                                Text(goalDifferenceText)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+            if let weightText {
+                Divider().frame(height: 26)
+
+                Button(action: onTapWeight) {
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("体重")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                Text(weightText)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                if let goalDifferenceText {
+                                    Text(goalDifferenceText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
+                    .contentShape(Rectangle())
                 }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(weightAccessibilityLabel)
+                .accessibilityHint("体重を入力")
+                .accessibilityAddTraits(.isButton)
+            } else {
+                Button("体重を記録", action: onTapWeight)
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppTheme.accent)
+                    .accessibilityHint("体重を入力")
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-            // Deliberately lighter than the Training and Nutrition cards: it
-            // is context, and context should not look like a decision.
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(AppTheme.cardBackground.opacity(0.5))
-            )
-            // Wraps rather than shrinks at accessibility sizes.
-            .fixedSize(horizontal: false, vertical: true)
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("今日の記録を入力")
-        .accessibilityAddTraits(.isButton)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity)
+        // Deliberately lighter than the Training and Nutrition cards: it is
+        // context, and context should not look like a decision.
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(AppTheme.cardBackground.opacity(0.5))
+        )
+        // Wraps rather than shrinks at accessibility sizes.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var accessibilityLabel: String {
-        var parts = ["今日の記録 \(totalCount) 項目中 \(recordedCount) 項目入力済み"]
-        if let weightText {
-            parts.append("体重 \(weightText)")
-        }
-        if let goalDifferenceText {
-            parts.append(goalDifferenceText)
-        }
-        return parts.joined(separator: "、")
+    private var recordAccessibilityLabel: String {
+        "今日の記録 \(totalCount) 項目中 \(recordedCount) 項目入力済み"
     }
+
+    private var weightAccessibilityLabel: String {
+        var parts = ["体重"]
+        if let weightText { parts.append(weightText) }
+        if let goalDifferenceText { parts.append(goalDifferenceText) }
+        return parts.joined(separator: " ")
+    }
+
 }

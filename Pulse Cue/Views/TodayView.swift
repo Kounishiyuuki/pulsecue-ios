@@ -54,9 +54,12 @@ struct TodayView: View {
     @Query private var stepResults: [StepResult]
     @Query private var routines: [Routine]
     @Query private var allSteps: [Step]
-    /// Today's meals, for the protein line. Read-only; Home never writes a
-    /// meal, and the confirmed-only rule lives in `ProteinTotals`.
-    @Query private var allMeals: [MealEntry]
+    /// Today's meals only. Read-only; Home never writes a meal.
+    ///
+    /// Date-bounded in the query rather than fetched whole and filtered:
+    /// Home rendered every meal the user has ever logged in order to add up
+    /// one day, and that cost grows with the history forever.
+    @Query private var todaysMeals: [MealEntry]
 
     @StateObject private var targetStore = HealthTargetStore()
     /// Stateless UserDefaults accessor (same as WorkoutView), for the shared
@@ -84,6 +87,10 @@ struct TodayView: View {
         self._recentLogs = Query(
             filter: #Predicate<DayLog> { $0.date >= start },
             sort: [SortDescriptor(\DayLog.date, order: .reverse)]
+        )
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today) ?? today
+        self._todaysMeals = Query(
+            filter: #Predicate<MealEntry> { $0.dayDate >= today && $0.dayDate < tomorrow }
         )
     }
 
@@ -133,7 +140,7 @@ struct TodayView: View {
                         totalCount: 4,
                         weightText: latestLoggedWeight.map { "\(formatWeight($0)) kg" },
                         goalDifferenceText: weightGoalSubtitle()?.differenceText,
-                        onTapRecord: { activeField = .weight }
+                        onTapWeight: { activeField = .weight }
                     )
 
                     TodayTrainingCard(
@@ -185,37 +192,30 @@ struct TodayView: View {
                 runnerViewModel.currentSetIndex + 1
             },
             totalSets: runnerViewModel.currentStep?.sets,
-            hasRoutines: !routines.isEmpty,
+            hasRoutines: RoutineLibrary.hasStartable(routines),
             lastWorkoutName: progressSummary.lastWorkout?.routineName
         )
     }
 
-    /// Today's nutrition, reusing the app's existing rules.
+    /// Today's nutrition.
     ///
-    /// `intakeCalories` is already the sum of confirmed meals wherever meals
-    /// exist — `NutritionLedger` maintains that — so Home and the Nutrition
-    /// tab cannot disagree. Protein goes through `ProteinTotals` for the same
-    /// reason: the confirmed-only rule has one implementation.
-    private var nutritionSummary: HomeNutritionSummary {
-        let target = intakeCalorieTarget
-        let protein = ProteinTotals.daily(
-            meals: todaysConfirmedMeals,
-            kcalTarget: target
-        )
-        return HomeNutritionSummary(
-            consumedKcal: todayLog?.intakeCalories,
-            targetKcal: target,
-            proteinGrams: protein.confirmedGrams,
-            proteinTargetGrams: protein.targetGrams
+    /// Built by `DailyNutritionSummary`, which the Nutrition tab uses too, so
+    /// the two screens cannot report different numbers for the same day.
+    private var nutritionSummary: DailyNutritionSummary {
+        DailyNutritionSummary.make(
+            dayLog: todayLog,
+            confirmedMeals: todaysConfirmedMeals,
+            manualTargetKcal: resolvedTargets.intakeCalories,
+            profileTargetKcal: profiles.first?.targetIntake(
+                currentWeightKg: latestLoggedWeight
+            )
         )
     }
 
+    /// The confirmed subset. `status` is a computed property over
+    /// `statusRaw`, so it cannot be part of the `#Predicate` above.
     private var todaysConfirmedMeals: [MealEntry] {
-        let today = DateUtils.startOfDay(Date())
-        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
-        return allMeals.filter {
-            $0.dayDate >= today && $0.dayDate < nextDay && $0.status == .confirmed
-        }
+        todaysMeals.filter { $0.status == .confirmed }
     }
 
     // MARK: - Secondary content

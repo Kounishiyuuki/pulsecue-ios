@@ -319,7 +319,7 @@ struct RoutinePickerSheet: View {
     private var trimmedSearch: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// Only user-saved routines belong in the picker; workout-generated ones
     /// (Quick Plan "この内容で開始") are never listed.
-    private var savedRoutines: [Routine] { routines.filter { $0.origin == .userSaved } }
+    private var savedRoutines: [Routine] { RoutineLibrary.startable(from: routines) }
 
     private var filteredRoutines: [Routine] {
         guard !trimmedSearch.isEmpty else { return savedRoutines }

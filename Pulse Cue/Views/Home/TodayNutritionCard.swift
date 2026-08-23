@@ -23,25 +23,8 @@
 
 import SwiftUI
 
-/// What Home needs to know about today's nutrition. Pure presentation.
-struct HomeNutritionSummary: Equatable {
-    /// Confirmed intake so far. `nil` when nothing has been recorded.
-    let consumedKcal: Int?
-    /// The day's intake target. `nil` when the profile has not been set up.
-    let targetKcal: Int?
-    let proteinGrams: Int
-    let proteinTargetGrams: Int
-
-    /// What is left of the target. `nil` when either side is unknown, and
-    /// never negative-by-omission: going over is a real answer and is shown.
-    var remainingKcal: Int? {
-        guard let targetKcal else { return nil }
-        return targetKcal - (consumedKcal ?? 0)
-    }
-}
-
 struct TodayNutritionCard: View {
-    let summary: HomeNutritionSummary
+    let summary: DailyNutritionSummary
     /// Opens the Nutrition tab. Owned by `ContentView` so Home moves to the
     /// existing tab rather than pushing a second copy of the same screen.
     let onRecordMeal: () -> Void
@@ -155,7 +138,7 @@ struct TodayNutritionCard: View {
         return "摂取 \(consumed) キロカロリー、目標 \(target) キロカロリー"
     }
 
-    private static func format(_ value: Int) -> String {
+    nonisolated private static func format(_ value: Int) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
