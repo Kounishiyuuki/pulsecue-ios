@@ -62,6 +62,9 @@
 		4EA8EE0A8F314775A85888A0 /* Pulse_CueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FABF223958774A0DBABEAD4E /* Pulse_CueTests.swift */; };
 		54FDF3C3A4E240BDA4CED51E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878933A00815439D89930EBF /* ContentView.swift */; };
 		5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910B6185D8234DA3924900CF /* TodayView.swift */; };
+		AAB10C000000000000004006 /* CompactPersonalStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004005 /* CompactPersonalStatus.swift */; };
+		AAB10C000000000000004004 /* TodayNutritionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004003 /* TodayNutritionCard.swift */; };
+		AAB10C000000000000004002 /* TodayTrainingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004001 /* TodayTrainingCard.swift */; };
 		5AEBFF52ACB44904A23658E1 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF0ACB38DB845A4A9DF79AD /* SettingsStore.swift */; };
 		5BAEAE269491457F91CF3F92 /* Pulse_CueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6355ADBE9A944771A1BDA149 /* Pulse_CueApp.swift */; };
 		B134D9F025D84AA7A5B90001 /* GlassUIVisualQARoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B134D9F025D84AA7A5B90002 /* GlassUIVisualQARoot.swift */; };
@@ -90,6 +93,7 @@
 		F38882727687487EB7D864ED /* AppThemeContrastTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076A30F79B5B4EABB354F624 /* AppThemeContrastTests.swift */; };
 		552B89A3F23845E2AB09FCE8 /* TodayHomeCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */; };
 		AAB10C000000000000003006 /* PrimaryNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000003005 /* PrimaryNavigationTests.swift */; };
+		AAB10C000000000000004008 /* HomeHierarchyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004007 /* HomeHierarchyTests.swift */; };
 		659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */; };
 		D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */; };
 		D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */; };
@@ -109,6 +113,7 @@
 		D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */; };
 		D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */; };
 		4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */; };
+		AAB10C00000000000000400A /* HomePlanDisclosureSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004009 /* HomePlanDisclosureSupport.swift */; };
 		4E01D0F75E9142AA83100037 /* HomeProgressUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E01D0F85E9142AA83100038 /* HomeProgressUITests.swift */; };
 		4D91C0E55E9142AA83100025 /* PreviousPerformanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D91C0E65E9142AA83100026 /* PreviousPerformanceUITests.swift */; };
 		4C81B0D75E9142AA83100017 /* QuickPlanReplacementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C81B0D85E9142AA83100018 /* QuickPlanReplacementUITests.swift */; };
@@ -375,6 +380,7 @@
 		38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pulse_CueUITests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachineFlowUITests.swift; sourceTree = "<group>"; };
 		4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanFlowUITests.swift; sourceTree = "<group>"; };
+		AAB10C000000000000004009 /* HomePlanDisclosureSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomePlanDisclosureSupport.swift; sourceTree = "<group>"; };
 		4E01D0F85E9142AA83100038 /* HomeProgressUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeProgressUITests.swift; sourceTree = "<group>"; };
 		4D91C0E65E9142AA83100026 /* PreviousPerformanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviousPerformanceUITests.swift; sourceTree = "<group>"; };
 		4C81B0D85E9142AA83100018 /* QuickPlanReplacementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanReplacementUITests.swift; sourceTree = "<group>"; };
@@ -395,6 +401,9 @@
 		878933A00815439D89930EBF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		8FF7150E5F514C0E944597A5 /* Step.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Step.swift; sourceTree = "<group>"; };
 		910B6185D8234DA3924900CF /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		AAB10C000000000000004005 /* CompactPersonalStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/CompactPersonalStatus.swift; sourceTree = "<group>"; };
+		AAB10C000000000000004003 /* TodayNutritionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/TodayNutritionCard.swift; sourceTree = "<group>"; };
+		AAB10C000000000000004001 /* TodayTrainingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/TodayTrainingCard.swift; sourceTree = "<group>"; };
 		92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataSeeder.swift; sourceTree = "<group>"; };
 		9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLogQuickInputSheet.swift; sourceTree = "<group>"; };
 		B6DCF85EFBDB4BDB932AE5F6 /* DateUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateUtils.swift; sourceTree = "<group>"; };
@@ -413,6 +422,7 @@
 		076A30F79B5B4EABB354F624 /* AppThemeContrastTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppThemeContrastTests.swift; sourceTree = "<group>"; };
 		7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayHomeCopyTests.swift; sourceTree = "<group>"; };
 		AAB10C000000000000003005 /* PrimaryNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimaryNavigationTests.swift; sourceTree = "<group>"; };
+		AAB10C000000000000004007 /* HomeHierarchyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHierarchyTests.swift; sourceTree = "<group>"; };
 		EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPresenterTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA1902 /* DayLogHealthSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLogHealthSummaryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionLedgerTests.swift; sourceTree = "<group>"; };
@@ -673,6 +683,9 @@
 				AAB10C000000000000002032 /* AppleSignInButton.swift */,
 				AAB10C0000000000000000D5 /* ProfileGymSetupView.swift */,
 				910B6185D8234DA3924900CF /* TodayView.swift */,
+				AAB10C000000000000004005 /* CompactPersonalStatus.swift */,
+				AAB10C000000000000004003 /* TodayNutritionCard.swift */,
+				AAB10C000000000000004001 /* TodayTrainingCard.swift */,
 				2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */,
 				D17104DB1A8E4001B0DA2E22 /* MachineCatalogListView.swift */,
 				D17104DB1A8E4001B0DA5602 /* MachineCatalogDetailView.swift */,
@@ -947,6 +960,7 @@
 				076A30F79B5B4EABB354F624 /* AppThemeContrastTests.swift */,
 				7E0BD31F39CF44D1A42DE5B4 /* TodayHomeCopyTests.swift */,
 				AAB10C000000000000003005 /* PrimaryNavigationTests.swift */,
+				AAB10C000000000000004007 /* HomeHierarchyTests.swift */,
 				EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */,
 				D17104DB1A8E4001B0DA2702 /* NutritionLedgerTests.swift */,
 				D17104DB1A8E4001B0DA2B02 /* GoalCalculatorTests.swift */,
@@ -1022,6 +1036,7 @@
 				38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */,
 				D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */,
 				4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */,
+				AAB10C000000000000004009 /* HomePlanDisclosureSupport.swift */,
 				4E01D0F85E9142AA83100038 /* HomeProgressUITests.swift */,
 				4D91C0E65E9142AA83100026 /* PreviousPerformanceUITests.swift */,
 				4C81B0D85E9142AA83100018 /* QuickPlanReplacementUITests.swift */,
@@ -1267,6 +1282,9 @@
 				AAB10C0000000000000000FB /* GoogleSignInConfig.swift in Sources */,
 				80A050FE49EF4AF5B290D2A8 /* HealthTargetSettingsView.swift in Sources */,
 				5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */,
+				AAB10C000000000000004006 /* CompactPersonalStatus.swift in Sources */,
+				AAB10C000000000000004004 /* TodayNutritionCard.swift in Sources */,
+				AAB10C000000000000004002 /* TodayTrainingCard.swift in Sources */,
 				DA57885887FA409498252986 /* WorkoutView.swift in Sources */,
 				D17104DB1A8E4001B0DA1701 /* DayLogStore.swift in Sources */,
 				D17104DB1A8E4001B0DA1703 /* HealthSummary.swift in Sources */,
@@ -1412,6 +1430,7 @@
 				F38882727687487EB7D864ED /* AppThemeContrastTests.swift in Sources */,
 				552B89A3F23845E2AB09FCE8 /* TodayHomeCopyTests.swift in Sources */,
 				AAB10C000000000000003006 /* PrimaryNavigationTests.swift in Sources */,
+				AAB10C000000000000004008 /* HomeHierarchyTests.swift in Sources */,
 				659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */,
 				D17104DB1A8E4001B0DA1901 /* DayLogHealthSummaryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA2701 /* NutritionLedgerTests.swift in Sources */,
@@ -1498,6 +1517,7 @@
 				D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */,
 				4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */,
+				AAB10C00000000000000400A /* HomePlanDisclosureSupport.swift in Sources */,
 				4E01D0F75E9142AA83100037 /* HomeProgressUITests.swift in Sources */,
 				4D91C0E55E9142AA83100025 /* PreviousPerformanceUITests.swift in Sources */,
 				4C81B0D75E9142AA83100017 /* QuickPlanReplacementUITests.swift in Sources */,

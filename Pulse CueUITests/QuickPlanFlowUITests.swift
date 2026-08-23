@@ -27,6 +27,7 @@ final class QuickPlanFlowUITests: XCTestCase {
     /// Opens the Quick Plan condition sheet from Today and pushes into the
     /// generated preview. Returns the app positioned on the preview.
     private func openQuickPlanPreview(_ app: XCUIApplication) {
+        openHomePlanOptions(app)
         let entry = app.buttons["今日のメニューを作る"]
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "Quick Plan entry not found on Today")
         if !entry.isHittable { app.swipeUp() }

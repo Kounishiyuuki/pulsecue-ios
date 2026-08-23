@@ -34,6 +34,15 @@ struct TodayView: View {
     /// ContentView (`RunnerPresenter.resume`) so no new Session is created.
     let onResumeRunner: () -> Void
 
+    /// Switch to the Nutrition tab.
+    ///
+    /// Home used to `NavigationLink` to `NutritionView`, which was fine when
+    /// Nutrition had no tab of its own. Now it does, and pushing it inside
+    /// Home's stack would leave two live copies of the same screen with
+    /// separate scroll positions and separate input state. Selecting the tab
+    /// keeps one.
+    let onOpenNutrition: () -> Void
+
     @Query private var recentLogs: [DayLog]
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
     private var profiles: [UserProfile]
@@ -45,6 +54,9 @@ struct TodayView: View {
     @Query private var stepResults: [StepResult]
     @Query private var routines: [Routine]
     @Query private var allSteps: [Step]
+    /// Today's meals, for the protein line. Read-only; Home never writes a
+    /// meal, and the confirmed-only rule lives in `ProteinTotals`.
+    @Query private var allMeals: [MealEntry]
 
     @StateObject private var targetStore = HealthTargetStore()
     /// Stateless UserDefaults accessor (same as WorkoutView), for the shared
@@ -60,8 +72,12 @@ struct TodayView: View {
     /// picker is fully gone before the Runner cover presents.
     @State private var pendingRoutine: Routine?
 
-    init(onResumeRunner: @escaping () -> Void) {
+    init(
+        onResumeRunner: @escaping () -> Void,
+        onOpenNutrition: @escaping () -> Void = {}
+    ) {
         self.onResumeRunner = onResumeRunner
+        self.onOpenNutrition = onOpenNutrition
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -13, to: today) ?? today
@@ -111,17 +127,27 @@ struct TodayView: View {
             backgroundLayer.ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 28) {
-                    conditionCard
-                    startWorkoutButton
-                    TodayGymPlanCard()
-                    homeWorkoutProgressCard
-                    VStack(spacing: 16) {
-                        PulseSectionHeader("今日のサマリー", icon: "chart.bar.xaxis")
-                        metricsGrid
-                        nutritionLogLink
-                        balanceCard
-                    }
+                VStack(spacing: 20) {
+                    CompactPersonalStatus(
+                        recordedCount: filledMetricCount,
+                        totalCount: 4,
+                        weightText: latestLoggedWeight.map { "\(formatWeight($0)) kg" },
+                        goalDifferenceText: weightGoalSubtitle()?.differenceText,
+                        onTapRecord: { activeField = .weight }
+                    )
+
+                    TodayTrainingCard(
+                        summary: trainingSummary,
+                        onPrimaryAction: workoutAction
+                    )
+
+                    TodayNutritionCard(
+                        summary: nutritionSummary,
+                        onRecordMeal: onOpenNutrition
+                    )
+
+                    secondarySection
+
                     Color.clear.frame(height: 8)
                 }
                 .padding(.horizontal, 16)
@@ -145,6 +171,87 @@ struct TodayView: View {
         }
         .onChange(of: sessions.count) { _, _ in recomputeProgressSummary() }
         .onChange(of: stepResults.count) { _, _ in recomputeProgressSummary() }
+    }
+
+    // MARK: - Home summaries
+
+    /// Today's training, as Home needs it. Derived only; nothing is computed
+    /// here that the app did not already know.
+    private var trainingSummary: HomeTrainingSummary {
+        HomeTrainingSummary(
+            isRunning: runnerViewModel.isRunning,
+            currentStepTitle: runnerViewModel.currentStep?.title,
+            currentSet: runnerViewModel.currentStep.map { _ in
+                runnerViewModel.currentSetIndex + 1
+            },
+            totalSets: runnerViewModel.currentStep?.sets,
+            hasRoutines: !routines.isEmpty,
+            lastWorkoutName: progressSummary.lastWorkout?.routineName
+        )
+    }
+
+    /// Today's nutrition, reusing the app's existing rules.
+    ///
+    /// `intakeCalories` is already the sum of confirmed meals wherever meals
+    /// exist — `NutritionLedger` maintains that — so Home and the Nutrition
+    /// tab cannot disagree. Protein goes through `ProteinTotals` for the same
+    /// reason: the confirmed-only rule has one implementation.
+    private var nutritionSummary: HomeNutritionSummary {
+        let target = intakeCalorieTarget
+        let protein = ProteinTotals.daily(
+            meals: todaysConfirmedMeals,
+            kcalTarget: target
+        )
+        return HomeNutritionSummary(
+            consumedKcal: todayLog?.intakeCalories,
+            targetKcal: target,
+            proteinGrams: protein.confirmedGrams,
+            proteinTargetGrams: protein.targetGrams
+        )
+    }
+
+    private var todaysConfirmedMeals: [MealEntry] {
+        let today = DateUtils.startOfDay(Date())
+        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+        return allMeals.filter {
+            $0.dayDate >= today && $0.dayDate < nextDay && $0.status == .confirmed
+        }
+    }
+
+    // MARK: - Secondary content
+
+    /// Everything that is useful but not a decision for today.
+    ///
+    /// Nothing was deleted on the way down here: the four quick inputs, the
+    /// weekly summary link and the training progress block all still work
+    /// exactly as before. They simply stopped competing with Training and
+    /// Nutrition for the first screenful.
+    private var secondarySection: some View {
+        VStack(spacing: 16) {
+            PulseSectionHeader("記録を入力", icon: "square.and.pencil")
+            metricsGrid
+            weeklySummaryLink
+            homeWorkoutProgressCard
+        }
+    }
+
+    private var weeklySummaryLink: some View {
+        NavigationLink {
+            HealthSummaryView()
+        } label: {
+            HStack(spacing: 6) {
+                Text("週間サマリーを見る")
+                    .font(.subheadline.weight(.medium))
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(AppTheme.accent)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("週間サマリーを見る")
     }
 
     private func recomputeProgressSummary() {
@@ -176,132 +283,6 @@ struct TodayView: View {
         PulseAtmosphericBackground()
     }
 
-    // MARK: - Hero card
-
-    /// Calm daily-state summary. No app branding, bell, or decorative
-    /// gauge — just the state headline and a quiet progress line. Hierarchy
-    /// comes from type scale and whitespace, not a container.
-    private var conditionCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("今日の状態")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-
-            Text(conditionHeadline)
-                .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(conditionSubhead)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            recordingSummary
-        }
-        .padding(.horizontal, 4)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("今日の状態 \(conditionHeadline). \(conditionSubhead). 記録 \(filledMetricCount) / 4")
-    }
-
-    @ViewBuilder
-    private var recordingSummary: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 8) {
-                recordingCount
-                recordingDepth
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        } else {
-            HStack(alignment: .bottom) {
-                recordingCount
-                    .padding(.bottom, 10)
-                Spacer(minLength: 12)
-                recordingDepth
-            }
-            .frame(minHeight: 132)
-        }
-    }
-
-    private var recordingCount: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("今日の記録")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
-            Text("\(filledMetricCount) / 4")
-                .font(.title3.weight(.bold))
-                .monospacedDigit()
-            Text("入力済み")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var recordingDepth: some View {
-        ZStack {
-            Ellipse()
-                .fill(AppTheme.reflectedBlue.opacity(0.25))
-                .frame(width: 172, height: 44)
-                .blur(radius: 18)
-                .offset(y: 46)
-
-            ForEach(0..<4, id: \.self) { index in
-                let isFilled = index < filledMetricCount
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.62),
-                                        (isFilled ? AppTheme.accent : AppTheme.iceLight)
-                                            .opacity(isFilled ? 0.30 : 0.16),
-                                        AppTheme.reflectedBlue.opacity(0.10)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.98),
-                                        AppTheme.iceLight.opacity(0.64),
-                                        Color.white.opacity(0.10)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: index == 3 ? 1.4 : 0.9
-                            )
-                    }
-                    .frame(width: CGFloat(158 - index * 4), height: 62)
-                    .rotation3DEffect(
-                        .degrees(58),
-                        axis: (x: 1, y: 0, z: 0),
-                        perspective: 0.35
-                    )
-                    .rotationEffect(.degrees(-5))
-                    .offset(x: CGFloat(index * 4), y: CGFloat(index * 17 - 34))
-                    .shadow(
-                        color: AppTheme.deepGlass.opacity(0.12 + Double(index) * 0.03),
-                        radius: 12,
-                        x: 0,
-                        y: 10
-                    )
-            }
-        }
-        .frame(width: 190, height: 128)
-        .accessibilityHidden(true)
-    }
-
-    // Copy describes *recording completeness only* — how much of today's log
-    // has been entered — never a health/physiological judgement. See
-    // `TodayConditionCopy`.
     private var conditionHeadline: String {
         TodayConditionCopy.headline(filledCount: filledMetricCount)
     }
@@ -318,44 +299,6 @@ struct TodayView: View {
         if log.sleepMinutes != nil { count += 1 }
         if log.weightKg != nil { count += 1 }
         return count
-    }
-
-    // MARK: - Workout button
-
-    private var startWorkoutButton: some View {
-        Button(action: workoutAction) {
-            HStack(spacing: 12) {
-                Image(systemName: runnerViewModel.isRunning ? "figure.run" : "play.fill")
-                    .font(.system(size: 16, weight: .bold))
-                Text(workoutButtonTitle)
-                    .font(.headline)
-                Spacer(minLength: 0)
-                if runnerViewModel.isRunning, let step = runnerViewModel.currentStep {
-                    Text("\(step.title)・\(runnerViewModel.currentSetIndex + 1)/\(step.sets)")
-                        .font(.caption)
-                        .opacity(0.85)
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .opacity(0.85)
-            }
-            .foregroundStyle(.white)
-            .padding(.vertical, 16)
-            .padding(.horizontal, 20)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(AppTheme.accentFilled)
-                    .shadow(color: AppTheme.accentFilled.opacity(0.22), radius: 10, x: 0, y: 6)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(runnerViewModel.isRunning ? "実行中のセッションを再開" : "ワークアウトを開始")
-    }
-
-    private var workoutButtonTitle: String {
-        runnerViewModel.isRunning ? "ワークアウトを再開" : "ワークアウトを開始"
     }
 
     private func workoutAction() {
@@ -376,48 +319,6 @@ struct TodayView: View {
         guard let routine = pendingRoutine else { return }
         pendingRoutine = nil
         runnerViewModel.start(routine: routine)
-    }
-
-    // MARK: - Nutrition log shortcut
-
-    /// Direct entry to the full Nutrition / meal-log screen.
-    /// Independent from the 摂取 metric card so the existing quick
-    /// calorie input (DayLogQuickInputSheet) is fully preserved.
-    private var nutritionLogLink: some View {
-        NavigationLink {
-            NutritionView()
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(AppTheme.accent.opacity(0.16))
-                        .frame(width: 38, height: 38)
-                    Image(systemName: "fork.knife")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(AppTheme.accent)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("食事ログ")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.primary)
-                    Text("朝昼夕・間食を記録 / AI 推定を確認")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity)
-            .background(glassBackground)
-            .overlay(glassStroke)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("食事ログを開く")
-        .accessibilityHint("朝昼夕食と間食の記録、AI 推定の確認待ち画面に移動")
     }
 
     // MARK: - Metrics grid
@@ -661,195 +562,6 @@ struct TodayView: View {
             return "\(base)、\(subtitle.targetText)、\(subtitle.differenceText)"
         }
         return base
-    }
-
-    // MARK: - Balance card
-
-    private var balanceCard: some View {
-        let intake = todayLog?.intakeCalories ?? 0
-        let exercise = todayLog?.exerciseCalories ?? 0
-        let sleep = todayLog?.sleepMinutes ?? 0
-        let balance = intake - exercise
-        let isMissing = todayLog?.intakeCalories == nil && todayLog?.exerciseCalories == nil
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("バランス")
-                    .font(.headline)
-                Spacer()
-                NavigationLink {
-                    HealthSummaryView()
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("週間サマリーを見る")
-                            .font(.subheadline.weight(.medium))
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .foregroundStyle(AppTheme.accent)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("週間サマリーを見る")
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if isMissing {
-                    Text("未入力")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(formatInt(balance))
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                    Text("kcal")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let weeklyAvg = summary.weeklyBalanceAverage {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("7日平均")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("\(formatInt(weeklyAvg)) kcal")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                }
-            }
-
-            if let row = balanceTargetRow(currentBalance: balance, intakeLogged: todayLog?.intakeCalories != nil || todayLog?.exerciseCalories != nil) {
-                row
-            } else if let gap = goalGap(intake: todayLog?.intakeCalories) {
-                goalGapRow(gap: gap)
-            }
-
-            balanceBar(intake: intake, exercise: exercise, sleep: sleep)
-
-            HStack(spacing: 14) {
-                legend("食事", color: Color(red: 0.32, green: 0.66, blue: 0.97))
-                legend("運動", color: Color(red: 0.49, green: 0.51, blue: 0.97))
-                legend("休息", color: Color(red: 0.67, green: 0.45, blue: 0.96))
-            }
-            .font(.caption)
-        }
-        .padding(20)
-        .background(glassBackground)
-        .overlay(glassStroke)
-    }
-
-    /// Today's intake-vs-target gap derived from the canonical
-    /// `UserProfile`, or nil when the user hasn't entered an intake
-    /// or we can't compute a target yet (e.g. weight unknown / profile
-    /// not yet created).
-    private func goalGap(intake: Int?) -> Int? {
-        guard let intake, let profile = profiles.first else { return nil }
-        return profile.todayGoalGap(
-            todayIntake: intake,
-            currentWeightKg: summary.latestWeight
-        )
-    }
-
-    /// Renders the resolver-driven balance row when the user has set a
-    /// `balanceCalories` target. Returns nil when no balance target
-    /// exists so the caller can fall back to the legacy intake gap row.
-    private func balanceTargetRow(currentBalance: Int, intakeLogged: Bool) -> AnyView? {
-        guard intakeLogged,
-              let target = resolvedTargets.balanceCalories,
-              let diff = HealthTargetDifference.formatBalance(current: currentBalance, target: target) else {
-            return nil
-        }
-        let color = targetColor(diff.direction)
-        let icon = targetIcon(diff.direction)
-        let view = HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(color)
-            Text("収支 目標 \(formatInt(target)) kcal")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 4)
-            Text(diff.label)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(color)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(color.opacity(0.10))
-        )
-        .accessibilityLabel("収支 目標 \(formatInt(target)) kcal、\(diff.label)")
-        return AnyView(view)
-    }
-
-    private func goalGapRow(gap: Int) -> some View {
-        let isOver = gap > 0
-        let withinBand = abs(gap) <= 100
-        let color: Color = withinBand
-            ? .green
-            : (isOver ? .orange : Color(red: 0.27, green: 0.62, blue: 0.95))
-        let label: String = withinBand
-            ? "目標 範囲内"
-            : (isOver ? "目標から +\(formatInt(gap)) kcal" : "目標まで \(formatInt(gap)) kcal")
-        let icon: String = withinBand
-            ? "checkmark.circle.fill"
-            : (isOver ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-
-        return HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(color)
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(color)
-            Spacer(minLength: 0)
-            Text("目標は 設定 → 目標設定")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(color.opacity(0.10))
-        )
-        .accessibilityLabel("今日の目標差分 \(label)")
-    }
-
-    private func balanceBar(intake: Int, exercise: Int, sleep: Int) -> some View {
-        // Three pillars normalized to a 0...1 score against soft daily
-        // targets, then scaled to the bar width. Values are illustrative
-        // — copy reads "目安" elsewhere — and are clamped to keep one
-        // pillar from dominating the bar.
-        let foodScore = min(1.0, Double(intake) / 2000.0)
-        let exerciseScore = min(1.0, Double(exercise) / 400.0)
-        let restScore = min(1.0, Double(sleep) / 480.0)
-        let total = max(0.001, foodScore + exerciseScore + restScore)
-
-        return GeometryReader { geo in
-            HStack(spacing: 4) {
-                segment(width: geo.size.width * (foodScore / total),
-                        color: Color(red: 0.32, green: 0.66, blue: 0.97))
-                segment(width: geo.size.width * (exerciseScore / total),
-                        color: Color(red: 0.49, green: 0.51, blue: 0.97))
-                segment(width: geo.size.width * (restScore / total),
-                        color: Color(red: 0.67, green: 0.45, blue: 0.96))
-            }
-        }
-        .frame(height: 10)
-    }
-
-    private func segment(width: CGFloat, color: Color) -> some View {
-        Capsule()
-            .fill(color.opacity(0.75))
-            .frame(width: max(2, width))
-    }
-
-    private func legend(_ text: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(text).foregroundStyle(.secondary)
-        }
     }
 
     // MARK: - Workout progress (Home)

@@ -1,0 +1,106 @@
+//
+//  CompactPersonalStatus.swift
+//  Pulse Cue
+//
+//  Where the user stands, in one line.
+//
+//  This replaces a hero block that took most of the first viewport: a large
+//  headline, a subhead, a 0/4 count and a stack of decorative plates. It was
+//  the biggest thing on Home and it answered the smallest question.
+//
+//  The wording changed too, and that part is not cosmetic. It said
+//  「今日の状態」 above a number that counts *how many fields you have filled
+//  in* — nothing to do with how you are. A user reading "状態 0/4" reasonably
+//  concludes the app has an opinion about their body. It does not, so it now
+//  says 今日の記録.
+//
+//  Weight sits here rather than in a metrics grid because it is personal
+//  status rather than a decision for today: useful to see, not something you
+//  act on before training or eating.
+//
+
+import SwiftUI
+
+struct CompactPersonalStatus: View {
+    /// Recorded fields today, out of four. Purely a count of what has been
+    /// entered — never a health assessment.
+    let recordedCount: Int
+    let totalCount: Int
+    /// Latest logged weight, when there is one.
+    let weightText: String?
+    /// Distance to the goal weight, already formatted. Optional because a
+    /// goal is optional.
+    let goalDifferenceText: String?
+    /// Opens the day's quick input.
+    let onTapRecord: () -> Void
+
+    var body: some View {
+        Button(action: onTapRecord) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("今日の記録")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("\(recordedCount) / \(totalCount) 入力済み")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+
+                if let weightText {
+                    Divider()
+                        .frame(height: 26)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("体重")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text(weightText)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            if let goalDifferenceText {
+                                Text(goalDifferenceText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            // Deliberately lighter than the Training and Nutrition cards: it
+            // is context, and context should not look like a decision.
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(AppTheme.cardBackground.opacity(0.5))
+            )
+            // Wraps rather than shrinks at accessibility sizes.
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("今日の記録を入力")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var accessibilityLabel: String {
+        var parts = ["今日の記録 \(totalCount) 項目中 \(recordedCount) 項目入力済み"]
+        if let weightText {
+            parts.append("体重 \(weightText)")
+        }
+        if let goalDifferenceText {
+            parts.append(goalDifferenceText)
+        }
+        return parts.joined(separator: "、")
+    }
+}

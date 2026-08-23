@@ -23,7 +23,8 @@ final class MyGymQuickPlanUITests: XCTestCase {
         app.launchArguments.append("-pulsecue-ui-test-quick-plan-flow")
         app.launch()
 
-        // Today → "ジムを変更" is the existing entry into My Gym.
+        // Home → メニューを作る → "ジムを変更" is the entry into My Gym.
+        openHomePlanOptions(app)
         let changeGym = app.buttons["ジムを変更"].firstMatch
         XCTAssertTrue(changeGym.waitForExistence(timeout: 15), "My Gym entry not found on Today")
         if !changeGym.isHittable { app.swipeUp() }
