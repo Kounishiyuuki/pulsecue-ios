@@ -10,6 +10,7 @@ import {
 	markCredentialRevoked,
 	prepareCredentialUpsert,
 	readRefreshToken,
+	readStoredCredential,
 	saveCredentialAndIssueSession,
 } from "../../src/api/db/providerCredentials";
 import { findActiveSessionByToken } from "../../src/api/db/sessions";
@@ -154,9 +155,13 @@ describe("storing a provider credential", () => {
 			.bind(rowA?.encrypted_refresh_token, rowA?.encryption_iv, b.identity.id)
 			.run();
 
-		await expect(
-			readRefreshToken(db, c, b.identity.id),
-		).rejects.toBeInstanceOf(TokenDecryptError);
+		// It reports the row as present-but-unreadable, NOT as absent. Those
+		// two are what deletion branches on, and collapsing them is how a live
+		// Apple grant would get hard-deleted out of existence.
+		expect(await readStoredCredential(db, c, b.identity.id)).toEqual({
+			status: "unreadable",
+			reason: "decryptFailed",
+		});
 		db.close();
 	});
 });

@@ -6,23 +6,33 @@
 //  `PulseUI` primitives and driven by `AuthSessionStore`.
 //
 //  Actions:
-//    - "Sign in with Apple" → real Apple flow via `SignInWithAppleButton`
-//      (PR #114). Only sanitized, non-sensitive display metadata (name/email)
-//      reaches `AuthSessionStore.completeAppleSignIn`; the identityToken,
-//      authorizationCode, and Apple `user` identifier are never read or stored.
-//    - "Googleで続ける" → real Google Sign-In via the GoogleSignIn SDK when a
-//      real iOS OAuth client is configured (PR #115). Only sanitized
-//      name/email reaches `AuthSessionStore.completeGoogleSignIn`; the idToken,
-//      accessToken, refreshToken, serverAuthCode, and user identifier are
-//      never read or stored. While the Info.plist client ID is the documented
-//      placeholder, the button is disabled and a "設定準備中" note is shown —
-//      no real sign-in starts and no fake signed-in state is created.
+//    - "Appleでサインイン" → `ProviderSignInCoordinator`, which takes a
+//      Keychain-backed permit *before* Apple's authorization sheet opens. The
+//      identityToken, authorizationCode and raw nonce ARE read and sent to
+//      PulseCue's backend, which verifies them and issues a server session.
+//      `credential.user`, the name and the email are display fields only and
+//      are never sent as identity.
+//    - "Googleで続ける" → the same coordinator, so `GIDSignIn` is not touched
+//      until the permit is granted. Requires a real iOS OAuth client *and* a
+//      distinct server client.
+//      The idToken IS read and sent to the backend; the accessToken,
+//      refreshToken, serverAuthCode and userID are not. While either client id
+//      is the documented placeholder — or the two are equal — sign-in is
+//      refused rather than faked.
 //    - "ゲストで続ける"  → AuthSessionStore.continueAsGuest()
 //
-//  Even with real Apple/Google sign-in, the app stays local-first: no token
-//  persistence, no Keychain, no server token exchange, no sync. The copy
-//  makes clear that account linking / backup / sync are not active yet, and
-//  login is never required to use the app.
+//  Neither provider SDK is reachable from this view directly: both go through
+//  the coordinator, so a button cannot start an authorization the account
+//  layer has not agreed to.
+//
+//  Sign-in exchanges the provider's signed material for a PulseCue server
+//  session, which `ServerAccountStore` owns: it verifies the session,
+//  persists the opaque token in the Keychain, and hands it back to the server
+//  if any of that fails. The local `LinkedAccount` record is written only
+//  after the server confirms, so a failed exchange leaves no link behind.
+//
+//  Sync is still not active, and login is still never required to use the
+//  app — Guest remains a complete way to use PulseCue.
 //
 
 import SwiftUI
@@ -43,13 +53,16 @@ struct LoginView: View {
     var serverAccount: ServerAccountStore?
     @Environment(\.dismiss) private var dismiss
 
-    /// The raw nonce for the sign-in attempt currently on screen.
+    /// Disables both provider buttons while an attempt is on screen.
     ///
-    /// Apple receives `sha256(rawNonce)` and echoes it inside the signed
-    /// identity token; the server receives the raw value and recomputes the
-    /// hash. Holding it here for the duration of one attempt is what ties the
-    /// token that comes back to the request that went out.
-    @State private var appleRawNonce: String?
+    /// A courtesy, not the enforcement — the coordinator's permit is what
+    /// actually prevents a second authorization, and it holds even if this
+    /// flag is wrong. The nonce now lives in `AppleAuthorizationBridge`, for
+    /// the lifetime of one authorization.
+    @State private var isSigningIn = false
+
+    /// Why the last attempt was refused before it reached a provider, if it was.
+    @State private var refusalMessage: String?
 
     /// The Web/server OAuth client. Google mints the ID token's `aud` from
     /// this, and the backend verifies against it. Separate from
@@ -130,22 +143,19 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
             PulseSectionHeader("続ける方法", icon: "rectangle.portrait.and.arrow.right")
 
-            // Real Sign in with Apple. Only sanitized name/email is used;
-            // no token / code / user identifier is read or stored.
-            SignInWithAppleButton(.continue) { request in
-                request.requestedScopes = [.fullName, .email]
-                // Apple gets the hash; the server gets the raw value. A
-                // captured identity token proves nothing without it, and the
-                // server spends each nonce once.
-                let raw = AppleSignInNonce.makeRawNonce()
-                appleRawNonce = raw
-                request.nonce = AppleSignInNonce.sha256Hex(raw)
-            } onCompletion: { result in
-                handleAppleCompletion(result)
+            // Apple's own control, wrapped — see `AppleSignInButton`.
+            //
+            // Deliberately not `SignInWithAppleButton`, which begins the
+            // authorization the instant it is tapped and leaves no room for
+            // the Keychain preflight. This one only reports the tap, so the
+            // permit still comes first and the SDK second.
+            AppleSignInButton {
+                await startSignIn(.apple)
             }
-            .signInWithAppleButtonStyle(.black)
+            .frame(maxWidth: .infinity)
             .frame(height: 50)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
+            .disabled(isSigningIn)
+            .opacity(isSigningIn ? 0.5 : 1)
 
             Button("ゲストで続ける") {
                 authSession.continueAsGuest()
@@ -158,16 +168,23 @@ struct LoginView: View {
             // Release with the placeholder config shows nothing here.
             if showsGoogleSignIn {
                 Button("Googleで続ける") {
-                    startGoogleSignIn()
+                    Task { await startSignIn(.google) }
                 }
                 .buttonStyle(PulseSecondaryButtonStyle())
-                .disabled(!googleConfig.isConfigured)
+                .disabled(!googleConfig.isConfigured || isSigningIn)
 
                 if !googleConfig.isConfigured {
                     Label("Googleログインは設定準備中です", systemImage: "info.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if let refusalMessage {
+                Label(refusalMessage, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
@@ -180,134 +197,96 @@ struct LoginView: View {
         .pulseGlass(level: .functional, padding: 18)
     }
 
-    /// Handles the Apple authorization result. On success it extracts ONLY the
-    /// non-sensitive display name / email; the identityToken, authorizationCode,
-    /// and Apple `user` identifier are deliberately ignored and never stored.
-    /// Cancellation / failure leaves the auth state unchanged.
-    private func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
-        guard case let .success(authorization) = result,
-              let credential = authorization.credential as? ASAuthorizationAppleIDCredential
-        else { return }
-        // `credential.user` is Apple's stable, app-scoped identifier. It is what
-        // lets the link survive a relaunch and be re-validated with
-        // `ASAuthorizationAppleIDProvider`. The identityToken and
-        // authorizationCode are still never read: there is no server to send
-        // them to, so storing them would be storing a credential for nothing.
-        let appleResult = AppleSignInResult(
-            nameComponents: credential.fullName,
-            email: credential.email
-        )
-        authSession.completeAppleSignIn(
-            userIdentifier: credential.user,
-            displayName: appleResult.displayName,
-            email: appleResult.email
-        )
-
-        // Hand the *signed* material to PulseCue's server, which decides who
-        // this is. `credential.user`, the name and the email are deliberately
-        // not sent as identity — the server reads the subject out of the
-        // signature it verifies, and there is no field on the request for
-        // anything the client claims.
-        //
-        // `authorizationCode` is required, not best-effort: without it the
-        // server cannot obtain the refresh token it needs to revoke at account
-        // deletion, and the code cannot be re-requested later.
-        if let serverAccount,
-           let rawNonce = appleRawNonce,
-           let identityToken = credential.identityToken
-             .flatMap({ String(data: $0, encoding: .utf8) }),
-           let authorizationCode = credential.authorizationCode
-             .flatMap({ String(data: $0, encoding: .utf8) }) {
-            appleRawNonce = nil
-            Task { @MainActor in
-                await serverAccount.signInWithApple(
-                    identityToken: identityToken,
-                    authorizationCode: authorizationCode,
-                    rawNonce: rawNonce
-                )
-            }
-        } else {
-            appleRawNonce = nil
+    /// The only route to a provider SDK.
+    ///
+    /// Everything that decides whether a sign-in may start lives behind
+    /// `ProviderSignInCoordinator`, which takes a Keychain-backed permit
+    /// before Apple's or Google's sheet is opened. A disabled button is a
+    /// courtesy; this is the part that is enforced.
+    @MainActor
+    private func startSignIn(_ provider: AuthProviderKind) async {
+        guard let serverAccount else {
+            // No account layer in this build. Sign-in would have nothing to
+            // talk to, and creating a local-only link would claim a PulseCue
+            // account that does not exist.
+            refusalMessage = "この端末ではアカウント機能をまだ利用できません。"
+            return
         }
+        guard !isSigningIn else { return }
 
-        dismiss()
-    }
+        isSigningIn = true
+        defer { isSigningIn = false }
 
-    // MARK: - Google sign-in
-
-    /// Entry point for the Google button. Refuses to start unless a real iOS
-    /// OAuth client is configured, so the documented placeholder can never
-    /// trigger a real flow or fabricate a signed-in state.
-    private func startGoogleSignIn() {
-        guard googleConfig.isConfigured else { return }
-        presentGoogleSignIn()
-    }
-
-#if canImport(GoogleSignIn)
-    /// Presents the real Google Sign-In sheet. On success it extracts ONLY the
-    /// non-sensitive display name / email; the idToken, accessToken,
-    /// refreshToken, serverAuthCode, and Google user identifier are deliberately
-    /// ignored and never stored. Cancellation / failure leaves state unchanged.
-    private func presentGoogleSignIn() {
-        guard let presenter = Self.topViewController() else { return }
-        GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { signInResult, error in
-            guard error == nil,
-                  let user = signInResult?.user,
-                  let userID = user.userID
-            else { return }
-            // Extract ONLY the stable identifier and the non-sensitive display
-            // fields up front, so the MainActor handoff below captures plain
-            // `String` values and never the SDK result. The idToken,
-            // accessToken, refreshToken and serverAuthCode are never touched —
-            // the SDK keeps its own credential and `restorePreviousSignIn`
-            // brings the session back on the next launch.
-            let displayName = user.profile?.name
-            let email = user.profile?.email
-            // The ID token is the ONLY thing the server accepts as identity.
-            // `user.userID`, the profile name and the email are display fields
-            // here and are never sent as identity — the server reads `sub` out
-            // of the signature it verifies.
-            //
-            // The token is only useful to the backend when `GIDServerClientID`
-            // is configured, because that is what puts the server client id in
-            // the token's `aud`. Unconfigured means no server sign-in is
-            // attempted at all, rather than one that would be rejected.
-            let idToken = user.idToken?.tokenString
-            let serverSignInIsPossible = googleServerConfig.isConfigured
-            // Hop to the main actor for the state update + dismiss, which are
-            // both main-actor isolated. The SDK callback itself is nonisolated.
-            Task { @MainActor in
-                let googleResult = GoogleSignInResult(
-                    displayName: displayName,
-                    email: email
-                )
-                authSession.completeGoogleSignIn(
-                    userIdentifier: userID,
-                    displayName: googleResult.displayName,
-                    email: googleResult.email
-                )
-                if let serverAccount, serverSignInIsPossible, let idToken {
-                    await serverAccount.signInWithGoogle(idToken: idToken)
+        let coordinator = ProviderSignInCoordinator(
+            account: serverAccount,
+            apple: AppleAuthorizationBridge(),
+            google: GoogleAuthorizationBridge(),
+            googleConfigurationIsUsable: {
+                // Both client ids present, and different. They are both
+                // `...apps.googleusercontent.com`, so pasting the iOS one into
+                // the server slot is an easy mistake shape alone cannot catch.
+                googleServerConfig.isConfigured
+                    && googleConfig.isConfigured
+                    && googleServerConfig.isDistinct(from: googleConfig.clientID)
+            },
+            recordLink: { link in
+                // Reached only after the server confirmed and persisted the
+                // session, so a local link never outlives a failed sign-in.
+                switch link.provider {
+                case .apple:
+                    authSession.completeAppleSignIn(
+                        userIdentifier: link.userIdentifier,
+                        displayName: link.displayName,
+                        email: link.email
+                    )
+                case .google:
+                    authSession.completeGoogleSignIn(
+                        userIdentifier: link.userIdentifier,
+                        displayName: link.displayName,
+                        email: link.email
+                    )
+                case .guest:
+                    break
                 }
-                dismiss()
             }
+        )
+
+        let outcome = provider == .apple
+            ? await coordinator.signInWithApple()
+            : await coordinator.signInWithGoogle()
+
+        switch outcome {
+        case .signedIn:
+            dismiss()
+        case .cancelled:
+            // The user backed out. Nothing changed, and nothing to say.
+            break
+        case .providerFailed:
+            refusalMessage = "サインインを完了できませんでした。もう一度お試しください。"
+        case let .refused(reason):
+            refusalMessage = message(for: reason)
         }
     }
 
-    /// Finds the top-most view controller to present the Google sheet from.
-    private static func topViewController() -> UIViewController? {
-        let scene = UIApplication.shared.connectedScenes
-            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
-            ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
-        guard var top = scene?.keyWindow?.rootViewController else { return nil }
-        while let presented = top.presentedViewController { top = presented }
-        return top
+    private func message(for refusal: ProviderSignInRefusal) -> String {
+        switch refusal {
+        case .existingSession:
+            return "すでにサインインしています。別のアカウントを使うには、先にサインアウトしてください。"
+        case .credentialUnavailable:
+            return "この端末のサインイン情報を読み取れませんでした。しばらくしてからお試しください。"
+        case .busy:
+            return "サインインを処理中です。しばらくお待ちください。"
+        case .notConfigured:
+            return "この端末ではアカウント機能をまだ利用できません。"
+        case .serverRefused:
+            return "サインインできませんでした。もう一度お試しください。"
+        case .superseded:
+            // Sign-out, deletion or a launch restore overtook this attempt.
+            // The user asked for that newer thing and got it, so this is not
+            // an error to apologise for — it explains why the tap did nothing.
+            return "サインアウトなどの操作が行われたため、このサインインは取り消されました。"
+        }
     }
-#else
-    /// GoogleSignIn SDK unavailable at build time — treat as not configured.
-    private func presentGoogleSignIn() {}
-#endif
-
 }
 
 /// Centralised decision for whether the Google Sign-In control is presented.

@@ -20,7 +20,9 @@ import {
 import {
 	prepareCredentialUpsert,
 	findCredentialForIdentity,
+	markCredentialRevoked,
 	readRefreshToken,
+	readStoredCredential,
 } from "../../src/api/db/providerCredentials";
 import { createSession, findActiveSessionByToken } from "../../src/api/db/sessions";
 import { requireSession } from "../../src/api/middleware/requireSession";
@@ -869,6 +871,269 @@ describe("sign-in while a deletion is pending", () => {
 		for (const dead of [token, second.token]) {
 			expect(await findActiveSessionByToken(db, dead, NOW + 10_000)).toBeNull();
 		}
+		db.close();
+	});
+});
+
+// MARK: - An unrevoked credential with no usable material
+
+describe("a live credential row whose material is unusable", () => {
+	/** Damages the stored material of an unrevoked credential row. */
+	async function withDamage(
+		damage: (db: TestDatabase, identityId: string) => Promise<void>,
+	) {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		await damage(db, account.identity.id);
+		const del = makeApp(db, { cipher: c });
+		const response = await del(token);
+		return { db, del, account, response, c };
+	}
+
+	const damages: Array<[string, (db: TestDatabase, id: string) => Promise<void>]> = [
+		[
+			"empty ciphertext",
+			async (db, id) => {
+				await db
+					.prepare(
+						`UPDATE provider_credentials SET encrypted_refresh_token = '' WHERE auth_identity_id = ?`,
+					)
+					.bind(id)
+					.run();
+			},
+		],
+		[
+			"empty IV",
+			async (db, id) => {
+				await db
+					.prepare(
+						`UPDATE provider_credentials SET encryption_iv = '' WHERE auth_identity_id = ?`,
+					)
+					.bind(id)
+					.run();
+			},
+		],
+		[
+			"malformed IV",
+			async (db, id) => {
+				await db
+					.prepare(
+						`UPDATE provider_credentials SET encryption_iv = 'AA' WHERE auth_identity_id = ?`,
+					)
+					.bind(id)
+					.run();
+			},
+		],
+		[
+			"corrupt ciphertext",
+			async (db, id) => {
+				await db
+					.prepare(
+						`UPDATE provider_credentials SET encrypted_refresh_token = 'AAAAAAAAAAAAAAAAAAAAAAAA' WHERE auth_identity_id = ?`,
+					)
+					.bind(id)
+					.run();
+			},
+		],
+		[
+			"unknown key version",
+			async (db, id) => {
+				await db
+					.prepare(
+						`UPDATE provider_credentials SET encryption_key_version = 99 WHERE auth_identity_id = ?`,
+					)
+					.bind(id)
+					.run();
+			},
+		],
+	];
+
+	for (const [name, damage] of damages) {
+		it(`never hard-deletes the account — ${name}`, async () => {
+			// The bug this closes: an unrevoked row with unusable material read
+			// back as `null`, which the service took for "no credential at
+			// all". Deletion then hard-deleted the user while a live Apple
+			// grant stayed alive and became untraceable.
+			const { db, del, account, response } = await withDamage(damage);
+
+			expect(response.status, "must be 202, not 200").toBe(202);
+			expect(((await response.json()) as { status: string }).status).toBe(
+				"pending",
+			);
+
+			// The user is still here, still deleting.
+			const user = await findUserById(db, account.user.id);
+			expect(user?.state).toBe("deleting");
+			// Nothing was sent to Apple with a credential we could not read.
+			expect(del.apple.requests).toHaveLength(0);
+			// The row survives, unrevoked, so a restored key can still recover.
+			const row = await findCredentialForIdentity(db, account.identity.id);
+			expect(row).not.toBeNull();
+			expect(row?.revoked_at).toBeNull();
+			// And the reason is recorded for an operator.
+			expect(
+				(await findAccountDeletion(db, account.user.id))?.last_error_code,
+			).toBe("credential_unreadable");
+			db.close();
+		});
+	}
+
+	it("tells an unreadable row apart from an absent one", async () => {
+		// The three states the lookup must never collapse.
+		const db = await createTestDatabase();
+		const c = cipher();
+		const present = await signedIn(db, c, { subject: "apple-present" });
+		const none = await signedIn(db, c, {
+			subject: "google-none",
+			provider: "google",
+			withCredential: false,
+		});
+		const blanked = await signedIn(db, c, { subject: "apple-blanked" });
+		await markCredentialRevoked(db, blanked.account.identity.id, NOW);
+		const broken = await signedIn(db, c, { subject: "apple-broken" });
+		await db
+			.prepare(
+				`UPDATE provider_credentials SET encrypted_refresh_token = '' WHERE auth_identity_id = ?`,
+			)
+			.bind(broken.account.identity.id)
+			.run();
+
+		expect(
+			(await readStoredCredential(db, c, present.account.identity.id)).status,
+		).toBe("readable");
+		expect(
+			(await readStoredCredential(db, c, none.account.identity.id)).status,
+		).toBe("absent");
+		expect(
+			(await readStoredCredential(db, c, blanked.account.identity.id)).status,
+		).toBe("alreadyRevoked");
+		expect(
+			await readStoredCredential(db, c, broken.account.identity.id),
+		).toEqual({ status: "unreadable", reason: "missingMaterial" });
+		db.close();
+	});
+
+	it("still completes for a row that was blanked by a confirmed revocation", async () => {
+		// Empty material on an *already revoked* row is the expected end
+		// state, not a problem — that path must stay open or no deletion could
+		// ever finish after a retry.
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(db, c);
+		await markCredentialRevoked(db, account.identity.id, NOW);
+		const del = makeApp(db, { cipher: c });
+
+		const response = await del(token);
+
+		expect(response.status).toBe(200);
+		expect(await findUserById(db, account.user.id)).toBeNull();
+		// Apple was not asked again for a token it already revoked.
+		expect(del.apple.requests).toHaveLength(0);
+		db.close();
+	});
+});
+
+// MARK: - Failure on either side of the durable transition
+
+describe("which phase failed decides what the client is told", () => {
+	/** A database that throws on the Nth batch, and works otherwise. */
+	function failingOnBatch(db: TestDatabase, failAt: number) {
+		let batches = 0;
+		return {
+			prepare: (sql: string) => db.prepare(sql),
+			batch: async (statements: Parameters<TestDatabase["batch"]>[0]) => {
+				batches += 1;
+				if (batches === failAt) throw new Error("d1 unavailable");
+				return db.batch(statements);
+			},
+			count: (table: string) => db.count(table),
+			close: () => db.close(),
+		} as unknown as TestDatabase;
+	}
+
+	it("reports a service failure when the transition itself fails", async () => {
+		// Nothing was accepted: the batch rolled back, the account is still
+		// active. Answering 202 here would tell the user their account is
+		// being deleted when it is not.
+		const base = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(base, c);
+		// Batch 1 is the deletion transition.
+		const db = failingOnBatch(base, 1);
+		const del = makeApp(db, { cipher: c });
+
+		const response = await del(token);
+
+		expect(response.status).toBe(500);
+		const user = await findUserById(base, account.user.id);
+		expect(user?.state).toBe("active");
+		expect(user?.deleted_at).toBeNull();
+		// No partial state: the session still works, so the client can retry.
+		expect(await findActiveSessionByToken(base, token, NOW + 1)).not.toBeNull();
+		expect(await base.count("account_deletions")).toBe(0);
+		base.close();
+	});
+
+	it("reports 202, not 500, when processing fails after the transition", async () => {
+		// The deletion IS durably accepted at this point. A 500 would say the
+		// request failed while the account is already deleting and every
+		// session is dead — the response contradicting the state.
+		const base = await createTestDatabase();
+		const c = cipher();
+		const { account, token } = await signedIn(base, c);
+		const del = makeApp(db(base), { cipher: c });
+
+		function db(inner: TestDatabase) {
+			let batches = 0;
+			return {
+				prepare: (sql: string) => {
+					// Fail the credential lookup that processing performs.
+					if (batches >= 1 && sql.includes("FROM provider_credentials")) {
+						throw new Error("d1 unavailable");
+					}
+					return inner.prepare(sql);
+				},
+				batch: async (statements: Parameters<TestDatabase["batch"]>[0]) => {
+					batches += 1;
+					return inner.batch(statements);
+				},
+				count: (table: string) => inner.count(table),
+				close: () => inner.close(),
+			} as unknown as TestDatabase;
+		}
+
+		const response = await del(token);
+
+		expect(response.status).toBe(202);
+		const body = (await response.json()) as { status: string };
+		expect(body.status).toBe("pending");
+		// The transition survived, so the deletion is genuinely owed.
+		const user = await findUserById(base, account.user.id);
+		expect(user?.state).toBe("deleting");
+		expect(user?.deleted_at).toBe(NOW);
+		expect(await findActiveSessionByToken(base, token, NOW + 1)).toBeNull();
+		// And a retry processor can still pick it up.
+		expect(await findAccountDeletion(base, account.user.id)).not.toBeNull();
+		// The user was not hard-deleted, and the credential is intact.
+		expect(await findCredentialForIdentity(base, account.identity.id)).not.toBeNull();
+		base.close();
+	});
+
+	it("never says deleted or completed in a pending response", async () => {
+		const db = await createTestDatabase();
+		const c = cipher();
+		const { token } = await signedIn(db, c);
+		const del = makeApp(db, {
+			cipher: c,
+			appleResponder: () => new Response("", { status: 503 }),
+		});
+
+		const text = await (await del(token)).text();
+
+		expect(text).toContain("pending");
+		expect(text).not.toContain("deleted");
+		expect(text).not.toContain("completed");
 		db.close();
 	});
 });

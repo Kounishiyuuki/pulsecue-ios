@@ -308,3 +308,85 @@ describe("schema constraints", () => {
 		db.close();
 	});
 });
+
+describe("account_deletions", () => {
+	it("accepts every error code the service can produce", async () => {
+		// The CHECK and the TypeScript union have to agree; this is the test
+		// that notices when one of them moves without the other.
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','deleting',1,1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO account_deletions (user_id, requested_at, attempts, next_attempt_at)
+				 VALUES ('u1', 1, 0, 1)`,
+			)
+			.run();
+
+		for (const code of [
+			"provider_unavailable",
+			"provider_rejected",
+			"credential_unreadable",
+		]) {
+			await db
+				.prepare(`UPDATE account_deletions SET last_error_code = ? WHERE user_id = 'u1'`)
+				.bind(code)
+				.run();
+			const row = await db
+				.prepare(`SELECT last_error_code FROM account_deletions WHERE user_id='u1'`)
+				.first<{ last_error_code: string }>();
+			expect(row?.last_error_code).toBe(code);
+		}
+		db.close();
+	});
+
+	it("allows NULL, which is where every row starts", async () => {
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','deleting',1,1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO account_deletions (user_id, requested_at, attempts, next_attempt_at)
+				 VALUES ('u1', 1, 0, 1)`,
+			)
+			.run();
+
+		const row = await db
+			.prepare(`SELECT last_error_code FROM account_deletions WHERE user_id='u1'`)
+			.first<{ last_error_code: string | null }>();
+		expect(row?.last_error_code).toBeNull();
+		db.close();
+	});
+
+	it("refuses anything outside the closed set", async () => {
+		// Including the shape a leaked provider message would take.
+		const db = await createTestDatabase();
+		await db
+			.prepare(`INSERT INTO users (id,state,created_at,updated_at,deleted_at) VALUES ('u1','deleting',1,1,1)`)
+			.run();
+		await db
+			.prepare(
+				`INSERT INTO account_deletions (user_id, requested_at, attempts, next_attempt_at)
+				 VALUES ('u1', 1, 0, 1)`,
+			)
+			.run();
+
+		for (const bad of [
+			"something_else",
+			"invalid_grant",
+			"AADSTS50011: reply url does not match",
+			"",
+		]) {
+			await expect(
+				db
+					.prepare(`UPDATE account_deletions SET last_error_code = ? WHERE user_id = 'u1'`)
+					.bind(bad)
+					.run(),
+				`should refuse ${bad}`,
+			).rejects.toThrow();
+		}
+		db.close();
+	});
+});

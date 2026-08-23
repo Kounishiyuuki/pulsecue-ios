@@ -31,7 +31,24 @@ CREATE TABLE account_deletions (
   attempts        INTEGER NOT NULL DEFAULT 0,
   last_attempt_at INTEGER,
   -- A fixed code from a closed set. Never a provider error body, never PII.
-  last_error_code TEXT,
+  --
+  -- The set is enforced here as well as in TypeScript. A union type is a
+  -- compile-time promise about the code that exists today; the CHECK is what
+  -- stops a future caller, a migration script or a manual fix from writing a
+  -- provider message into a column that is read by operators and, one day,
+  -- possibly by support tooling.
+  --
+  -- NULL is allowed and means "no attempt has failed yet", which is the state
+  -- every row starts in.
+  last_error_code TEXT
+    CHECK (
+      last_error_code IS NULL
+      OR last_error_code IN (
+        'provider_unavailable',
+        'provider_rejected',
+        'credential_unreadable'
+      )
+    ),
   -- When a processor may try again. Backoff lives here rather than in a
   -- scheduler so the retry policy survives whatever invokes it.
   next_attempt_at INTEGER NOT NULL
