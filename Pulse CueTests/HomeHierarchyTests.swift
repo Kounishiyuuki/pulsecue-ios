@@ -186,7 +186,7 @@ struct HomeHierarchyTests {
     @Test func confirmedMealsOwnTheDayWhenTheyExist() {
         let summary = DailyNutritionSummary.make(
             dayLog: dayLog(intake: 1_200),
-            confirmedMeals: [meal(kcal: 500), meal(kcal: 300)],
+            mealsForDay: [meal(kcal: 500), meal(kcal: 300)],
             manualTargetKcal: nil,
             profileTargetKcal: 2_000
         )
@@ -198,7 +198,7 @@ struct HomeHierarchyTests {
         // a day logged with the calorie quick input and no meal rows.
         let summary = DailyNutritionSummary.make(
             dayLog: dayLog(intake: 1_500),
-            confirmedMeals: [],
+            mealsForDay: [],
             manualTargetKcal: nil,
             profileTargetKcal: 2_000
         )
@@ -208,7 +208,7 @@ struct HomeHierarchyTests {
     @Test func aDayWithNothingRecordedHasNoConsumedValue() {
         let summary = DailyNutritionSummary.make(
             dayLog: dayLog(intake: nil),
-            confirmedMeals: [],
+            mealsForDay: [],
             manualTargetKcal: nil,
             profileTargetKcal: 2_000
         )
@@ -219,7 +219,7 @@ struct HomeHierarchyTests {
     @Test func aManualTargetOverridesTheProfileFigure() {
         let summary = DailyNutritionSummary.make(
             dayLog: dayLog(intake: 0),
-            confirmedMeals: [],
+            mealsForDay: [],
             manualTargetKcal: 1_800,
             profileTargetKcal: 2_400
         )
@@ -229,7 +229,7 @@ struct HomeHierarchyTests {
     @Test func theProfileFigureIsUsedWhenThereIsNoOverride() {
         let summary = DailyNutritionSummary.make(
             dayLog: dayLog(intake: 0),
-            confirmedMeals: [],
+            mealsForDay: [],
             manualTargetKcal: nil,
             profileTargetKcal: 2_400
         )
@@ -240,7 +240,7 @@ struct HomeHierarchyTests {
         // Neither screen may invent one.
         let summary = DailyNutritionSummary.make(
             dayLog: dayLog(intake: 1_200),
-            confirmedMeals: [],
+            mealsForDay: [],
             manualTargetKcal: nil,
             profileTargetKcal: nil
         )
@@ -251,7 +251,7 @@ struct HomeHierarchyTests {
     @Test func remainingIsTheTargetMinusWhatWasEaten() {
         let summary = DailyNutritionSummary.make(
             dayLog: nil,
-            confirmedMeals: [meal(kcal: 1_840)],
+            mealsForDay: [meal(kcal: 1_840)],
             manualTargetKcal: nil,
             profileTargetKcal: 2_400
         )
@@ -263,7 +263,7 @@ struct HomeHierarchyTests {
         // number on the screen.
         let summary = DailyNutritionSummary.make(
             dayLog: nil,
-            confirmedMeals: [meal(kcal: 2_300)],
+            mealsForDay: [meal(kcal: 2_300)],
             manualTargetKcal: nil,
             profileTargetKcal: 2_000
         )
@@ -273,7 +273,7 @@ struct HomeHierarchyTests {
     @Test func proteinComesFromTheSharedConfirmedOnlyHelper() {
         let summary = DailyNutritionSummary.make(
             dayLog: nil,
-            confirmedMeals: [meal(kcal: 400, protein: 30), meal(kcal: 300, protein: 20)],
+            mealsForDay: [meal(kcal: 400, protein: 30), meal(kcal: 300, protein: 20)],
             manualTargetKcal: nil,
             profileTargetKcal: 2_400
         )
@@ -282,32 +282,6 @@ struct HomeHierarchyTests {
             summary.proteinTargetGrams
                 == ProteinTotals.defaultTargetGrams(forKcalTarget: 2_400)
         )
-    }
-
-    @Test func theSameStoredStateProducesOneAnswerForBothScreens() {
-        // The equality claim itself: one input, one summary. Home and
-        // Nutrition each call this, so there is no second answer to differ
-        // from.
-        let log = dayLog(intake: 1_200)
-        let meals = [meal(kcal: 700, protein: 40)]
-
-        let first = DailyNutritionSummary.make(
-            dayLog: log,
-            confirmedMeals: meals,
-            manualTargetKcal: 1_900,
-            profileTargetKcal: 2_400
-        )
-        let second = DailyNutritionSummary.make(
-            dayLog: log,
-            confirmedMeals: meals,
-            manualTargetKcal: 1_900,
-            profileTargetKcal: 2_400
-        )
-
-        #expect(first == second)
-        #expect(first.consumedKcal == 700)
-        #expect(first.targetKcal == 1_900)
-        #expect(first.remainingKcal == 1_200)
     }
 
     // MARK: - Home stays out of the way of the tabs

@@ -31,19 +31,27 @@ import Foundation
 
 /// Who owns today's intake figure.
 ///
-/// The invariant: **a confirmed meal, once it exists, makes meals
-/// authoritative for the whole day.** The manual `DayLog` value is only a
-/// fallback for a day with no confirmed meals at all, and a day holding only
-/// *pending* rows counts as having none — an unconfirmed estimate is not
-/// intake.
+/// The invariant, and it is one rule rather than two:
 ///
-/// Callers need this, not just the number. A screen that offers manual
-/// calorie entry while meals own the day would accept a value it then refuses
-/// to display anywhere, so the entry point has to follow the ownership.
+///   **Any `MealEntry` for the day — pending included — makes the meal ledger
+///   authoritative for that day. Only *confirmed* entries count towards
+///   consumed calories. The manual `DayLog` value is a fallback only when the
+///   day holds no meal entries at all.**
+///
+/// Ownership and the number are separate questions, and conflating them is
+/// what went wrong before: this type keyed ownership off *confirmed* meals
+/// while `NutritionLedger` keys its writes off *any* meal. On a pending-only
+/// day the two disagreed — the UI offered manual calorie entry, and the next
+/// ledger write (a confirm, or a delete) cleared what the user had typed.
+/// Nothing errored; the number just disappeared.
+///
+/// So ownership follows the ledger, because the ledger is what writes.
 enum NutritionIntakeSource: Equatable {
-    case confirmedMeals
+    /// A meal entry exists for the day, of any status.
+    case meals
+    /// No meal entries; the quick calorie input owns the day.
     case manualDayLog
-    /// Nothing recorded for the day.
+    /// No meals and nothing typed in.
     case none
 }
 
@@ -70,12 +78,14 @@ struct DailyNutritionSummary: Equatable {
     let intakeSource: NutritionIntakeSource
     let targetSource: NutritionTargetSource
 
-    /// Whether a manual calorie entry would actually change what is shown.
+    /// Whether a manual calorie entry would survive.
     ///
-    /// False once meals own the day: the value would be stored and then
-    /// ignored by every screen, which is worse than not offering it.
+    /// False once any meal exists for the day. Such a value is not merely
+    /// ignored by the display — `NutritionLedger` overwrites or clears it on
+    /// the next confirm or delete, so offering the field is offering to lose
+    /// what the user types.
     var acceptsManualIntakeEntry: Bool {
-        intakeSource != .confirmedMeals
+        intakeSource != .meals
     }
 
     /// What is left of the target.
@@ -92,23 +102,29 @@ struct DailyNutritionSummary: Equatable {
     ///
     /// - Parameters:
     ///   - dayLog: today's `DayLog`, if one exists.
-    ///   - confirmedMeals: today's `.confirmed` meals. Pending and
-    ///     AI-estimated rows are the caller's job to exclude, because that
-    ///     rule already lives in the meal query and in `ProteinTotals`.
+    ///   - mealsForDay: **every** meal entry for the day, whatever its
+    ///     status. Not just the confirmed ones: pending rows decide ownership
+    ///     even though they do not count as intake, and having callers filter
+    ///     first is how the two rules drifted apart in the first place.
     ///   - manualTargetKcal: the resolved `HealthTargets` override.
     ///   - profileTargetKcal: the profile-calculated target.
     static func make(
         dayLog: DayLog?,
-        confirmedMeals: [MealEntry],
+        mealsForDay: [MealEntry],
         manualTargetKcal: Int?,
         profileTargetKcal: Int?
     ) -> DailyNutritionSummary {
+        let confirmedMeals = mealsForDay.filter { $0.status == .confirmed }
         let target = GoalCalculator.effectiveIntakeTarget(
             manualTarget: manualTargetKcal,
             profileTarget: profileTargetKcal
         )
         let protein = ProteinTotals.daily(meals: confirmedMeals, kcalTarget: target)
-        let consumedValue = consumed(dayLog: dayLog, confirmedMeals: confirmedMeals)
+        let consumedValue = consumed(
+            dayLog: dayLog,
+            mealsForDay: mealsForDay,
+            confirmedMeals: confirmedMeals
+        )
 
         return DailyNutritionSummary(
             consumedKcal: consumedValue,
@@ -116,7 +132,7 @@ struct DailyNutritionSummary: Equatable {
             proteinGrams: protein.confirmedGrams,
             proteinTargetGrams: protein.targetGrams,
             intakeSource: intakeSource(
-                confirmedMeals: confirmedMeals,
+                mealsForDay: mealsForDay,
                 consumed: consumedValue
             ),
             targetSource: targetSource(
@@ -126,24 +142,12 @@ struct DailyNutritionSummary: Equatable {
         )
     }
 
-    /// The day's intake, following the ownership rule `NutritionLedger`
-    /// already enforces when it writes.
-    ///
-    /// Meals own the number whenever any exist — that is what the ledger
-    /// maintains, and reading the meals directly here means the two cannot
-    /// fall out of step even if a write is missed. With no meals at all the
-    /// stored `DayLog` value stands, which is the quick calorie input and the
-    /// only record of that day.
-    ///
-    /// A day holding only *pending* meals falls through to the stored value,
-    /// which `NutritionLedger` has already cleared for exactly that case — so
-    /// an unconfirmed estimate reads as "not recorded" rather than as intake,
-    /// on both screens.
+    /// Ownership, keyed off the same predicate `NutritionLedger` writes by.
     private static func intakeSource(
-        confirmedMeals: [MealEntry],
+        mealsForDay: [MealEntry],
         consumed: Int?
     ) -> NutritionIntakeSource {
-        if !confirmedMeals.isEmpty { return .confirmedMeals }
+        if !mealsForDay.isEmpty { return .meals }
         return consumed == nil ? .none : .manualDayLog
     }
 
@@ -152,16 +156,28 @@ struct DailyNutritionSummary: Equatable {
         resolved: Int?
     ) -> NutritionTargetSource {
         guard resolved != nil else { return .unset }
-        // `GoalCalculator` prefers the override, so a resolved target equal to
-        // an existing override came from it.
+        // `GoalCalculator` prefers the override, so a resolved target with an
+        // override present came from it.
         return manual != nil ? .manualOverride : .profileDerived
     }
 
+    /// The day's confirmed intake.
+    ///
+    /// Once any meal exists the answer comes from the confirmed ones, and
+    /// from nowhere else — including when that total is zero. A pending-only
+    /// day is genuinely at zero confirmed intake, and falling back to the
+    /// stored `DayLog` value there would show an estimate's worth of calories
+    /// the user never confirmed, or a manual figure the ledger has already
+    /// wiped.
+    ///
+    /// With no meals at all the stored value stands: that is the quick
+    /// calorie input, and it is the only record of the day.
     private static func consumed(
         dayLog: DayLog?,
+        mealsForDay: [MealEntry],
         confirmedMeals: [MealEntry]
     ) -> Int? {
-        if !confirmedMeals.isEmpty {
+        guard mealsForDay.isEmpty else {
             return confirmedMeals.reduce(0) { $0 + $1.kcal }
         }
         return dayLog?.intakeCalories

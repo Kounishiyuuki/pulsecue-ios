@@ -54,6 +54,19 @@ struct TodayView: View {
     @Query private var stepResults: [StepResult]
     @Query private var routines: [Routine]
     @Query private var allSteps: [Step]
+    /// Every day log, used only as a change trigger for the weight cache.
+    ///
+    /// `recentLogs` is bounded to the fourteen days this screen renders, so a
+    /// weigh-in backfilled outside that window would not disturb it and the
+    /// cached weight would go stale while the user sat on Home.
+    ///
+    /// This does load every row rather than just their ids — SwiftData has no
+    /// projection for that — but a `DayLog` is one small row per day, so the
+    /// cost is bounded by the calendar rather than by usage. The meal query
+    /// above is the one where that distinction mattered.
+    @Query(sort: [SortDescriptor(\DayLog.date, order: .reverse)])
+    private var allDayLogs: [DayLog]
+
     /// Today's meals only. Read-only; Home never writes a meal.
     ///
     /// Date-bounded in the query rather than fetched whole and filtered:
@@ -175,7 +188,11 @@ struct TodayView: View {
             _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
             recomputeProgressSummary()
         }
-        .onChange(of: recentLogs) { _, _ in
+        // Refreshed on any DayLog change, not just one inside the fourteen
+        // days this screen renders. `allLogIds` exists solely as that trigger:
+        // a weigh-in backfilled outside the window changes it, where
+        // `recentLogs` would not notice.
+        .onChange(of: allDayLogs) { _, _ in
             targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
                 modelContext: modelContext
             )
@@ -208,18 +225,12 @@ struct TodayView: View {
     private var nutritionSummary: DailyNutritionSummary {
         DailyNutritionSummary.make(
             dayLog: todayLog,
-            confirmedMeals: todaysConfirmedMeals,
+            mealsForDay: todaysMeals,
             manualTargetKcal: resolvedTargets.intakeCalories,
             profileTargetKcal: profiles.first?.targetIntake(
                 currentWeightKg: latestLoggedWeight
             )
         )
-    }
-
-    /// The confirmed subset. `status` is a computed property over
-    /// `statusRaw`, so it cannot be part of the `#Predicate` above.
-    private var todaysConfirmedMeals: [MealEntry] {
-        todaysMeals.filter { $0.status == .confirmed }
     }
 
     // MARK: - Secondary content

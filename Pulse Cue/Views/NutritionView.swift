@@ -88,7 +88,7 @@ struct NutritionView: View {
     private var dailySummary: DailyNutritionSummary {
         DailyNutritionSummary.make(
             dayLog: todaysDayLog,
-            confirmedMeals: confirmedMeals,
+            mealsForDay: todaysMeals,
             manualTargetKcal: HealthTargetResolver.resolveAll(
                 date: Date(),
                 settings: targetStore.settings

@@ -72,18 +72,20 @@ struct HomeNutritionWiringTests {
         )
     }
 
-    /// Today's confirmed meals, fetched the way both screens scope them.
-    private func confirmedMealsToday(_ context: ModelContext) throws -> [MealEntry] {
+    /// Every meal for today, scoped the way both screens scope them.
+    ///
+    /// Deliberately unfiltered: ownership depends on pending rows too, and
+    /// filtering here would hide exactly the case these tests exist for.
+    private func mealsToday(_ context: ModelContext) throws -> [MealEntry] {
         let today = DateUtils.startOfDay(Date())
         let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
-        let meals = try context.fetch(
+        return try context.fetch(
             FetchDescriptor<MealEntry>(
                 predicate: #Predicate<MealEntry> {
                     $0.dayDate >= today && $0.dayDate < tomorrow
                 }
             )
         )
-        return meals.filter { $0.status == .confirmed }
     }
 
     private func todayLog(_ context: ModelContext) throws -> DayLog? {
@@ -102,7 +104,7 @@ struct HomeNutritionWiringTests {
         let weight = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
         return DailyNutritionSummary.make(
             dayLog: try todayLog(context),
-            confirmedMeals: try confirmedMealsToday(context),
+            mealsForDay: try mealsToday(context),
             manualTargetKcal: manualTargetKcal,
             profileTargetKcal: profile?.targetIntake(currentWeightKg: weight)
         )
@@ -121,7 +123,7 @@ struct HomeNutritionWiringTests {
         let summary = try screenSummary(context)
 
         #expect(summary.consumedKcal == 500)
-        #expect(summary.intakeSource == .confirmedMeals)
+        #expect(summary.intakeSource == .meals)
         // And the lower tile renders exactly this, not the 2000 underneath.
         let storedRawValue = try todayLog(context)?.intakeCalories
         #expect(storedRawValue == 2_000)
@@ -152,22 +154,49 @@ struct HomeNutritionWiringTests {
         #expect(summary.acceptsManualIntakeEntry)
     }
 
-    @Test func aDayWithOnlyPendingMealsIsNotMealOwned() throws {
-        // An unconfirmed estimate is not intake, and must not take ownership
-        // away from the manual entry point.
+    @Test func aPendingOnlyDayIsMealOwnedWithoutCountingTheEstimate() throws {
+        // The rule that closes this round. `NutritionLedger` treats *any*
+        // meal as taking ownership of the day, so a manual figure typed while
+        // a pending estimate exists is cleared by the next confirm or delete.
+        // The read side now agrees: the day is meal-owned, and the estimate
+        // still does not count as intake.
         let context = try makeContext()
         _ = insertProfile(context)
+        _ = insertLog(context, daysAgo: 0, intake: 1_200)
         context.insert(
             MealEntry(
                 dayDate: Date(), slot: .lunch, name: "推定",
-                kcal: 700, status: .pending, source: .ai
+                kcal: 800, status: .pending, source: .ai
             )
         )
 
         let summary = try screenSummary(context)
 
-        #expect(summary.intakeSource != .confirmedMeals)
-        #expect(summary.acceptsManualIntakeEntry)
+        #expect(summary.intakeSource == .meals)
+        // Not 800 — unconfirmed — and not the 1200 underneath either.
+        #expect(summary.consumedKcal == 0)
+        #expect(summary.acceptsManualIntakeEntry == false)
+    }
+
+    @Test func aPendingOnlyDayAgreesWithTheLedgersOwnershipPredicate() throws {
+        // Read and write must key off the same question. This asserts they
+        // do, rather than that they happen to today.
+        let context = try makeContext()
+        _ = insertProfile(context)
+        context.insert(
+            MealEntry(
+                dayDate: Date(), slot: .lunch, name: "推定",
+                kcal: 800, status: .pending, source: .ai
+            )
+        )
+
+        let summary = try screenSummary(context)
+        let ledgerSaysMealOwned = NutritionLedger.hasAnyMeal(
+            for: Date(), modelContext: context
+        )
+
+        #expect(ledgerSaysMealOwned)
+        #expect((summary.intakeSource == .meals) == ledgerSaysMealOwned)
     }
 
     // MARK: - The lower tile renders and routes from the same truth
@@ -218,6 +247,123 @@ struct HomeNutritionWiringTests {
 
         #expect(HomeIntakeTile.displayedKcal(for: summary) == nil)
         #expect(HomeIntakeTile.opensNutrition(for: summary) == false)
+    }
+
+    // MARK: - The meal lifecycle, through the real ledger
+    //
+    //  These drive `NutritionLedger` exactly as the app does — create,
+    //  confirm, delete — and read the summary after each step. The bug this
+    //  round fixed was a disagreement between the read side and the write
+    //  side, which only shows up when both actually run.
+
+    @Test func creatingAPendingMealTakesOwnershipFromTheManualValue() throws {
+        let context = try makeContext()
+        _ = insertProfile(context)
+        _ = insertLog(context, daysAgo: 0, intake: 700)
+
+        let before = try screenSummary(context)
+        #expect(before.intakeSource == .manualDayLog)
+        #expect(before.consumedKcal == 700)
+        #expect(before.acceptsManualIntakeEntry)
+
+        context.insert(
+            MealEntry(
+                dayDate: Date(), slot: .lunch, name: "推定",
+                kcal: 800, status: .pending, source: .ai
+            )
+        )
+        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+
+        let after = try screenSummary(context)
+        #expect(after.intakeSource == .meals)
+        #expect(after.consumedKcal == 0)
+        #expect(after.acceptsManualIntakeEntry == false)
+    }
+
+    @Test func confirmingAPendingMealMovesConsumedFromZeroToTheTotal() throws {
+        let context = try makeContext()
+        _ = insertProfile(context)
+        let meal = MealEntry(
+            dayDate: Date(), slot: .lunch, name: "昼食",
+            kcal: 500, status: .pending, source: .manual
+        )
+        context.insert(meal)
+        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+
+        let before = try screenSummary(context)
+        #expect(before.consumedKcal == 0)
+
+        meal.statusRaw = MealStatus.confirmed.rawValue
+        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+
+        let after = try screenSummary(context)
+        #expect(after.consumedKcal == 500)
+        #expect(after.intakeSource == .meals)
+        // Never dips back through the manual fallback on the way.
+        #expect(after.acceptsManualIntakeEntry == false)
+    }
+
+    @Test func deletingTheLastPendingMealDoesNotResurrectTheOldManualValue() throws {
+        // The quietest failure available: a figure the user typed, hidden
+        // while a pending estimate existed, reappearing days later as though
+        // it had been the day's intake all along.
+        let context = try makeContext()
+        _ = insertProfile(context)
+        _ = insertLog(context, daysAgo: 0, intake: 700)
+
+        let meal = MealEntry(
+            dayDate: Date(), slot: .lunch, name: "推定",
+            kcal: 800, status: .pending, source: .ai
+        )
+        context.insert(meal)
+        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+
+        context.delete(meal)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+
+        let after = try screenSummary(context)
+        #expect(after.intakeSource != .meals)
+        #expect(after.consumedKcal != 700, "the stale manual value must not come back")
+        #expect(after.acceptsManualIntakeEntry, "manual entry is available again")
+    }
+
+    @Test func deletingTheLastConfirmedMealLeavesNoStaleTotal() throws {
+        let context = try makeContext()
+        _ = insertProfile(context)
+        let meal = MealEntry(
+            dayDate: Date(), slot: .lunch, name: "昼食",
+            kcal: 500, status: .confirmed, source: .manual
+        )
+        context.insert(meal)
+        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        #expect(try screenSummary(context).consumedKcal == 500)
+
+        context.delete(meal)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+
+        let after = try screenSummary(context)
+        #expect(after.consumedKcal != 500, "the deleted meal must not linger")
+        #expect(after.acceptsManualIntakeEntry)
+    }
+
+    @Test func pendingCaloriesNeverJoinTheConfirmedTotal() throws {
+        let context = try makeContext()
+        _ = insertProfile(context)
+        _ = insertLog(context, daysAgo: 0, intake: 2_000)
+        insertMeal(context, kcal: 500)
+        context.insert(
+            MealEntry(
+                dayDate: Date(), slot: .dinner, name: "推定",
+                kcal: 800, status: .pending, source: .ai
+            )
+        )
+
+        let summary = try screenSummary(context)
+
+        #expect(summary.consumedKcal == 500)
+        #expect(summary.intakeSource == .meals)
+        #expect(HomeIntakeTile.displayedKcal(for: summary) == 500)
+        #expect(HomeIntakeTile.opensNutrition(for: summary))
     }
 
     // MARK: - Weight: the same weigh-in on both screens
@@ -319,7 +465,7 @@ struct HomeNutritionWiringTests {
         #expect(summary.targetKcal == 1_900)
         #expect(summary.remainingKcal == 1_200)
         #expect(summary.proteinGrams == 40)
-        #expect(summary.intakeSource == .confirmedMeals)
+        #expect(summary.intakeSource == .meals)
         #expect(summary.acceptsManualIntakeEntry == false)
         #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 82)
     }
