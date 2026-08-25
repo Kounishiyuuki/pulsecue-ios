@@ -21,7 +21,12 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                TodayView(onResumeRunner: { runnerPresenter.resume(isRunning: runnerViewModel.isRunning) })
+                TodayView(
+                    onResumeRunner: { runnerPresenter.resume(isRunning: runnerViewModel.isRunning) },
+                    // Home moves to the existing Nutrition tab rather than
+                    // pushing a second copy of the same screen into its stack.
+                    onOpenNutrition: { selectedTab = .nutrition }
+                )
             }
             .tabItem {
                 Label(

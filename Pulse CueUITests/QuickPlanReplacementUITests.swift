@@ -43,6 +43,7 @@ final class QuickPlanReplacementUITests: XCTestCase {
     /// A 30-minute plan leaves spares, which is what these tests exercise.
     private func openPreview(_ app: XCUIApplication) {
         endRecoveredRunnerIfNeeded(app)
+        openHomePlanOptions(app)
         let entry = app.buttons["今日のメニューを作る"]
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "Quick Plan entry missing")
         if !entry.isHittable { app.swipeUp() }

@@ -44,6 +44,8 @@ struct NutritionView: View {
     private var profiles: [UserProfile]
 
     @StateObject private var favoriteTemplates = FavoriteMealTemplateStore()
+    /// Same resolver Home uses, so a manual intake target moves both screens.
+    @StateObject private var targetStore = HealthTargetStore()
 
     @State private var sheetMode: MealEntrySheet.Mode?
     @State private var pendingSlotForChoice: MealSlot?
@@ -76,18 +78,41 @@ struct NutritionView: View {
         todaysMeals.filter { $0.status == .pending && $0.source == .ai }
     }
 
+    /// The day's figures, from the same helper Home uses.
+    ///
+    /// Previously this screen summed confirmed meals itself and read the
+    /// profile target directly, while Home applied the manual `HealthTargets`
+    /// override and read `DayLog.intakeCalories`. Same day, same stored data,
+    /// different numbers on the two screens — and a quick calorie input that
+    /// appeared on one of them and not the other.
+    private var dailySummary: DailyNutritionSummary {
+        DailyNutritionSummary.make(
+            dayLog: todaysDayLog,
+            mealsForDay: todaysMeals,
+            manualTargetKcal: HealthTargetResolver.resolveAll(
+                date: Date(),
+                settings: targetStore.settings
+            ).intakeCalories,
+            profileTargetKcal: profiles.first?.targetIntake(
+                currentWeightKg: targetWeightKg
+            )
+        )
+    }
+
     private var confirmedKcal: Int {
-        confirmedMeals.reduce(0) { $0 + $1.kcal }
+        dailySummary.consumedKcal ?? 0
     }
 
     private var targetKcal: Int? {
-        profiles.first?.targetIntake(currentWeightKg: latestWeight)
+        dailySummary.targetKcal
     }
 
-    private var latestWeight: Double? {
-        let logs = allDayLogs.sorted { $0.date > $1.date }
-        return logs.first(where: { $0.weightKg != nil })?.weightKg
-    }
+    /// The weight the calorie target is computed from.
+    ///
+    /// Shared with Home through `LatestBodyWeightResolver` so both screens
+    /// resolve the same weigh-in. Cached and refreshed with the logs rather
+    /// than sorting the whole history on every render.
+    @State private var targetWeightKg: Double?
 
     var body: some View {
         ZStack {
@@ -115,6 +140,16 @@ struct NutritionView: View {
         }
         .navigationTitle("栄養")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
+                modelContext: modelContext
+            )
+        }
+        .onChange(of: allDayLogs) { _, _ in
+            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
+                modelContext: modelContext
+            )
+        }
         .sheet(item: $sheetMode) { mode in
             MealEntrySheet(mode: mode)
         }
@@ -590,10 +625,16 @@ struct NutritionView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                if targetKcal != nil {
-                    // Clarifies the target is the profile-calculated value
-                    // (UserProfile.targetIntake), consistent with Today.
+                switch dailySummary.targetSource {
+                case .profileDerived:
+                    // Worked out from the profile and the latest weigh-in.
                     PulseStatusBadge("計算目標", kind: .info)
+                case .manualOverride:
+                    // The user typed this one in; calling it 計算目標 would
+                    // credit the app with a number it did not calculate.
+                    PulseStatusBadge("設定目標", kind: .info)
+                case .unset:
+                    EmptyView()
                 }
             }
 
