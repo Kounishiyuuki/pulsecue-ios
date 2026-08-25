@@ -30,11 +30,22 @@ struct TrainingMoreSection: View {
                 icon: "building.2"
             ) { MyGymHomeView() }
 
+            // Two different things, deliberately listed separately: the
+            // library is exercises and their form guides, the catalogue is
+            // the machines themselves. The Settings card that held both under
+            // one 「ライブラリ」 heading is what made it easy to carry one
+            // over and lose the other.
             row(
                 title: "種目ライブラリ",
                 subtitle: "種目を探してフォームガイドを見る",
                 icon: "book.pages"
             ) { ExerciseLibraryView() }
+
+            row(
+                title: "マシンカタログ",
+                subtitle: "ローカル一覧から検索・部位で絞り込み",
+                icon: "square.grid.2x2"
+            ) { MachineCatalogListView() }
 
             row(
                 title: "進捗",

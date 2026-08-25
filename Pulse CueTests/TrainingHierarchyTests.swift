@@ -84,6 +84,36 @@ struct TrainingHierarchyTests {
         #expect(PrimaryNavigation.isPrimary(.formGuide) == false)
     }
 
+    // MARK: - The machine catalogue has a way in
+
+    @Test func theMachineCatalogueIsListedUnderMore() {
+        // It had none at all for a while: the Settings card it lived in held
+        // *two* links, only the form-guide one was carried across, and the
+        // card was then unreferenced — so nothing in the shipping app could
+        // reach the catalogue and no test noticed.
+        #expect(TrainingSurface.Destination.allCases.contains(.machineCatalog))
+        #expect(TrainingSurface.level(of: .machineCatalog) == .more)
+    }
+
+    @Test func theMachineCatalogueIsNotTheExerciseLibrary() {
+        // One is exercises and their form guides; the other is the machines.
+        // Collapsing them is what hid the loss in the first place.
+        #expect(TrainingSurface.Destination.machineCatalog != .exerciseLibrary)
+        #expect(TrainingSurface.level(of: .exerciseLibrary) == .more)
+    }
+
+    @Test func theMachineCatalogueCountsAsRelocatedFromSettings() {
+        #expect(TrainingSurface.relocatedFromSettings.contains(.machineCatalog))
+    }
+
+    @Test func nothingRelocatedIsListedTwice() {
+        // Restoring a route by adding it back to Settings as well would give
+        // two ways to one screen, which is the habit this reorganisation is
+        // undoing.
+        let relocated = TrainingSurface.relocatedFromSettings
+        #expect(Set(relocated).count == relocated.count)
+    }
+
     // MARK: - The startable universe is still one rule
 
     @Test func trainingAsksTheSameStartQuestionAsTheRoutinePicker() {

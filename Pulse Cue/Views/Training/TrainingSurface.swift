@@ -30,6 +30,9 @@ enum TrainingSurface {
         case history
         case gym
         case exerciseLibrary
+        /// The machine catalogue. Separate from the exercise library: one is
+        /// exercises and their form guides, the other is the machines.
+        case machineCatalog
         case progress
         case weeklyPlan
         case aiPlanning
@@ -51,7 +54,8 @@ enum TrainingSurface {
             return .primary
         case .plan, .history:
             return .secondary
-        case .gym, .exerciseLibrary, .progress, .weeklyPlan, .aiPlanning:
+        case .gym, .exerciseLibrary, .machineCatalog, .progress, .weeklyPlan,
+             .aiPlanning:
             return .more
         }
     }
@@ -63,6 +67,6 @@ enum TrainingSurface {
     /// Everything that used to be filed under app settings and is really a
     /// training task.
     static let relocatedFromSettings: [Destination] = [
-        .gym, .exerciseLibrary, .weeklyPlan, .aiPlanning,
+        .gym, .exerciseLibrary, .machineCatalog, .weeklyPlan, .aiPlanning,
     ]
 }
