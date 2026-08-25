@@ -54,6 +54,8 @@ struct NutritionView: View {
     @State private var showBarcodeScanner = false
     @State private var showNutritionLabelOCR = false
     @State private var showPhotoFoodCapture = false
+    /// Carbs and fat, one tap behind the figures people act on.
+    @State private var showsMacroDetail = false
 
     private var today: Date { DateUtils.startOfDay(Date()) }
 
@@ -121,8 +123,8 @@ struct NutritionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     summaryCard
-                    mealHistoryHeader
-                    mealsByslot
+                    addMealButton
+                    todayMealsSection
                     if !pendingAIMeals.isEmpty {
                         sectionTitle("AI 解析結果")
                         ForEach(pendingAIMeals, id: \.id) { meal in
@@ -177,6 +179,13 @@ struct NutritionView: View {
                     sheetMode = .add(source: .ai, slot: slot)
                 }
             }
+            // The scanners moved here from a row of chips at the top of the
+            // screen. Same sheets, same behaviour — they are simply no longer
+            // asked about before the user has said they want to record
+            // anything.
+            Button("栄養表示を読み取る") { showNutritionLabelOCR = true }
+            Button("バーコードを読み取る") { showBarcodeScanner = true }
+            Button("写真から記録") { showPhotoFoodCapture = true }
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("AI で記録すると「確認待ち」状態で保存されます。確定するまでカロリーには加算されません。")
@@ -194,6 +203,95 @@ struct NutritionView: View {
         } message: {
             Text(pendingDiscard.map { "「\($0.name)」を削除します。確定済みのカロリーには影響しません。" } ?? "")
         }
+    }
+
+    /// The screen's single primary action.
+    ///
+    /// It used to be five: an AI chip in the section header, three
+    /// scanner chips beneath it, and four large empty slot cards that each
+    /// opened manual entry. All of them were ways to do the same thing, shown
+    /// before the user had said they wanted to do it — so opening Nutrition
+    /// meant choosing an input *method* first.
+    ///
+    /// Now the intent comes first and the method second, in the dialog below.
+    /// No input flow changed; only when the choice is asked for.
+    private var addMealButton: some View {
+        Button {
+            pendingSlotForChoice = pendingSlotForChoice ?? .breakfast
+            showAddDialog = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 16, weight: .bold))
+                Text("食事を記録")
+                    .font(.headline)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white)
+            .padding(.vertical, 15)
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(AppTheme.accentFilled)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("食事を記録")
+    }
+
+    /// Today's meals, at whatever density the day actually has.
+    ///
+    /// The four full-size empty slot cards are gone: on a day with nothing
+    /// logged they filled the screen with four identical invitations to do
+    /// the same thing the button above already offers. Each slot keeps a slim
+    /// row, so adding straight to 夕食 is still one tap.
+    private var todayMealsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("今日の食事")
+            ForEach(MealSlot.allCases) { slot in
+                let confirmedForSlot = confirmedMeals.filter { $0.slot == slot }
+                let pendingManualForSlot = pendingManualMeals.filter { $0.slot == slot }
+                if confirmedForSlot.isEmpty && pendingManualForSlot.isEmpty {
+                    emptySlotRow(slot)
+                } else {
+                    ForEach(confirmedForSlot, id: \.id) { meal in
+                        mealLogCard(meal)
+                    }
+                    ForEach(pendingManualForSlot, id: \.id) { meal in
+                        mealLogCard(meal)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One line per empty slot. Same destination as the card it replaces.
+    private func emptySlotRow(_ slot: MealSlot) -> some View {
+        Button {
+            sheetMode = .add(source: .manual, slot: slot)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "plus.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                Text(slot.label)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(AppTheme.cardBackground.opacity(0.45))
+            )
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(slot.label)を記録")
     }
 
     private var confirmationTitle: String {
@@ -249,64 +347,6 @@ struct NutritionView: View {
     /// row directly below offers the OCR / barcode / photo entry
     /// points as labeled chips, so each is readable at a glance
     /// instead of three similar viewfinder icons.
-    private var mealHistoryHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                sectionTitle("今日の食事一覧")
-                Spacer()
-                Button {
-                    // The dialog still picks the slot via the
-                    // confirmationDialog, so we seed with .breakfast
-                    // as a sensible default that the user changes on
-                    // the sheet's slot picker.
-                    pendingSlotForChoice = .breakfast
-                    showAddDialog = true
-                } label: {
-                    Label("AI で記録", systemImage: "sparkles")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule().fill(AppTheme.accent.opacity(0.15))
-                        )
-                        .foregroundStyle(AppTheme.accent)
-                }
-                .accessibilityLabel("AI で食事を記録")
-            }
-            entrySupportRow
-        }
-    }
-
-    /// Compact "input assist" row directly under the meal-log header.
-    /// Each chip pairs an icon with a short label so the OCR /
-    /// barcode / photo entries are visually distinct — previously
-    /// each was an icon-only circle that read as the same generic
-    /// viewfinder shape. Behaviour, accessibility labels, and the
-    /// sheets they open are unchanged.
-    private var entrySupportRow: some View {
-        HStack(spacing: 8) {
-            NutritionEntryActionChip(
-                systemImage: "doc.text.viewfinder",
-                label: "栄養表示",
-                accessibilityLabel: "栄養表示を読み取る",
-                tint: AppTheme.accent
-            ) { showNutritionLabelOCR = true }
-            NutritionEntryActionChip(
-                systemImage: "barcode.viewfinder",
-                label: "バーコード",
-                accessibilityLabel: "バーコードを読み取る",
-                tint: AppTheme.accent
-            ) { showBarcodeScanner = true }
-            NutritionEntryActionChip(
-                systemImage: "photo",
-                label: "写真",
-                accessibilityLabel: "食事写真をプレビュー",
-                tint: AppTheme.accent
-            ) { showPhotoFoodCapture = true }
-            Spacer(minLength: 0)
-        }
-    }
-
     /// Compact 7-day intake summary at the bottom of the screen.
     /// Today's meals + totals live above; this is the "habit /
     /// weekly trend" layer, intentionally visually separated so the
@@ -597,113 +637,25 @@ struct NutritionView: View {
     // MARK: - Summary card
 
     private var summaryCard: some View {
-        // Protein flows through the ProteinTotals helper so the
-        // confirmed-only rule (and floor / share heuristic) lives in
-        // one tested place. Carbs and fat keep the inline formulas
-        // until they get the same foundation treatment.
-        let protein = ProteinTotals.daily(meals: confirmedMeals, kcalTarget: targetKcal)
+        // Carbs and fat keep the screen's existing inline targets. Moving
+        // those into a shared policy is a separate change; this one is about
+        // where they appear, not how they are worked out.
         let carbSum = confirmedMeals.compactMap { $0.carbGrams }.reduce(0, +)
         let fatSum = confirmedMeals.compactMap { $0.fatGrams }.reduce(0, +)
-
         let carbTarget = max(150, Int(Double(targetKcal ?? 2000) * 0.50 / 4))
         let fatTarget = max(40, Int(Double(targetKcal ?? 2000) * 0.30 / 9))
 
-        return VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("今日の栄養")
-                    .font(.title3.weight(.bold))
-                Text("目標摂取カロリーとマクロバランス")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(formatInt(confirmedKcal))
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(AppTheme.accent)
-                Text(targetKcal.map { "/ \(formatInt($0)) kcal" } ?? "/ —")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                switch dailySummary.targetSource {
-                case .profileDerived:
-                    // Worked out from the profile and the latest weigh-in.
-                    PulseStatusBadge("計算目標", kind: .info)
-                case .manualOverride:
-                    // The user typed this one in; calling it 計算目標 would
-                    // credit the app with a number it did not calculate.
-                    PulseStatusBadge("設定目標", kind: .info)
-                case .unset:
-                    EmptyView()
-                }
-            }
-
-            HStack(alignment: .top, spacing: 10) {
-                macroPanel(
-                    label: "PROTEIN",
-                    grams: protein.confirmedGrams,
-                    target: protein.targetGrams,
-                    gradient: proteinGradient
-                )
-                macroPanel(
-                    label: "CARBS",
-                    grams: carbSum,
-                    target: carbTarget,
-                    gradient: carbGradient
-                )
-                macroPanel(
-                    label: "FAT",
-                    grams: fatSum,
-                    target: fatTarget,
-                    gradient: fatGradient
-                )
-            }
-        }
-        .pulseCard(padding: 20)
-    }
-
-    private func macroPanel(label: String, grams: Int, target: Int, gradient: LinearGradient) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(label)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.6)
-                Spacer(minLength: 4)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text("\(grams)g")
-                    .font(.subheadline.weight(.bold))
-                    .monospacedDigit()
-                Text(" / \(target)g")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            ProgressBar(progress: Double(grams) / Double(max(1, target)), gradient: gradient)
-                .frame(height: 6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Meals by slot
-
-    private var mealsByslot: some View {
-        VStack(spacing: 12) {
-            ForEach(MealSlot.allCases) { slot in
-                let confirmedForSlot = confirmedMeals.filter { $0.slot == slot }
-                let pendingManualForSlot = pendingManualMeals.filter { $0.slot == slot }
-                if confirmedForSlot.isEmpty && pendingManualForSlot.isEmpty {
-                    emptySlotCard(slot)
-                } else {
-                    ForEach(confirmedForSlot, id: \.id) { meal in
-                        mealLogCard(meal)
-                    }
-                    ForEach(pendingManualForSlot, id: \.id) { meal in
-                        mealLogCard(meal)
-                    }
-                }
-            }
-        }
+        return NutritionDailySummaryCard(
+            summary: dailySummary,
+            carbGrams: carbSum,
+            carbTargetGrams: carbTarget,
+            fatGrams: fatSum,
+            fatTargetGrams: fatTarget,
+            proteinGradient: proteinGradient,
+            carbGradient: carbGradient,
+            fatGradient: fatGradient,
+            showsMacroDetail: $showsMacroDetail
+        )
     }
 
     private func mealLogCard(_ meal: MealEntry) -> some View {
@@ -808,49 +760,6 @@ struct NutritionView: View {
         .background(
             Capsule().fill((status == .confirmed ? Color.green : Color.orange).opacity(0.12))
         )
-    }
-
-    private func emptySlotCard(_ slot: MealSlot) -> some View {
-        // Primary path: empty slot → manual entry directly. The
-        // previous flow opened a Manual/AI confirmation dialog before
-        // the user could type a food name + kcal; that extra step
-        // (combined with a `camera.fill` icon) hid the most common
-        // case. AI entry is reachable from `aiEntryRow` near the
-        // section header.
-        Button {
-            sheetMode = .add(source: .manual, slot: slot)
-        } label: {
-            VStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.accent.opacity(0.12))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AppTheme.accent)
-                }
-                Text(slot.label)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.primary)
-                Text("食事名とカロリーを追加")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 22)
-            .background(glassBackground)
-            .overlay(glassStroke)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(slot.label)を追加")
-        .contextMenu {
-            Button {
-                pendingSlotForChoice = slot
-                showAddDialog = true
-            } label: {
-                Label("AI で記録（推定）", systemImage: "sparkles")
-            }
-        }
     }
 
     // MARK: - AI estimate card
@@ -1088,7 +997,7 @@ struct NutritionView: View {
 
 // MARK: - ProgressBar
 
-private struct ProgressBar: View {
+struct ProgressBar: View {
     let progress: Double
     let gradient: LinearGradient
 
