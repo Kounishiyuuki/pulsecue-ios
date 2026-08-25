@@ -40,7 +40,11 @@ struct ContentView: View {
             // it, one tap from here, because you look at past workouts in the
             // course of deciding what to do next.
             NavigationStack {
-                WorkoutView()
+                TrainingView(
+                    onResumeRunner: {
+                        runnerPresenter.resume(isRunning: runnerViewModel.isRunning)
+                    }
+                )
             }
             .tabItem {
                 Label(

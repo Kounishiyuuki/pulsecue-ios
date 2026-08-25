@@ -2,13 +2,46 @@
 //  WorkoutView.swift
 //  Pulse Cue
 //
-//  Routine selection surface with separate detail, edit, and start paths.
+//  The routine library, as a section that can sit inside a larger screen.
+//
+//  It used to be the whole Training tab: opening トレーニング opened
+//  「ルーティンを選択」. That answers a real question, just not the one people
+//  arrive with — whether they are training today. `TrainingView` now owns the
+//  tab and shows this beneath today's action.
+//
+//  Nothing about the routines themselves changed: same cards, same search,
+//  same start / edit / duplicate / delete, same pin ordering. The type was
+//  split into a section and a thin wrapper so it could be embedded, and for
+//  no other reason.
 //
 
 import SwiftUI
 import SwiftData
 
+/// The standalone routine screen, kept for the visual QA harness.
 struct WorkoutView: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [AppTheme.deepSpace.opacity(0.95), Color.black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            ScrollView {
+                RoutineLibrarySection()
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 96)
+            }
+        }
+        .navigationTitle("ルーティンを選択")
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+    }
+}
+
+struct RoutineLibrarySection: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var settings: SettingsStore
@@ -25,47 +58,14 @@ struct WorkoutView: View {
     @State private var restStore = RoutineRestPreferenceStore()
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [AppTheme.deepSpace.opacity(0.95), Color.black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            ScrollView {
-                LazyVStack(spacing: 14) {
-                    titleBlock
-                    searchBar
-                    routineContent
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 96)
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
+        LazyVStack(spacing: 14) {
+            searchBar
+            routineContent
             HStack {
                 Spacer()
                 createButton
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-        }
-        .navigationTitle("ルーティンを選択")
-        .navigationBarTitleDisplayMode(.inline)
-        // History lives under Training rather than in the tab bar. Past
-        // workouts are something you look at while deciding what to do next,
-        // so it belongs beside routine selection — and a toolbar item keeps it
-        // one tap away without changing the surface below it.
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    HistoryView()
-                } label: {
-                    Label("履歴", systemImage: "clock.arrow.circlepath")
-                }
-                .accessibilityLabel("履歴")
-            }
+            .padding(.top, 4)
         }
         .sheet(item: $editorRoutine, onDismiss: startPendingRoutine) { routine in
             NavigationStack {
@@ -90,30 +90,6 @@ struct WorkoutView: View {
         } message: { routine in
             Text("「\(routine.name)」と種目内容を削除します。この操作は取り消せません。")
         }
-        .preferredColorScheme(.dark)
-    }
-
-    private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("今日のルーティン")
-                    .font(.system(.largeTitle, design: .rounded, weight: .black))
-                Spacer()
-                if !savedRoutines.isEmpty {
-                    Text("\(filteredRoutines.count)件")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AppTheme.accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(AppTheme.accent.opacity(0.12)))
-                }
-            }
-            Text("そのまま開始するか、カードを開いて内容を調整できます。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 8)
     }
 
     private var searchBar: some View {

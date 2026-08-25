@@ -127,10 +127,10 @@ struct SettingsView: View {
                 goalCard(profile: $profile)
                 integrationsCard
                 accountCard
-                myGymCard
-                machineCatalogCard
-                weeklyPlanCandidateCard
-                aiPlanChatCard
+                // マイジム / 種目ライブラリ / 週間プラン / AI プラン相談 now
+                // live under トレーニング → その他. They are training tasks,
+                // not app configuration, and listing them here filed them
+                // under the wrong idea of what they are.
 #if DEBUG
                 aiEndpointQASection
 #endif
