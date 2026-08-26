@@ -34,17 +34,15 @@ final class CustomMachineFlowUITests: XCTestCase {
         app.launch()
         capture(app, "01-today-home")
 
-        // 1. The fixture gives the app an active gym. Enter My Gym from
-        //    the stable Settings route rather than the Today card sheet
-        //    path that varies with dashboard state. Settings is no longer a
-        //    tab; it is reached from マイページ.
-        app.tabBars.buttons["マイページ"].tap()
-        let settingsEntry = app.buttons["設定"].firstMatch
-        XCTAssertTrue(settingsEntry.waitForExistence(timeout: 8), "Settings entry not found in Me")
-        settingsEntry.tap()
-        let settingsMyGymEntry = app.staticTexts["ジムを登録してメニューを生成"]
-        XCTAssertTrue(settingsMyGymEntry.waitForExistence(timeout: 8), "Settings My Gym entry not found")
-        settingsMyGymEntry.tap()
+        // 1. The fixture gives the app an active gym. Enter My Gym from the
+        //    stable トレーニング → その他 route rather than the Today card
+        //    sheet path that varies with dashboard state. Gym management is a
+        //    training task and moved out of Settings with the rest of them.
+        app.tabBars.buttons["トレーニング"].tap()
+        let myGymEntry = app.buttons["マイジム"].firstMatch
+        XCTAssertTrue(myGymEntry.waitForExistence(timeout: 10), "My Gym entry not found in Training")
+        if !myGymEntry.isHittable { app.swipeUp() }
+        myGymEntry.tap()
         capture(app, "02-mygym-home")
 
         // 2. Into machine selection.
