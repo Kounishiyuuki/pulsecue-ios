@@ -26,7 +26,44 @@ import SwiftUI
 import SwiftData
 import UserNotifications
 
+/// Which group of settings a screen shows.
+///
+/// One screen, four entrances. `MeView` used to offer a single 「設定」 that
+/// opened everything at once — body measurements, HealthKit, the account and
+/// notification toggles in one scroll — which put "how tall am I" and "should
+/// the app buzz" at the same level. The distinction that matters is between
+/// *your data* and *the app's configuration*, and it is not visible when they
+/// share a list.
+///
+/// Scoping the existing screen rather than splitting it into four files keeps
+/// this an information-architecture change: the cards, their bindings and
+/// their behaviour are untouched, and a reader can still see all of them in
+/// one place.
+enum SettingsSection: Equatable, CaseIterable {
+    /// Height, age, sex, activity, BMR/TDEE and the weight goal.
+    case bodyAndGoals
+    /// HealthKit, and what the app is allowed to send.
+    case health
+    /// Sign-in, the linked provider, the server account and its deletion.
+    case account
+    /// Notifications, help, version — the app itself.
+    case app
+
+    var title: String {
+        switch self {
+        case .bodyAndGoals: return "体と目標"
+        case .health: return "ヘルスケア"
+        case .account: return "アカウント"
+        case .app: return "アプリ設定"
+        }
+    }
+}
+
 struct SettingsView: View {
+    /// Defaults to the whole screen so previews and the QA harness keep
+    /// working unchanged.
+    var section: SettingsSection?
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var settings: SettingsStore
@@ -48,7 +85,10 @@ struct SettingsView: View {
     @State private var showLoginSheet = false
     @State private var showProfileGymSetup = false
 
-    init() {
+    /// - Parameter section: which group to show. `nil` shows all of them,
+    ///   which is what the previews and the QA harness use.
+    init(section: SettingsSection? = nil) {
+        self.section = section
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -13, to: today) ?? today
@@ -56,6 +96,11 @@ struct SettingsView: View {
             filter: #Predicate<DayLog> { $0.date >= start },
             sort: [SortDescriptor(\DayLog.date, order: .reverse)]
         )
+    }
+
+    /// Whether this group belongs on screen. No section means all of them.
+    private func shows(_ group: SettingsSection) -> Bool {
+        section == nil || section == group
     }
 
     private var summary: HealthSummary { HealthSummary(logs: recentLogs) }
@@ -92,7 +137,7 @@ struct SettingsView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .navigationTitle("設定")
+        .navigationTitle(section?.title ?? "設定")
         .navigationBarTitleDisplayMode(.large)
         .alert("通知が無効です", isPresented: $showNotificationAlert) {
             Button("了解", role: .cancel) {}
@@ -118,26 +163,35 @@ struct SettingsView: View {
         @Bindable var profile = profileObject
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                titleBlock
-                personalDataCard(profile: $profile)
-                HStack(spacing: 12) {
-                    bmrCard(profile: profile)
-                    tdeeCard(profile: profile)
+                if shows(.bodyAndGoals) {
+                    titleBlock
+                    personalDataCard(profile: $profile)
+                    HStack(spacing: 12) {
+                        bmrCard(profile: profile)
+                        tdeeCard(profile: profile)
+                    }
+                    goalCard(profile: $profile)
                 }
-                goalCard(profile: $profile)
-                integrationsCard
-                accountCard
-                // マイジム / 種目ライブラリ / 週間プラン / AI プラン相談 now
-                // live under トレーニング → その他. They are training tasks,
-                // not app configuration, and listing them here filed them
-                // under the wrong idea of what they are.
+                if shows(.health) {
+                    integrationsCard
+                }
+                if shows(.account) {
+                    accountCard
+                }
+                // マイジム / 種目ライブラリ / マシンカタログ / 週間プラン /
+                // AI プラン相談 live under トレーニング → その他の機能. They
+                // are training tasks, not app configuration.
+                if shows(.app) {
 #if DEBUG
-                aiEndpointQASection
+                    aiEndpointQASection
 #endif
-                appSettingsCard
-                helpCard
-                appInfoCard
-                saveButton
+                    appSettingsCard
+                    helpCard
+                    appInfoCard
+                }
+                if shows(.bodyAndGoals) {
+                    saveButton
+                }
                 Color.clear.frame(height: 24)
             }
             .padding(.horizontal, 16)
@@ -482,96 +536,11 @@ struct SettingsView: View {
         }
     }
 
-    private var myGymCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "dumbbell.fill", title: "マイジム")
-                NavigationLink {
-                    MyGymHomeView()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("ジムを登録してメニューを生成")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("利用できるマシンを選ぶと、部位別のワークアウトを自動で組み立てます。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var weeklyPlanCandidateCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "calendar", title: "週次プラン候補")
-                NavigationLink {
-                    WeeklyTrainingPlanCandidateReviewView()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("週次トレーニングプラン候補を作成")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("ルールベースで週次プラン候補を作成し、確認後に通常のルーティンとして保存できます。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var aiPlanChatCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "sparkles", title: "AIプラン相談")
-                NavigationLink {
-                    MockAITrainingPlanChatView()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("AIにトレーニングプランを相談")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("ローカルのモックプロバイダーでプラン候補を作成します。実際のAI通信・保存は行いません。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
 #if DEBUG
     /// DEBUG-only developer / QA tools, grouped into one quiet section so they
     /// never read like a normal user feature. Compiled only in DEBUG builds —
-    /// the shipping app shows none of this and only ever opens the no-argument
-    /// mock path in `aiPlanChatCard` above. Navigation destinations are
-    /// unchanged from the previous separate QA cards.
+    /// the shipping app shows none of this. Navigation destinations are
+    /// unchanged.
     private var aiEndpointQASection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
