@@ -45,7 +45,6 @@
 		25BF5148D69C49A1946FF607 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A8C7265A2048DABE767678 /* SettingsView.swift */; };
 		AAB10C0000000000000000A2 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000A1 /* OnboardingView.swift */; };
 		AAB10C0000000000000000E2 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000E1 /* LoginView.swift */; };
-		AAB10C0000000000000000D6 /* ProfileGymSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000D5 /* ProfileGymSetupView.swift */; };
 		AAB10C0000000000000000D8 /* ProfileGymSetupStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000D7 /* ProfileGymSetupStatus.swift */; };
 		AAB10C0000000000000000C2 /* AuthState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000C1 /* AuthState.swift */; };
 		AAB10C0000000000000000C4 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000000C3 /* AuthSession.swift */; };
@@ -97,6 +96,7 @@
 		AAB10C000000000000004008 /* HomeHierarchyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004007 /* HomeHierarchyTests.swift */; };
 		AAB10C00000000000000A011 /* TrainingHierarchyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000A010 /* TrainingHierarchyTests.swift */; };
 		AAB10C00000000000000D00B /* MeHierarchyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000D00A /* MeHierarchyTests.swift */; };
+		AAB10C00000000000000F00B /* BodyWeightTruthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000F00A /* BodyWeightTruthTests.swift */; };
 		AAB10C00000000000000800F /* NutritionSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000800E /* NutritionSurfaceTests.swift */; };
 		AAB10C00000000000000700D /* HomeNutritionWiringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000700C /* HomeNutritionWiringTests.swift */; };
 		659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */; };
@@ -288,6 +288,7 @@
 		56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */; };
 		AAB10C00000000000000500D /* DailyNutritionSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000500C /* DailyNutritionSummary.swift */; };
 		AAB10C00000000000000700B /* LatestBodyWeightResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000700A /* LatestBodyWeightResolver.swift */; };
+		AAB10C00000000000000F00D /* BodyMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000F00C /* BodyMetrics.swift */; };
 		AAB10C00000000000000500B /* RoutineLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000500A /* RoutineLibrary.swift */; };
 		C5CEC54C66AC4334A1BAD50E /* ProteinTotalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */; };
 		7B1F2A0142F84A0D9C58E001 /* FavoriteMealTemplateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */; };
@@ -379,7 +380,6 @@
 		25A8C7265A2048DABE767678 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000A1 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000E1 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
-		AAB10C0000000000000000D5 /* ProfileGymSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileGymSetupView.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000C1 /* AuthState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthState.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000C3 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000000C5 /* AuthProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthProvider.swift; sourceTree = "<group>"; };
@@ -446,6 +446,7 @@
 		AAB10C000000000000004007 /* HomeHierarchyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHierarchyTests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000A010 /* TrainingHierarchyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingHierarchyTests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000D00A /* MeHierarchyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeHierarchyTests.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000F00A /* BodyWeightTruthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyWeightTruthTests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000800E /* NutritionSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionSurfaceTests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000700C /* HomeNutritionWiringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeNutritionWiringTests.swift; sourceTree = "<group>"; };
 		EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPresenterTests.swift; sourceTree = "<group>"; };
@@ -623,6 +624,7 @@
 		A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotals.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000500C /* DailyNutritionSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyNutritionSummary.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000700A /* LatestBodyWeightResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatestBodyWeightResolver.swift; sourceTree = "<group>"; };
+		AAB10C00000000000000F00C /* BodyMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyMetrics.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000500A /* RoutineLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineLibrary.swift; sourceTree = "<group>"; };
 		B92B66685DB44951A0B40A52 /* ProteinTotalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinTotalsTests.swift; sourceTree = "<group>"; };
 		7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteMealTemplateStore.swift; sourceTree = "<group>"; };
@@ -713,7 +715,6 @@
 				AAB10C0000000000000001C2 /* APIHealthQAView.swift */,
 				AAB10C0000000000000000E1 /* LoginView.swift */,
 				AAB10C000000000000002032 /* AppleSignInButton.swift */,
-				AAB10C0000000000000000D5 /* ProfileGymSetupView.swift */,
 				910B6185D8234DA3924900CF /* TodayView.swift */,
 				AAB10C000000000000004005 /* CompactPersonalStatus.swift */,
 				AAB10C000000000000004003 /* TodayNutritionCard.swift */,
@@ -771,6 +772,7 @@
 				A0980BC6F1544C60BCD3142A /* ProteinTotals.swift */,
 				AAB10C00000000000000500C /* DailyNutritionSummary.swift */,
 				AAB10C00000000000000700A /* LatestBodyWeightResolver.swift */,
+				AAB10C00000000000000F00C /* BodyMetrics.swift */,
 				AAB10C00000000000000500A /* RoutineLibrary.swift */,
 				7B1F2A0142F84A0D9C58F001 /* FavoriteMealTemplateStore.swift */,
 				7B1F2A0142F84A0D9C58F003 /* BarcodeSymbology.swift */,
@@ -1002,6 +1004,7 @@
 				AAB10C000000000000004007 /* HomeHierarchyTests.swift */,
 				AAB10C00000000000000A010 /* TrainingHierarchyTests.swift */,
 				AAB10C00000000000000D00A /* MeHierarchyTests.swift */,
+				AAB10C00000000000000F00A /* BodyWeightTruthTests.swift */,
 				AAB10C00000000000000800E /* NutritionSurfaceTests.swift */,
 				AAB10C00000000000000700C /* HomeNutritionWiringTests.swift */,
 				EA18E7DB34254A76A380A074 /* RunnerPresenterTests.swift */,
@@ -1316,7 +1319,6 @@
 				AAB10C0000000000000000A2 /* OnboardingView.swift in Sources */,
 				AAB10C0000000000000000E2 /* LoginView.swift in Sources */,
 				AAB10C000000000000002033 /* AppleSignInButton.swift in Sources */,
-				AAB10C0000000000000000D6 /* ProfileGymSetupView.swift in Sources */,
 				AAB10C0000000000000000D8 /* ProfileGymSetupStatus.swift in Sources */,
 				AAB10C0000000000000000C2 /* AuthState.swift in Sources */,
 				AAB10C0000000000000000C4 /* AuthSession.swift in Sources */,
@@ -1355,6 +1357,7 @@
 				56F5FA30C4AE424BA015112F /* ProteinTotals.swift in Sources */,
 				AAB10C00000000000000500D /* DailyNutritionSummary.swift in Sources */,
 				AAB10C00000000000000700B /* LatestBodyWeightResolver.swift in Sources */,
+				AAB10C00000000000000F00D /* BodyMetrics.swift in Sources */,
 				AAB10C00000000000000500B /* RoutineLibrary.swift in Sources */,
 				7B1F2A0142F84A0D9C58E001 /* FavoriteMealTemplateStore.swift in Sources */,
 				7B1F2A0142F84A0D9C58E003 /* BarcodeSymbology.swift in Sources */,
@@ -1487,6 +1490,7 @@
 				AAB10C000000000000004008 /* HomeHierarchyTests.swift in Sources */,
 				AAB10C00000000000000A011 /* TrainingHierarchyTests.swift in Sources */,
 				AAB10C00000000000000D00B /* MeHierarchyTests.swift in Sources */,
+				AAB10C00000000000000F00B /* BodyWeightTruthTests.swift in Sources */,
 				AAB10C00000000000000800F /* NutritionSurfaceTests.swift in Sources */,
 				AAB10C00000000000000700D /* HomeNutritionWiringTests.swift in Sources */,
 				659384111AF1497BAC2F6687 /* RunnerPresenterTests.swift in Sources */,

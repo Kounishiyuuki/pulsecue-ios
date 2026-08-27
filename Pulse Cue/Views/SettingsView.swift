@@ -74,6 +74,13 @@ struct SettingsView: View {
     // for the goal-gap card without a second SwiftData read.
     @Query private var recentLogs: [DayLog]
 
+    /// Every day log, as a change trigger for `currentWeightKg` only.
+    ///
+    /// `recentLogs` cannot serve: a weigh-in backfilled outside its fortnight
+    /// would not disturb it, and the cached weight would go stale on screen.
+    @Query(sort: [SortDescriptor(\DayLog.date, order: .reverse)])
+    private var allDayLogs: [DayLog]
+
     // UserProfile is now the source of truth for profile / goal fields.
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
     private var profiles: [UserProfile]
@@ -83,7 +90,6 @@ struct SettingsView: View {
     @State private var showSavedToast = false
     @State private var showOnboardingReplay = false
     @State private var showLoginSheet = false
-    @State private var showProfileGymSetup = false
 
     /// - Parameter section: which group to show. `nil` shows all of them,
     ///   which is what the previews and the QA harness use.
@@ -104,18 +110,42 @@ struct SettingsView: View {
     }
 
     private var summary: HealthSummary { HealthSummary(logs: recentLogs) }
-    private var currentWeightKg: Double? { summary.latestWeight }
+
+    /// The weight every calculation on this screen is based on.
+    ///
+    /// It used to come from `recentLogs`, which is bounded to the fourteen
+    /// days this screen displays. A presentation window has no business
+    /// deciding domain truth: someone who last weighed in three weeks ago had
+    /// their BMR, TDEE and calorie target computed as though no weight
+    /// existed, while Home and Me showed the figure perfectly well.
+    ///
+    /// Resolved through `BodyMetrics`, cached rather than re-fetched per
+    /// render, and refreshed whenever any log changes. The screen asks for the
+    /// figures rather than assembling them, so there is nothing here to get
+    /// wrong about which weigh-in they came from.
+    @State private var bodyMetrics: BodyMetrics = .init(
+        currentWeightKg: nil, bmr: nil, tdee: nil, targetIntakeKcal: nil
+    )
+
+    private var currentWeightKg: Double? { bodyMetrics.currentWeightKg }
 
     private var resolvedProfile: UserProfile? { profiles.first }
 
+    private func refreshCurrentWeight() {
+        bodyMetrics = BodyMetrics.resolve(
+            modelContext: modelContext,
+            profile: resolvedProfile
+        )
+    }
+
     private func bmrValue(for profile: UserProfile) -> Int? {
-        profile.bmr(currentWeightKg: currentWeightKg)
+        bodyMetrics.bmr
     }
     private func tdeeValue(for profile: UserProfile) -> Int? {
-        profile.tdee(currentWeightKg: currentWeightKg)
+        bodyMetrics.tdee
     }
     private func targetIntakeValue(for profile: UserProfile) -> Int? {
-        profile.targetIntake(currentWeightKg: currentWeightKg)
+        bodyMetrics.targetIntakeKcal
     }
 
     var body: some View {
@@ -145,6 +175,8 @@ struct SettingsView: View {
             Text("iOS の設定アプリで通知を許可してください。")
         }
         .onAppear { refreshNotificationStatus() }
+        .task { refreshCurrentWeight() }
+        .onChange(of: allDayLogs) { _, _ in refreshCurrentWeight() }
         .sheet(isPresented: $showOnboardingReplay) {
             OnboardingView(primaryTitle: "閉じる") {
                 showOnboardingReplay = false
@@ -152,9 +184,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLoginSheet) {
             LoginView(authSession: authSession, serverAccount: serverAccount)
-        }
-        .sheet(isPresented: $showProfileGymSetup) {
-            ProfileGymSetupView()
         }
     }
 
@@ -680,28 +709,11 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
 
-                Divider().opacity(0.4)
-
-                Button {
-                    showProfileGymSetup = true
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("プロフィールとジムの設定")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("身長・今日の体重・マイジムの設定状況をまとめて確認できます。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                // 「プロフィールとジムの設定」 used to sit here. It was not a
+                // profile screen: it registered gyms and opened MyGymHomeView,
+                // so Account — authentication, sync and deletion — was a route
+                // into gym management. Body fields live in 体と目標; gyms live
+                // under トレーニング → その他の機能, and only there.
 
                 if authSession.isSignedIn {
                     Divider().opacity(0.4)
