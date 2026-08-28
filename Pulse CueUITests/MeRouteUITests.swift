@@ -131,6 +131,38 @@ final class MeRouteUITests: XCTestCase {
         )
     }
 
+    func testBodyMetricsUpdateWhileEditingTheProfile() {
+        // The regression this closes: BMR, TDEE and the target were cached
+        // alongside the weight and refreshed only on appear or on a DayLog
+        // change, so editing your height on this very screen left them showing
+        // figures from before the edit. Only a UI test can see that — the
+        // values are rendered, and the staleness lives in the view's state.
+        let app = launchedApp()
+        openMe(app)
+        openSection(app, "体と目標")
+
+        let bmr = app.otherElements["bmr-summary"].firstMatch
+        XCTAssertTrue(bmr.waitForExistence(timeout: 15), "BMR summary not found")
+        let before = bmr.label
+
+        let heightStepper = app.steppers.firstMatch
+        XCTAssertTrue(heightStepper.waitForExistence(timeout: 10), "height stepper not found")
+        if !heightStepper.isHittable { app.swipeUp() }
+        // Several increments, so the change is larger than any rounding.
+        for _ in 0..<5 {
+            heightStepper.buttons.element(boundBy: 1).tap()
+        }
+
+        let updated = NSPredicate(format: "label != %@", before)
+        expectation(for: updated, evaluatedWith: bmr)
+        waitForExpectations(timeout: 10) { error in
+            XCTAssertNil(
+                error,
+                "BMR did not update after editing height (was \(before), still \(bmr.label))"
+            )
+        }
+    }
+
     func testTrainingFeaturesAreNotListedUnderMe() {
         // They moved to Training in #178. A duplicate route here would undo
         // that quietly, and duplicates are what made the old screen sprawl.

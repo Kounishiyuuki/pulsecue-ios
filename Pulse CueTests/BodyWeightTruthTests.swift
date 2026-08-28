@@ -124,7 +124,10 @@ struct BodyWeightTruthTests {
         let profile = insertProfile(context)
         insertWeight(context, daysAgo: 20, kg: 75)
 
-        let metrics = BodyMetrics.resolve(modelContext: context, profile: profile)
+        let metrics = BodyMetrics.derive(
+            profile: profile,
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+        )
 
         #expect(metrics.currentWeightKg == 75)
         #expect(metrics.bmr == profile.bmr(currentWeightKg: 75))
@@ -139,7 +142,10 @@ struct BodyWeightTruthTests {
         let profile = insertProfile(context)
         insertWeight(context, daysAgo: 20, kg: 75)
 
-        let metrics = BodyMetrics.resolve(modelContext: context, profile: profile)
+        let metrics = BodyMetrics.derive(
+            profile: profile,
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+        )
         let windowed = try fourteenDayWindowWeight(context)
 
         #expect(windowed == nil)
@@ -154,7 +160,10 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 20, kg: 75)
         insertWeight(context, daysAgo: 3, kg: 73)
 
-        let metrics = BodyMetrics.resolve(modelContext: context, profile: profile)
+        let metrics = BodyMetrics.derive(
+            profile: profile,
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+        )
         #expect(metrics.currentWeightKg == 73)
         #expect(metrics.tdee == profile.tdee(currentWeightKg: 73))
     }
@@ -163,7 +172,10 @@ struct BodyWeightTruthTests {
         let context = try makeContext()
         let profile = insertProfile(context)
 
-        let metrics = BodyMetrics.resolve(modelContext: context, profile: profile)
+        let metrics = BodyMetrics.derive(
+            profile: profile,
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+        )
         #expect(metrics.currentWeightKg == nil)
         #expect(metrics.bmr == profile.bmr(currentWeightKg: nil))
     }
@@ -226,5 +238,193 @@ struct BodyWeightTruthTests {
         context.insert(DayLog(date: Date(), intakeCalories: 1_500))
 
         #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 80)
+    }
+}
+
+//
+//  Editing the profile while the screen is open.
+//
+//  The Body screen cached BMR, TDEE and the target alongside the weight and
+//  refreshed the lot only on appear and on `DayLog` changes. So changing your
+//  height there left the three figures showing what they were before the
+//  edit — not wrong when they were computed, just no longer about the profile
+//  on screen — until something unrelated happened to a day log.
+//
+//  Each test below derives, mutates the same profile the view holds, and
+//  derives again. A test that built a second profile would prove nothing: the
+//  bug was reading a snapshot of the first one.
+//
+@MainActor
+struct BodyMetricsLiveEditTests {
+
+    private func makeContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: DayLog.self, UserProfile.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return ModelContext(container)
+    }
+
+    /// A profile and a weigh-in older than any display window, so these also
+    /// keep the previous fix honest.
+    private func fixture(_ context: ModelContext) -> (UserProfile, Double?) {
+        let profile = UserProfile()
+        profile.heightCm = 170
+        profile.ageYears = 30
+        profile.goalWeightKg = 70
+        context.insert(profile)
+
+        let date = Calendar.current.date(
+            byAdding: .day, value: -20, to: DateUtils.startOfDay(Date())
+        ) ?? Date()
+        context.insert(DayLog(date: date, weightKg: 75))
+
+        return (profile, BodyMetrics.resolveCurrentWeightKg(modelContext: context))
+    }
+
+    @Test func editingHeightUpdatesBmrAndTdeeImmediately() throws {
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.heightCm = 180
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(after.bmr != before.bmr)
+        #expect(after.tdee != before.tdee)
+        // The weigh-in is unaffected: only the profile changed.
+        #expect(after.currentWeightKg == 75)
+    }
+
+    @Test func editingAgeUpdatesBmrAndTdeeImmediately() throws {
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.ageYears = 55
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(after.bmr != before.bmr)
+        #expect(after.tdee != before.tdee)
+    }
+
+    @Test func editingSexUpdatesBmrAndTdeeImmediately() throws {
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.biologicalSex = profile.biologicalSex == .male ? .female : .male
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(after.bmr != before.bmr)
+        #expect(after.tdee != before.tdee)
+    }
+
+    @Test func editingActivityFactorUpdatesTdeeAndTargetImmediately() throws {
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        profile.activityFactor = .sedentary
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.activityFactor = .veryActive
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        // BMR is weight/height/age/sex only, so it is unchanged by design.
+        #expect(after.bmr == before.bmr)
+        #expect(after.tdee != before.tdee)
+        #expect(after.targetIntakeKcal != before.targetIntakeKcal)
+    }
+
+    @Test func theGoalWeightOnlyMovesTheTargetWhenNoWeightIsMeasured() throws {
+        // Stating the real contract rather than the one that seems likely:
+        // `targetIntake` is computed from the *measured* weight, and the goal
+        // weight is only the fallback when there is none. So with a weigh-in
+        // on file, editing the goal must not move the target — asserting
+        // otherwise would have meant changing the formula to match a guess.
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.goalWeightKg = 62
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(after.targetIntakeKcal == before.targetIntakeKcal)
+    }
+
+    @Test func withoutAWeighInTheGoalWeightMovesTheTargetImmediately() throws {
+        // The case where the goal *is* the input. It still updates live, which
+        // is what this fix is about.
+        let context = try makeContext()
+        let profile = UserProfile()
+        profile.heightCm = 170
+        profile.ageYears = 30
+        profile.goalWeightKg = 70
+        context.insert(profile)
+
+        let noWeight = BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+        #expect(noWeight == nil)
+
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: noWeight)
+        profile.goalWeightKg = 60
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: noWeight)
+
+        #expect(before.targetIntakeKcal != nil)
+        #expect(after.targetIntakeKcal != before.targetIntakeKcal)
+    }
+
+    @Test func editingTheWeeklyRateUpdatesTheTargetImmediately() throws {
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        profile.weeklyChangeKg = -0.2
+        let before = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.weeklyChangeKg = -0.7
+        let after = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(after.targetIntakeKcal != before.targetIntakeKcal)
+    }
+
+    @Test func consecutiveEditsEachTakeEffect() throws {
+        // A cache refreshed once would pass a single-edit test and fail here.
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        profile.heightCm = 165
+        let first = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.heightCm = 185
+        let second = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        profile.heightCm = 175
+        let third = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(first.bmr != second.bmr)
+        #expect(second.bmr != third.bmr)
+        #expect(third.bmr != first.bmr)
+    }
+
+    @Test func derivingDoesNotTouchTheStore() throws {
+        // Editing a field must not cost a fetch. `derive` takes no context at
+        // all, which is the structural guarantee — this states the intent.
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        profile.heightCm = 181
+        let metrics = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+
+        #expect(metrics.currentWeightKg == weight)
+    }
+
+    @Test func theWeighInSurvivesEveryProfileEdit() throws {
+        // The previous fix: a weight logged outside the dashboard window is
+        // still the current one, and profile edits must not disturb it.
+        let context = try makeContext()
+        let (profile, weight) = fixture(context)
+
+        profile.heightCm = 190
+        profile.ageYears = 44
+        profile.goalWeightKg = 65
+
+        let metrics = BodyMetrics.derive(profile: profile, currentWeightKg: weight)
+        #expect(metrics.currentWeightKg == 75)
+        #expect(metrics.bmr == profile.bmr(currentWeightKg: 75))
     }
 }

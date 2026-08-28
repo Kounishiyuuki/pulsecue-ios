@@ -119,33 +119,39 @@ struct SettingsView: View {
     /// their BMR, TDEE and calorie target computed as though no weight
     /// existed, while Home and Me showed the figure perfectly well.
     ///
-    /// Resolved through `BodyMetrics`, cached rather than re-fetched per
-    /// render, and refreshed whenever any log changes. The screen asks for the
-    /// figures rather than assembling them, so there is nothing here to get
-    /// wrong about which weigh-in they came from.
-    @State private var bodyMetrics: BodyMetrics = .init(
-        currentWeightKg: nil, bmr: nil, tdee: nil, targetIntakeKcal: nil
-    )
+    /// The latest weigh-in, resolved from the store and cached.
+    ///
+    /// **Only the weight is cached.** BMR, TDEE and the target are derived on
+    /// every read from the profile as it stands — see `metrics(for:)`. Caching
+    /// those too, which this screen used to do, left them showing figures from
+    /// before the user's last edit.
+    @State private var currentWeightKg: Double?
 
-    private var currentWeightKg: Double? { bodyMetrics.currentWeightKg }
+    /// The derived figures for a profile, right now.
+    ///
+    /// Recomputed rather than stored, so editing height, age, sex, activity or
+    /// the goal updates them immediately. Pure arithmetic — no fetch happens
+    /// here, so an edit costs nothing but the calculation.
+    private func metrics(for profile: UserProfile?) -> BodyMetrics {
+        BodyMetrics.derive(profile: profile, currentWeightKg: currentWeightKg)
+    }
 
     private var resolvedProfile: UserProfile? { profiles.first }
 
     private func refreshCurrentWeight() {
-        bodyMetrics = BodyMetrics.resolve(
-            modelContext: modelContext,
-            profile: resolvedProfile
+        currentWeightKg = BodyMetrics.resolveCurrentWeightKg(
+            modelContext: modelContext
         )
     }
 
     private func bmrValue(for profile: UserProfile) -> Int? {
-        bodyMetrics.bmr
+        metrics(for: profile).bmr
     }
     private func tdeeValue(for profile: UserProfile) -> Int? {
-        bodyMetrics.tdee
+        metrics(for: profile).tdee
     }
     private func targetIntakeValue(for profile: UserProfile) -> Int? {
-        bodyMetrics.targetIntakeKcal
+        metrics(for: profile).targetIntakeKcal
     }
 
     var body: some View {
@@ -328,7 +334,8 @@ struct SettingsView: View {
             label: "基礎代謝 (BMR)",
             value: bmrValue(for: profile).map { formatInt($0) } ?? "—",
             unit: "kcal",
-            gradient: accentGradient
+            gradient: accentGradient,
+            identifier: "bmr-summary"
         )
     }
 
@@ -341,7 +348,16 @@ struct SettingsView: View {
         )
     }
 
-    private func summaryCard(label: String, value: String, unit: String, gradient: LinearGradient) -> some View {
+    /// - Parameter identifier: stable handle for UI tests. These figures are
+    ///   derived from the profile on screen, and the only way to prove they
+    ///   update as it is edited is to read them back after an edit.
+    private func summaryCard(
+        label: String,
+        value: String,
+        unit: String,
+        gradient: LinearGradient,
+        identifier: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.caption.weight(.medium))
@@ -361,6 +377,9 @@ struct SettingsView: View {
         .padding(16)
         .background(glassBackground)
         .overlay(glassStroke)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(value) \(unit)")
+        .accessibilityIdentifier(identifier ?? label)
     }
 
     // MARK: - Goal card
