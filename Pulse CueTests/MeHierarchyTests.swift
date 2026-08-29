@@ -20,6 +20,19 @@ import Testing
 
 struct MeHierarchyTests {
 
+    // MARK: - Settings lifecycle preservation
+
+    @Test func scopedSettingsScreensPreserveNotificationRefreshOwnership() {
+        #expect(SettingsView.parentOwnsNotificationRefresh(for: .bodyAndGoals))
+        #expect(SettingsView.parentOwnsNotificationRefresh(for: .health))
+        #expect(SettingsView.parentOwnsNotificationRefresh(for: .account))
+        #expect(SettingsView.parentOwnsNotificationRefresh(for: .app) == false)
+    }
+
+    @Test func allSectionsScreenLetsAppPreferencesOwnTheSingleRefresh() {
+        #expect(SettingsView.parentOwnsNotificationRefresh(for: nil) == false)
+    }
+
     // MARK: - The four groups
 
     @Test func meSeparatesPersonalDataFromAppConfiguration() {

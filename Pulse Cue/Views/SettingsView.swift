@@ -20,6 +20,7 @@
 
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 struct SettingsView: View {
     /// Defaults to the whole screen so previews and the QA harness keep
@@ -27,6 +28,7 @@ struct SettingsView: View {
     var section: SettingsSection?
 
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var settings: SettingsStore
 
     // UserProfile is the source of truth for profile / goal fields.
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
@@ -61,6 +63,10 @@ struct SettingsView: View {
         }
         .navigationTitle(section?.title ?? "設定")
         .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            guard Self.parentOwnsNotificationRefresh(for: section) else { return }
+            refreshNotificationStatus()
+        }
     }
 
     @ViewBuilder
@@ -89,6 +95,25 @@ struct SettingsView: View {
     /// Whether this group belongs on screen. No section means all of them.
     private func shows(_ group: SettingsSection) -> Bool {
         section == nil || section == group
+    }
+
+    /// The extracted App Preferences section refreshes while it is mounted.
+    /// Every other scoped Settings screen keeps the shell-level refresh that
+    /// ran before the extraction. The all-sections QA screen also mounts App
+    /// Preferences, so the child remains its single refresh owner there.
+    static func parentOwnsNotificationRefresh(for section: SettingsSection?) -> Bool {
+        section != nil && section != .app
+    }
+
+    /// Preserves the pre-extraction Settings lifecycle side effect without
+    /// taking presentation state back from `AppPreferencesSection`.
+    private func refreshNotificationStatus() {
+        NotificationManager.shared.getAuthorizationStatus { status in
+            let authorized = (status == .authorized || status == .provisional)
+            if !authorized && settings.notificationsEnabled {
+                settings.notificationsEnabled = false
+            }
+        }
     }
 
     // MARK: - Save confirmation
