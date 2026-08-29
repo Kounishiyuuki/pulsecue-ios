@@ -62,6 +62,12 @@
 		5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910B6185D8234DA3924900CF /* TodayView.swift */; };
 		AAB10C000000000000004006 /* CompactPersonalStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004005 /* CompactPersonalStatus.swift */; };
 		AAB10C000000000000004004 /* TodayNutritionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004003 /* TodayNutritionCard.swift */; };
+		AAB10C0000000000000C0010F /* SettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000C0010E /* SettingsSection.swift */; };
+		AAB10C0000000000000C0020F /* SettingsChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000C0020E /* SettingsChrome.swift */; };
+		AAB10C0000000000000C0030F /* BodyGoalsSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000C0030E /* BodyGoalsSettingsSection.swift */; };
+		AAB10C0000000000000C0040F /* HealthSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000C0040E /* HealthSettingsSection.swift */; };
+		AAB10C0000000000000C0050F /* AccountSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000C0050E /* AccountSettingsSection.swift */; };
+		AAB10C0000000000000C0060F /* AppPreferencesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000C0060E /* AppPreferencesSection.swift */; };
 		AAB10C00000000000000700F /* HomeIntakeTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000700E /* HomeIntakeTile.swift */; };
 		AAB10C000000000000004002 /* TodayTrainingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004001 /* TodayTrainingCard.swift */; };
 		5AEBFF52ACB44904A23658E1 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF0ACB38DB845A4A9DF79AD /* SettingsStore.swift */; };
@@ -420,6 +426,12 @@
 		910B6185D8234DA3924900CF /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004005 /* CompactPersonalStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/CompactPersonalStatus.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004003 /* TodayNutritionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/TodayNutritionCard.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000C0010E /* SettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/SettingsSection.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000C0020E /* SettingsChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/SettingsChrome.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000C0030E /* BodyGoalsSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/BodyGoalsSettingsSection.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000C0040E /* HealthSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/HealthSettingsSection.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000C0050E /* AccountSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/AccountSettingsSection.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000C0060E /* AppPreferencesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/AppPreferencesSection.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000700E /* HomeIntakeTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/HomeIntakeTile.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004001 /* TodayTrainingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home/TodayTrainingCard.swift; sourceTree = "<group>"; };
 		92A56251CDC546FE9ECF9987 /* SampleDataSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataSeeder.swift; sourceTree = "<group>"; };
@@ -714,6 +726,12 @@
 				910B6185D8234DA3924900CF /* TodayView.swift */,
 				AAB10C000000000000004005 /* CompactPersonalStatus.swift */,
 				AAB10C000000000000004003 /* TodayNutritionCard.swift */,
+				AAB10C0000000000000C0010E /* SettingsSection.swift */,
+				AAB10C0000000000000C0020E /* SettingsChrome.swift */,
+				AAB10C0000000000000C0030E /* BodyGoalsSettingsSection.swift */,
+				AAB10C0000000000000C0040E /* HealthSettingsSection.swift */,
+				AAB10C0000000000000C0050E /* AccountSettingsSection.swift */,
+				AAB10C0000000000000C0060E /* AppPreferencesSection.swift */,
 				AAB10C00000000000000700E /* HomeIntakeTile.swift */,
 				AAB10C000000000000004001 /* TodayTrainingCard.swift */,
 				2D1CF55CADFB46AAB837C03B /* WorkoutView.swift */,
@@ -1324,6 +1342,12 @@
 				5560EA634C0E445285C1E8FA /* TodayView.swift in Sources */,
 				AAB10C000000000000004006 /* CompactPersonalStatus.swift in Sources */,
 				AAB10C000000000000004004 /* TodayNutritionCard.swift in Sources */,
+				AAB10C0000000000000C0010F /* SettingsSection.swift in Sources */,
+				AAB10C0000000000000C0020F /* SettingsChrome.swift in Sources */,
+				AAB10C0000000000000C0030F /* BodyGoalsSettingsSection.swift in Sources */,
+				AAB10C0000000000000C0040F /* HealthSettingsSection.swift in Sources */,
+				AAB10C0000000000000C0050F /* AccountSettingsSection.swift in Sources */,
+				AAB10C0000000000000C0060F /* AppPreferencesSection.swift in Sources */,
 				AAB10C00000000000000700F /* HomeIntakeTile.swift in Sources */,
 				AAB10C000000000000004002 /* TodayTrainingCard.swift in Sources */,
 				DA57885887FA409498252986 /* WorkoutView.swift in Sources */,
