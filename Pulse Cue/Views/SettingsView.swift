@@ -26,7 +26,44 @@ import SwiftUI
 import SwiftData
 import UserNotifications
 
+/// Which group of settings a screen shows.
+///
+/// One screen, four entrances. `MeView` used to offer a single 「設定」 that
+/// opened everything at once — body measurements, HealthKit, the account and
+/// notification toggles in one scroll — which put "how tall am I" and "should
+/// the app buzz" at the same level. The distinction that matters is between
+/// *your data* and *the app's configuration*, and it is not visible when they
+/// share a list.
+///
+/// Scoping the existing screen rather than splitting it into four files keeps
+/// this an information-architecture change: the cards, their bindings and
+/// their behaviour are untouched, and a reader can still see all of them in
+/// one place.
+enum SettingsSection: Equatable, CaseIterable {
+    /// Height, age, sex, activity, BMR/TDEE and the weight goal.
+    case bodyAndGoals
+    /// HealthKit, and what the app is allowed to send.
+    case health
+    /// Sign-in, the linked provider, the server account and its deletion.
+    case account
+    /// Notifications, help, version — the app itself.
+    case app
+
+    var title: String {
+        switch self {
+        case .bodyAndGoals: return "体と目標"
+        case .health: return "ヘルスケア"
+        case .account: return "アカウント"
+        case .app: return "アプリ設定"
+        }
+    }
+}
+
 struct SettingsView: View {
+    /// Defaults to the whole screen so previews and the QA harness keep
+    /// working unchanged.
+    var section: SettingsSection?
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var settings: SettingsStore
@@ -37,6 +74,13 @@ struct SettingsView: View {
     // for the goal-gap card without a second SwiftData read.
     @Query private var recentLogs: [DayLog]
 
+    /// Every day log, as a change trigger for `currentWeightKg` only.
+    ///
+    /// `recentLogs` cannot serve: a weigh-in backfilled outside its fortnight
+    /// would not disturb it, and the cached weight would go stale on screen.
+    @Query(sort: [SortDescriptor(\DayLog.date, order: .reverse)])
+    private var allDayLogs: [DayLog]
+
     // UserProfile is now the source of truth for profile / goal fields.
     @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
     private var profiles: [UserProfile]
@@ -46,9 +90,11 @@ struct SettingsView: View {
     @State private var showSavedToast = false
     @State private var showOnboardingReplay = false
     @State private var showLoginSheet = false
-    @State private var showProfileGymSetup = false
 
-    init() {
+    /// - Parameter section: which group to show. `nil` shows all of them,
+    ///   which is what the previews and the QA harness use.
+    init(section: SettingsSection? = nil) {
+        self.section = section
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -13, to: today) ?? today
@@ -58,19 +104,54 @@ struct SettingsView: View {
         )
     }
 
+    /// Whether this group belongs on screen. No section means all of them.
+    private func shows(_ group: SettingsSection) -> Bool {
+        section == nil || section == group
+    }
+
     private var summary: HealthSummary { HealthSummary(logs: recentLogs) }
-    private var currentWeightKg: Double? { summary.latestWeight }
+
+    /// The weight every calculation on this screen is based on.
+    ///
+    /// It used to come from `recentLogs`, which is bounded to the fourteen
+    /// days this screen displays. A presentation window has no business
+    /// deciding domain truth: someone who last weighed in three weeks ago had
+    /// their BMR, TDEE and calorie target computed as though no weight
+    /// existed, while Home and Me showed the figure perfectly well.
+    ///
+    /// The latest weigh-in, resolved from the store and cached.
+    ///
+    /// **Only the weight is cached.** BMR, TDEE and the target are derived on
+    /// every read from the profile as it stands — see `metrics(for:)`. Caching
+    /// those too, which this screen used to do, left them showing figures from
+    /// before the user's last edit.
+    @State private var currentWeightKg: Double?
+
+    /// The derived figures for a profile, right now.
+    ///
+    /// Recomputed rather than stored, so editing height, age, sex, activity or
+    /// the goal updates them immediately. Pure arithmetic — no fetch happens
+    /// here, so an edit costs nothing but the calculation.
+    private func metrics(for profile: UserProfile?) -> BodyMetrics {
+        BodyMetrics.derive(profile: profile, currentWeightKg: currentWeightKg)
+    }
 
     private var resolvedProfile: UserProfile? { profiles.first }
 
+    private func refreshCurrentWeight() {
+        currentWeightKg = BodyMetrics.resolveCurrentWeightKg(
+            modelContext: modelContext
+        )
+    }
+
     private func bmrValue(for profile: UserProfile) -> Int? {
-        profile.bmr(currentWeightKg: currentWeightKg)
+        metrics(for: profile).bmr
     }
     private func tdeeValue(for profile: UserProfile) -> Int? {
-        profile.tdee(currentWeightKg: currentWeightKg)
+        metrics(for: profile).tdee
     }
     private func targetIntakeValue(for profile: UserProfile) -> Int? {
-        profile.targetIntake(currentWeightKg: currentWeightKg)
+        metrics(for: profile).targetIntakeKcal
     }
 
     var body: some View {
@@ -92,7 +173,7 @@ struct SettingsView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .navigationTitle("設定")
+        .navigationTitle(section?.title ?? "設定")
         .navigationBarTitleDisplayMode(.large)
         .alert("通知が無効です", isPresented: $showNotificationAlert) {
             Button("了解", role: .cancel) {}
@@ -100,6 +181,8 @@ struct SettingsView: View {
             Text("iOS の設定アプリで通知を許可してください。")
         }
         .onAppear { refreshNotificationStatus() }
+        .task { refreshCurrentWeight() }
+        .onChange(of: allDayLogs) { _, _ in refreshCurrentWeight() }
         .sheet(isPresented: $showOnboardingReplay) {
             OnboardingView(primaryTitle: "閉じる") {
                 showOnboardingReplay = false
@@ -108,9 +191,6 @@ struct SettingsView: View {
         .sheet(isPresented: $showLoginSheet) {
             LoginView(authSession: authSession, serverAccount: serverAccount)
         }
-        .sheet(isPresented: $showProfileGymSetup) {
-            ProfileGymSetupView()
-        }
     }
 
     @ViewBuilder
@@ -118,26 +198,35 @@ struct SettingsView: View {
         @Bindable var profile = profileObject
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                titleBlock
-                personalDataCard(profile: $profile)
-                HStack(spacing: 12) {
-                    bmrCard(profile: profile)
-                    tdeeCard(profile: profile)
+                if shows(.bodyAndGoals) {
+                    titleBlock
+                    personalDataCard(profile: $profile)
+                    HStack(spacing: 12) {
+                        bmrCard(profile: profile)
+                        tdeeCard(profile: profile)
+                    }
+                    goalCard(profile: $profile)
                 }
-                goalCard(profile: $profile)
-                integrationsCard
-                accountCard
-                // マイジム / 種目ライブラリ / 週間プラン / AI プラン相談 now
-                // live under トレーニング → その他. They are training tasks,
-                // not app configuration, and listing them here filed them
-                // under the wrong idea of what they are.
+                if shows(.health) {
+                    integrationsCard
+                }
+                if shows(.account) {
+                    accountCard
+                }
+                // マイジム / 種目ライブラリ / マシンカタログ / 週間プラン /
+                // AI プラン相談 live under トレーニング → その他の機能. They
+                // are training tasks, not app configuration.
+                if shows(.app) {
 #if DEBUG
-                aiEndpointQASection
+                    aiEndpointQASection
 #endif
-                appSettingsCard
-                helpCard
-                appInfoCard
-                saveButton
+                    appSettingsCard
+                    helpCard
+                    appInfoCard
+                }
+                if shows(.bodyAndGoals) {
+                    saveButton
+                }
                 Color.clear.frame(height: 24)
             }
             .padding(.horizontal, 16)
@@ -245,7 +334,8 @@ struct SettingsView: View {
             label: "基礎代謝 (BMR)",
             value: bmrValue(for: profile).map { formatInt($0) } ?? "—",
             unit: "kcal",
-            gradient: accentGradient
+            gradient: accentGradient,
+            identifier: "bmr-summary"
         )
     }
 
@@ -258,7 +348,16 @@ struct SettingsView: View {
         )
     }
 
-    private func summaryCard(label: String, value: String, unit: String, gradient: LinearGradient) -> some View {
+    /// - Parameter identifier: stable handle for UI tests. These figures are
+    ///   derived from the profile on screen, and the only way to prove they
+    ///   update as it is edited is to read them back after an edit.
+    private func summaryCard(
+        label: String,
+        value: String,
+        unit: String,
+        gradient: LinearGradient,
+        identifier: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.caption.weight(.medium))
@@ -278,6 +377,9 @@ struct SettingsView: View {
         .padding(16)
         .background(glassBackground)
         .overlay(glassStroke)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(value) \(unit)")
+        .accessibilityIdentifier(identifier ?? label)
     }
 
     // MARK: - Goal card
@@ -482,96 +584,11 @@ struct SettingsView: View {
         }
     }
 
-    private var myGymCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "dumbbell.fill", title: "マイジム")
-                NavigationLink {
-                    MyGymHomeView()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("ジムを登録してメニューを生成")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("利用できるマシンを選ぶと、部位別のワークアウトを自動で組み立てます。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var weeklyPlanCandidateCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "calendar", title: "週次プラン候補")
-                NavigationLink {
-                    WeeklyTrainingPlanCandidateReviewView()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("週次トレーニングプラン候補を作成")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("ルールベースで週次プラン候補を作成し、確認後に通常のルーティンとして保存できます。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var aiPlanChatCard: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                sectionHeader(icon: "sparkles", title: "AIプラン相談")
-                NavigationLink {
-                    MockAITrainingPlanChatView()
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("AIにトレーニングプランを相談")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("ローカルのモックプロバイダーでプラン候補を作成します。実際のAI通信・保存は行いません。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
 #if DEBUG
     /// DEBUG-only developer / QA tools, grouped into one quiet section so they
     /// never read like a normal user feature. Compiled only in DEBUG builds —
-    /// the shipping app shows none of this and only ever opens the no-argument
-    /// mock path in `aiPlanChatCard` above. Navigation destinations are
-    /// unchanged from the previous separate QA cards.
+    /// the shipping app shows none of this. Navigation destinations are
+    /// unchanged.
     private var aiEndpointQASection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -711,28 +728,11 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
 
-                Divider().opacity(0.4)
-
-                Button {
-                    showProfileGymSetup = true
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("プロフィールとジムの設定")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("身長・今日の体重・マイジムの設定状況をまとめて確認できます。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                // 「プロフィールとジムの設定」 used to sit here. It was not a
+                // profile screen: it registered gyms and opened MyGymHomeView,
+                // so Account — authentication, sync and deletion — was a route
+                // into gym management. Body fields live in 体と目標; gyms live
+                // under トレーニング → その他の機能, and only there.
 
                 if authSession.isSignedIn {
                     Divider().opacity(0.4)
