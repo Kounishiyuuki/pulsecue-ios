@@ -228,6 +228,70 @@ struct BodyWeightTruthTests {
         #expect(profile.bmr(currentWeightKg: resolved) == profile.bmr(currentWeightKg: nil))
     }
 
+    // MARK: - Noticing that the weigh-in changed
+
+    @Test func theSignatureChangesWhenTheLatestWeightIsEditedInPlace() throws {
+        // The case an array `onChange` misses: `@Model` elements compare by
+        // identity, so editing `weightKg` on the same row leaves the array
+        // "equal" and the screen keeps a weight that is no longer on disk.
+        let context = try makeContext()
+        insertProfile(context)
+        insertWeight(context, daysAgo: 1, kg: 75)
+
+        let logs = try context.fetch(FetchDescriptor<DayLog>())
+        let before = LatestBodyWeightResolver.changeSignature(for: logs)
+
+        logs.first(where: { $0.weightKg != nil })?.weightKg = 73
+        let after = LatestBodyWeightResolver.changeSignature(for: logs)
+
+        #expect(before != after)
+    }
+
+    @Test func theSignatureChangesWhenANewerWeighInArrives() throws {
+        let context = try makeContext()
+        insertProfile(context)
+        insertWeight(context, daysAgo: 10, kg: 80)
+
+        let before = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+
+        insertWeight(context, daysAgo: 1, kg: 80)
+        let after = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+
+        // Same number, different row — "which weigh-in is latest" changed, and
+        // that needs a refresh too.
+        #expect(before != after)
+    }
+
+    @Test func theSignatureIsStableWhenNothingRelevantChanges() throws {
+        // Otherwise every unrelated log edit would re-fetch.
+        let context = try makeContext()
+        insertProfile(context)
+        insertWeight(context, daysAgo: 2, kg: 75)
+
+        let logs = try context.fetch(FetchDescriptor<DayLog>())
+        let before = LatestBodyWeightResolver.changeSignature(for: logs)
+
+        context.insert(DayLog(date: Date(), intakeCalories: 1_500))
+        let after = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+
+        #expect(before == after)
+    }
+
+    @Test func theSignatureSaysSoWhenThereIsNoWeighIn() throws {
+        let context = try makeContext()
+        insertProfile(context)
+
+        #expect(LatestBodyWeightResolver.changeSignature(for: []) == "none")
+        let logs = try context.fetch(FetchDescriptor<DayLog>())
+        #expect(LatestBodyWeightResolver.changeSignature(for: logs) == "none")
+    }
+
     // MARK: - Logs without a weight
 
     @Test func aNewerLogCarryingNoWeightDoesNotHideAnOlderWeighIn() throws {

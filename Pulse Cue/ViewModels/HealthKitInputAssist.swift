@@ -41,8 +41,15 @@ final class HealthKitInputAssist: ObservableObject {
     private let client: any HealthKitReading
     private let calendar: Calendar
 
-    init(client: any HealthKitReading = HealthKitClient.shared, calendar: Calendar = .current) {
-        self.client = client
+    /// - Parameter client: the reader to use. `nil` takes the shared one.
+    ///
+    /// Resolved inside the initialiser rather than as a default argument:
+    /// default arguments are evaluated in the *caller's* isolation, and
+    /// `HealthKitClient.shared` is MainActor-isolated, which Swift 6 rejects.
+    /// The initialiser itself is already on the MainActor, so asking for it
+    /// here is legitimate — nothing about which client is used changed.
+    init(client: (any HealthKitReading)? = nil, calendar: Calendar = .current) {
+        self.client = client ?? HealthKitClient.shared
         self.calendar = calendar
     }
 

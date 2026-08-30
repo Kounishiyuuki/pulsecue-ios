@@ -42,4 +42,23 @@ enum LatestBodyWeightResolver {
         descriptor.fetchLimit = 1
         return (try? modelContext.fetch(descriptor))?.first?.weightKg
     }
+
+    /// A value that changes whenever the latest weigh-in does.
+    ///
+    /// `onChange(of: someDayLogArray)` compares `@Model` elements by identity,
+    /// so editing `weightKg` in place leaves the array "equal" and the
+    /// observer may never fire — the screen keeps a weight that is no longer
+    /// on disk. Reading the date and the value here gives SwiftUI something
+    /// that genuinely differs, and reading those properties is also what makes
+    /// the view re-evaluate when they change.
+    ///
+    /// A signature rather than the weight itself because "which row is latest"
+    /// can change without the number changing, and that still needs a refresh.
+    static func changeSignature(for logs: [DayLog]) -> String {
+        guard let latest = logs
+            .filter({ $0.weightKg != nil })
+            .max(by: { $0.date < $1.date })
+        else { return "none" }
+        return "\(latest.date.timeIntervalSince1970):\(latest.weightKg ?? 0)"
+    }
 }

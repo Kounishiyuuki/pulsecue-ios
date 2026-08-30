@@ -42,6 +42,12 @@ struct MeView: View {
     @Query(sort: [SortDescriptor(\DayLog.date, order: .reverse)])
     private var allDayLogs: [DayLog]
 
+    /// Refresh signal for the cached weight; see `changeSignature` for why the
+    /// array itself is not enough.
+    private var latestWeightSignature: String {
+        LatestBodyWeightResolver.changeSignature(for: allDayLogs)
+    }
+
     /// The latest weigh-in, through the shared resolver, so Me, Home and
     /// Nutrition cannot disagree about which one it is.
     @State private var latestWeightKg: Double?
@@ -83,7 +89,7 @@ struct MeView: View {
         .navigationTitle("マイページ")
         .navigationBarTitleDisplayMode(.large)
         .task { refreshWeight() }
-        .onChange(of: allDayLogs) { _, _ in refreshWeight() }
+        .onChange(of: latestWeightSignature) { _, _ in refreshWeight() }
     }
 
     // MARK: - Personal status
