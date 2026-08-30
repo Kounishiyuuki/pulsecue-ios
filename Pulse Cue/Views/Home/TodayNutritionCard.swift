@@ -61,6 +61,10 @@ struct TodayNutritionCard: View {
         .padding(16)
         .pulseCard()
         .accessibilityElement(children: .contain)
+        // A stable handle for the UI route test: that Home is showing today's
+        // nutrition at all is the thing worth guarding, and the figures on it
+        // change with the day.
+        .accessibilityIdentifier("home-nutrition-card")
     }
 
     private var header: some View {

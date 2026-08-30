@@ -52,6 +52,9 @@ struct NutritionDailySummaryCard: View {
             macroDetail
         }
         .pulseCard(padding: 20)
+        // A stable handle for the UI route test. The card's visible figures
+        // change with the day; that it is on the screen at all should not.
+        .accessibilityIdentifier("nutrition-daily-summary")
     }
 
     private var header: some View {

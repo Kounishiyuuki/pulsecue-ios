@@ -94,19 +94,34 @@ struct HomeNutritionWiringTests {
             .first { DateUtils.startOfDay($0.date) == today }
     }
 
-    /// Builds the summary the way a screen does: shared weight resolver,
-    /// shared target policy, shared meal scoping.
+    /// Builds the summary through the call both screens make.
+    ///
+    /// This used to assemble the target priority chain itself — resolve the
+    /// override, ask the profile, hand both to `make`. That is a description
+    /// of the wiring rather than the wiring, and it would keep passing if Home
+    /// and Nutrition stopped resolving targets that way. `forDay` is the
+    /// production entry point; the only thing left to arrange here is the
+    /// stored state.
     private func screenSummary(
         _ context: ModelContext,
         manualTargetKcal: Int? = nil
     ) throws -> DailyNutritionSummary {
-        let profile = try context.fetch(FetchDescriptor<UserProfile>()).first
-        let weight = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
-        return DailyNutritionSummary.make(
+        DailyNutritionSummary.forDay(
+            Date(),
             dayLog: try todayLog(context),
             mealsForDay: try mealsToday(context),
-            manualTargetKcal: manualTargetKcal,
-            profileTargetKcal: profile?.targetIntake(currentWeightKg: weight)
+            profile: try context.fetch(FetchDescriptor<UserProfile>()).first,
+            currentWeightKg: LatestBodyWeightResolver.latestWeightKg(modelContext: context),
+            targetSettings: targetSettings(intakeOverride: manualTargetKcal)
+        )
+    }
+
+    /// A settings value carrying the manual intake override, since that is how
+    /// a typed target actually reaches the screens.
+    private func targetSettings(intakeOverride: Int?) -> HealthTargetSettings {
+        guard let intakeOverride else { return .empty }
+        return HealthTargetSettings(
+            defaults: HealthTargets(intakeCalories: intakeOverride)
         )
     }
 

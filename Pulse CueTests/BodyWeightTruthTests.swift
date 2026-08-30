@@ -303,6 +303,73 @@ struct BodyWeightTruthTests {
 
         #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 80)
     }
+
+    // MARK: - The signal Home and Nutrition now observe
+    //
+    //  Both screens moved from `onChange(of: allDayLogs)` to the signature.
+    //  These are the transitions each has to survive; an array `onChange`
+    //  misses the third.
+
+    @Test func theSignatureNoticesADeletedWeighIn() throws {
+        let context = try makeContext()
+        insertProfile(context)
+        insertWeight(context, daysAgo: 5, kg: 80)
+        insertWeight(context, daysAgo: 1, kg: 78)
+
+        let before = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+
+        // Remove the newest. The older weigh-in becomes current, so the screens
+        // must recompute rather than keep showing 78.
+        let newest = try context.fetch(FetchDescriptor<DayLog>())
+            .filter { $0.weightKg != nil }
+            .max(by: { $0.date < $1.date })
+        #expect(newest != nil)
+        context.delete(newest!)
+
+        let after = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+        #expect(before != after)
+    }
+
+    @Test func aNewerLogWithoutAWeightLeavesTheSignalAlone() throws {
+        // Logging today's sleep must not make Home re-resolve the weight: the
+        // current weigh-in has not changed, and the older valid one still wins.
+        let context = try makeContext()
+        insertProfile(context)
+        insertWeight(context, daysAgo: 3, kg: 74)
+
+        let before = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+
+        context.insert(DayLog(date: Date(), sleepMinutes: 420))
+
+        let after = LatestBodyWeightResolver.changeSignature(
+            for: try context.fetch(FetchDescriptor<DayLog>())
+        )
+        #expect(before == after)
+    }
+
+    @Test func theSignalAgreesWithTheResolverAboutWhichWeighInIsCurrent() throws {
+        // The signature and the resolver must never disagree: one decides when
+        // to refresh, the other decides what to. If a newer weightless log
+        // could shift one and not the other, the screens would refresh to the
+        // same value or fail to refresh to a new one.
+        let context = try makeContext()
+        insertProfile(context)
+        insertWeight(context, daysAgo: 4, kg: 81)
+        context.insert(DayLog(date: Date(), intakeCalories: 1_900))
+
+        let logs = try context.fetch(FetchDescriptor<DayLog>())
+        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let signature = LatestBodyWeightResolver.changeSignature(for: logs)
+
+        #expect(resolved == 81)
+        #expect(signature.hasSuffix(":81.0"))
+    }
 }
 
 //

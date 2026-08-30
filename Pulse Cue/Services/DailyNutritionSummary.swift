@@ -142,6 +142,41 @@ struct DailyNutritionSummary: Equatable {
         )
     }
 
+    /// The same summary, assembled the way a screen assembles it.
+    ///
+    /// `make` takes the two target figures already resolved. Both screens were
+    /// resolving them identically and separately — the manual override out of
+    /// `HealthTargetResolver`, the fallback out of the profile at the latest
+    /// weigh-in — which put the *priority chain* in two places even though the
+    /// arithmetic that consumes it was in one. That is the same shape of drift
+    /// this type was created to end, one level up.
+    ///
+    /// Nothing is fetched here. Callers pass what their queries already hold,
+    /// so using this costs no extra reads.
+    ///
+    /// - Parameters:
+    ///   - currentWeightKg: the latest weigh-in from
+    ///     `LatestBodyWeightResolver`. Never a figure taken from a screen's
+    ///     display window — see `BodyWeightTruthTests`.
+    static func forDay(
+        _ date: Date,
+        dayLog: DayLog?,
+        mealsForDay: [MealEntry],
+        profile: UserProfile?,
+        currentWeightKg: Double?,
+        targetSettings: HealthTargetSettings
+    ) -> DailyNutritionSummary {
+        make(
+            dayLog: dayLog,
+            mealsForDay: mealsForDay,
+            manualTargetKcal: HealthTargetResolver.resolveAll(
+                date: date,
+                settings: targetSettings
+            ).intakeCalories,
+            profileTargetKcal: profile?.targetIntake(currentWeightKg: currentWeightKg)
+        )
+    }
+
     /// Ownership, keyed off the same predicate `NutritionLedger` writes by.
     private static func intakeSource(
         mealsForDay: [MealEntry],

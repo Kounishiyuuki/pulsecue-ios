@@ -248,4 +248,36 @@ struct NutritionSurfaceTests {
         #expect(NutritionSurface.rank(.todayMeals) < NutritionSurface.rank(.recentAndFavourites))
         #expect(NutritionSurface.rank(.recentAndFavourites) < NutritionSurface.rank(.weeklyTrend))
     }
+
+    // MARK: - The order the screen renders
+
+    @Test func theRenderedOrderIsTheRankedOrder() {
+        // `NutritionView` iterates `orderedSections`. Before it did, this
+        // file described an order the screen was free to ignore.
+        let ordered = NutritionSurface.orderedSections
+        let ranks = ordered.map { NutritionSurface.rank($0) }
+
+        #expect(ranks == ranks.sorted())
+    }
+
+    @Test func everySectionIsRendered() {
+        // A section that exists in the ranking but never reaches the screen is
+        // the failure this whole file is meant to prevent, one level down.
+        let expected: [NutritionSurface.Section] = [
+            .todayIntake, .addMeal, .todayMeals,
+            .pendingEstimates, .recentAndFavourites, .weeklyTrend
+        ]
+        #expect(NutritionSurface.orderedSections == expected)
+    }
+
+    @Test func todaysDecisionComesBeforeTodaysRecord() {
+        let ordered = NutritionSurface.orderedSections
+        let intake = ordered.firstIndex(of: .todayIntake)
+        let meals = ordered.firstIndex(of: .todayMeals)
+        let trend = ordered.firstIndex(of: .weeklyTrend)
+
+        #expect(intake != nil && meals != nil && trend != nil)
+        #expect(intake! < meals!)
+        #expect(meals! < trend!)
+    }
 }

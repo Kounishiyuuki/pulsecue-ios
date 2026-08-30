@@ -2,33 +2,29 @@
 //  NutritionView.swift
 //  Pulse Cue
 //
-//  Created by Codex.
+//  The root of the 栄養 tab, and only that: it owns the day's queries, the
+//  sheets, and every write. What each section looks like belongs to the
+//  section.
 //
-//  Premium liquid-glass nutrition screen. Layout:
+//  The order of the sections is not decided here either — it comes from
+//  `NutritionSurface.orderedSections`. The screen once had five ways to add a
+//  meal above the fold, each reasonable when it was added, and writing the
+//  ranking down was the fix. Rendering from it is what keeps the fix.
 //
-//    1. 今日の栄養 summary card
-//       - target intake (from SettingsStore.targetIntake)
-//       - confirmed kcal so far
-//       - PROTEIN / CARBS / FAT macro bars vs soft daily targets
+//  Two rules this screen must not take back into itself:
 //
-//    2. 食事履歴
-//       - For each MealSlot: either a confirmed-meal card or an
-//         empty-slot tile that taps into the add flow.
-//       - Pending manual drafts are shown inline with a 「確認待ち」
-//         badge and tap → edit.
+//    **What is true** is `DailyNutritionSummary`. Consumed, target, remaining
+//    and who owns the day all come from there, so Home and this screen cannot
+//    report different numbers for the same day.
 //
-//    3. AI 解析結果 (only when there are pending AI meals)
-//       - Premium hero card per pending AI meal.
-//       - 「~ N kcal」 + macro bars.
-//       - 編集 / 確定 CTAs. Discard is offered via long-press or via
-//         the swipe action on the card. The 確定 path wraps the
-//         estimate in `UserConfirmed<MealEstimate>` and runs it
-//         through `applyConfirmedMealEstimate` so the privacy
-//         boundary defined in AICoachStub.swift is honoured at the
-//         only place the model writes back to DayLog.
+//    **What is written** goes through `NutritionLedger`. Every path that
+//    creates, confirms or deletes a meal ends in a ledger call, because the
+//    DayLog intake field is derived from confirmed meals and nothing else may
+//    maintain it.
 //
-//  No external AI API is called. AI candidates are locally
-//  synthesized when the user taps "AI で記録" and edits the form.
+//  No external AI API is called. AI candidates are locally synthesized when
+//  the user taps 「AI で記録」 and edits the form; a pending estimate counts
+//  towards nothing until confirmed.
 //
 
 import SwiftUI
@@ -68,18 +64,6 @@ struct NutritionView: View {
         allDayLogs.first(where: { DateUtils.startOfDay($0.date) == today })
     }
 
-    private var confirmedMeals: [MealEntry] {
-        todaysMeals.filter { $0.status == .confirmed }
-    }
-
-    private var pendingManualMeals: [MealEntry] {
-        todaysMeals.filter { $0.status == .pending && $0.source == .manual }
-    }
-
-    private var pendingAIMeals: [MealEntry] {
-        todaysMeals.filter { $0.status == .pending && $0.source == .ai }
-    }
-
     /// The day's figures, from the same helper Home uses.
     ///
     /// Previously this screen summed confirmed meals itself and read the
@@ -87,34 +71,43 @@ struct NutritionView: View {
     /// override and read `DayLog.intakeCalories`. Same day, same stored data,
     /// different numbers on the two screens — and a quick calorie input that
     /// appeared on one of them and not the other.
-    private var dailySummary: DailyNutritionSummary {
-        DailyNutritionSummary.make(
+    ///
+    /// - Parameter mealsForDay: **every** meal for the day, pending included.
+    ///   Ownership of the day depends on pending rows even though they never
+    ///   count as intake, so filtering before this point is not an
+    ///   optimisation — it is the bug.
+    private func daySummary(mealsForDay: [MealEntry]) -> DailyNutritionSummary {
+        DailyNutritionSummary.forDay(
+            Date(),
             dayLog: todaysDayLog,
-            mealsForDay: todaysMeals,
-            manualTargetKcal: HealthTargetResolver.resolveAll(
-                date: Date(),
-                settings: targetStore.settings
-            ).intakeCalories,
-            profileTargetKcal: profiles.first?.targetIntake(
-                currentWeightKg: targetWeightKg
-            )
+            mealsForDay: mealsForDay,
+            profile: profiles.first,
+            currentWeightKg: latestWeightKg,
+            targetSettings: targetStore.settings
         )
-    }
-
-    private var confirmedKcal: Int {
-        dailySummary.consumedKcal ?? 0
-    }
-
-    private var targetKcal: Int? {
-        dailySummary.targetKcal
     }
 
     /// The weight the calorie target is computed from.
     ///
-    /// Shared with Home through `LatestBodyWeightResolver` so both screens
-    /// resolve the same weigh-in. Cached and refreshed with the logs rather
-    /// than sorting the whole history on every render.
-    @State private var targetWeightKg: Double?
+    /// Shared with Home, Me and 体と目標 through `LatestBodyWeightResolver` so
+    /// every screen resolves the same weigh-in. Cached and refreshed with the
+    /// logs rather than sorting the whole history on every render.
+    @State private var latestWeightKg: Double?
+
+    /// Refresh signal for the cached weight.
+    ///
+    /// `onChange(of: allDayLogs)` compared `@Model` rows by identity, so
+    /// editing a weight in place left the array equal and this screen kept
+    /// computing the target from a weight no longer on disk.
+    private var latestWeightSignature: String {
+        LatestBodyWeightResolver.changeSignature(for: allDayLogs)
+    }
+
+    private func refreshLatestWeight() {
+        latestWeightKg = LatestBodyWeightResolver.latestWeightKg(
+            modelContext: modelContext
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -122,18 +115,28 @@ struct NutritionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    summaryCard
-                    addMealButton
-                    todayMealsSection
-                    if !pendingAIMeals.isEmpty {
-                        sectionTitle("AI 解析結果")
-                        ForEach(pendingAIMeals, id: \.id) { meal in
-                            aiEstimateCard(meal)
-                        }
+                    // Partitioned once. Each of these used to re-filter the
+                    // whole meal history on every access, several times per
+                    // render.
+                    let meals = todaysMeals
+                    let confirmed = meals.filter { $0.status == .confirmed }
+                    let pendingManual = meals.filter {
+                        $0.status == .pending && $0.source == .manual
                     }
-                    recentMealsCard
-                    favoriteTemplatesCard
-                    weeklyTrendCard
+                    let pendingAI = meals.filter {
+                        $0.status == .pending && $0.source == .ai
+                    }
+
+                    ForEach(NutritionSurface.orderedSections, id: \.self) { section in
+                        sectionView(
+                            section,
+                            meals: meals,
+                            confirmed: confirmed,
+                            pendingManual: pendingManual,
+                            pendingAI: pendingAI
+                        )
+                    }
+
                     Color.clear.frame(height: 24)
                 }
                 .padding(.horizontal, 16)
@@ -142,16 +145,8 @@ struct NutritionView: View {
         }
         .navigationTitle("栄養")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
-                modelContext: modelContext
-            )
-        }
-        .onChange(of: allDayLogs) { _, _ in
-            targetWeightKg = LatestBodyWeightResolver.latestWeightKg(
-                modelContext: modelContext
-            )
-        }
+        .task { refreshLatestWeight() }
+        .onChange(of: latestWeightSignature) { _, _ in refreshLatestWeight() }
         .sheet(item: $sheetMode) { mode in
             MealEntrySheet(mode: mode)
         }
@@ -193,7 +188,7 @@ struct NutritionView: View {
         .alert("この AI 推定を破棄しますか？", isPresented: discardAlertBinding) {
             Button("破棄", role: .destructive) {
                 if let meal = pendingDiscard {
-                    modelContext.delete(meal)
+                    discard(meal)
                 }
                 pendingDiscard = nil
             }
@@ -205,16 +200,81 @@ struct NutritionView: View {
         }
     }
 
+    /// One section of the screen. The `switch` is exhaustive on purpose: a new
+    /// `NutritionSurface.Section` stops compiling here until it is placed.
+    @ViewBuilder
+    private func sectionView(
+        _ section: NutritionSurface.Section,
+        meals: [MealEntry],
+        confirmed: [MealEntry],
+        pendingManual: [MealEntry],
+        pendingAI: [MealEntry]
+    ) -> some View {
+        switch section {
+        case .todayIntake:
+            summaryCard(confirmedMeals: confirmed, mealsForDay: meals)
+
+        case .addMeal:
+            addMealButton
+
+        case .todayMeals:
+            NutritionMealsSection(
+                confirmedMeals: confirmed,
+                pendingManualMeals: pendingManual,
+                proteinGradient: proteinGradient,
+                onAdd: { sheetMode = .add(source: .manual, slot: $0) },
+                onEdit: { sheetMode = .edit($0) },
+                onDelete: discard,
+                onSaveAsFavorite: saveMealAsFavorite,
+                canSaveAsFavorite: canSaveAsFavorite
+            )
+
+        case .pendingEstimates:
+            if !pendingAI.isEmpty {
+                VStack(alignment: .leading, spacing: 18) {
+                    sectionTitle("AI 解析結果")
+                    ForEach(pendingAI, id: \.id) { meal in
+                        PendingAIEstimateCard(
+                            meal: meal,
+                            targets: MacroTargets.daily(
+                                forKcalTarget: daySummary(mealsForDay: meals).targetKcal
+                            ),
+                            proteinGradient: proteinGradient,
+                            carbGradient: carbGradient,
+                            fatGradient: fatGradient,
+                            onEdit: { sheetMode = .edit(meal) },
+                            onConfirm: { confirmAIEstimate(meal) },
+                            onDiscard: { pendingDiscard = meal }
+                        )
+                    }
+                }
+            }
+
+        case .recentAndFavourites:
+            NutritionQuickReentrySection(
+                suggestions: recentMealSuggestions,
+                templates: favoriteTemplates.templates,
+                proteinGradient: proteinGradient,
+                onAddSuggestion: addRecentMeal,
+                onAddTemplate: addFavoriteTemplate,
+                onRemoveTemplate: favoriteTemplates.remove
+            )
+
+        case .weeklyTrend:
+            weeklyTrendCard
+        }
+    }
+
     /// The screen's single primary action.
     ///
-    /// It used to be five: an AI chip in the section header, three
-    /// scanner chips beneath it, and four large empty slot cards that each
-    /// opened manual entry. All of them were ways to do the same thing, shown
-    /// before the user had said they wanted to do it — so opening Nutrition
-    /// meant choosing an input *method* first.
+    /// It used to be five: an AI chip in the section header, three scanner
+    /// chips beneath it, and four large empty slot cards that each opened
+    /// manual entry. All of them were ways to do the same thing, shown before
+    /// the user had said they wanted to do it — so opening Nutrition meant
+    /// choosing an input *method* first.
     ///
-    /// Now the intent comes first and the method second, in the dialog below.
-    /// No input flow changed; only when the choice is asked for.
+    /// Now the intent comes first and the method second, in the dialog. No
+    /// input flow changed; only when the choice is asked for.
     private var addMealButton: some View {
         Button {
             pendingSlotForChoice = pendingSlotForChoice ?? .breakfast
@@ -240,77 +300,16 @@ struct NutritionView: View {
         .accessibilityLabel("食事を記録")
     }
 
-    /// Today's meals, at whatever density the day actually has.
-    ///
-    /// The four full-size empty slot cards are gone: on a day with nothing
-    /// logged they filled the screen with four identical invitations to do
-    /// the same thing the button above already offers. Each slot keeps a slim
-    /// row, so adding straight to 夕食 is still one tap.
-    private var todayMealsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("今日の食事")
-            ForEach(MealSlot.allCases) { slot in
-                let confirmedForSlot = confirmedMeals.filter { $0.slot == slot }
-                let pendingManualForSlot = pendingManualMeals.filter { $0.slot == slot }
-                if confirmedForSlot.isEmpty && pendingManualForSlot.isEmpty {
-                    emptySlotRow(slot)
-                } else {
-                    ForEach(confirmedForSlot, id: \.id) { meal in
-                        mealLogCard(meal)
-                    }
-                    ForEach(pendingManualForSlot, id: \.id) { meal in
-                        mealLogCard(meal)
-                    }
-                }
-            }
-        }
-    }
-
-    /// One line per empty slot. Same destination as the card it replaces.
-    private func emptySlotRow(_ slot: MealSlot) -> some View {
-        Button {
-            sheetMode = .add(source: .manual, slot: slot)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "plus.circle")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
-                Text(slot.label)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(AppTheme.cardBackground.opacity(0.45))
-            )
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(slot.label)を記録")
-    }
-
-    private var confirmationTitle: String {
-        guard let slot = pendingSlotForChoice else { return "食事を追加" }
-        return "\(slot.label)を追加"
-    }
-
-    private var discardAlertBinding: Binding<Bool> {
-        Binding(
-            get: { pendingDiscard != nil },
-            set: { if !$0 { pendingDiscard = nil } }
-        )
-    }
-
-    // MARK: - Background / accent
+    // MARK: - Chrome
 
     private var backgroundLayer: some View {
         // Calm, airy Apple Health Light surface (adapts to dark mode).
         AppTheme.surface
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        PulseSectionHeader(text)
+            .padding(.top, 4)
     }
 
     private var proteinGradient: LinearGradient {
@@ -334,28 +333,57 @@ struct NutritionView: View {
         ], startPoint: .leading, endPoint: .trailing)
     }
 
-    // MARK: - Sections
+    // MARK: - Summary
 
-    private func sectionTitle(_ text: String) -> some View {
-        PulseSectionHeader(text)
-            .padding(.top, 4)
+    private func summaryCard(
+        confirmedMeals: [MealEntry],
+        mealsForDay: [MealEntry]
+    ) -> some View {
+        let summary = daySummary(mealsForDay: mealsForDay)
+        let targets = MacroTargets.daily(forKcalTarget: summary.targetKcal)
+        return NutritionDailySummaryCard(
+            summary: summary,
+            carbGrams: confirmedMeals.compactMap { $0.carbGrams }.reduce(0, +),
+            carbTargetGrams: targets.carbGrams,
+            fatGrams: confirmedMeals.compactMap { $0.fatGrams }.reduce(0, +),
+            fatTargetGrams: targets.fatGrams,
+            proteinGradient: proteinGradient,
+            carbGradient: carbGradient,
+            fatGradient: fatGradient,
+            showsMacroDetail: $showsMacroDetail
+        )
     }
 
-    /// Header for the "食事履歴" section. The top row carries the
-    /// section title plus the AI-record pill (still one extra tap
-    /// from the primary empty-slot manual path). The input-assist
-    /// row directly below offers the OCR / barcode / photo entry
-    /// points as labeled chips, so each is readable at a glance
-    /// instead of three similar viewfinder icons.
-    /// Compact 7-day intake summary at the bottom of the screen.
-    /// Today's meals + totals live above; this is the "habit /
-    /// weekly trend" layer, intentionally visually separated so the
-    /// user can't confuse a weekly average with today's intake.
-    /// Tap → `HealthSummaryView` for the full multi-metric weekly
-    /// breakdown.
+    private var confirmationTitle: String {
+        guard let slot = pendingSlotForChoice else { return "食事を追加" }
+        return "\(slot.label)を追加"
+    }
+
+    private var discardAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDiscard != nil },
+            set: { if !$0 { pendingDiscard = nil } }
+        )
+    }
+
+    // MARK: - Weekly trend
+
+    /// Last 7 days of DayLog rows, off the existing `allDayLogs` query rather
+    /// than a second fetch.
+    private var recentLogs: [DayLog] {
+        let cal = Calendar.current
+        let end = today
+        let start = cal.date(byAdding: .day, value: -6, to: end) ?? end
+        return allDayLogs
+            .filter { $0.date >= start && $0.date <= end }
+            .sorted { $0.date > $1.date }
+    }
+
+    /// Deliberately separated from today's figures: a weekly average and
+    /// today's intake are easy to mistake for one another, and only one of
+    /// them answers what to eat next.
     private var weeklyTrendCard: some View {
-        let summary = HealthSummary(logs: recentLogs)
-        let weekly = summary.weeklyIntakeAverage
+        let weekly = HealthSummary(logs: recentLogs).weeklyIntakeAverage
         return NavigationLink {
             HealthSummaryView()
         } label: {
@@ -372,8 +400,8 @@ struct NutritionView: View {
                     Text("7日間の傾向")
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.primary)
-                    if let avg = weekly {
-                        Text("摂取の週平均: \(formatInt(avg)) kcal / 日")
+                    if let weekly {
+                        Text("摂取の週平均: \(NumberFormat.int(weekly)) kcal / 日")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -388,597 +416,146 @@ struct NutritionView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(16)
-            .background(glassBackground)
-            .overlay(glassStroke)
+            .frostedCard()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("7日間の傾向。週間サマリーを開く")
     }
 
-    // MARK: - Recent meals (quick re-entry)
-
     /// Up to 8 deduped recent confirmed manual meals from prior days.
-    /// Empty when no qualifying history exists — caller hides the
-    /// section in that case.
+    ///
+    /// Ranked over the whole history rather than a window: the point is to
+    /// find what this person eats repeatedly, and someone who logs three days
+    /// a week would lose their own regular meals to a fortnight's cutoff.
     private var recentMealSuggestions: [RecentMealSuggestions.Suggestion] {
         RecentMealSuggestions.suggest(from: allMeals, today: Date())
     }
 
-    @ViewBuilder
-    private var recentMealsCard: some View {
-        let suggestions = recentMealSuggestions
-        if !suggestions.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label("最近の食事", systemImage: "clock.arrow.circlepath")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .labelStyle(.titleAndIcon)
-                    Spacer()
-                    Text("タップで今日に追加")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(suggestions) { suggestion in
-                            recentMealChip(suggestion)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-            .padding(16)
-            .background(glassBackground)
-            .overlay(glassStroke)
-        }
-    }
+    // MARK: - Writes
+    //
+    //  Every one of these ends in a `NutritionLedger` call. `DayLog`'s intake
+    //  field is derived from the day's confirmed meals, so a write that
+    //  skipped the ledger would leave the stored total describing a day that
+    //  no longer exists.
 
-    private func recentMealChip(_ suggestion: RecentMealSuggestions.Suggestion) -> some View {
-        Button {
-            addRecentMeal(suggestion)
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Image(systemName: suggestion.slot.systemImage)
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(AppTheme.accent)
-                    Text(suggestion.slot.label)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Text(suggestion.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    Text("\(formatInt(suggestion.kcal))")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("kcal")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(12)
-            .frame(width: 150, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.primary.opacity(0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(AppTheme.accent.opacity(0.25), lineWidth: 0.6)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("最近の食事 \(suggestion.name) \(suggestion.kcal) kcal、タップで今日に追加")
-    }
-
-    /// Resurrect a past confirmed manual meal as a fresh entry on
-    /// today. Goes through `NutritionLedger.syncDayLogIntake` so the
-    /// DayLog intake total reflects the new row immediately.
+    /// Resurrect a past confirmed manual meal as a fresh entry on today.
     private func addRecentMeal(_ suggestion: RecentMealSuggestions.Suggestion) {
-        let now = Date()
-        let meal = MealEntry(
-            dayDate: now,
+        insertConfirmedMeal(
             slot: suggestion.slot,
             name: suggestion.name,
             kcal: suggestion.kcal,
             proteinGrams: suggestion.proteinGrams,
             carbGrams: suggestion.carbGrams,
-            fatGrams: suggestion.fatGrams,
-            status: .confirmed,
-            source: .manual
+            fatGrams: suggestion.fatGrams
         )
-        modelContext.insert(meal)
+    }
+
+    /// Tap-to-add a pinned template onto today. Same path as `addRecentMeal`.
+    private func addFavoriteTemplate(_ template: FavoriteMealTemplate) {
+        insertConfirmedMeal(
+            slot: template.slot,
+            name: template.name,
+            kcal: template.kcal,
+            proteinGrams: template.proteinGrams
+        )
+    }
+
+    /// The one way a meal is created from an existing one. Always `.confirmed`
+    /// and `.manual`: the user picked a meal they had already eaten, so there
+    /// is nothing left to estimate or confirm.
+    private func insertConfirmedMeal(
+        slot: MealSlot,
+        name: String,
+        kcal: Int,
+        proteinGrams: Int?,
+        carbGrams: Int? = nil,
+        fatGrams: Int? = nil
+    ) {
+        let now = Date()
+        modelContext.insert(
+            MealEntry(
+                dayDate: now,
+                slot: slot,
+                name: name,
+                kcal: kcal,
+                proteinGrams: proteinGrams,
+                carbGrams: carbGrams,
+                fatGrams: fatGrams,
+                status: .confirmed,
+                source: .manual
+            )
+        )
         NutritionLedger.syncDayLogIntake(for: now, modelContext: modelContext)
     }
 
-    // MARK: - Favorite meal templates
-
-    /// 「よく使う食事」 card. Hidden when no templates exist so the
-    /// Nutrition screen does not gain a permanent empty placeholder.
-    /// Visually distinct from 「最近の食事」 (star icon, separate card)
-    /// so the user does not confuse "what I happened to eat" with
-    /// "what I pinned".
-    @ViewBuilder
-    private var favoriteTemplatesCard: some View {
-        if !favoriteTemplates.templates.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label("よく使う食事", systemImage: "star.fill")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .labelStyle(.titleAndIcon)
-                    Spacer()
-                    Text("タップで今日に追加")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(favoriteTemplates.templates) { template in
-                            favoriteTemplateChip(template)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-            .padding(16)
-            .background(glassBackground)
-            .overlay(glassStroke)
-        }
-    }
-
-    private func favoriteTemplateChip(_ template: FavoriteMealTemplate) -> some View {
-        Button {
-            addFavoriteTemplate(template)
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(AppTheme.accent)
-                    Text(template.slot.label)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Text(template.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    Text("\(formatInt(template.kcal))")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("kcal")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    if let protein = template.proteinGrams, protein > 0 {
-                        Spacer(minLength: 4)
-                        Text("P \(protein)g")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(proteinGradient)
-                    }
-                }
-            }
-            .padding(12)
-            .frame(width: 150, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.primary.opacity(0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(AppTheme.accent.opacity(0.25), lineWidth: 0.6)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("よく使う食事 \(template.name) \(template.kcal) kcal、タップで今日に追加")
-        .contextMenu {
-            Button("削除", role: .destructive) {
-                favoriteTemplates.remove(template)
-            }
-        }
+    /// Deleting a meal reconciles rather than syncs: removing the day's last
+    /// meal hands ownership back to the manual `DayLog` value, and that is a
+    /// different question from re-summing what remains.
+    private func discard(_ meal: MealEntry) {
+        let day = meal.dayDate
+        modelContext.delete(meal)
+        NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
     }
 
     /// Pin a confirmed manual meal as a reusable template. Stored via
-    /// `FavoriteMealTemplateStore` (UserDefaults JSON) so it does not
-    /// require a SwiftData migration. Idempotent: re-saving a meal
-    /// with the same name + kcal is a no-op.
+    /// `FavoriteMealTemplateStore` (UserDefaults JSON) so it does not require a
+    /// SwiftData migration. Idempotent.
     private func saveMealAsFavorite(_ meal: MealEntry) {
-        let template = FavoriteMealTemplate(
-            name: meal.name,
-            kcal: meal.kcal,
-            proteinGrams: meal.proteinGrams,
-            slot: meal.slot
+        favoriteTemplates.add(
+            FavoriteMealTemplate(
+                name: meal.name,
+                kcal: meal.kcal,
+                proteinGrams: meal.proteinGrams,
+                slot: meal.slot
+            )
         )
-        favoriteTemplates.add(template)
         if settings.hapticsEnabled {
             SoundHapticManager.playHaptic()
         }
     }
 
-    /// Tap-to-add a favorite template onto today. Mirrors the
-    /// `addRecentMeal` path: new entry is always `.confirmed` +
-    /// `.manual`, anchored to today's local startOfDay, and runs
-    /// through `NutritionLedger.syncDayLogIntake` so DayLog tracks
-    /// the new kcal immediately.
-    private func addFavoriteTemplate(_ template: FavoriteMealTemplate) {
-        let now = Date()
-        let meal = MealEntry(
-            dayDate: now,
-            slot: template.slot,
-            name: template.name,
-            kcal: template.kcal,
-            proteinGrams: template.proteinGrams,
-            status: .confirmed,
-            source: .manual
-        )
-        modelContext.insert(meal)
-        NutritionLedger.syncDayLogIntake(for: now, modelContext: modelContext)
+    /// An AI estimate is not something to keep a shortcut to, and neither is a
+    /// draft — pinning either would put an unconfirmed figure one tap from
+    /// being logged as fact.
+    private func canSaveAsFavorite(_ meal: MealEntry) -> Bool {
+        meal.status == .confirmed
+            && meal.source == .manual
+            && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal)
     }
-
-    /// Last 7 days of DayLog rows, used by `HealthSummary` for the
-    /// weekly card. Computed lazily off the existing `allDayLogs`
-    /// `@Query` rather than running a second fetch.
-    private var recentLogs: [DayLog] {
-        let cal = Calendar.current
-        let end = today
-        let start = cal.date(byAdding: .day, value: -6, to: end) ?? end
-        return allDayLogs
-            .filter { $0.date >= start && $0.date <= end }
-            .sorted { $0.date > $1.date }
-    }
-
-    // MARK: - Summary card
-
-    private var summaryCard: some View {
-        // Carbs and fat keep the screen's existing inline targets. Moving
-        // those into a shared policy is a separate change; this one is about
-        // where they appear, not how they are worked out.
-        let carbSum = confirmedMeals.compactMap { $0.carbGrams }.reduce(0, +)
-        let fatSum = confirmedMeals.compactMap { $0.fatGrams }.reduce(0, +)
-        let carbTarget = max(150, Int(Double(targetKcal ?? 2000) * 0.50 / 4))
-        let fatTarget = max(40, Int(Double(targetKcal ?? 2000) * 0.30 / 9))
-
-        return NutritionDailySummaryCard(
-            summary: dailySummary,
-            carbGrams: carbSum,
-            carbTargetGrams: carbTarget,
-            fatGrams: fatSum,
-            fatTargetGrams: fatTarget,
-            proteinGradient: proteinGradient,
-            carbGradient: carbGradient,
-            fatGradient: fatGradient,
-            showsMacroDetail: $showsMacroDetail
-        )
-    }
-
-    private func mealLogCard(_ meal: MealEntry) -> some View {
-        Button {
-            sheetMode = .edit(meal)
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                slotThumb(meal.slot)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(meal.slot.enLabel)
-                            .font(.caption2.weight(.bold))
-                            .tracking(1.0)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        statusBadge(meal.status)
-                    }
-                    Text(meal.name)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    HStack(spacing: 8) {
-                        Text("\(formatInt(meal.kcal)) kcal")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.accent)
-                        if let protein = meal.proteinGrams, protein > 0 {
-                            proteinChip(grams: protein)
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .background(glassBackground)
-            .overlay(glassStroke)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(mealRowAccessibilityLabel(meal))
-        .contextMenu {
-            if meal.status == .confirmed
-                && meal.source == .manual
-                && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal) {
-                Button {
-                    saveMealAsFavorite(meal)
-                } label: {
-                    Label("よく使う食事に保存", systemImage: "star")
-                }
-            }
-            Button("削除", role: .destructive) {
-                let day = meal.dayDate
-                modelContext.delete(meal)
-                NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
-            }
-        }
-    }
-
-    private func proteinChip(grams: Int) -> some View {
-        HStack(spacing: 2) {
-            Text("P")
-                .font(.caption2.weight(.bold))
-            Text("\(grams)g")
-                .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(proteinGradient)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(
-            Capsule().fill(Color.primary.opacity(0.05))
-        )
-    }
-
-    private func mealRowAccessibilityLabel(_ meal: MealEntry) -> String {
-        var parts = ["\(meal.slot.label) \(meal.name) \(meal.kcal) kcal"]
-        if let protein = meal.proteinGrams, protein > 0 {
-            parts.append("タンパク質 \(protein) g")
-        }
-        parts.append(meal.status.label)
-        return parts.joined(separator: " ")
-    }
-
-    private func slotThumb(_ slot: MealSlot) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.accent.opacity(0.15))
-                .frame(width: 48, height: 48)
-            Image(systemName: slot.systemImage)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(AppTheme.accent)
-        }
-    }
-
-    private func statusBadge(_ status: MealStatus) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: status.systemImage)
-                .font(.system(size: 10, weight: .bold))
-            Text(status.label)
-                .font(.caption2.weight(.semibold))
-        }
-        .foregroundStyle(status == .confirmed ? Color.green : Color.orange)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(
-            Capsule().fill((status == .confirmed ? Color.green : Color.orange).opacity(0.12))
-        )
-    }
-
-    // MARK: - AI estimate card
-
-    private func aiEstimateCard(_ meal: MealEntry) -> some View {
-        let proteinTarget = max(60, Int(Double(targetKcal ?? 2000) * 0.20 / 4))
-        let carbTarget = max(150, Int(Double(targetKcal ?? 2000) * 0.50 / 4))
-        let fatTarget = max(40, Int(Double(targetKcal ?? 2000) * 0.30 / 9))
-
-        return VStack(alignment: .leading, spacing: 14) {
-            heroFoodImage(slot: meal.slot)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(meal.slot.enLabel)
-                    .font(.caption2.weight(.bold))
-                    .tracking(1.0)
-                    .foregroundStyle(.secondary)
-                Text(meal.name)
-                    .font(.system(size: 28, weight: .bold))
-                    .lineLimit(2)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("~ \(formatInt(meal.kcal))")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("kcal")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    estimateBadge
-                }
-            }
-
-            VStack(spacing: 8) {
-                aiMacroRow(label: "PRO", value: meal.proteinGrams ?? 0,
-                           target: proteinTarget, gradient: proteinGradient)
-                aiMacroRow(label: "CARB", value: meal.carbGrams ?? 0,
-                           target: carbTarget, gradient: carbGradient)
-                aiMacroRow(label: "FAT", value: meal.fatGrams ?? 0,
-                           target: fatTarget, gradient: fatGradient)
-            }
-
-            HStack(spacing: 10) {
-                Button {
-                    sheetMode = .edit(meal)
-                } label: {
-                    Label("編集", systemImage: "square.and.pencil")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.regularMaterial)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.5), lineWidth: 0.6)
-                )
-                .accessibilityLabel("AI 推定を編集")
-
-                Button {
-                    confirmAIEstimate(meal)
-                } label: {
-                    Label("確定", systemImage: "checkmark")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(AppTheme.accentFilled)
-                        .shadow(
-                            color: Color(red: 0.27, green: 0.5, blue: 0.95).opacity(0.4),
-                            radius: 12, y: 6
-                        )
-                )
-                .accessibilityLabel("AI 推定を確定")
-            }
-            .padding(.top, 4)
-
-            Button {
-                pendingDiscard = meal
-            } label: {
-                Text("この推定を破棄")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("この AI 推定を破棄")
-        }
-        .padding(20)
-        .background(glassBackground)
-        .overlay(glassStroke)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(AppTheme.accent.opacity(0.35), lineWidth: 1.2)
-        )
-    }
-
-    private func heroFoodImage(slot: MealSlot) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(
-                    LinearGradient(colors: [
-                        Color(red: 0.95, green: 0.92, blue: 0.84),
-                        Color(red: 0.86, green: 0.82, blue: 0.74)
-                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-            Image(systemName: foodSymbol(for: slot))
-                .font(.system(size: 56, weight: .regular))
-                .foregroundStyle(
-                    LinearGradient(colors: [.white.opacity(0.9), .white.opacity(0.6)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
-        }
-        .frame(height: 160)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.5), lineWidth: 0.6)
-        )
-        .accessibilityHidden(true)
-    }
-
-    private func foodSymbol(for slot: MealSlot) -> String {
-        switch slot {
-        case .breakfast: return "fork.knife"
-        case .lunch: return "fork.knife.circle"
-        case .dinner: return "takeoutbag.and.cup.and.straw.fill"
-        case .snack: return "cup.and.saucer.fill"
-        }
-    }
-
-    private var estimateBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 10, weight: .bold))
-            Text("推定")
-                .font(.caption2.weight(.bold))
-        }
-        .foregroundStyle(AppTheme.accent)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule().fill(.regularMaterial)
-        )
-        .overlay(
-            Capsule().strokeBorder(AppTheme.accent.opacity(0.5), lineWidth: 0.6)
-        )
-    }
-
-    private func aiMacroRow(label: String, value: Int, target: Int, gradient: LinearGradient) -> some View {
-        HStack(spacing: 12) {
-            Text(label)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .frame(width: 38, alignment: .leading)
-            ProgressBar(progress: Double(value) / Double(max(1, target)), gradient: gradient)
-                .frame(height: 6)
-            Text("\(value)g")
-                .font(.caption.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-                .frame(width: 40, alignment: .trailing)
-        }
-    }
-
-    // MARK: - Glass surfaces
-
-    private var glassBackground: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.regularMaterial)
-            .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 8)
-    }
-
-    private var glassStroke: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.6
-            )
-    }
-
-    // MARK: - Confirm flow
 
     /// Wraps the meal as `UserConfirmed<MealEstimate>` and calls
-    /// `applyConfirmedMealEstimate`. This is the only path through
-    /// which an AI-sourced kcal value mutates DayLog, matching the
-    /// privacy-and-safety contract documented in
-    /// `Docs/ai-privacy-and-safety.md`.
+    /// `applyConfirmedMealEstimate`. This is the only path through which an
+    /// AI-sourced kcal value mutates DayLog, matching the privacy-and-safety
+    /// contract documented in `Docs/ai-privacy-and-safety.md`.
     private func confirmAIEstimate(_ meal: MealEntry) {
         let estimate = MealEstimate(
             estimatedKcal: meal.kcal,
             confidence: 0.6,
             breakdown: [
-                MealEstimate.LineItem(name: "タンパク質", kcal: (meal.proteinGrams ?? 0) * 4),
-                MealEstimate.LineItem(name: "炭水化物", kcal: (meal.carbGrams ?? 0) * 4),
-                MealEstimate.LineItem(name: "脂質", kcal: (meal.fatGrams ?? 0) * 9)
+                MealEstimate.LineItem(
+                    name: "タンパク質",
+                    kcal: (meal.proteinGrams ?? 0) * ProteinTotals.kcalPerGram
+                ),
+                MealEstimate.LineItem(
+                    name: "炭水化物",
+                    kcal: (meal.carbGrams ?? 0) * MacroTargets.carbKcalPerGram
+                ),
+                MealEstimate.LineItem(
+                    name: "脂質",
+                    kcal: (meal.fatGrams ?? 0) * MacroTargets.fatKcalPerGram
+                )
             ]
         )
         let confirmed = UserConfirmed(estimate)
         let dayLog = DayLogStore.fetchOrCreate(date: meal.dayDate, modelContext: modelContext)
         // Promote the meal first so the ledger sum picks it up.
         meal.statusRaw = MealStatus.confirmed.rawValue
-        // Sync via the canonical ledger so DayLog matches the sum of
-        // confirmed meals (handles edits / deletes consistently).
+        // Sync via the canonical ledger so DayLog matches the sum of confirmed
+        // meals (handles edits / deletes consistently).
         NutritionLedger.syncDayLogIntake(for: meal.dayDate, modelContext: modelContext)
-        // Touch DayLog through the privacy boundary so the helper
-        // remains exercised from a single call site. (No-op in practice
-        // because syncDayLogIntake already wrote the correct sum.)
+        // Touch DayLog through the privacy boundary so the helper remains
+        // exercised from a single call site. (No-op in practice because
+        // syncDayLogIntake already wrote the correct sum.)
         _ = confirmed
         _ = dayLog
         if settings.hapticsEnabled {
@@ -986,13 +563,6 @@ struct NutritionView: View {
         }
     }
 
-    // MARK: - Helpers
-
-    private func formatInt(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
 }
 
 // MARK: - ProgressBar
