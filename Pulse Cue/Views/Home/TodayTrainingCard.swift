@@ -44,6 +44,34 @@ struct HomeTrainingSummary: Equatable {
     let hasRoutines: Bool
     /// Name of the most recently completed workout, if any.
     let lastWorkoutName: String?
+
+    /// Today's training, as both screens build it.
+    ///
+    /// Home and Training each assembled this from the same six expressions,
+    /// which meant either was free to answer "is there anything to start"
+    /// differently from the other — and from the picker the button opens. The
+    /// two screens must agree: the card, its label and its action are the
+    /// same on both, so the inputs have to be too.
+    ///
+    /// Nothing is fetched here. Callers pass what their queries already hold.
+    static func make(
+        runner: RunnerViewModel,
+        routines: [Routine],
+        lastWorkoutName: String?
+    ) -> HomeTrainingSummary {
+        HomeTrainingSummary(
+            isRunning: runner.isRunning,
+            currentStepTitle: runner.currentStep?.title,
+            currentSet: runner.currentStep.map { _ in runner.currentSetIndex + 1 },
+            totalSets: runner.currentStep?.sets,
+            // `RoutineLibrary` and not `routines.isEmpty`: Quick Plan writes
+            // `.workoutGenerated` routines that never appear in the library,
+            // and counting those produced a Start button that opened an empty
+            // picker.
+            hasRoutines: RoutineLibrary.hasStartable(routines),
+            lastWorkoutName: lastWorkoutName
+        )
+    }
 }
 
 struct TodayTrainingCard: View {
