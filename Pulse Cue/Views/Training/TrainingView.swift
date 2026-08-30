@@ -34,15 +34,19 @@ import SwiftData
 import SwiftUI
 
 struct TrainingView: View {
-    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var runnerViewModel: RunnerViewModel
-    @EnvironmentObject private var settings: SettingsStore
 
     /// Re-present the Runner for an already-active workout. Owned by
     /// `ContentView`, exactly as Home's is, so starting from either tab is
     /// the same lifecycle and neither creates a second Session.
     let onResumeRunner: () -> Void
 
+    /// The tab's routines, and the only query over them on this screen.
+    ///
+    /// Three things need them — the Today card's "is there anything to
+    /// start", the progress summary's routine names, and the library below —
+    /// and each of those used to be free to fetch its own. Same descriptor as
+    /// the library's was, so ordering is unchanged.
     @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)])
     private var routines: [Routine]
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
@@ -104,16 +108,11 @@ struct TrainingView: View {
 
     // MARK: - Today
 
-    /// The same summary Home builds, from the same startable-routine rule.
+    /// The same summary Home builds, through the same constructor.
     private var trainingSummary: HomeTrainingSummary {
-        HomeTrainingSummary(
-            isRunning: runnerViewModel.isRunning,
-            currentStepTitle: runnerViewModel.currentStep?.title,
-            currentSet: runnerViewModel.currentStep.map { _ in
-                runnerViewModel.currentSetIndex + 1
-            },
-            totalSets: runnerViewModel.currentStep?.sets,
-            hasRoutines: RoutineLibrary.hasStartable(routines),
+        HomeTrainingSummary.make(
+            runner: runnerViewModel,
+            routines: routines,
             lastWorkoutName: progressSummary.lastWorkout?.routineName
         )
     }
@@ -151,7 +150,7 @@ struct TrainingView: View {
     private var planSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             PulseSectionHeader("プラン", icon: "list.bullet.rectangle")
-            RoutineLibrarySection()
+            RoutineLibrarySection(routines: routines)
         }
     }
 

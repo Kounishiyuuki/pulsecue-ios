@@ -22,7 +22,7 @@ import Foundation
 enum TrainingSurface {
 
     /// A destination reachable from the Training tab.
-    enum Destination: Equatable, CaseIterable {
+    enum Destination: Hashable, CaseIterable {
         /// Today's workout and its one action.
         case today
         /// The routine library.
@@ -69,4 +69,15 @@ enum TrainingSurface {
     static let relocatedFromSettings: [Destination] = [
         .gym, .exerciseLibrary, .machineCatalog, .weeklyPlan, .aiPlanning,
     ]
+
+    /// The destinations 「その他の機能」 lists, in the order it lists them.
+    ///
+    /// `TrainingMoreSection` renders this — it does not merely agree with it.
+    /// Until it did, the ranking above described a screen it had no hold over:
+    /// the machine catalogue could lose its only entry point with every test
+    /// in `TrainingHierarchyTests` still green, which is exactly what happened
+    /// in #178. Deleting a case now fails to compile at the row that draws it.
+    static var moreDestinations: [Destination] {
+        Destination.allCases.filter { level(of: $0) == .more }
+    }
 }

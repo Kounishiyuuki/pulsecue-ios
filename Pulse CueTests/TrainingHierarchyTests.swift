@@ -158,4 +158,80 @@ struct TrainingHierarchyTests {
             TodayTrainingCard.showsPlanDisclosure(for: running, expanded: false) == false
         )
     }
+
+    // MARK: - The summary both screens build
+    //
+    //  Home and Training assembled `HomeTrainingSummary` from the same six
+    //  expressions written out twice, so either was free to answer "is there
+    //  anything to start" differently from the other. Nothing caught that:
+    //  the CTA tests in `HomeHierarchyTests` take a summary as input, and the
+    //  UI tests only see that *some* action is offered. These go through
+    //  `HomeTrainingSummary.make`, which is now the one place both screens
+    //  build it.
+
+    @MainActor
+    private func summary(
+        routines: [Routine],
+        lastWorkoutName: String? = nil
+    ) -> HomeTrainingSummary {
+        HomeTrainingSummary.make(
+            runner: RunnerViewModel(settings: SettingsStore()),
+            routines: routines,
+            lastWorkoutName: lastWorkoutName
+        )
+    }
+
+    @MainActor
+    @Test func aSavedRoutineMeansThereIsSomethingToStart() {
+        let saved = Routine(name: "Push", origin: .userSaved)
+        #expect(summary(routines: [saved]).hasRoutines)
+    }
+
+    @MainActor
+    @Test func generatedRoutinesAloneDoNotCountAsSomethingToStart() {
+        // The bug this rule exists for: Quick Plan writes `.workoutGenerated`
+        // routines that never appear in the library, and counting them gave a
+        // Start button that opened an empty picker. `routines.isEmpty` is the
+        // wrong question; `RoutineLibrary` asks the one the picker answers.
+        let generated = Routine(name: "Quick Plan", origin: .workoutGenerated)
+        #expect(summary(routines: [generated]).hasRoutines == false)
+    }
+
+    @MainActor
+    @Test func noRoutinesAtAllMeansThereIsNothingToStart() {
+        #expect(summary(routines: []).hasRoutines == false)
+    }
+
+    @MainActor
+    @Test func aMixOfSavedAndGeneratedStillCounts() {
+        let routines = [
+            Routine(name: "Quick Plan", origin: .workoutGenerated),
+            Routine(name: "Pull", origin: .userSaved)
+        ]
+        #expect(summary(routines: routines).hasRoutines)
+    }
+
+    @MainActor
+    @Test func theSummaryAgreesWithTheLibraryTheButtonOpens() {
+        // The invariant behind all of the above: whatever the card says about
+        // whether a workout can be started must match what the picker will
+        // actually list.
+        let routines = [
+            Routine(name: "Quick Plan", origin: .workoutGenerated),
+            Routine(name: "Legs", origin: .userSaved)
+        ]
+        #expect(
+            summary(routines: routines).hasRoutines
+                == !RoutineLibrary.startable(from: routines).isEmpty
+        )
+    }
+
+    @MainActor
+    @Test func anIdleRunnerReportsNoWorkoutInProgress() {
+        // Continue is offered only while something is running; a fresh runner
+        // must not produce it.
+        #expect(summary(routines: []).isRunning == false)
+        #expect(summary(routines: []).currentStepTitle == nil)
+        #expect(summary(routines: []).currentSet == nil)
+    }
 }

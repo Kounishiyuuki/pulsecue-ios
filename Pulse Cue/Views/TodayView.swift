@@ -203,17 +203,11 @@ struct TodayView: View {
 
     // MARK: - Home summaries
 
-    /// Today's training, as Home needs it. Derived only; nothing is computed
-    /// here that the app did not already know.
+    /// Today's training, through the constructor Training uses too.
     private var trainingSummary: HomeTrainingSummary {
-        HomeTrainingSummary(
-            isRunning: runnerViewModel.isRunning,
-            currentStepTitle: runnerViewModel.currentStep?.title,
-            currentSet: runnerViewModel.currentStep.map { _ in
-                runnerViewModel.currentSetIndex + 1
-            },
-            totalSets: runnerViewModel.currentStep?.sets,
-            hasRoutines: RoutineLibrary.hasStartable(routines),
+        HomeTrainingSummary.make(
+            runner: runnerViewModel,
+            routines: routines,
             lastWorkoutName: progressSummary.lastWorkout?.routineName
         )
     }

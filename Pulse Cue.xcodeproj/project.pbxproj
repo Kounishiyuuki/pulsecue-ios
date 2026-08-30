@@ -136,6 +136,7 @@
 		4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */; };
 		AAB10C00000000000000C00B /* TrainingMoreRouteUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000C00A /* TrainingMoreRouteUITests.swift */; };
 		AAB10C0000000000000E0020D /* NutritionRouteUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000E0020C /* NutritionRouteUITests.swift */; };
+		AAB10C0000000000000F0010D /* TrainingRouteUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C0000000000000F0010C /* TrainingRouteUITests.swift */; };
 		AAB10C00000000000000D00D /* MeRouteUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C00000000000000D00C /* MeRouteUITests.swift */; };
 		AAB10C00000000000000400A /* HomePlanDisclosureSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB10C000000000000004009 /* HomePlanDisclosureSupport.swift */; };
 		4E01D0F75E9142AA83100037 /* HomeProgressUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E01D0F85E9142AA83100038 /* HomeProgressUITests.swift */; };
@@ -413,6 +414,7 @@
 		4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPlanFlowUITests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000C00A /* TrainingMoreRouteUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingMoreRouteUITests.swift; sourceTree = "<group>"; };
 		AAB10C0000000000000E0020C /* NutritionRouteUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionRouteUITests.swift; sourceTree = "<group>"; };
+		AAB10C0000000000000F0010C /* TrainingRouteUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingRouteUITests.swift; sourceTree = "<group>"; };
 		AAB10C00000000000000D00C /* MeRouteUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeRouteUITests.swift; sourceTree = "<group>"; };
 		AAB10C000000000000004009 /* HomePlanDisclosureSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomePlanDisclosureSupport.swift; sourceTree = "<group>"; };
 		4E01D0F85E9142AA83100038 /* HomeProgressUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeProgressUITests.swift; sourceTree = "<group>"; };
@@ -1125,6 +1127,7 @@
 				4B71A0CA5E9142AA8310000A /* QuickPlanFlowUITests.swift */,
 				AAB10C00000000000000C00A /* TrainingMoreRouteUITests.swift */,
 				AAB10C0000000000000E0020C /* NutritionRouteUITests.swift */,
+				AAB10C0000000000000F0010C /* TrainingRouteUITests.swift */,
 				AAB10C00000000000000D00C /* MeRouteUITests.swift */,
 				AAB10C000000000000004009 /* HomePlanDisclosureSupport.swift */,
 				4E01D0F85E9142AA83100038 /* HomeProgressUITests.swift */,
@@ -1636,6 +1639,7 @@
 				4B71A0C95E9142AA83100009 /* QuickPlanFlowUITests.swift in Sources */,
 				AAB10C00000000000000C00B /* TrainingMoreRouteUITests.swift in Sources */,
 				AAB10C0000000000000E0020D /* NutritionRouteUITests.swift in Sources */,
+				AAB10C0000000000000F0010D /* TrainingRouteUITests.swift in Sources */,
 				AAB10C00000000000000D00D /* MeRouteUITests.swift in Sources */,
 				AAB10C00000000000000400A /* HomePlanDisclosureSupport.swift in Sources */,
 				4E01D0F75E9142AA83100037 /* HomeProgressUITests.swift in Sources */,

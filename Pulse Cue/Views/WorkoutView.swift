@@ -10,16 +10,26 @@
 //  tab and shows this beneath today's action.
 //
 //  Nothing about the routines themselves changed: same cards, same search,
-//  same start / edit / duplicate / delete, same pin ordering. The type was
-//  split into a section and a thin wrapper so it could be embedded, and for
-//  no other reason.
+//  same start / edit / duplicate / delete, same pin ordering.
+//
+//  The section is handed its routines rather than querying for them. Training
+//  needs the same rows to answer whether there is anything to start, and two
+//  `@Query`s over one entity is two answers waiting to differ — the whole
+//  point of `RoutineLibrary` being a single rule. Steps stay here: nothing
+//  above this section reads them.
 //
 
 import SwiftUI
 import SwiftData
 
 /// The standalone routine screen, kept for the visual QA harness.
+///
+/// Owns the query the embedded case gets from `TrainingView`. Same descriptor,
+/// deliberately: the library is the same library wherever it is shown.
 struct WorkoutView: View {
+    @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)])
+    private var routines: [Routine]
+
     var body: some View {
         ZStack {
             LinearGradient(
@@ -30,7 +40,7 @@ struct WorkoutView: View {
             .ignoresSafeArea()
 
             ScrollView {
-                RoutineLibrarySection()
+                RoutineLibrarySection(routines: routines)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 96)
             }
@@ -42,12 +52,16 @@ struct WorkoutView: View {
 }
 
 struct RoutineLibrarySection: View {
+    /// Every routine, newest first — the owner's query, passed in. Unfiltered
+    /// on purpose: `savedRoutines` applies `RoutineLibrary.startable`, and a
+    /// caller that pre-filtered would be deciding that rule for itself.
+    let routines: [Routine]
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject var runnerViewModel: RunnerViewModel
 
-    @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)]) private var routines: [Routine]
     @Query private var allSteps: [Step]
 
     @State private var searchText = ""
@@ -322,9 +336,25 @@ struct RoutineLibrarySection: View {
         .accessibilityLabel("新しいルーティンを作成")
     }
 
-    /// The routine library: only routines the user explicitly saved.
-    /// Workout-generated routines (Quick Plan "この内容で開始") stay out of the
-    /// list while remaining valid Runner / History targets.
+    // MARK: - Ordering
+    //
+    //  The contract, in the order it is applied:
+    //
+    //    1. `RoutineLibrary.startable` — only routines the user explicitly
+    //       saved. Workout-generated routines (Quick Plan 「この内容で開始」)
+    //       stay out of the list while remaining valid Runner / History
+    //       targets.
+    //    2. the search term, if any — a pure filter over what is already
+    //       fetched, so typing never costs a query.
+    //    3. pinned first, then the rest, each in `RoutineOrderStore` order,
+    //       which falls back to the query's `updatedAt` descending.
+    //
+    //  Reordering deliberately steps outside that chain: `orderedGroup` works
+    //  from `savedRoutines`, not `filteredRoutines`. Moving a routine while a
+    //  search is active must reposition it among *all* its siblings — against
+    //  the filtered list, "move down" would jump it past the rows the search
+    //  is hiding, and the order would come out wrong once the search cleared.
+
     private var savedRoutines: [Routine] { RoutineLibrary.startable(from: routines) }
 
     private var filteredRoutines: [Routine] {

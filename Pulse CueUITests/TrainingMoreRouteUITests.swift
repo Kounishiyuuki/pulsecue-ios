@@ -22,6 +22,18 @@ final class TrainingMoreRouteUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Launches past onboarding deterministically.
+    ///
+    /// These two used a bare `launch()`, so they depended on the simulator
+    /// still holding a completed-onboarding flag from an earlier run and
+    /// failed on a clean device for a reason unrelated to navigation.
+    private func launchedApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments.append("-pulsecue-ui-test-quick-plan-flow")
+        app.launch()
+        return app
+    }
+
     private func openTraining(_ app: XCUIApplication) {
         let tab = app.tabBars.buttons["トレーニング"]
         XCTAssertTrue(tab.waitForExistence(timeout: 20), "training tab not found")
@@ -39,8 +51,7 @@ final class TrainingMoreRouteUITests: XCTestCase {
     }
 
     func testMachineCatalogIsReachableFromTrainingMore() {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchedApp()
         openTraining(app)
 
         tapMoreRow(app, "マシンカタログ")
@@ -55,8 +66,7 @@ final class TrainingMoreRouteUITests: XCTestCase {
     func testExerciseLibraryIsAReachableAndSeparateDestination() {
         // The two were one Settings card. Asserting both open proves they are
         // still two routes rather than one that happens to be listed twice.
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchedApp()
         openTraining(app)
 
         tapMoreRow(app, "種目ライブラリ")
