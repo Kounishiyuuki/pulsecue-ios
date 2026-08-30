@@ -581,4 +581,77 @@ struct RunnerStateMachineTests {
         #expect(recovered.sessionId == nil)
         #expect(!recovered.isRunning)
     }
+
+    // MARK: - Cancellation
+    //
+    //  `endSessionEarly` had no coverage at all: stubbing it out left every
+    //  Runner test green. It is the one path that ends a workout the user did
+    //  not finish, and what it must *not* do is as important as what it does —
+    //  a cancelled session that stayed `.inProgress` would be restored on the
+    //  next launch, putting the user back into a workout they walked away from.
+
+    @Test
+    func cancellingEndsTheRunAndStopsTheWorkout() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.isRunning)
+
+        fx.viewModel.endSessionEarly()
+
+        #expect(fx.viewModel.isRunning == false)
+        #expect(fx.viewModel.restDeadline == nil)
+    }
+
+    @Test
+    func cancellingRecordsTheSessionAsNotCompleted() async throws {
+        // It is saved as an interruption, not deleted: the alert says
+        // 「このセッションは中断として保存されます」 and History is where that
+        // promise is kept.
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+
+        let sessions = try fx.context.fetch(FetchDescriptor<Session>())
+        #expect(sessions.count == 1)
+        #expect(sessions.first?.status != .inProgress)
+        #expect(sessions.first?.status != .completed)
+    }
+
+    @Test
+    func aCancelledSessionIsNotRestoredOnRelaunch() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.endSessionEarly()
+
+        // A fresh view model over the same store is what a relaunch looks like.
+        let fresh = RunnerViewModel(settings: SettingsStore())
+        fresh.configure(modelContext: fx.context)
+
+        #expect(fresh.isRunning == false)
+    }
+
+    @Test
+    func cancellingDoesNotShowTheCompletionSummary() async throws {
+        // The completion screen celebrates a finished workout. Showing it for
+        // one the user abandoned would be both wrong and slightly insulting.
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+
+        #expect(fx.viewModel.completion == nil)
+        #expect(fx.viewModel.shouldPresentRunner == false)
+    }
+
+    @Test
+    func cancellingTwiceCreatesNoSecondSession() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+        fx.viewModel.endSessionEarly()
+
+        #expect(try fx.context.fetch(FetchDescriptor<Session>()).count == 1)
+    }
 }

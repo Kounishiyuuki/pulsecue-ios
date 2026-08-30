@@ -41,6 +41,38 @@ struct HomeProgressSummary: Equatable {
 
     /// Only `completed` sessions count as workouts. "This week" is the calendar
     /// week (`.weekOfYear`) containing `now`.
+    /// A value that changes whenever this summary would.
+    ///
+    /// The screens observed `sessions.count` and `stepResults.count`, and the
+    /// event that matters most changes neither: finishing a workout flips an
+    /// existing `Session` to `.completed` and writes its duration, and marking
+    /// a set done flips an existing `StepResult`. Both leave the arrays the
+    /// same length, so Home and Training went on showing the previous workout
+    /// as the last one and last week's totals as this week's.
+    ///
+    /// Hashed rather than rendered to a string: this is read on every body
+    /// evaluation, and the fields below are exactly the ones `make` reads —
+    /// no more, so an unrelated edit does not force a recompute.
+    static func changeSignature(
+        sessions: [Session],
+        results: [StepResult]
+    ) -> Int {
+        var hasher = Hasher()
+        for session in sessions {
+            hasher.combine(session.id)
+            hasher.combine(session.status)
+            hasher.combine(session.startedAt)
+            hasher.combine(session.totalSeconds)
+            hasher.combine(session.routineId)
+        }
+        for result in results {
+            hasher.combine(result.id)
+            hasher.combine(result.done)
+            hasher.combine(result.sessionId)
+        }
+        return hasher.finalize()
+    }
+
     static func make(
         sessions: [Session],
         results: [StepResult],

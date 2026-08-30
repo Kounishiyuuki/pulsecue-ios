@@ -197,8 +197,7 @@ struct TodayView: View {
             recomputeProgressSummary()
         }
         .onChange(of: latestWeightSignature) { _, _ in refreshLatestWeight() }
-        .onChange(of: sessions.count) { _, _ in recomputeProgressSummary() }
-        .onChange(of: stepResults.count) { _, _ in recomputeProgressSummary() }
+        .onChange(of: progressSignature) { _, _ in recomputeProgressSummary() }
     }
 
     // MARK: - Home summaries
@@ -271,6 +270,14 @@ struct TodayView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("週間サマリーを見る")
+    }
+
+    /// Refresh signal for the cached summary.
+    ///
+    /// Counting rows missed the completion of a workout, which mutates an
+    /// existing `Session` rather than adding one — see `changeSignature`.
+    private var progressSignature: Int {
+        HomeProgressSummary.changeSignature(sessions: sessions, results: stepResults)
     }
 
     private func recomputeProgressSummary() {
@@ -355,34 +362,5 @@ struct TodayView: View {
     private func openField(_ field: DayLogField) {
         ensureTodayLogExists()
         activeField = field
-    }
-}
-
-/// Home "今日の状態" copy, derived purely from how many of today's four
-/// DayLog fields have been recorded (0...4).
-///
-/// This intentionally describes **recording completeness**, not health,
-/// readiness, or physiological quality — the app has no such signal. Kept as
-/// a standalone, pure mapping so it is unit-testable and so a future
-/// signature readiness visualisation can replace the presentation without
-/// reworking this text contract.
-enum TodayConditionCopy {
-    static func headline(filledCount: Int) -> String {
-        switch filledCount {
-        case ...0: return "今日をはじめよう"
-        case 1, 2: return "今日を記録中"
-        case 3: return "記録がそろってきました"
-        default: return "今日の記録がそろいました"
-        }
-    }
-
-    static func subhead(filledCount: Int) -> String {
-        switch filledCount {
-        case ...0: return "コンディションを記録して1日を始めましょう"
-        case 1: return "記録を続けましょう"
-        case 2: return "半分ほど記録できました"
-        case 3: return "あと1項目で今日の記録が完了します"
-        default: return "本日のコンディション記録は完了です"
-        }
     }
 }

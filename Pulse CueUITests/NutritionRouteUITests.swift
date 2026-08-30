@@ -30,27 +30,11 @@ final class NutritionRouteUITests: XCTestCase {
 
     // MARK: - Launch
 
-    /// Launches past onboarding deterministically. The quick-plan fixture is
-    /// an existing DEBUG-only argument that skips onboarding and uses an
-    /// in-memory store; what it seeds is irrelevant here, its determinism is
-    /// the point.
-    private func launchedApp() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments.append("-pulsecue-ui-test-quick-plan-flow")
-        app.launch()
-        return app
-    }
 
-    private func nutritionTab() -> XCUIApplication {
-        let app = launchedApp()
-        let tab = app.tabBars.buttons["栄養"]
-        XCTAssertTrue(tab.waitForExistence(timeout: 20), "Nutrition tab not found")
-        tab.tap()
-        XCTAssertTrue(
-            app.navigationBars["栄養"].waitForExistence(timeout: 15),
-            "Nutrition did not open"
-        )
-        return app
+    private func nutritionTab(
+        file: StaticString = #filePath, line: UInt = #line
+    ) -> XCUIApplication {
+        openTab("栄養", in: launchedApp(), file: file, line: line)
     }
 
     // MARK: - The sections reach the screen

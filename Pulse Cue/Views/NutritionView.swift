@@ -584,34 +584,3 @@ struct ProgressBar: View {
     }
 }
 
-// MARK: - Entry action chip
-
-/// Compact chip used in the meal-log "入力サポート" row. Pairs an
-/// icon with a short label inside a capsule so the OCR / barcode /
-/// photo entry points are visually distinct — previously each was an
-/// icon-only circle that read as the same generic viewfinder shape.
-/// Styling matches the existing "AI で記録" pill for visual
-/// consistency; the accessibility label is preserved from the
-/// previous inline buttons so VoiceOver output is unchanged.
-private struct NutritionEntryActionChip: View {
-    let systemImage: String
-    let label: String
-    let accessibilityLabel: String
-    let tint: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(label, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule().fill(tint.opacity(0.15))
-                )
-                .foregroundStyle(tint)
-        }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-

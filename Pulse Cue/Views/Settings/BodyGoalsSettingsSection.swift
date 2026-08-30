@@ -152,7 +152,7 @@ struct BodyGoalsSettingsSection: View {
     private var bmrCard: some View {
         SettingsChrome.summaryCard(
             label: "基礎代謝 (BMR)",
-            value: metrics.bmr.map { SettingsChrome.formatInt($0) } ?? "—",
+            value: metrics.bmr.map { NumberFormat.int($0) } ?? "—",
             unit: "kcal",
             gradient: SettingsChrome.accentGradient(colorScheme),
             identifier: "bmr-summary"
@@ -162,7 +162,7 @@ struct BodyGoalsSettingsSection: View {
     private var tdeeCard: some View {
         SettingsChrome.summaryCard(
             label: "1日の総消費 (TDEE)",
-            value: metrics.tdee.map { SettingsChrome.formatInt($0) } ?? "—",
+            value: metrics.tdee.map { NumberFormat.int($0) } ?? "—",
             unit: "kcal",
             gradient: SettingsChrome.tealGradient(colorScheme)
         )
@@ -178,7 +178,7 @@ struct BodyGoalsSettingsSection: View {
                 SettingsChrome.inlineDoubleCell(
                     label: "目標体重",
                     helper: currentWeightKg
-                        .map { "現在の体重: \(SettingsChrome.formatWeight($0)) kg" }
+                        .map { "現在の体重: \(NumberFormat.weight($0)) kg" }
                         ?? "現在の体重: 未入力",
                     value: profile.wrappedValue.goalWeightKg,
                     range: 30...150,
@@ -200,7 +200,7 @@ struct BodyGoalsSettingsSection: View {
                 SettingsChrome.derivedRow(
                     label: "目標摂取カロリー",
                     value: metrics.targetIntakeKcal
-                        .map { "\(SettingsChrome.formatInt($0)) kcal/日" } ?? "—"
+                        .map { "\(NumberFormat.int($0)) kcal/日" } ?? "—"
                 )
                 SettingsChrome.derivedRow(
                     label: "今日の目標差分",
@@ -245,12 +245,12 @@ struct BodyGoalsSettingsSection: View {
     private var todayGoalGapText: String {
         guard let target = metrics.targetIntakeKcal else { return "—" }
         if summary.todayIntake == nil {
-            return "未入力 (目標 \(SettingsChrome.formatInt(target)) kcal)"
+            return "未入力 (目標 \(NumberFormat.int(target)) kcal)"
         }
         let actual = summary.todayIntake ?? 0
         let gap = actual - target
         let sign = gap >= 0 ? "+" : ""
-        return "\(sign)\(SettingsChrome.formatInt(gap)) kcal"
+        return "\(sign)\(NumberFormat.int(gap)) kcal"
     }
 
     private var todayGoalGapStyle: Color {

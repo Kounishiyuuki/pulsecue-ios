@@ -101,8 +101,7 @@ struct TrainingView: View {
             RoutinePickerSheet(onSelect: { pendingRoutine = $0 })
         }
         .task { recomputeProgressSummary() }
-        .onChange(of: sessions.count) { _, _ in recomputeProgressSummary() }
-        .onChange(of: stepResults.count) { _, _ in recomputeProgressSummary() }
+        .onChange(of: progressSignature) { _, _ in recomputeProgressSummary() }
         .preferredColorScheme(.dark)
     }
 
@@ -131,6 +130,14 @@ struct TrainingView: View {
         guard let routine = pendingRoutine else { return }
         pendingRoutine = nil
         runnerViewModel.start(routine: routine)
+    }
+
+    /// Refresh signal for the cached summary.
+    ///
+    /// Counting rows missed the completion of a workout, which mutates an
+    /// existing `Session` rather than adding one — see `changeSignature`.
+    private var progressSignature: Int {
+        HomeProgressSummary.changeSignature(sessions: sessions, results: stepResults)
     }
 
     private func recomputeProgressSummary() {

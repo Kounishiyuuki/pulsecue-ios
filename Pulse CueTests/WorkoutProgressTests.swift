@@ -169,4 +169,84 @@ struct WorkoutProgressTests {
         #expect(insights[0].previousReps == nil)
         #expect(insights[0].trend == .unknown)
     }
+
+    // MARK: - The signal Home and Training observe
+    //
+    //  Both screens observed `sessions.count` and `stepResults.count`. The
+    //  event that matters most changes neither: finishing a workout flips an
+    //  existing Session to `.completed` and writes its duration.
+
+    @Test func completingAWorkoutChangesTheSignalWithoutChangingTheCount() {
+        let id = UUID()
+        let running = [session(id, daysAgo: 0, status: .inProgress, seconds: 0)]
+        let finished = [session(id, daysAgo: 0, status: .completed, seconds: 1_800)]
+
+        #expect(running.count == finished.count)
+        #expect(
+            HomeProgressSummary.changeSignature(sessions: running, results: [])
+                != HomeProgressSummary.changeSignature(sessions: finished, results: [])
+        )
+    }
+
+    @Test func markingASetDoneChangesTheSignalWithoutChangingTheCount() {
+        let sessionId = UUID()
+        let stepId = UUID()
+        let pending = [result(sessionId, stepId, set: 0, reps: 10, done: false)]
+        let done = [result(sessionId, stepId, set: 0, reps: 10, done: true)]
+
+        #expect(pending.count == done.count)
+        #expect(
+            HomeProgressSummary.changeSignature(sessions: [], results: pending)
+                != HomeProgressSummary.changeSignature(sessions: [], results: done)
+        )
+    }
+
+    @Test func aNewSessionChangesTheSignal() {
+        let one = [session(daysAgo: 1)]
+        let two = one + [session(daysAgo: 0)]
+
+        #expect(
+            HomeProgressSummary.changeSignature(sessions: one, results: [])
+                != HomeProgressSummary.changeSignature(sessions: two, results: [])
+        )
+    }
+
+    @Test func anUnchangedStoreLeavesTheSignalAlone() {
+        // Otherwise every render would recompute the summary.
+        let sessions = [session(daysAgo: 1), session(daysAgo: 3)]
+        let results = [result(UUID(), UUID(), set: 0, reps: 8)]
+
+        #expect(
+            HomeProgressSummary.changeSignature(sessions: sessions, results: results)
+                == HomeProgressSummary.changeSignature(sessions: sessions, results: results)
+        )
+    }
+
+    @Test func theSignalTracksEveryFieldTheSummaryReads() {
+        // The invariant: if the signature is equal, recomputing would produce
+        // the same summary. A field used by `make` but missing from the
+        // signature would break that, and the screen would go stale.
+        let id = UUID()
+        let routineId = UUID()
+        let before = [session(id, routineId: routineId, daysAgo: 0, seconds: 1_800)]
+        let routines = [Routine(id: routineId, name: "Push")]
+
+        for after in [
+            [session(id, routineId: routineId, daysAgo: 0, seconds: 2_400)],   // duration
+            [session(id, routineId: routineId, daysAgo: 3, seconds: 1_800)],   // startedAt
+            [session(id, routineId: UUID(), daysAgo: 0, seconds: 1_800)],      // routine
+            [session(id, routineId: routineId, daysAgo: 0, status: .inProgress, seconds: 1_800)]
+        ] {
+            let summaryChanged =
+                HomeProgressSummary.make(sessions: before, results: [], routines: routines,
+                                         now: now, calendar: calendar)
+                != HomeProgressSummary.make(sessions: after, results: [], routines: routines,
+                                            now: now, calendar: calendar)
+            let signalChanged =
+                HomeProgressSummary.changeSignature(sessions: before, results: [])
+                != HomeProgressSummary.changeSignature(sessions: after, results: [])
+
+            #expect(!summaryChanged || signalChanged)
+        }
+    }
 }

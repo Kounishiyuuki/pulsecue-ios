@@ -151,7 +151,7 @@ enum SettingsChrome {
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text(formatWeight(value))
+                    Text(NumberFormat.weight(value))
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .monospacedDigit()
                     Text(unit)
@@ -165,7 +165,7 @@ enum SettingsChrome {
             Spacer()
             Stepper("", value: binding, in: range, step: step)
                 .labelsHidden()
-                .accessibilityLabel("\(label) \(formatWeight(value)) \(unit)")
+                .accessibilityLabel("\(label) \(NumberFormat.weight(value)) \(unit)")
         }
         .padding(12)
         .background(
@@ -261,20 +261,5 @@ enum SettingsChrome {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label) \(value) \(unit)")
         .accessibilityIdentifier(identifier ?? label)
-    }
-
-    // MARK: - Formatting
-
-    static func formatInt(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
-
-    static func formatWeight(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 1
-        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
     }
 }

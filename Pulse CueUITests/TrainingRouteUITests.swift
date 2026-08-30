@@ -34,23 +34,11 @@ final class TrainingRouteUITests: XCTestCase {
 
     // MARK: - Launch
 
-    private func launchedApp() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments.append("-pulsecue-ui-test-quick-plan-flow")
-        app.launch()
-        return app
-    }
 
-    private func trainingTab() -> XCUIApplication {
-        let app = launchedApp()
-        let tab = app.tabBars.buttons["トレーニング"]
-        XCTAssertTrue(tab.waitForExistence(timeout: 20), "training tab not found")
-        tab.tap()
-        XCTAssertTrue(
-            app.navigationBars["トレーニング"].waitForExistence(timeout: 15),
-            "Training did not open"
-        )
-        return app
+    private func trainingTab(
+        file: StaticString = #filePath, line: UInt = #line
+    ) -> XCUIApplication {
+        openTab("トレーニング", in: launchedApp(), file: file, line: line)
     }
 
     private func tapMoreRow(_ app: XCUIApplication, _ label: String) {
@@ -59,9 +47,7 @@ final class TrainingRouteUITests: XCTestCase {
             row.waitForExistence(timeout: 15),
             "\(label) not found in Training > その他の機能"
         )
-        for _ in 0..<6 where !row.isHittable {
-            app.swipeUp()
-        }
+        scrollUntilHittable(row, in: app, named: label)
         row.tap()
     }
 

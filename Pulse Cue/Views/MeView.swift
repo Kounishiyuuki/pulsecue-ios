@@ -106,7 +106,7 @@ struct MeView: View {
                 Text("体重")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Text(latestWeightKg.map { "\(formatWeight($0)) kg" } ?? "未記録")
+                Text(latestWeightKg.map { "\(NumberFormat.weight($0)) kg" } ?? "未記録")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.primary)
             }
@@ -150,14 +150,14 @@ struct MeView: View {
         let delta = latestWeightKg - goal
         if abs(delta) < 0.05 { return "達成" }
         return delta > 0
-            ? "-\(formatWeight(delta)) kg"
-            : "+\(formatWeight(abs(delta))) kg"
+            ? "-\(NumberFormat.weight(delta)) kg"
+            : "+\(NumberFormat.weight(abs(delta))) kg"
     }
 
     private var statusAccessibilityLabel: String {
         var parts: [String] = []
         parts.append(
-            latestWeightKg.map { "体重 \(formatWeight($0)) キログラム" } ?? "体重 未記録"
+            latestWeightKg.map { "体重 \(NumberFormat.weight($0)) キログラム" } ?? "体重 未記録"
         )
         if let goalDifferenceText {
             parts.append("目標まで \(goalDifferenceText)")
@@ -169,10 +169,6 @@ struct MeView: View {
         latestWeightKg = LatestBodyWeightResolver.latestWeightKg(
             modelContext: modelContext
         )
-    }
-
-    private func formatWeight(_ value: Double) -> String {
-        String(format: "%.1f", value)
     }
 
     // MARK: - Entries

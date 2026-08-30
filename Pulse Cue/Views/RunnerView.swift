@@ -29,7 +29,6 @@ struct RunnerView: View {
     @State private var showRoutinePicker = false
     @State private var routinePendingStartAfterPickerDismissal: Routine?
     @State private var showEndAlert = false
-    @State private var isCompleteActionPending = false
     /// Non-nil while the Form Guide sheet is shown for the current step.
     /// Resolved ONLY from the persisted `Step.exerciseId` (never from title
     /// or equipment). Presenting it is observational — no workout state,
@@ -172,101 +171,14 @@ struct RunnerView: View {
 
     // MARK: - Status chips
 
-    @ViewBuilder
     private var statusChips: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(spacing: 8) {
-                chip(label: "今", value: nowChipValue, accessibilityText: "現在の状態、\(nowChipValue)", isActive: true)
-                chip(label: "残り", value: remainingChipValue, accessibilityText: remainingChipAccessibility)
-                chip(label: "次", value: nextChipValue, accessibilityText: nextChipAccessibility)
-            }
-        } else {
-            HStack(spacing: 10) {
-                chip(label: "今", value: nowChipValue, accessibilityText: "現在の状態、\(nowChipValue)", isActive: true)
-                chip(label: "残り", value: remainingChipValue, accessibilityText: remainingChipAccessibility)
-                chip(label: "次", value: nextChipValue, accessibilityText: nextChipAccessibility)
-            }
-        }
-    }
-
-    private var nowChipValue: String {
-        switch runnerViewModel.phase {
-        case .rest: return "休憩"
-        case .exercise: return runnerViewModel.isRunning ? "実行中" : "準備"
-        case .done: return "未開始"
-        }
-    }
-
-    private var remainingChipValue: String {
-        guard let step = runnerViewModel.currentStep else { return "—" }
-        // During .rest the just-completed set has not yet incremented
-        // currentSetIndex. Treat it as one set already done so the chip
-        // counts down as the user expects.
-        let setsDone = runnerViewModel.phase == .rest
-            ? runnerViewModel.currentSetIndex + 1
-            : runnerViewModel.currentSetIndex
-        return "\(max(0, step.sets - setsDone))"
-    }
-
-    private var nextChipValue: String {
-        if let next = runnerViewModel.nextStep { return next.title }
-        if runnerViewModel.isRunning { return "最後" }
-        return "—"
-    }
-
-    private var remainingChipAccessibility: String {
-        guard runnerViewModel.currentStep != nil else { return "残りセット、未設定" }
-        return "残り \(remainingChipValue) セット"
-    }
-
-    private var nextChipAccessibility: String {
-        if runnerViewModel.nextStep != nil { return "次の種目、\(nextChipValue)" }
-        return runnerViewModel.isRunning ? "次の種目、なし" : "次の種目、未設定"
-    }
-
-    private func chip(
-        label: String,
-        value: String,
-        accessibilityText: String,
-        isActive: Bool = false
-    ) -> some View {
-        VStack(spacing: 2) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(isActive ? Color.white : .secondary)
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(isActive ? Color.white : .primary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .padding(.horizontal, 8)
-        .background(chipBackground(isActive: isActive))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.84), AppTheme.iceLight.opacity(0.26), .white.opacity(0.08)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: isActive ? 0.9 : 0.7
-                )
+        RunnerStatusChips(
+            phase: runnerViewModel.phase,
+            isRunning: runnerViewModel.isRunning,
+            currentStep: runnerViewModel.currentStep,
+            nextStep: runnerViewModel.nextStep,
+            currentSetIndex: runnerViewModel.currentSetIndex
         )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
-    }
-
-    @ViewBuilder
-    private func chipBackground(isActive: Bool) -> some View {
-        if isActive {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.accentFilled)
-        } else {
-            PulseGlassPlate(level: .subtle, focused: true, cornerRadius: 12)
-        }
     }
 
     // MARK: - Phase signature
@@ -729,161 +641,14 @@ struct RunnerView: View {
 
     // MARK: - Action bar
 
-    @ViewBuilder
     private var actionBar: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(spacing: 10) {
-                primaryCompleteButton
-                HStack(spacing: 10) {
-                    backButton
-                    skipButton
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .padding(12)
-            .background(actionBarBackground(cornerRadius: 28))
-        } else {
-            HStack(spacing: 10) {
-                backButton
-                primaryCompleteButton
-                skipButton
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(actionBarBackground(cornerRadius: 40))
-        }
-    }
-
-    private var backButton: some View {
-        iconButton(label: "戻る", systemImage: "arrow.uturn.backward",
-                   a11y: "1 セット戻る") {
-            runnerViewModel.handle(action: .back)
-        }
-    }
-
-    /// Skip advances past the *whole* current exercise (remaining sets
-    /// included) — it has never skipped a single set. The label says so.
-    private var skipButton: some View {
-        iconButton(label: "種目をスキップ", systemImage: "forward.end.fill",
-                   a11y: "この種目をスキップして次の種目へ") {
-            runnerViewModel.handle(action: .skip)
-        }
-    }
-
-    private func actionBarBackground(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(reduceTransparency ? AnyShapeStyle(AppTheme.surfaceCard) : AnyShapeStyle(.thinMaterial))
-            .overlay(
-                LinearGradient(
-                    colors: [
-                        .white.opacity(reduceTransparency ? 0 : 0.05),
-                        .clear,
-                        AppTheme.deepGlass.opacity(reduceTransparency ? 0 : 0.10)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(
-                    AppTheme.separator.opacity(0.85),
-                    lineWidth: 0.8
-                )
-            )
-            .shadow(color: AppTheme.shadow, radius: 14, x: 0, y: 8)
-    }
-
-    private var primaryCompleteButton: some View {
-        let context = runnerViewModel.completeContext
-        return Button {
-            guard !isCompleteActionPending, let context else { return }
-            isCompleteActionPending = true
-            runnerViewModel.handle(action: .complete, context: context)
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(300))
-                isCompleteActionPending = false
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 14, weight: .bold))
-                Text(completeTitle)
-                    .font(.headline)
-            }
-            .foregroundStyle(.white)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 20)
-            .frame(maxWidth: .infinity)
-            .background(
-                Capsule()
-                    .fill(AppTheme.accentFilled)
-                    .shadow(color: AppTheme.accent.opacity(0.22), radius: 10, x: 0, y: 6)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isCompleteActionPending || context == nil)
-        .accessibilityLabel(completeAccessibility)
-    }
-
-    private var completeTitle: String {
-        runnerViewModel.phase == .rest ? "休憩終了" : "完了"
-    }
-
-    private var completeAccessibility: String {
-        runnerViewModel.phase == .rest
-            ? "休憩を終了して次のセットへ"
-            : "このセットを完了して休憩へ"
-    }
-
-    private func iconButton(
-        label: String,
-        systemImage: String,
-        a11y: String,
-        isAccent: Bool = false,
-        isDisabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .bold))
-                Text(label)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-            }
-            // A capsule, not a circle: a two-word label ("種目をスキップ")
-            // widens the button instead of being clipped, and a short label
-            // ("戻る") still renders as the original 52pt circle.
-            .padding(.horizontal, 12)
-            .frame(minWidth: 52, minHeight: 52)
-            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil)
-            .foregroundStyle(iconButtonForeground(isAccent: isAccent, isDisabled: isDisabled))
-            .background(iconButtonBackground(isAccent: isAccent, isDisabled: isDisabled))
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .accessibilityLabel(a11y)
-    }
-
-    private func iconButtonForeground(isAccent: Bool, isDisabled: Bool) -> Color {
-        if isDisabled { return Color.secondary.opacity(0.4) }
-        return isAccent ? Color.white : Color.primary
-    }
-
-    @ViewBuilder
-    private func iconButtonBackground(isAccent: Bool, isDisabled: Bool) -> some View {
-        if isAccent && !isDisabled {
-            Capsule().fill(AppTheme.accentFilled)
-        } else if isAccent && isDisabled {
-            Capsule().fill(reduceTransparency ? AnyShapeStyle(AppTheme.surfaceCard) : AnyShapeStyle(.ultraThinMaterial))
-        } else {
-            Capsule()
-                .fill(reduceTransparency ? AnyShapeStyle(AppTheme.surfaceCard) : AnyShapeStyle(.ultraThinMaterial))
-                .overlay(
-                    Capsule().strokeBorder(.white.opacity(0.20), lineWidth: 0.7)
-                )
-        }
+        RunnerActionBar(
+            phase: runnerViewModel.phase,
+            completeContext: runnerViewModel.completeContext,
+            onBack: { runnerViewModel.handle(action: .back) },
+            onSkip: { runnerViewModel.handle(action: .skip) },
+            onComplete: { runnerViewModel.handle(action: .complete, context: $0) }
+        )
     }
 
     // MARK: - Glass surfaces
