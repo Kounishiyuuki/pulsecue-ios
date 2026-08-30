@@ -90,4 +90,22 @@ enum NutritionSurface {
         case .weeklyTrend: return 5
         }
     }
+
+    /// The order `NutritionView` actually renders in.
+    ///
+    /// It renders this list — it does not merely agree with it. That
+    /// distinction is the point: while the screen hardcoded its own `VStack`,
+    /// every test here could pass with the ranking describing a screen that no
+    /// longer existed. Reordering or dropping a section now means editing this
+    /// file, which is what writing the ranking down was supposed to guarantee.
+    static var orderedSections: [Section] {
+        [
+            .todayIntake,
+            .addMeal,
+            .todayMeals,
+            .pendingEstimates,
+            .recentAndFavourites,
+            .weeklyTrend
+        ].sorted { rank($0) < rank($1) }
+    }
 }
