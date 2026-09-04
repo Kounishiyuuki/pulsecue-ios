@@ -31,11 +31,28 @@ enum NumberFormat {
     }
 
     /// One decimal place at most, trailing zero dropped: 72.0 → "72".
+    ///
+    /// Home, Health and the settings cells all show weight this way. Me does
+    /// not — see `weightOneDecimal`.
     nonisolated static func weight(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 1
         return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
+    }
+
+    /// Always one decimal place, trailing zero kept: 72.0 → "72.0".
+    ///
+    /// Me's personal-status row and the goal delta beside it. Not a stylistic
+    /// difference from `weight`: that row is the one place a weight is read
+    /// against another weight, and a column that shows "72" one day and "71.4"
+    /// the next makes a 0.6 kg change look like a change of format. The fixed
+    /// decimal keeps the digits in the same place.
+    ///
+    /// `String(format:)` rather than a `NumberFormatter`, because that is what
+    /// this screen has always used and the two round differently at the half.
+    nonisolated static func weightOneDecimal(_ value: Double) -> String {
+        String(format: "%.1f", value)
     }
 
     /// Sleep as hours and minutes: 445 → "7h 25m".

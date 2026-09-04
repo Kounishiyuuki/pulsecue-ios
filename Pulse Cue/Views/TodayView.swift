@@ -274,10 +274,13 @@ struct TodayView: View {
 
     /// Refresh signal for the cached summary.
     ///
-    /// Counting rows missed the completion of a workout, which mutates an
-    /// existing `Session` rather than adding one — see `changeSignature`.
-    private var progressSignature: Int {
-        HomeProgressSummary.changeSignature(sessions: sessions, results: stepResults)
+    /// Counting rows missed two things the summary shows: the completion of a
+    /// workout, which mutates an existing `Session` rather than adding one,
+    /// and the name of the routine it was — see `changeSignature`.
+    private var progressSignature: HomeProgressSummary.ChangeSignature {
+        HomeProgressSummary.changeSignature(
+            sessions: sessions, results: stepResults, routines: routines
+        )
     }
 
     private func recomputeProgressSummary() {

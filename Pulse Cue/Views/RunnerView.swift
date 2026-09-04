@@ -146,29 +146,6 @@ struct RunnerView: View {
         )
     }
 
-    // MARK: - Brand header
-
-    private var brandHeader: some View {
-        HStack {
-            ZStack {
-                Circle().fill(AppTheme.accentFilled).frame(width: 32, height: 32)
-                Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            Spacer()
-            Text("PulseCue")
-                .font(.headline.weight(.semibold))
-            Spacer()
-            Image(systemName: "bell")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
-        }
-        .padding(.vertical, 4)
-        .accessibilityHidden(true)
-    }
-
     // MARK: - Status chips
 
     private var statusChips: some View {

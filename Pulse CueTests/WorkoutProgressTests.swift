@@ -172,9 +172,31 @@ struct WorkoutProgressTests {
 
     // MARK: - The signal Home and Training observe
     //
-    //  Both screens observed `sessions.count` and `stepResults.count`. The
-    //  event that matters most changes neither: finishing a workout flips an
-    //  existing Session to `.completed` and writes its duration.
+    //  Both screens observed `sessions.count` and `stepResults.count`. Two
+    //  things the summary shows change neither: finishing a workout, which
+    //  flips an existing Session to `.completed`, and renaming the routine
+    //  whose name the "last workout" row displays.
+
+    private func signature(
+        _ sessions: [Session],
+        _ results: [StepResult] = [],
+        _ routines: [Routine] = []
+    ) -> HomeProgressSummary.ChangeSignature {
+        HomeProgressSummary.changeSignature(
+            sessions: sessions, results: results, routines: routines
+        )
+    }
+
+    private func summary(
+        _ sessions: [Session],
+        _ results: [StepResult] = [],
+        _ routines: [Routine] = []
+    ) -> HomeProgressSummary {
+        HomeProgressSummary.make(
+            sessions: sessions, results: results, routines: routines,
+            now: now, calendar: calendar
+        )
+    }
 
     @Test func completingAWorkoutChangesTheSignalWithoutChangingTheCount() {
         let id = UUID()
@@ -182,10 +204,7 @@ struct WorkoutProgressTests {
         let finished = [session(id, daysAgo: 0, status: .completed, seconds: 1_800)]
 
         #expect(running.count == finished.count)
-        #expect(
-            HomeProgressSummary.changeSignature(sessions: running, results: [])
-                != HomeProgressSummary.changeSignature(sessions: finished, results: [])
-        )
+        #expect(signature(running) != signature(finished))
     }
 
     @Test func markingASetDoneChangesTheSignalWithoutChangingTheCount() {
@@ -195,31 +214,77 @@ struct WorkoutProgressTests {
         let done = [result(sessionId, stepId, set: 0, reps: 10, done: true)]
 
         #expect(pending.count == done.count)
-        #expect(
-            HomeProgressSummary.changeSignature(sessions: [], results: pending)
-                != HomeProgressSummary.changeSignature(sessions: [], results: done)
-        )
+        #expect(signature([], pending) != signature([], done))
     }
 
     @Test func aNewSessionChangesTheSignal() {
         let one = [session(daysAgo: 1)]
         let two = one + [session(daysAgo: 0)]
 
-        #expect(
-            HomeProgressSummary.changeSignature(sessions: one, results: [])
-                != HomeProgressSummary.changeSignature(sessions: two, results: [])
-        )
+        #expect(signature(one) != signature(two))
     }
 
     @Test func anUnchangedStoreLeavesTheSignalAlone() {
         // Otherwise every render would recompute the summary.
         let sessions = [session(daysAgo: 1), session(daysAgo: 3)]
         let results = [result(UUID(), UUID(), set: 0, reps: 8)]
+        let routines = [Routine(name: "Push")]
 
         #expect(
-            HomeProgressSummary.changeSignature(sessions: sessions, results: results)
-                == HomeProgressSummary.changeSignature(sessions: sessions, results: results)
+            signature(sessions, results, routines) == signature(sessions, results, routines)
         )
+    }
+
+    // MARK: - The routine name the summary displays
+
+    @Test func renamingTheLastWorkoutsRoutineChangesTheSignal() {
+        // Nothing about the session changes — same id, same count. Only the
+        // name on screen does, and the screens must notice.
+        let routineId = UUID()
+        let sessions = [session(routineId: routineId, daysAgo: 0)]
+        let before = [Routine(id: routineId, name: "Push")]
+        let after = [Routine(id: routineId, name: "Upper Push")]
+
+        #expect(before.count == after.count)
+        #expect(summary(sessions, [], before).lastWorkout?.routineName == "Push")
+        #expect(summary(sessions, [], after).lastWorkout?.routineName == "Upper Push")
+        #expect(signature(sessions, [], before) != signature(sessions, [], after))
+    }
+
+    @Test func deletingTheRoutineChangesTheSignalAndFallsBack() {
+        // The existing fallback, unchanged: a session whose routine is gone
+        // still shows in History as 「ワークアウト」.
+        let routineId = UUID()
+        let sessions = [session(routineId: routineId, daysAgo: 0)]
+        let present = [Routine(id: routineId, name: "Push")]
+
+        #expect(summary(sessions, [], present).lastWorkout?.routineName == "Push")
+        #expect(summary(sessions, [], []).lastWorkout?.routineName == "ワークアウト")
+        #expect(signature(sessions, [], present) != signature(sessions, [], []))
+    }
+
+    @Test func renamingAnUnrelatedRoutineIsStillNoticed() {
+        // Conservative by design: the signature carries every routine's name
+        // because which one is "last" can itself change. A spurious recompute
+        // is cheap; a missed one leaves a wrong name on screen.
+        let routineId = UUID()
+        let sessions = [session(routineId: routineId, daysAgo: 0)]
+        let before = [Routine(id: routineId, name: "Push"), Routine(name: "Pull")]
+        let after = [Routine(id: routineId, name: "Push"), Routine(name: "Legs")]
+
+        #expect(signature(sessions, [], before) != signature(sessions, [], after))
+    }
+
+    @Test func aRoutineFieldTheSummaryNeverReadsIsIgnored() {
+        // Pinning the other half: the signature is the summary's inputs, not
+        // a serialisation of the model. Editing a routine's pin state would
+        // otherwise recompute Home on every reorder.
+        let routineId = UUID()
+        let sessions = [session(routineId: routineId, daysAgo: 0)]
+        let unpinned = [Routine(id: routineId, name: "Push", isPinned: false)]
+        let pinned = [Routine(id: routineId, name: "Push", isPinned: true)]
+
+        #expect(signature(sessions, [], unpinned) == signature(sessions, [], pinned))
     }
 
     @Test func theSignalTracksEveryFieldTheSummaryReads() {
@@ -228,8 +293,8 @@ struct WorkoutProgressTests {
         // signature would break that, and the screen would go stale.
         let id = UUID()
         let routineId = UUID()
-        let before = [session(id, routineId: routineId, daysAgo: 0, seconds: 1_800)]
         let routines = [Routine(id: routineId, name: "Push")]
+        let before = [session(id, routineId: routineId, daysAgo: 0, seconds: 1_800)]
 
         for after in [
             [session(id, routineId: routineId, daysAgo: 0, seconds: 2_400)],   // duration
@@ -237,15 +302,21 @@ struct WorkoutProgressTests {
             [session(id, routineId: UUID(), daysAgo: 0, seconds: 1_800)],      // routine
             [session(id, routineId: routineId, daysAgo: 0, status: .inProgress, seconds: 1_800)]
         ] {
-            let summaryChanged =
-                HomeProgressSummary.make(sessions: before, results: [], routines: routines,
-                                         now: now, calendar: calendar)
-                != HomeProgressSummary.make(sessions: after, results: [], routines: routines,
-                                            now: now, calendar: calendar)
-            let signalChanged =
-                HomeProgressSummary.changeSignature(sessions: before, results: [])
-                != HomeProgressSummary.changeSignature(sessions: after, results: [])
+            let summaryChanged = summary(before, [], routines) != summary(after, [], routines)
+            let signalChanged = signature(before, [], routines) != signature(after, [], routines)
+            #expect(!summaryChanged || signalChanged)
+        }
+    }
 
+    @Test func theSignalTracksTheRoutineNamesTheSummaryReads() {
+        // The same invariant over the routine input.
+        let routineId = UUID()
+        let sessions = [session(routineId: routineId, daysAgo: 0)]
+        let before = [Routine(id: routineId, name: "Push")]
+
+        for after in [[Routine(id: routineId, name: "Upper Push")], []] {
+            let summaryChanged = summary(sessions, [], before) != summary(sessions, [], after)
+            let signalChanged = signature(sessions, [], before) != signature(sessions, [], after)
             #expect(!summaryChanged || signalChanged)
         }
     }

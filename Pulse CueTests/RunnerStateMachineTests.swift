@@ -603,10 +603,13 @@ struct RunnerStateMachineTests {
     }
 
     @Test
-    func cancellingRecordsTheSessionAsNotCompleted() async throws {
+    func cancellingRecordsTheSessionAsAbandoned() async throws {
         // It is saved as an interruption, not deleted: the alert says
         // 「このセッションは中断として保存されます」 and History is where that
-        // promise is kept.
+        // promise is kept. The status is named exactly, because "not
+        // completed" would also be satisfied by leaving it `.inProgress` —
+        // which is the failure that puts the user back into an abandoned
+        // workout on the next launch.
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
 
@@ -614,8 +617,26 @@ struct RunnerStateMachineTests {
 
         let sessions = try fx.context.fetch(FetchDescriptor<Session>())
         #expect(sessions.count == 1)
-        #expect(sessions.first?.status != .inProgress)
-        #expect(sessions.first?.status != .completed)
+        let session = try #require(sessions.first)
+        #expect(session.status == .abandoned)
+    }
+
+    @Test
+    func cancellingClosesTheSessionsTimeRange() async throws {
+        // `endedAt` is what makes the row finished rather than open, and
+        // `totalSeconds` is derived from it. Asserted as the relationship
+        // rather than a literal: the elapsed value depends on how long the
+        // test took, but that it equals the range it came from does not.
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>()).first)
+        let endedAt = try #require(session.endedAt)
+        #expect(endedAt >= session.startedAt)
+        #expect(session.totalSeconds == Int(endedAt.timeIntervalSince(session.startedAt)))
+        #expect(session.totalSeconds >= 0)
     }
 
     @Test

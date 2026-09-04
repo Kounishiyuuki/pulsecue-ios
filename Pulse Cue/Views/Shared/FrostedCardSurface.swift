@@ -2,17 +2,15 @@
 //  FrostedCardSurface.swift
 //  Pulse Cue
 //
-//  The frosted card back used by Home and Nutrition.
+//  The frosted card back used by Home, Nutrition and the AI Coach.
 //
-//  Both screens carried a byte-identical `glassBackground` / `glassStroke`
-//  pair. That was tolerable while each was a private detail of one file, but
-//  the moment either screen's cards move into components of their own the
-//  choice is between passing the surface down, copying it a third and fourth
-//  time, or naming it once. This names it once.
+//  Those three drew a byte-identical fill, shadow and hairline stroke. Once a
+//  screen's cards move into components of their own, the choice is between
+//  passing the surface down, copying it again, or naming it once.
 //
-//  Only the two definitions that were already identical are here. `RunnerView`
-//  and `AICoachView` have their own variants that are *similar* rather than
-//  the same, and merging those is a visual decision, not a readability one.
+//  `RunnerView` is deliberately not here: its cards are built on
+//  `PulseGlassPlate` and look different on purpose. Merging them would be a
+//  visual decision, not a readability one.
 //
 
 import SwiftUI
