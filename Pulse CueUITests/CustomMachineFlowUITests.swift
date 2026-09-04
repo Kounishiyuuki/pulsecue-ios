@@ -39,6 +39,7 @@ final class CustomMachineFlowUITests: XCTestCase {
         //    sheet path that varies with dashboard state. Gym management is a
         //    training task and moved out of Settings with the rest of them.
         app.tabBars.buttons["トレーニング"].tap()
+        openTrainingMore(in: app)
         let myGymEntry = app.buttons["マイジム"].firstMatch
         XCTAssertTrue(myGymEntry.waitForExistence(timeout: 10), "My Gym entry not found in Training")
         if !myGymEntry.isHittable { app.swipeUp() }

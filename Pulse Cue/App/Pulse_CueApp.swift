@@ -39,6 +39,7 @@ struct Pulse_CueApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.customMachineFlowArgument)
             || ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.completionFlowArgument)
+            || PulseCueUITestSupport.requestedTrainingRoutineCount() != nil
             || PulseCueUITestSupport.isFormGuideDebugRoute()
             || PulseCueUITestSupport.requestedGlassUIRoute() != nil {
             inMemory = true
@@ -132,6 +133,33 @@ enum PulseCueUITestSupport {
     /// without waiting on a rest timer. DEBUG-only; compiled out of Release.
     static let completionFlowArgument = "-pulsecue-ui-test-completion-flow"
 
+    /// Seeds an exact number of user-saved routines into an in-memory store
+    /// and skips onboarding: `-pulsecue-ui-test-training-routines <n>`.
+    ///
+    /// The quick-plan fixture reads the *persistent* store, so how many
+    /// routines Training shows there depends on whatever the simulator was
+    /// left holding. That is fine for tests about a screen existing and
+    /// useless for tests about what a list of a given length does to the
+    /// screen around it. DEBUG-only; Release honours no launch argument.
+    static let trainingRoutinesArgument = "-pulsecue-ui-test-training-routines"
+
+    /// The requested count, or nil when the fixture was not asked for.
+    /// A count of 0 is meaningful — it is the empty-library state.
+    static func requestedTrainingRoutineCount(
+        _ args: [String] = ProcessInfo.processInfo.arguments
+    ) -> Int? {
+        #if DEBUG
+        guard let index = args.firstIndex(of: trainingRoutinesArgument),
+              args.indices.contains(index + 1),
+              let count = Int(args[index + 1]),
+              count >= 0
+        else { return nil }
+        return count
+        #else
+        return nil
+        #endif
+    }
+
     /// The custom-machine, quick-plan, and completion fixtures are the only
     /// launch modes allowed to update onboarding. Isolated DEBUG roots win when
     /// arguments are accidentally combined, preserving their
@@ -145,6 +173,7 @@ enum PulseCueUITestSupport {
         guard args.contains(customMachineFlowArgument)
             || args.contains(quickPlanFlowArgument)
             || args.contains(completionFlowArgument)
+            || requestedTrainingRoutineCount(args) != nil
         else { return false }
         return requestedGlassUIRoute(args) == nil && !isFormGuideDebugRoute(args)
         #else

@@ -30,6 +30,7 @@ final class TrainingMoreRouteUITests: XCTestCase {
     }
 
     private func tapMoreRow(_ app: XCUIApplication, _ label: String) {
+        openTrainingMore(in: app)
         let row = app.buttons[label].firstMatch
         XCTAssertTrue(
             row.waitForExistence(timeout: 15),

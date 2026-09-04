@@ -42,6 +42,7 @@ final class TrainingRouteUITests: XCTestCase {
     }
 
     private func tapMoreRow(_ app: XCUIApplication, _ label: String) {
+        openTrainingMore(in: app)
         let row = app.buttons[label].firstMatch
         XCTAssertTrue(
             row.waitForExistence(timeout: 15),
@@ -166,6 +167,7 @@ final class TrainingRouteUITests: XCTestCase {
         // The rows are rendered from `TrainingSurface.moreDestinations`. This
         // is the other half of that: the labels reach the screen, in order.
         let app = trainingTab()
+        openTrainingMore(in: app)
 
         for label in ["マイジム", "種目ライブラリ", "マシンカタログ",
                       "進捗", "週間プラン", "AI プラン相談"] {

@@ -168,6 +168,10 @@ final class MeRouteUITests: XCTestCase {
         XCTAssertTrue(training.waitForExistence(timeout: 20), "training tab not found")
         training.tap()
 
+        // Behind その他の機能 now: the destinations moved off the root so
+        // their distance stops growing with the routine library. Still
+        // reachable from Training, and from nowhere else.
+        openTrainingMore(in: app)
         XCTAssertTrue(
             app.buttons["マイジム"].firstMatch.waitForExistence(timeout: 15),
             "My Gym is no longer reachable from Training"

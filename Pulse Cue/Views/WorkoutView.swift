@@ -75,11 +75,17 @@ struct RoutineLibrarySection: View {
         LazyVStack(spacing: 14) {
             searchBar
             routineContent
-            HStack {
-                Spacer()
-                createButton
+            // Hidden while the library is empty: the empty-state card above
+            // already offers creation, and showing the same action twice in
+            // one section — the second time as a filled control — is what put
+            // three create buttons on an empty Training root.
+            if !savedRoutines.isEmpty {
+                HStack {
+                    Spacer()
+                    createButton
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .sheet(item: $editorRoutine, onDismiss: startPendingRoutine) { routine in
             NavigationStack {
@@ -301,10 +307,16 @@ struct RoutineLibrarySection: View {
             Text(title).font(.headline.weight(.bold))
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button(action: action) {
-                Text(actionTitle).font(.subheadline.weight(.bold)).frame(minHeight: 44)
+                Text(actionTitle)
+                    .font(.subheadline.weight(.bold))
+                    // Lower emphasis, same target: the filled primary belongs
+                    // to the Today card, which is where the decision to start
+                    // training is made. Someone who has scrolled this far can
+                    // still act here — a demoted button is not a smaller one.
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AppTheme.accentFilled)
+            .buttonStyle(.bordered)
+            .tint(AppTheme.accent)
         }
         .frame(maxWidth: .infinity)
         .padding(24)

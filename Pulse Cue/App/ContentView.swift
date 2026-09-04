@@ -159,6 +159,10 @@ private enum PulseCueUITestFixtureSeeder {
             seedCompletionRoutine(modelContext: modelContext)
         }
 
+        if let count = PulseCueUITestSupport.requestedTrainingRoutineCount(args) {
+            seedTrainingRoutines(count: count, modelContext: modelContext)
+        }
+
         guard wantsCustomMachine || wantsQuickPlan else { return }
 
         let repository = GymRepository(modelContext: modelContext)
@@ -187,6 +191,32 @@ private enum PulseCueUITestFixtureSeeder {
     }
 
     #if DEBUG
+    /// Exactly `count` user-saved routines, for tests about what the length of
+    /// the library does to the screen around it.
+    ///
+    /// `.userSaved` so they are startable and appear in the library —
+    /// `RoutineLibrary` filters generated ones out, and a fixture of routines
+    /// that never render would test nothing.
+    private static func seedTrainingRoutines(count: Int, modelContext: ModelContext) {
+        let existing = (try? modelContext.fetchCount(FetchDescriptor<Routine>())) ?? 0
+        guard existing == 0 else { return }
+        for index in 0..<count {
+            let routine = Routine(name: "ルーティン \(index + 1)", origin: .userSaved)
+            modelContext.insert(routine)
+            modelContext.insert(
+                Step(
+                    routineId: routine.id,
+                    order: 0,
+                    title: "チェストプレス",
+                    sets: 3,
+                    repsTarget: 10,
+                    restSeconds: 60
+                )
+            )
+        }
+        try? modelContext.save()
+    }
+
     /// One routine, one exercise, one set, no rest. Inserted only into the
     /// completion fixture's in-memory store (see `completionFlowArgument`).
     private static func seedCompletionRoutine(modelContext: ModelContext) {

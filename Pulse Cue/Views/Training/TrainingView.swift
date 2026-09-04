@@ -73,9 +73,9 @@ struct TrainingView: View {
                         onPrimaryAction: primaryAction
                     )
 
-                    planSection
+                    moreEntry
 
-                    moreSection
+                    planSection
 
                     Color.clear.frame(height: 24)
                 }
@@ -166,10 +166,61 @@ struct TrainingView: View {
 
     // MARK: - More
 
-    private var moreSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            PulseSectionHeader("その他の機能", icon: "ellipsis.circle")
-            TrainingMoreSection()
+    /// One row, at a fixed distance from the top, into `TrainingMoreView`.
+    ///
+    /// The six destinations used to be listed here in full, below the routine
+    /// library — so the distance to My Gym or the machine catalogue grew with
+    /// the number of routines the user had saved. Someone who used the app
+    /// more had a harder time reaching them.
+    ///
+    /// This sits above the library instead, where the cost is the same at one
+    /// routine and at twenty. A single row rather than the six: the point of
+    /// putting it high is to make the group reachable, not to spend the first
+    /// screenful on choices that are needed occasionally. It is deliberately
+    /// quieter than the Today card above it — a plain row with a chevron, not
+    /// a second thing competing for the first action of the session.
+    private var moreEntry: some View {
+        NavigationLink {
+            TrainingMoreView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "ellipsis.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("その他の機能")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("ジム・種目ライブラリ・進捗・週間プラン")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(AppTheme.cardBackground.opacity(0.5))
+            )
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .buttonStyle(.plain)
+        // 「その他の機能」 alone says nothing about what is behind it, so the
+        // destinations are read out as the hint rather than left to be
+        // discovered by opening it.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("その他の機能")
+        .accessibilityHint("マイジム、種目ライブラリ、マシンカタログ、進捗、週間プラン、AI プラン相談")
+        .accessibilityAddTraits(.isButton)
     }
 }
