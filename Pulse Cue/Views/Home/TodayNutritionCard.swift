@@ -80,10 +80,10 @@ struct TodayNutritionCard: View {
 
     private var intakeLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(summary.consumedKcal.map(Self.format) ?? "0")
+            Text(summary.consumedKcal.map(NumberFormat.int) ?? "0")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundStyle(.primary)
-            Text(summary.targetKcal.map { "/ \(Self.format($0)) kcal" } ?? "kcal")
+            Text(summary.targetKcal.map { "/ \(NumberFormat.int($0)) kcal" } ?? "kcal")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -101,8 +101,8 @@ struct TodayNutritionCard: View {
             let isOver = remaining < 0
             Text(
                 isOver
-                    ? "目標より \(Self.format(abs(remaining))) kcal 超過"
-                    : "残り \(Self.format(remaining)) kcal"
+                    ? "目標より \(NumberFormat.int(abs(remaining))) kcal 超過"
+                    : "残り \(NumberFormat.int(remaining)) kcal"
             )
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(isOver ? AppTheme.warning : AppTheme.accent)
@@ -140,11 +140,5 @@ struct TodayNutritionCard: View {
             return "摂取 \(consumed) キロカロリー"
         }
         return "摂取 \(consumed) キロカロリー、目標 \(target) キロカロリー"
-    }
-
-    nonisolated private static func format(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 }

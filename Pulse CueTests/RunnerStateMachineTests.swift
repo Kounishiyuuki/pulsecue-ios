@@ -581,4 +581,98 @@ struct RunnerStateMachineTests {
         #expect(recovered.sessionId == nil)
         #expect(!recovered.isRunning)
     }
+
+    // MARK: - Cancellation
+    //
+    //  `endSessionEarly` had no coverage at all: stubbing it out left every
+    //  Runner test green. It is the one path that ends a workout the user did
+    //  not finish, and what it must *not* do is as important as what it does —
+    //  a cancelled session that stayed `.inProgress` would be restored on the
+    //  next launch, putting the user back into a workout they walked away from.
+
+    @Test
+    func cancellingEndsTheRunAndStopsTheWorkout() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.isRunning)
+
+        fx.viewModel.endSessionEarly()
+
+        #expect(fx.viewModel.isRunning == false)
+        #expect(fx.viewModel.restDeadline == nil)
+    }
+
+    @Test
+    func cancellingRecordsTheSessionAsAbandoned() async throws {
+        // It is saved as an interruption, not deleted: the alert says
+        // 「このセッションは中断として保存されます」 and History is where that
+        // promise is kept. The status is named exactly, because "not
+        // completed" would also be satisfied by leaving it `.inProgress` —
+        // which is the failure that puts the user back into an abandoned
+        // workout on the next launch.
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+
+        let sessions = try fx.context.fetch(FetchDescriptor<Session>())
+        #expect(sessions.count == 1)
+        let session = try #require(sessions.first)
+        #expect(session.status == .abandoned)
+    }
+
+    @Test
+    func cancellingClosesTheSessionsTimeRange() async throws {
+        // `endedAt` is what makes the row finished rather than open, and
+        // `totalSeconds` is derived from it. Asserted as the relationship
+        // rather than a literal: the elapsed value depends on how long the
+        // test took, but that it equals the range it came from does not.
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>()).first)
+        let endedAt = try #require(session.endedAt)
+        #expect(endedAt >= session.startedAt)
+        #expect(session.totalSeconds == Int(endedAt.timeIntervalSince(session.startedAt)))
+        #expect(session.totalSeconds >= 0)
+    }
+
+    @Test
+    func aCancelledSessionIsNotRestoredOnRelaunch() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.endSessionEarly()
+
+        // A fresh view model over the same store is what a relaunch looks like.
+        let fresh = RunnerViewModel(settings: SettingsStore())
+        fresh.configure(modelContext: fx.context)
+
+        #expect(fresh.isRunning == false)
+    }
+
+    @Test
+    func cancellingDoesNotShowTheCompletionSummary() async throws {
+        // The completion screen celebrates a finished workout. Showing it for
+        // one the user abandoned would be both wrong and slightly insulting.
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+
+        #expect(fx.viewModel.completion == nil)
+        #expect(fx.viewModel.shouldPresentRunner == false)
+    }
+
+    @Test
+    func cancellingTwiceCreatesNoSecondSession() async throws {
+        let fx = try Self.makeFixture(restSeconds: 60, stepCount: 2, setsPerStep: 2)
+        fx.viewModel.start(routine: fx.routine)
+
+        fx.viewModel.endSessionEarly()
+        fx.viewModel.endSessionEarly()
+
+        #expect(try fx.context.fetch(FetchDescriptor<Session>()).count == 1)
+    }
 }

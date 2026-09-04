@@ -41,6 +41,82 @@ struct HomeProgressSummary: Equatable {
 
     /// Only `completed` sessions count as workouts. "This week" is the calendar
     /// week (`.weekOfYear`) containing `now`.
+    /// A value that changes whenever this summary would.
+    ///
+    /// The screens observed `sessions.count` and `stepResults.count`, and the
+    /// event that matters most changes neither: finishing a workout flips an
+    /// existing `Session` to `.completed` and writes its duration, and marking
+    /// a set done flips an existing `StepResult`. Both leave the arrays the
+    /// same length, so Home and Training went on showing the previous workout
+    /// as the last one and last week's totals as this week's.
+    ///
+    /// The fields below are exactly what `make` reads — including the routine
+    /// names, because the summary *displays* one. Renaming the routine behind
+    /// the last workout, or deleting it so the display falls back to
+    /// 「ワークアウト」, changes what is on screen and must therefore change
+    /// this. Nothing else about a routine is included: `make` never looks at
+    /// the rest, and a signature that serialised whole models would recompute
+    /// the summary every time an unrelated field was edited.
+    ///
+    /// An `Equatable` value rather than a hash. A hash of these fields would
+    /// be smaller, but `Hasher` is seeded per process and collisions fail
+    /// silently — and a collision here does not produce a wrong number, it
+    /// produces a screen that never refreshes, which is the bug this exists to
+    /// prevent.
+    struct ChangeSignature: Equatable {
+        fileprivate let sessions: [SessionMark]
+        fileprivate let results: [ResultMark]
+        fileprivate let routines: [RoutineMark]
+    }
+
+    fileprivate struct SessionMark: Equatable {
+        let id: UUID
+        let status: SessionStatus
+        let startedAt: Date
+        let totalSeconds: Int
+        let routineId: UUID
+    }
+
+    fileprivate struct ResultMark: Equatable {
+        let id: UUID
+        let done: Bool
+        let sessionId: UUID
+    }
+
+    /// Only the id and the name: the id decides which routine a session
+    /// belongs to, the name is the only thing displayed.
+    fileprivate struct RoutineMark: Equatable {
+        let id: UUID
+        let name: String
+    }
+
+    /// - Parameter routines: the same array passed to `make`. Order is the
+    ///   query's and is stable; a reordering would cost one recompute, never a
+    ///   missed one.
+    static func changeSignature(
+        sessions: [Session],
+        results: [StepResult],
+        routines: [Routine]
+    ) -> ChangeSignature {
+        ChangeSignature(
+            sessions: sessions.map {
+                SessionMark(
+                    id: $0.id,
+                    status: $0.status,
+                    startedAt: $0.startedAt,
+                    totalSeconds: $0.totalSeconds,
+                    routineId: $0.routineId
+                )
+            },
+            results: results.map {
+                ResultMark(id: $0.id, done: $0.done, sessionId: $0.sessionId)
+            },
+            routines: routines.map {
+                RoutineMark(id: $0.id, name: $0.name)
+            }
+        )
+    }
+
     static func make(
         sessions: [Session],
         results: [StepResult],

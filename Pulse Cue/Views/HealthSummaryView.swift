@@ -62,7 +62,7 @@ struct HealthSummaryView: View {
             row(label: "運動消費", value: summary.todayExercise.map { "\($0) kcal" })
             row(label: "バランス", value: summary.todayBalance.map { "\($0) kcal" })
             row(label: "睡眠", value: summary.todaySleepMinutes.map { formatSleep(minutes: $0) })
-            row(label: "体重", value: summary.todayWeight.map { "\(formatWeight($0)) kg" })
+            row(label: "体重", value: summary.todayWeight.map { "\(NumberFormat.weight($0)) kg" })
         }
     }
 
@@ -175,8 +175,8 @@ struct HealthSummaryView: View {
 
     private var weightSection: some View {
         Section {
-            row(label: "最新", value: summary.latestWeight.map { "\(formatWeight($0)) kg" })
-            row(label: "7日移動平均", value: summary.weightMovingAverage.map { "\(formatWeight($0)) kg" })
+            row(label: "最新", value: summary.latestWeight.map { "\(NumberFormat.weight($0)) kg" })
+            row(label: "7日移動平均", value: summary.weightMovingAverage.map { "\(NumberFormat.weight($0)) kg" })
             if let trend = summary.weightTrend {
                 HStack {
                     Text("トレンド")
@@ -217,7 +217,7 @@ struct HealthSummaryView: View {
         let view = HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("目標体重")
-                Text("目標 \(formatWeight(profile.goalWeightKg)) kg")
+                Text("目標 \(NumberFormat.weight(profile.goalWeightKg)) kg")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -228,7 +228,7 @@ struct HealthSummaryView: View {
                 .foregroundStyle(trendColor(diff.direction))
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("目標体重 \(formatWeight(profile.goalWeightKg)) kg、\(diff.label)")
+        .accessibilityLabel("目標体重 \(NumberFormat.weight(profile.goalWeightKg)) kg、\(diff.label)")
         return AnyView(view)
     }
 
@@ -353,12 +353,5 @@ struct HealthSummaryView: View {
         if h > 0 && m > 0 { return "\(h)時間\(m)分" }
         if h > 0 { return "\(h)時間" }
         return "\(m)分"
-    }
-
-    private func formatWeight(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 1
-        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
     }
 }

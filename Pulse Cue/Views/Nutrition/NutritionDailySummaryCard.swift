@@ -90,7 +90,7 @@ struct NutritionDailySummaryCard: View {
             // than leaving a blank where the decision should be.
             emphasised(
                 caption: "摂取",
-                value: "\(Self.format(summary.consumedKcal ?? 0)) kcal",
+                value: "\(NumberFormat.int(summary.consumedKcal ?? 0)) kcal",
                 tint: AppTheme.accent,
                 accessibility: intakeAccessibilityLabel
             )
@@ -132,10 +132,10 @@ struct NutritionDailySummaryCard: View {
 
     private var intakeLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(Self.format(summary.consumedKcal ?? 0))
+            Text(NumberFormat.int(summary.consumedKcal ?? 0))
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundStyle(.primary)
-            Text(summary.targetKcal.map { "/ \(Self.format($0)) kcal" } ?? "kcal")
+            Text(summary.targetKcal.map { "/ \(NumberFormat.int($0)) kcal" } ?? "kcal")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -152,7 +152,7 @@ struct NutritionDailySummaryCard: View {
             let isOver = remaining < 0
             emphasised(
                 caption: isOver ? "目標超過" : "残り",
-                value: "\(Self.format(abs(remaining))) kcal",
+                value: "\(NumberFormat.int(abs(remaining))) kcal",
                 tint: isOver ? AppTheme.warning : AppTheme.accent,
                 accessibility: isOver
                     ? "目標より \(abs(remaining)) キロカロリー超過"
@@ -248,11 +248,5 @@ struct NutritionDailySummaryCard: View {
             return "摂取 \(consumed) キロカロリー"
         }
         return "摂取 \(consumed) キロカロリー、目標 \(target) キロカロリー"
-    }
-
-    nonisolated private static func format(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 }

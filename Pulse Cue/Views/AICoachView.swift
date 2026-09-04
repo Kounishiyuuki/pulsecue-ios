@@ -194,8 +194,7 @@ struct AICoachView: View {
                 optionsSection
             }
             .padding(16)
-            .background(glassBackground)
-            .overlay(glassStroke)
+            .frostedCard()
         }
     }
 
@@ -369,23 +368,6 @@ struct AICoachView: View {
 
     // MARK: - Glass surfaces
 
-    private var glassBackground: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.regularMaterial)
-            .shadow(color: .black.opacity(0.05), radius: 14, x: 0, y: 8)
-    }
-
-    private var glassStroke: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.7), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.6
-            )
-    }
 
     // MARK: - Formatters
 

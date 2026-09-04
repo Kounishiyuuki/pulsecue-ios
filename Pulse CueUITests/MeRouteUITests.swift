@@ -33,20 +33,6 @@ final class MeRouteUITests: XCTestCase {
 
     // MARK: - Launch
 
-    /// Launches past onboarding deterministically.
-    ///
-    /// Without this these tests depend on the simulator still holding a
-    /// completed-onboarding flag from an earlier run, and fail on a clean
-    /// device for a reason that has nothing to do with navigation. The
-    /// quick-plan fixture is an existing DEBUG-only argument that skips
-    /// onboarding and uses an in-memory store; what it seeds is irrelevant
-    /// here, its determinism is the point.
-    private func launchedApp() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments.append("-pulsecue-ui-test-quick-plan-flow")
-        app.launch()
-        return app
-    }
 
     /// A freshly launched app, already inside the named section of マイページ.
     private func appShowing(_ section: String) -> XCUIApplication {
