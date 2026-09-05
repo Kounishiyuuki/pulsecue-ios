@@ -88,4 +88,33 @@ extension XCTestCase {
             file: file, line: line
         )
     }
+
+    /// Opens 「その他の機能」 from the Training root.
+    ///
+    /// The six occasional destinations used to be listed on the root itself,
+    /// below the routine library — which put them further away the more
+    /// routines the user had. They now sit behind one entry at a fixed
+    /// position, so every test that wants one goes through here.
+    @discardableResult
+    func openTrainingMore(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIApplication {
+        let entry = app.buttons["その他の機能"].firstMatch
+        XCTAssertTrue(
+            entry.waitForExistence(timeout: 15),
+            "the その他の機能 entry is missing from Training",
+            file: file, line: line
+        )
+        scrollUntilHittable(entry, in: app, named: "その他の機能", file: file, line: line)
+        entry.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["その他の機能"].waitForExistence(timeout: 15),
+            "その他の機能 did not open",
+            file: file, line: line
+        )
+        return app
+    }
 }

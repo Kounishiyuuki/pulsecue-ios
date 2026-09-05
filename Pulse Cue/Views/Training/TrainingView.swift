@@ -7,27 +7,31 @@
 //  Opening Training used to mean opening a routine picker — 「ルーティンを選択」
 //  and a list. That is the right screen for choosing what to do *next week*,
 //  but not for the question people actually arrive with, which is whether
-//  they are training today and how far through it they are. The answer was
-//  only on Home.
+//  they are training today and how far through it they are.
 //
-//  So the order is now: today, then the plan behind it, then everything else.
+//  Top to bottom:
 //
-//    Today    what is running or ready to start, and the one action for it
-//    Plan     the routine library — the same cards, one section lower
-//    History  a tap away in the toolbar, where it has been since the tab
-//             bar reorganisation
-//    More     Gym, the exercise library, progress and AI planning
+//    Today       what is running or ready to start, and the one action for it
+//    その他の機能  one row into `TrainingMoreView`
+//    Plan        the routine library
 //
-//  「More」 is not a junk drawer; it is where the training features that were
-//  living in **Settings** belong. Registering a gym, browsing form guides and
-//  reviewing a weekly plan are training tasks, and reaching them through
-//  マイページ → 設定 meant the app filed them under app configuration. They
-//  are unchanged — only findable from the module they serve.
+//  History is a tap away in the toolbar.
+//
+//  More sits *above* the library rather than below it, and that is the whole
+//  reason it is a single row: the library is unbounded, so anything after it
+//  gets further away the more routines someone saves. Above it, the cost of
+//  reaching Gym or the machine catalogue is the same at one routine and at
+//  twenty. A single entry rather than the six destinations, because raising
+//  the group must not spend the first screenful on choices needed
+//  occasionally.
 //
 //  The Today card is `TodayTrainingCard`, the same component Home uses. Not
 //  for reuse's sake: it owns the rule that there is one primary action and
 //  which one it is, and a second implementation here is exactly how Home and
 //  Training would come to disagree about whether you can start a workout.
+//  That card owns the screen's only filled action — which is why the routine
+//  library's empty-state Create is deliberately quieter (see
+//  `RoutineLibraryPlaceholder`).
 //
 
 import SwiftData
@@ -73,9 +77,9 @@ struct TrainingView: View {
                         onPrimaryAction: primaryAction
                     )
 
-                    planSection
+                    moreEntry
 
-                    moreSection
+                    planSection
 
                     Color.clear.frame(height: 24)
                 }
@@ -166,10 +170,61 @@ struct TrainingView: View {
 
     // MARK: - More
 
-    private var moreSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            PulseSectionHeader("その他の機能", icon: "ellipsis.circle")
-            TrainingMoreSection()
+    /// One row, at a fixed distance from the top, into `TrainingMoreView`.
+    ///
+    /// The six destinations used to be listed here in full, below the routine
+    /// library — so the distance to My Gym or the machine catalogue grew with
+    /// the number of routines the user had saved. Someone who used the app
+    /// more had a harder time reaching them.
+    ///
+    /// This sits above the library instead, where the cost is the same at one
+    /// routine and at twenty. A single row rather than the six: the point of
+    /// putting it high is to make the group reachable, not to spend the first
+    /// screenful on choices that are needed occasionally. It is deliberately
+    /// quieter than the Today card above it — a plain row with a chevron, not
+    /// a second thing competing for the first action of the session.
+    private var moreEntry: some View {
+        NavigationLink {
+            TrainingMoreView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "ellipsis.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("その他の機能")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("ジム・種目ライブラリ・進捗・週間プラン")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(AppTheme.cardBackground.opacity(0.5))
+            )
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .buttonStyle(.plain)
+        // 「その他の機能」 alone says nothing about what is behind it, so the
+        // destinations are read out as the hint rather than left to be
+        // discovered by opening it.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("その他の機能")
+        .accessibilityHint("マイジム、種目ライブラリ、マシンカタログ、進捗、週間プラン、AI プラン相談")
+        .accessibilityAddTraits(.isButton)
     }
 }

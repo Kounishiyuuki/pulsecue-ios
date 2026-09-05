@@ -75,11 +75,17 @@ struct RoutineLibrarySection: View {
         LazyVStack(spacing: 14) {
             searchBar
             routineContent
-            HStack {
-                Spacer()
-                createButton
+            // Hidden while the library is empty: the empty-state card above
+            // already offers creation, and showing the same action twice in
+            // one section — the second time as a filled control — is what put
+            // three create buttons on an empty Training root.
+            if !savedRoutines.isEmpty {
+                HStack {
+                    Spacer()
+                    createButton
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .sheet(item: $editorRoutine, onDismiss: startPendingRoutine) { routine in
             NavigationStack {
@@ -128,23 +134,31 @@ struct RoutineLibrarySection: View {
 
     @ViewBuilder
     private var routineContent: some View {
-        if savedRoutines.isEmpty {
+        switch RoutineLibraryPlaceholder.shown(
+            hasSavedRoutines: !savedRoutines.isEmpty,
+            hasVisibleRoutines: !filteredRoutines.isEmpty
+        ) {
+        case .noRoutines:
             stateCard(
                 icon: "figure.strengthtraining.traditional",
                 title: "最初のルーティンを作成",
                 message: "種目、セット、回数、休憩をまとめて、すぐ始められる準備をしましょう。",
                 actionTitle: "ルーティンを作成",
+                prominence: RoutineLibraryPlaceholder.noRoutines.actionProminence,
                 action: createRoutine
             )
-        } else if filteredRoutines.isEmpty {
+
+        case .noSearchMatches:
             stateCard(
                 icon: "magnifyingglass",
                 title: "一致するルーティンがありません",
                 message: "検索語を変えるか、検索をクリアしてください。",
                 actionTitle: "検索をクリア",
+                prominence: RoutineLibraryPlaceholder.noSearchMatches.actionProminence,
                 action: { searchText = "" }
             )
-        } else {
+
+        case nil:
             if !pinnedRoutines.isEmpty {
                 sectionHeader("ピン留め", icon: "pin.fill", count: pinnedRoutines.count)
                 ForEach(pinnedRoutines) { routine in routineCard(routine) }
@@ -295,16 +309,42 @@ struct RoutineLibrarySection: View {
             .background(Capsule().fill(AppTheme.accent.opacity(0.11)))
     }
 
-    private func stateCard(icon: String, title: String, message: String, actionTitle: String, action: @escaping () -> Void) -> some View {
+    /// - Parameter prominence: how loud the action may be. Decided by
+    ///   `RoutineLibraryPlaceholder`, not here: this draws a card and has no
+    ///   way of knowing what else is on the screen around it.
+    @ViewBuilder
+    private func stateCard(
+        icon: String,
+        title: String,
+        message: String,
+        actionTitle: String,
+        prominence: ActionProminence,
+        action: @escaping () -> Void
+    ) -> some View {
         VStack(spacing: 14) {
             Image(systemName: icon).font(.system(size: 34, weight: .semibold)).foregroundStyle(AppTheme.accent)
             Text(title).font(.headline.weight(.bold))
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button(action: action) {
-                Text(actionTitle).font(.subheadline.weight(.bold)).frame(minHeight: 44)
+
+            switch prominence {
+            case .primary:
+                Button(action: action) {
+                    Text(actionTitle).font(.subheadline.weight(.bold)).frame(minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accentFilled)
+
+            case .secondary:
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.subheadline.weight(.bold))
+                        // Quieter, not smaller: the full width keeps the
+                        // target easy to hit even though the fill is gone.
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(AppTheme.accent)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AppTheme.accentFilled)
         }
         .frame(maxWidth: .infinity)
         .padding(24)
