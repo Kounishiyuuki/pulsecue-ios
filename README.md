@@ -156,5 +156,5 @@ iOS アプリです。
 確認でき、写真ライブラリからの選択はシミュレータでも動作します。設計・運用メモは `Docs/` に
 あります。
 
-UI の実装とレビューは `Docs/ui-engineering-guidelines.md`（Native-first / HIG-first）に
-従ってください。
+UI の実装とレビューは [Docs/ui-engineering-guidelines.md](Docs/ui-engineering-guidelines.md)
+（Native-first / HIG-first）に従ってください。

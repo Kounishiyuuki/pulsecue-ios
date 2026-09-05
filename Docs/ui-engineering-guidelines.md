@@ -75,7 +75,7 @@ Dynamic Type に追随する最小ヒット領域、押下フィードバック�
 - ジェスチャーだけで操作可能な行
 
 判断基準はひとつ: **それはドメインのコンポジションか、コントロールの再実装か。**
-前者なら書いてよい。後者なら §7 の説明責任を負う。
+前者なら書いてよい。後者なら [§7 の説明責任](#7-カスタムコントロールを新設する場合の説明責任)を負う。
 
 ---
 
@@ -110,25 +110,62 @@ PulseCue のアクセントカラーは `.tint` で当たる。
 - `onTapGesture` だけで行う画面遷移
 - 同一 destination への primary route の重複（正規の入口は原則ひとつ）
 - 不要な `NavigationStack` のネスト
-- presentation の所有権を子へ移すこと
+- 同じ presentation を複数の View が別々に所有すること
+- **必要のない所有権の hoisting**
 
-**presentation の所有権は root に置く。** 例として Runner の `fullScreenCover` は
-`ContentView` が所有しており、Home からでも Training からでも同じライフサイクルになる。
-子が自前で presentation state を持つと、同じ画面が二重に開いたり、セッションが
-二重に作られたりする。
+### presentation state は誰が持つか
+
+**それを必要とする、最小かつ安定した owner が持つ。**
+
+多くの場合それは feature 自身である。sheet や alert を root へ持ち上げるのは
+既定の作法ではなく、理由が要る操作である。
+
+**feature-local な presentation は feature が持ってよい**（推奨される形）:
+
+| 例 | owner |
+|---|---|
+| ログインシート | [`AccountSettingsSection`](../Pulse%20Cue/Views/Settings/AccountSettingsSection.swift) |
+| オンボーディング再表示 / 通知アラート | [`AppPreferencesSection`](../Pulse%20Cue/Views/Settings/AppPreferencesSection.swift) |
+| 食事入力・スキャナ各シート | [`NutritionView`](../Pulse%20Cue/Views/NutritionView.swift) |
+
+これらを root へ hoist することは**推奨しない**。ログインシートの開閉を
+`ContentView` が知る理由はなく、持ち上げれば無関係な階層に状態が増えるだけである。
+
+### ancestor / root へ昇格する理由
+
+次のいずれかに当てはまるとき、共通の祖先（多くは root）へ昇格する:
+
+- 複数の feature / entry point から起動される
+- presentation の lifecycle を feature をまたいで維持する必要がある
+- 単一のグローバルな presentation truth が必要
+- dismissal / resume / session の所有が feature-local では成立しない
+
+**例: Runner。** ホームからもトレーニングからも開始でき、中断して戻ってから再開でき、
+セッションの生存期間が画面の生存期間より長い。この3つの要件から共通祖先での所有が
+導かれ、実際に [`ContentView`](../Pulse%20Cue/App/ContentView.swift) が
+`RunnerPresenter` と `fullScreenCover` を持っている。**Runner がそうだから他も
+そうする、ではない** — 要件が同じものだけが同じ結論になる。
 
 ---
 
 ## 6. state の所有権
 
-| 層 | 持つもの |
+| 種類 | owner |
 |---|---|
-| View | 表示とコンポジション |
-| ViewModel / domain | 業務上の真実（セッション、集計、永続状態） |
-| root | 適切な範囲の presentation ownership |
+| domain / session の真実 | domain model・ViewModel など適切な所有者 |
+| feature の presentation state | その feature の、最小かつ安定した所有者 |
+| 一時的なローカル UI state | View のローカル state でよい |
+| feature をまたぐ / グローバルな presentation | 正当な理由があるときの共通祖先・root |
 
-**表示用のカスタム View が domain truth を `@State` として複製しない。**
-値とアクションクロージャを親から受け取る形にする。
+**「View は state を持つな」という規則ではない。** 展開状態、フォーカス、入力途中の
+テキスト、シートの開閉といった一時的な UI state は、それを使う View が持つのが正しい。
+
+避けるべきなのは所有ではなく**複製**である:
+
+- 同じ問いに二か所が別々に答えられる状態
+- 表示用のカスタム View が domain truth を `@State` にコピーすること
+- child と root が同じ presentation を同時に管理すること
+- presentation の都合だけで domain truth を複製すること
 
 ```swift
 // 良い: 受け取って描画し、タップを返す
@@ -172,8 +209,46 @@ struct TodayTrainingCard: View {
 **標準コントロールが無償で提供しているアクセシビリティを、カスタム実装で失わない。**
 これがカスタムコントロールを避ける最大の実務的理由である。
 
-視覚的優先度を下げることと、タップ領域を小さくすることは**別**。
-`.bordered` に落とすのはよいが、44pt を割ってはいけない。
+### 44pt は標準コントロールを使えば自動で満たされるわけではない
+
+`Button` を使うこと自体は、ヒット領域が 44pt あることを**保証しない**。
+`.plain` スタイル、`.controlSize(.small)`、アイコンだけの label、詰まったレイアウトでは
+実際のタップ領域が 44pt を下回りうる。標準コントロールが与えるのは意味論
+（traits・focus・disabled の伝播）であって、寸法ではない。
+
+したがって:
+
+1. まず native control を選ぶ
+2. その上で、**実際のヒット領域**が十分かを確認する
+3. 足りなければ、意味論を壊さない形で調整する — `.frame(minHeight:)` /
+   `.padding` / `.contentShape(_:)` など
+
+**視覚的な大きさとヒット領域は別物**である。`.borderedProminent` のラベルの見た目が
+44pt に見えても、実際に反応する領域がそうとは限らない。逆に、視覚的優先度を下げること
+（`.borderedProminent` → `.bordered`）とタップ領域を小さくすることも**別**である。
+弱くしてよいが、小さくしてはいけない。
+
+### `contentShape` は anti-pattern ではない
+
+`Button` や `NavigationLink` の**内部**で、行やカード全体を確実にタップ領域にするために
+`.contentShape(Rectangle())` を使うのは正しい用法である。`Button` の意味論はそのまま
+残るため、これは再実装ではない。
+
+避けるべきなのは組み合わせのほうである:
+
+```swift
+// 良い: semantic control の中でタップ領域を正す
+NavigationLink { ... } label: {
+    HStack { ... }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+}
+
+// 避ける: contentShape + onTapGesture で Button を作り直す
+HStack { ... }
+    .contentShape(Rectangle())
+    .onTapGesture { ... }
+```
 
 ---
 
@@ -200,12 +275,15 @@ secondary / tertiary のアクションを同じ prominence で並べない。sy
 - [ ] `onTapGesture` を `Button` / `NavigationLink` に置き換えられないか
 - [ ] カスタム View はドメインのコンポジションか、コントロールの再実装か
 - [ ] primary / secondary の階層は明確か（primary はひとつか）
-- [ ] ヒット領域は 44pt 以上か
+- [ ] **実際の**ヒット領域は 44pt 以上か（標準コントロールでも自動では満たされない）
 - [ ] VoiceOver の label / hint / traits は正しいか
 - [ ] AX XXXL で破綻しないか
 - [ ] standard style で十分ではないか
 - [ ] 視覚的アイデンティティのために意味論を犠牲にしていないか
-- [ ] navigation / state の所有権が二重化していないか
+- [ ] presentation state の owner は**最小かつ安定**か（「root か」ではない）
+- [ ] 同じ truth を複数の owner が持っていないか
+- [ ] 複数 entry point があるのに共通 owner がないままになっていないか
+- [ ] feature-local な state を理由なく hoist していないか
 
 ---
 
