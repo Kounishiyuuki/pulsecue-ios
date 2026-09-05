@@ -142,6 +142,45 @@ final class TrainingUXPolishUITests: XCTestCase {
         )
     }
 
+    // MARK: - The fixture is what it claims to be
+
+    func testTheTwentyRoutineFixtureRendersTwentyRoutines() {
+        // Without this, every "with twenty routines" assertion below would
+        // still pass if the fixture silently seeded one — the More entry does
+        // not move for a reason that has nothing to do with the library.
+        let app = trainingTab(routines: 20)
+
+        // The library's own section header counts what it drew.
+        XCTAssertTrue(
+            app.staticTexts["20件"].waitForExistence(timeout: 15),
+            "the library is not showing 20 routines"
+        )
+
+        // And both ends of the list are reachable. The newest sorts first, so
+        // 20 is at the top and 1 is behind the search.
+        XCTAssertTrue(
+            app.buttons["ルーティン 20"].firstMatch.waitForExistence(timeout: 15)
+                || app.staticTexts["ルーティン 20"].firstMatch.exists,
+            "the last seeded routine is missing"
+        )
+
+        let search = app.textFields["ルーティン名を検索"]
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "the search field is missing")
+        search.tap()
+        // "01" names exactly one routine — the fixture zero-pads for this —
+        // and it is ASCII, which types reliably where a Japanese string goes
+        // through the input method.
+        search.typeText("01")
+
+        // Matched either way: the name is a label inside the routine card, and
+        // which element type carries it is a SwiftUI detail.
+        XCTAssertTrue(
+            app.staticTexts["ルーティン 01"].firstMatch.waitForExistence(timeout: 15)
+                || app.buttons["ルーティン 01"].firstMatch.exists,
+            "the first seeded routine cannot be found"
+        )
+    }
+
     func testMoreDoesNotMoveAsTheLibraryGrows() {
         // The entry sits above the library, so its position is a function of
         // the Today card and nothing else. One routine and twenty put Today in
@@ -275,6 +314,46 @@ final class TrainingUXPolishUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             planCreate.frame.height, 44,
             "the Plan create target is under 44pt at AX XXXL"
+        )
+    }
+
+    // MARK: - A search that matches nothing is its own state
+
+    func testASearchWithNoMatchesOffersItsOwnAction() {
+        // Not the empty-library card: the library is full, a filter is hiding
+        // it, and the way out is clearing the search — which stays the loudest
+        // thing on that screen. `RoutineLibraryPlaceholderTests` pins the
+        // prominence itself; this pins that the state is reached at all and
+        // that it is not the create card.
+        let app = trainingTab(routines: 20)
+
+        let search = app.textFields["ルーティン名を検索"]
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "the search field is missing")
+        search.tap()
+        search.typeText("該当なしのはずの検索語")
+
+        XCTAssertTrue(
+            app.staticTexts["一致するルーティンがありません"].waitForExistence(timeout: 15),
+            "the no-matches placeholder did not appear"
+        )
+        let clear = app.buttons["検索をクリア"].firstMatch
+        XCTAssertTrue(clear.waitForExistence(timeout: 10), "検索をクリア is missing")
+        // Deliberately no size assertion here: this card's styling is main's,
+        // untouched by this PR, and XCUI reports the label's frame rather than
+        // the bordered button's hit area. Asserting it would be testing
+        // SwiftUI's measurement, not the contract this PR is about.
+
+        // The create placeholder belongs to an empty library and must not be
+        // what a filtered one shows.
+        XCTAssertFalse(
+            app.staticTexts["最初のルーティンを作成"].exists,
+            "a filtered library is showing the empty-library card"
+        )
+
+        clear.tap()
+        XCTAssertTrue(
+            app.staticTexts["20件"].waitForExistence(timeout: 15),
+            "clearing the search did not restore the library"
         )
     }
 }

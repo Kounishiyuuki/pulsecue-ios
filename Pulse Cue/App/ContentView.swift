@@ -201,7 +201,11 @@ private enum PulseCueUITestFixtureSeeder {
         let existing = (try? modelContext.fetchCount(FetchDescriptor<Routine>())) ?? 0
         guard existing == 0 else { return }
         for index in 0..<count {
-            let routine = Routine(name: "ルーティン \(index + 1)", origin: .userSaved)
+            // Zero-padded so a search can name exactly one of them: with
+            // plain numbering, "1" also matches 10 through 19, and a test
+            // that wants the first routine cannot ask for it.
+            let name = String(format: "ルーティン %02d", index + 1)
+            let routine = Routine(name: name, origin: .userSaved)
             modelContext.insert(routine)
             modelContext.insert(
                 Step(
