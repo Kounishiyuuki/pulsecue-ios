@@ -281,7 +281,15 @@ struct AICoachView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(option.title) — \(option.detail)\(isSelected ? "、選択中" : "")")
+        .accessibilityLabel("\(option.title) — \(option.detail)")
+        // Selection as a trait, not as words appended to the label. VoiceOver
+        // announces a selected element itself, in the user's language and
+        // with its own conventions; spelling it into the label said the same
+        // thing in one hardcoded phrasing and left the element itself
+        // unselected as far as the system was concerned. The other two
+        // selection surfaces — `QuickPlanConditionView`,
+        // `TargetBodyPartSelectionView` — already do it this way.
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Primary CTA / privacy footer
