@@ -68,9 +68,37 @@ final class MeRouteUITests: XCTestCase {
     func testHealthShowsTheHealthKitIntegration() {
         let app = appShowing("ヘルスケア")
 
+        // One element carrying the label and its status: the row reports a
+        // state, so it reads as a sentence rather than as a heading followed
+        // by a loose word.
+        let row = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "ヘルスデータ連携")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "ヘルスケア opened without the HealthKit row")
         XCTAssertTrue(
-            app.staticTexts["ヘルスデータ連携"].waitForExistence(timeout: 10),
-            "ヘルスケア opened without the HealthKit row"
+            row.label.contains("未対応") || row.label.contains("許可済み"),
+            "the HealthKit row does not report a status: \(row.label)"
+        )
+    }
+
+    func testHealthKitStatusIsNotOfferedAsASwitch() {
+        // It used to end in a disabled `Toggle` bound to a literal — a switch
+        // no action could move, which VoiceOver announced as a dimmed control.
+        // This build has no HealthKit integration to turn on, so the row
+        // reports state and offers no control at all.
+        //
+        // Safe to assert as an absence: this screen's only other control is
+        // the AI transmission scope, which is a segmented picker rather than
+        // a switch.
+        let app = appShowing("ヘルスケア")
+
+        XCTAssertTrue(
+            app.staticTexts["AI 送信範囲"].waitForExistence(timeout: 10),
+            "ヘルスケア did not finish rendering"
+        )
+        XCTAssertEqual(
+            app.switches.count, 0,
+            "the health section still offers a switch"
         )
     }
 
