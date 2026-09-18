@@ -43,6 +43,18 @@ struct HealthSettingsSection: View {
         }
     }
 
+    /// A status row, not a setting.
+    ///
+    /// This used to end in `Toggle("", isOn: .constant(false)).disabled(true)`
+    /// — a switch wired to a literal, that no user action could ever move.
+    /// VoiceOver read it as a dimmed switch, which says "you could turn this
+    /// on, but not now"; the truth is that this build has no HealthKit
+    /// integration to turn on at all. `HealthKitImporterProvider.shared` is
+    /// the no-op importer and nothing reassigns it.
+    ///
+    /// So the row reports state instead of offering a control. The badge is
+    /// the same status vocabulary the account row beside it uses, and it is
+    /// `Text` in a capsule — presentation, not a switch drawn by hand.
     private var healthKitRow: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -53,20 +65,21 @@ struct HealthSettingsSection: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.pink)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("ヘルスデータ連携")
-                    .font(.subheadline.weight(.semibold))
-                Text(healthKitStatusLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Toggle("", isOn: .constant(false))
-                .labelsHidden()
-                .disabled(true)
-                .tint(.pink)
-                .accessibilityLabel("ヘルスデータ連携 \(healthKitStatusLabel)")
+            Text("ヘルスデータ連携")
+                .font(.subheadline.weight(.semibold))
+            Spacer(minLength: 8)
+            PulseStatusBadge(healthKitStatusLabel, kind: healthKitStatusKind)
         }
+        // One element: the label and its status are one fact, and read apart
+        // they are a heading and a loose word.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("ヘルスデータ連携 \(healthKitStatusLabel)")
+        // Wraps rather than clips at accessibility sizes.
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var healthKitStatusKind: PulseStatusBadge.Kind {
+        HealthKitImporterProvider.shared.isAvailable ? .success : .info
     }
 
     private var healthKitStatusLabel: String {
