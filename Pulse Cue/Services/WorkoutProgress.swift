@@ -189,6 +189,68 @@ struct ExerciseProgressInsight: Equatable, Identifiable {
 
 enum WorkoutProgressQuery {
 
+    /// A value that changes whenever `exerciseInsights` would return something
+    /// different.
+    ///
+    /// Separate from `HomeProgressSummary.ChangeSignature` because the two
+    /// derivations read different things. The weekly summary never looks at a
+    /// rep count or at which step a set belonged to; these insights are built
+    /// from almost nothing else. Folding them into one signature would make
+    /// Home recompute its totals every time a rep was edited, and — the way it
+    /// actually went wrong — left the insights cache blind to every edit that
+    /// kept the row count the same.
+    ///
+    /// The session side is deliberately absent: `exerciseInsights` reads a
+    /// session's `status` and `startedAt`, both already carried by the summary
+    /// signature that travels alongside this one.
+    struct InsightSignature: Equatable {
+        fileprivate let results: [ResultMark]
+        fileprivate let steps: [StepMark]
+    }
+
+    /// What a set contributes: whether it counts, how many reps, and which
+    /// exercise and position it belongs to. Editing any of them changes a
+    /// number on screen while leaving the array the same length.
+    fileprivate struct ResultMark: Equatable {
+        let id: UUID
+        let done: Bool
+        let actualReps: Int?
+        let sessionId: UUID
+        let stepId: UUID
+        let setIndex: Int
+    }
+
+    /// A step reaches the insights only as "which exercise, called what".
+    /// Sets, rest and notes are not read here, so they are not included — a
+    /// signature that serialised whole models would recompute on every
+    /// unrelated edit.
+    fileprivate struct StepMark: Equatable {
+        let id: UUID
+        let exerciseId: String?
+        let title: String
+    }
+
+    static func insightSignature(
+        steps: [Step],
+        results: [StepResult]
+    ) -> InsightSignature {
+        InsightSignature(
+            results: results.map {
+                ResultMark(
+                    id: $0.id,
+                    done: $0.done,
+                    actualReps: $0.actualReps,
+                    sessionId: $0.sessionId,
+                    stepId: $0.stepId,
+                    setIndex: $0.setIndex
+                )
+            },
+            steps: steps.map {
+                StepMark(id: $0.id, exerciseId: $0.exerciseId, title: $0.title)
+            }
+        )
+    }
+
     /// Per-exercise insights, most-recently-trained first, limited to `limit`.
     /// Only completed sets with a rep count are used; exercises with no
     /// resolvable id (custom machines) are skipped. Deterministic.

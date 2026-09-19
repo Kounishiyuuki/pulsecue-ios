@@ -60,7 +60,11 @@ struct WorkoutProgressView: View {
             scope: dataScope.scope,
             allSessions: allSessions,
             allResults: allStepResults,
-            routines: routines
+            routines: routines,
+            // This screen also renders per-exercise insights, so the reps,
+            // positions and exercise identities they are built from are part
+            // of what "changed" means here.
+            allSteps: allSteps
         )
     }
 

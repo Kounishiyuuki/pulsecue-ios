@@ -403,6 +403,179 @@ struct AccountDataPolicyTests {
         #expect(guest != account)
     }
 
+    /// One completed session, one step, one recorded set — the smallest
+    /// fixture the exercise insights will actually read.
+    private static func seedOneSetOfHistory(
+        _ context: ModelContext,
+        owner: UUID?,
+        routine: Routine
+    ) -> (session: Session, step: Step, result: StepResult) {
+        let step = Step(
+            routineId: routine.id,
+            order: 0,
+            title: "ベンチプレス",
+            sets: 1,
+            repsTarget: 10,
+            restSeconds: 60,
+            exerciseId: "barbell-bench-press"
+        )
+        context.insert(step)
+        let session = Session(
+            routineId: routine.id,
+            dayDate: Date(),
+            startedAt: Date(),
+            endedAt: Date(),
+            status: .completed,
+            totalSeconds: 600,
+            ownerAccountID: owner
+        )
+        context.insert(session)
+        let result = StepResult(
+            sessionId: session.id,
+            stepId: step.id,
+            setIndex: 0,
+            done: true,
+            actualReps: 10,
+            ownerAccountID: owner
+        )
+        context.insert(result)
+        return (session, step, result)
+    }
+
+    /// Signature + insights over the same fixture, always in step.
+    private static func insightState(
+        _ context: ModelContext,
+        scope: WorkoutDataScope,
+        routines: [Routine]
+    ) throws -> (signature: ScopedProgressSignature, insights: [ExerciseProgressInsight]) {
+        let allSessions = try context.fetch(FetchDescriptor<Session>())
+        let allResults = try context.fetch(FetchDescriptor<StepResult>())
+        let allSteps = try context.fetch(FetchDescriptor<Step>())
+        return (
+            ScopedProgressSignature(
+                scope: scope,
+                allSessions: allSessions,
+                allResults: allResults,
+                routines: routines,
+                allSteps: allSteps
+            ),
+            WorkoutProgressQuery.exerciseInsights(
+                steps: allSteps,
+                sessions: scope.visible(allSessions),
+                results: scope.visible(allResults)
+            )
+        )
+    }
+
+    @Test("Editing a rep count changes the signature, with the row count unchanged")
+    func signatureTracksActualReps() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let routine = Routine(name: "胸の日")
+        context.insert(routine)
+        let seeded = Self.seedOneSetOfHistory(context, owner: a, routine: routine)
+        try context.save()
+
+        let before = try Self.insightState(context, scope: .account(a), routines: [routine])
+        seeded.result.actualReps = 12
+        try context.save()
+        let after = try Self.insightState(context, scope: .account(a), routines: [routine])
+
+        // Same number of rows throughout — only the value changed.
+        #expect(try context.fetchCount(FetchDescriptor<StepResult>()) == 1)
+        #expect(before.insights.first?.latestReps == [10])
+        #expect(after.insights.first?.latestReps == [12])
+        #expect(before.signature != after.signature)
+    }
+
+    @Test("Changing which exercise a step is changes the signature")
+    func signatureTracksExerciseIdentity() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let routine = Routine(name: "胸の日")
+        context.insert(routine)
+        let seeded = Self.seedOneSetOfHistory(context, owner: a, routine: routine)
+        try context.save()
+
+        let before = try Self.insightState(context, scope: .account(a), routines: [routine])
+        seeded.step.exerciseId = "dumbbell-bench-press"
+        seeded.step.title = "ダンベルベンチプレス"
+        try context.save()
+        let after = try Self.insightState(context, scope: .account(a), routines: [routine])
+
+        #expect(before.insights.first?.exerciseId == "barbell-bench-press")
+        #expect(after.insights.first?.exerciseId == "dumbbell-bench-press")
+        #expect(before.signature != after.signature)
+    }
+
+    @Test("Moving a set to another step or position changes the signature")
+    func signatureTracksStepIdAndSetIndex() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let routine = Routine(name: "胸の日")
+        context.insert(routine)
+        let seeded = Self.seedOneSetOfHistory(context, owner: a, routine: routine)
+        let otherStep = Step(
+            routineId: routine.id,
+            order: 1,
+            title: "インクラインプレス",
+            sets: 1,
+            repsTarget: 10,
+            restSeconds: 60,
+            exerciseId: "incline-bench-press"
+        )
+        context.insert(otherStep)
+        try context.save()
+
+        let start = try Self.insightState(context, scope: .account(a), routines: [routine])
+        seeded.result.setIndex = 1
+        try context.save()
+        let movedPosition = try Self.insightState(context, scope: .account(a), routines: [routine])
+        seeded.result.stepId = otherStep.id
+        try context.save()
+        let movedStep = try Self.insightState(context, scope: .account(a), routines: [routine])
+
+        #expect(start.signature != movedPosition.signature)
+        #expect(movedPosition.signature != movedStep.signature)
+        #expect(movedStep.insights.first?.exerciseId == "incline-bench-press")
+    }
+
+    @Test("Adding a step nobody trained does not invalidate the insights cache")
+    func signatureIgnoresFieldsTheInsightsNeverRead() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let routine = Routine(name: "胸の日")
+        context.insert(routine)
+        let seeded = Self.seedOneSetOfHistory(context, owner: a, routine: routine)
+        try context.save()
+
+        let before = try Self.insightState(context, scope: .account(a), routines: [routine])
+        // Rest and notes reach no figure on this screen.
+        seeded.step.restSeconds = 120
+        seeded.step.note = "フォーム注意"
+        try context.save()
+        let after = try Self.insightState(context, scope: .account(a), routines: [routine])
+
+        #expect(before.signature == after.signature)
+    }
+
+    @Test("The insight inputs do not disturb the account-scope guarantee")
+    func insightSignatureKeepsScopeSeparation() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let b = UUID()
+        let routine = Routine(name: "胸の日")
+        context.insert(routine)
+        Self.seedOneSetOfHistory(context, owner: a, routine: routine)
+        Self.seedOneSetOfHistory(context, owner: b, routine: routine)
+        try context.save()
+
+        let forA = try Self.insightState(context, scope: .account(a), routines: [routine])
+        let forB = try Self.insightState(context, scope: .account(b), routines: [routine])
+
+        #expect(forA.signature != forB.signature)
+    }
+
     // MARK: - Adoption is all or nothing
 
     @Test("A refused adoption leaves no row half-adopted, then or later")
@@ -443,6 +616,140 @@ struct AccountDataPolicyTests {
         #expect(unrelated.ownerAccountID == nil)
         #expect(try store.outboxItems(for: a, in: context).isEmpty)
         #expect(try store.guestSessions(in: context).count == 3)
+    }
+
+    /// A store whose commit always fails, so the *write* phase can be reached
+    /// and its restore proven.
+    ///
+    /// The earlier atomicity test never got this far: it was refused during
+    /// preflight, which proves the checks run early and nothing about what
+    /// happens once rows have actually been reassigned.
+    private struct CommitFailure: Error {}
+
+    private static var failingCommitStore: AccountScopedSyncStore {
+        AccountScopedSyncStore { _ in throw CommitFailure() }
+    }
+
+    @Test("A commit that fails after the owners are set leaves none of them set")
+    func writePhaseFailureRestoresEveryOwner() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let session = Self.session(context, owner: nil)
+        let other = Self.session(context, owner: nil)
+        let result = Self.result(context, of: session, owner: nil)
+        try context.save()
+
+        #expect(throws: CommitFailure.self) {
+            try Self.failingCommitStore.adoptGuestWorkoutData(for: a, in: context)
+        }
+
+        #expect(session.ownerAccountID == nil)
+        #expect(other.ownerAccountID == nil)
+        #expect(result.ownerAccountID == nil)
+        #expect(try AccountScopedSyncStore().outboxItems(for: a, in: context).isEmpty)
+    }
+
+    @Test("Nothing from a failed write phase survives a later unrelated save")
+    func writePhaseFailureSurvivesASubsequentSave() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let session = Self.session(context, owner: nil)
+        let result = Self.result(context, of: session, owner: nil)
+        try context.save()
+
+        #expect(throws: CommitFailure.self) {
+            try Self.failingCommitStore.adoptGuestWorkoutData(for: a, in: context)
+        }
+
+        // The failure mode this exists for: dirty objects left in the context
+        // get committed by whatever saves next.
+        let unrelated = Self.session(context, owner: nil)
+        try context.save()
+
+        let store = AccountScopedSyncStore()
+        #expect(session.ownerAccountID == nil)
+        #expect(result.ownerAccountID == nil)
+        #expect(unrelated.ownerAccountID == nil)
+        #expect(try store.outboxItems(for: a, in: context).isEmpty)
+        #expect(try store.guestSessions(in: context).count == 2)
+        #expect(try store.syncCandidateSessions(for: a, in: context).isEmpty)
+
+        // And it really is gone from the store, not just from these objects.
+        let reread = try context.fetch(FetchDescriptor<Session>())
+        #expect(reread.allSatisfy { $0.ownerAccountID == nil })
+        #expect(try context.fetchCount(FetchDescriptor<SyncOutboxItem>()) == 0)
+    }
+
+    @Test("A failed write phase restores a pre-existing queue entry rather than deleting it")
+    func writePhaseFailureRestoresExistingOutboxEntries() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let guest = Self.session(context, owner: nil)
+        // An entry this account already owed the server for the same id, and
+        // an unrelated one that must not be touched either.
+        let stamped = Date(timeIntervalSince1970: 1_000)
+        let relevant = SyncOutboxItem(
+            identity: SyncOutboxItem.identity(accountID: a, entityType: .session, entityID: guest.id),
+            accountID: a,
+            entityType: .session,
+            entityID: guest.id,
+            mutation: .upsert,
+            createdAt: stamped,
+            updatedAt: stamped
+        )
+        let unrelatedID = UUID()
+        let unrelated = SyncOutboxItem(
+            identity: SyncOutboxItem.identity(accountID: a, entityType: .stepResult, entityID: unrelatedID),
+            accountID: a,
+            entityType: .stepResult,
+            entityID: unrelatedID,
+            mutation: .upsert,
+            createdAt: stamped,
+            updatedAt: stamped
+        )
+        context.insert(relevant)
+        context.insert(unrelated)
+        try context.save()
+
+        #expect(throws: CommitFailure.self) {
+            try Self.failingCommitStore
+                .adoptGuestWorkoutData(for: a, in: context, now: Date(timeIntervalSince1970: 9_000))
+        }
+        try context.save()
+
+        // Deleting it as "cleanup" would drop a mutation still owed to the
+        // server, which is worse than the partial adoption it was cleaning up.
+        let queued = try AccountScopedSyncStore().outboxItems(for: a, in: context)
+        #expect(queued.count == 2)
+        let restored = try #require(queued.first { $0.entityID == guest.id })
+        #expect(restored.mutation == .upsert)
+        #expect(restored.updatedAt == stamped)
+        #expect(restored.createdAt == stamped)
+        let untouched = try #require(queued.first { $0.entityID == unrelatedID })
+        #expect(untouched.updatedAt == stamped)
+        #expect(guest.ownerAccountID == nil)
+    }
+
+    @Test("A successful adoption still commits everything")
+    func successfulAdoptionIsUnaffectedByTheRestorePath() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let session = Self.session(context, owner: nil)
+        let result = Self.result(context, of: session, owner: nil)
+        try context.save()
+
+        let store = AccountScopedSyncStore()
+        let first = try store.adoptGuestWorkoutData(for: a, in: context)
+        #expect(first == .init(adoptedSessions: 1, adoptedStepResults: 1))
+        #expect(session.ownerAccountID == a)
+        #expect(result.ownerAccountID == a)
+        #expect(try store.outboxItems(for: a, in: context).count == 2)
+
+        // Idempotency is unchanged by the rewrite.
+        let second = try store.adoptGuestWorkoutData(for: a, in: context)
+        #expect(second == .nothing)
+        #expect(try store.outboxItems(for: a, in: context).count == 2)
+        #expect(session.ownerAccountID == a)
     }
 
     @Test("A refused adoption can be retried once the obstacle is gone")

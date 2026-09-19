@@ -156,7 +156,13 @@ enum WorkoutDataScope: Equatable {
 struct ScopedProgressSignature: Equatable {
     let scope: WorkoutDataScope
     let history: HomeProgressSummary.ChangeSignature
+    /// Present only on screens that actually render per-exercise insights.
+    /// Nil elsewhere so Home and Training do not recompute their weekly totals
+    /// every time a rep count is edited — a figure neither of them displays.
+    let insights: WorkoutProgressQuery.InsightSignature?
 
+    /// For the weekly summary alone.
+    ///
     /// Takes the *unscoped* arrays and filters them here, so the signature and
     /// the value it guards cannot be computed over different inputs.
     init(
@@ -170,6 +176,32 @@ struct ScopedProgressSignature: Equatable {
             sessions: scope.visible(allSessions),
             results: scope.visible(allResults),
             routines: routines
+        )
+        self.insights = nil
+    }
+
+    /// For a screen that also renders per-exercise insights.
+    ///
+    /// Steps are not scoped: a `Step` belongs to a routine, not to an account,
+    /// and the insights only reach one through a result that is already in
+    /// scope.
+    init(
+        scope: WorkoutDataScope,
+        allSessions: [Session],
+        allResults: [StepResult],
+        routines: [Routine],
+        allSteps: [Step]
+    ) {
+        self.scope = scope
+        let visibleResults = scope.visible(allResults)
+        self.history = HomeProgressSummary.changeSignature(
+            sessions: scope.visible(allSessions),
+            results: visibleResults,
+            routines: routines
+        )
+        self.insights = WorkoutProgressQuery.insightSignature(
+            steps: allSteps,
+            results: visibleResults
         )
     }
 }

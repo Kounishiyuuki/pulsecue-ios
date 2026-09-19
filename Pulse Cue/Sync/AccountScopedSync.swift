@@ -224,7 +224,24 @@ enum AccountScopedSyncError: Error, Equatable {
 /// not to a body.
 struct AccountScopedSyncStore {
 
-    init() {}
+    /// How a completed change reaches disk.
+    ///
+    /// Production saves the context, and that is the only behaviour shipped.
+    /// It is a stored function rather than a direct `save()` call so the one
+    /// path that cannot be provoked from outside — a commit that fails after
+    /// the owners have been reassigned — can be exercised and its restore
+    /// proven. Nothing else in the type is substitutable, and nothing reads it
+    /// but the adoption apply phase.
+    private let commit: (ModelContext) throws -> Void
+
+    init() {
+        self.commit = { try $0.save() }
+    }
+
+    /// Only for proving the failure path. Production uses `init()`.
+    init(commit: @escaping (ModelContext) throws -> Void) {
+        self.commit = commit
+    }
 
     // MARK: Ownership
 
@@ -301,36 +318,87 @@ struct AccountScopedSyncStore {
     /// gone — stays unowned rather than being uploaded into a session this
     /// account does not have.
     ///
-    /// **All or nothing.** Adoption runs in two phases, and the split is the
-    /// whole point of the shape below.
+    /// **All or nothing**, and the shape below is how that is achieved rather
+    /// than hoped for.
     ///
-    /// Everything that can refuse the operation is decided first, while
-    /// nothing has been written. Only then are owners assigned. Interleaving
-    /// the two — check a row, write it, check the next — is what made a
-    /// half-finished adoption possible: the throw came after earlier rows had
-    /// already been reassigned, and those objects stay dirty in the
-    /// `ModelContext` whether or not this function saved. The next unrelated
-    /// `save()` anywhere in the app would then commit a partial adoption that
-    /// nobody asked for and no error mentioned.
+    /// Adoption is split so that *nothing which can fail runs after the first
+    /// write*. Preflight reads and validates everything and builds a plan;
+    /// apply does assignments the compiler can see cannot throw, and commits.
     ///
-    /// The write phase can still fail at `save()` — a disk is a disk — so it
-    /// also undoes precisely what it did: the owners it set, and the queue
-    /// entries it inserted. Undoing by hand rather than `context.rollback()`
-    /// because rollback discards *every* unsaved change in the context,
-    /// including work this operation never touched.
+    /// Interleaving the two is what made a half-finished adoption possible.
+    /// A throw partway through — from a lookup, a tombstone check, anything —
+    /// arrived with earlier rows already reassigned, and those objects stay
+    /// dirty in the `ModelContext` whether or not this function saved. The
+    /// next unrelated `save()` anywhere in the app then committed a partial
+    /// adoption nobody asked for and no error mentioned. Moving the checks
+    /// earlier was not enough on its own: the write loop still *looked up* the
+    /// queue entry it had just written, and a throw there was a mutation with
+    /// no record of itself.
+    ///
+    /// The commit can still fail, so apply undoes exactly what it did —
+    /// owners back to the values the plan recorded, inserted queue entries
+    /// removed, and pre-existing queue entries restored field by field. A
+    /// pre-existing entry is never deleted as part of "cleanup": it was not
+    /// this operation's to remove, and deleting it would drop a mutation still
+    /// owed to the server.
+    ///
+    /// Deliberately not `context.rollback()`: that discards *every* unsaved
+    /// change in the context, including work this operation never touched.
     @discardableResult
     func adoptGuestWorkoutData(
         for accountID: UUID,
         in context: ModelContext,
         now: Date = Date()
     ) throws -> GuestAdoptionSummary {
-        // ---- Phase 1: decide. No writes. ----
+        let plan = try preflightAdoption(for: accountID, in: context)
+        guard !plan.isEmpty else { return .nothing }
+        try apply(plan, for: accountID, in: context, now: now)
+        return GuestAdoptionSummary(
+            adoptedSessions: plan.sessions.count,
+            adoptedStepResults: plan.results.count
+        )
+    }
 
+    // MARK: Adoption plan
+
+    /// What one queue entry will become, and what it was.
+    ///
+    /// `existing == nil` means this operation inserts the entry, so undoing is
+    /// deleting it. Otherwise the entry was already there and undoing means
+    /// putting its fields back — not removing a row the operation found.
+    private struct OutboxStep {
+        let identity: String
+        let entityType: SyncEntityType
+        let entityID: UUID
+        let existing: SyncOutboxItem?
+        let previousMutation: SyncMutationKind?
+        let previousUpdatedAt: Date?
+    }
+
+    /// Everything the write phase needs, resolved and validated in advance.
+    ///
+    /// Holds live model objects but has not touched a property on any of
+    /// them — building a plan is a read.
+    private struct AdoptionPlan {
+        let sessions: [(row: Session, previousOwner: UUID?)]
+        let results: [(row: StepResult, previousOwner: UUID?)]
+        let outbox: [OutboxStep]
+
+        var isEmpty: Bool { sessions.isEmpty && results.isEmpty }
+    }
+
+    /// Phase 1. Every fetch, every refusal, zero writes.
+    ///
+    /// If this throws, the context carries nothing from adoption.
+    private func preflightAdoption(
+        for accountID: UUID,
+        in context: ModelContext
+    ) throws -> AdoptionPlan {
         let sessions = try guestSessions(in: context)
 
-        // Sessions this account will own once the write phase runs: the ones
-        // adopted now, plus any adopted in an earlier run, so a guest result
-        // left behind previously is still picked up.
+        // Sessions this account will own once apply runs: the ones adopted now
+        // plus any adopted in an earlier run, so a guest result left behind
+        // previously is still picked up.
         var ownedSessionIDs = Set(
             try syncCandidateSessions(for: accountID, in: context).map(\.id)
         )
@@ -342,64 +410,102 @@ struct AccountScopedSyncStore {
             )
         ).filter { ownedSessionIDs.contains($0.sessionId) }
 
-        // Anything this account has already deleted for good stops the whole
-        // adoption here, before a single owner has been touched.
-        for session in sessions
-        where try isTombstoned(.session, session.id, for: accountID, in: context) {
-            throw AccountScopedSyncError.tombstoneIsTerminal(.session, session.id)
+        var outbox: [OutboxStep] = []
+        for session in sessions {
+            outbox.append(try outboxStep(.session, session.id, for: accountID, in: context))
         }
-        for result in results
-        where try isTombstoned(.stepResult, result.id, for: accountID, in: context) {
-            throw AccountScopedSyncError.tombstoneIsTerminal(.stepResult, result.id)
+        for result in results {
+            outbox.append(try outboxStep(.stepResult, result.id, for: accountID, in: context))
         }
 
-        // ---- Phase 2: write, and undo exactly this on failure. ----
-
-        var queued: [SyncOutboxItem] = []
-        do {
-            for session in sessions {
-                session.ownerAccountID = accountID
-                try recordSessionMutation(.upsert, session, for: accountID, in: context, now: now)
-                queued.append(contentsOf: try queuedItem(.session, session.id, accountID, context))
-            }
-            for result in results {
-                result.ownerAccountID = accountID
-                try recordStepResultMutation(.upsert, result, for: accountID, in: context, now: now)
-                queued.append(contentsOf: try queuedItem(.stepResult, result.id, accountID, context))
-            }
-            try context.save()
-        } catch {
-            for session in sessions { session.ownerAccountID = nil }
-            for result in results { result.ownerAccountID = nil }
-            for item in queued { context.delete(item) }
-            throw error
-        }
-
-        return GuestAdoptionSummary(
-            adoptedSessions: sessions.count,
-            adoptedStepResults: results.count
+        return AdoptionPlan(
+            sessions: sessions.map { ($0, $0.ownerAccountID) },
+            results: results.map { ($0, $0.ownerAccountID) },
+            outbox: outbox
         )
     }
 
-    /// The queue entry just written for this entity, so the write phase can
-    /// take it back. An array rather than an optional purely so the caller
-    /// reads as one line.
-    private func queuedItem(
+    /// Resolve one entity's queue entry, refusing anything already finished.
+    ///
+    /// Both refusals live here, in preflight, for the same reason: the server
+    /// answers `409 record_deleted` for an entity it has buried, and a delete
+    /// still waiting to be sent is the same promise not yet kept.
+    private func outboxStep(
         _ entityType: SyncEntityType,
         _ entityID: UUID,
-        _ accountID: UUID,
-        _ context: ModelContext
-    ) throws -> [SyncOutboxItem] {
+        for accountID: UUID,
+        in context: ModelContext
+    ) throws -> OutboxStep {
+        if try isTombstoned(entityType, entityID, for: accountID, in: context) {
+            throw AccountScopedSyncError.tombstoneIsTerminal(entityType, entityID)
+        }
         let identity = SyncOutboxItem.identity(
             accountID: accountID,
             entityType: entityType,
             entityID: entityID
         )
-        return try context.fetch(
+        let existing = try context.fetch(
             FetchDescriptor<SyncOutboxItem>(
                 predicate: #Predicate { $0.identity == identity }
             )
+        ).first
+        if existing?.mutation == .delete {
+            throw AccountScopedSyncError.tombstoneIsTerminal(entityType, entityID)
+        }
+        return OutboxStep(
+            identity: identity,
+            entityType: entityType,
+            entityID: entityID,
+            existing: existing,
+            previousMutation: existing?.mutation,
+            previousUpdatedAt: existing?.updatedAt
         )
+    }
+
+    /// Phase 2. Assignments and inserts only — no fetch, no validation, and
+    /// the single throwing call is the commit at the end.
+    private func apply(
+        _ plan: AdoptionPlan,
+        for accountID: UUID,
+        in context: ModelContext,
+        now: Date
+    ) throws {
+        var inserted: [SyncOutboxItem] = []
+
+        for entry in plan.sessions { entry.row.ownerAccountID = accountID }
+        for entry in plan.results { entry.row.ownerAccountID = accountID }
+        for step in plan.outbox {
+            if let existing = step.existing {
+                existing.mutation = .upsert
+                existing.updatedAt = now
+            } else {
+                let item = SyncOutboxItem(
+                    identity: step.identity,
+                    accountID: accountID,
+                    entityType: step.entityType,
+                    entityID: step.entityID,
+                    mutation: .upsert,
+                    createdAt: now,
+                    updatedAt: now
+                )
+                context.insert(item)
+                inserted.append(item)
+            }
+        }
+
+        do {
+            try commit(context)
+        } catch {
+            for entry in plan.sessions { entry.row.ownerAccountID = entry.previousOwner }
+            for entry in plan.results { entry.row.ownerAccountID = entry.previousOwner }
+            for item in inserted { context.delete(item) }
+            for step in plan.outbox {
+                guard let existing = step.existing else { continue }
+                if let mutation = step.previousMutation { existing.mutation = mutation }
+                if let updatedAt = step.previousUpdatedAt { existing.updatedAt = updatedAt }
+            }
+            throw error
+        }
     }
 
     // MARK: Cursor
