@@ -5,12 +5,17 @@ import SwiftUI
 /// available through navigation instead of an analytics-style overview.
 struct HistoryView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
-    private var sessions: [Session]
+    private var allSessions: [Session]
 
     @Query(sort: [SortDescriptor(\Routine.updatedAt, order: .reverse)])
     private var routines: [Routine]
+
+    /// History for whoever is signed in. The other rows stay in the store —
+    /// they are simply not this account's to show.
+    private var sessions: [Session] { dataScope.scope.visible(allSessions) }
 
     @State private var visibleCount = 10
     private let pageSize = 10

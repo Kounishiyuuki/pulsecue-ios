@@ -26,6 +26,7 @@ struct TodayView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject var runnerViewModel: RunnerViewModel
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     /// Re-present the Runner cover for an already-active workout. Owned by
     /// ContentView (`RunnerPresenter.resume`) so no new Session is created.
@@ -47,10 +48,14 @@ struct TodayView: View {
     // Workout history for the Home progress summary / "repeat" action. Derived
     // read-only via `WorkoutProgress`; never mutated here.
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
-    private var sessions: [Session]
-    @Query private var stepResults: [StepResult]
+    private var allSessions: [Session]
+    @Query private var allStepResults: [StepResult]
     @Query private var routines: [Routine]
     @Query private var allSteps: [Step]
+
+    /// Home shows the signed-in account's training, and only theirs.
+    private var sessions: [Session] { dataScope.scope.visible(allSessions) }
+    private var stepResults: [StepResult] { dataScope.scope.visible(allStepResults) }
     /// Every day log, used only as a change trigger for the weight cache.
     ///
     /// `recentLogs` is bounded to the fourteen days this screen renders, so a
@@ -277,9 +282,12 @@ struct TodayView: View {
     /// Counting rows missed two things the summary shows: the completion of a
     /// workout, which mutates an existing `Session` rather than adding one,
     /// and the name of the routine it was — see `changeSignature`.
-    private var progressSignature: HomeProgressSummary.ChangeSignature {
-        HomeProgressSummary.changeSignature(
-            sessions: sessions, results: stepResults, routines: routines
+    private var progressSignature: ScopedProgressSignature {
+        ScopedProgressSignature(
+            scope: dataScope.scope,
+            allSessions: allSessions,
+            allResults: allStepResults,
+            routines: routines
         )
     }
 

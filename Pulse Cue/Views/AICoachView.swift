@@ -29,12 +29,18 @@ struct AICoachView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
-    private var sessions: [Session]
+    private var unscopedSessions: [Session]
 
-    @Query private var allStepResults: [StepResult]
+    @Query private var unscopedStepResults: [StepResult]
     @Query private var allDayLogs: [DayLog]
+
+    /// Advice is a statement about the signed-in account's own training, so it
+    /// is built from that account's rows and no others.
+    private var sessions: [Session] { dataScope.scope.visible(unscopedSessions) }
+    private var allStepResults: [StepResult] { dataScope.scope.visible(unscopedStepResults) }
 
     @State private var savedAlertVisible = false
     @State private var selectedOptionId: UUID?

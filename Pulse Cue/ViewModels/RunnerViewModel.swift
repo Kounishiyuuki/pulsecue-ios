@@ -43,6 +43,11 @@ final class RunnerViewModel: ObservableObject {
     @Published private(set) var completion: WorkoutCompletionSummary?
 
     private var modelContext: ModelContext?
+    /// Whose workouts this Runner may start, resume and read.
+    ///
+    /// Defaults to `.guest` so the DEBUG QA roots and the existing tests — all
+    /// of which work with unowned data — behave exactly as they did.
+    private var scope: WorkoutDataScope = .guest
     private var routine: Routine?
     private var steps: [Step] = []
     private var session: Session?
@@ -62,15 +67,70 @@ final class RunnerViewModel: ObservableObject {
         self.notificationManager = notificationManager ?? NotificationManager.shared
     }
 
-    func configure(modelContext: ModelContext) {
+    func configure(modelContext: ModelContext, scope: WorkoutDataScope = .guest) {
         guard !isConfigured else { return }
         self.modelContext = modelContext
+        self.scope = scope
         self.isConfigured = true
         restoreIfPossible()
     }
 
+    /// React to the signed-in account changing underneath a running app.
+    ///
+    /// Two things have to happen, in this order. A workout that is no longer
+    /// in scope is let go of — an account switch must not leave the previous
+    /// account's set still counting down on screen — and then whatever *is* in
+    /// scope is picked up, so signing back in returns you to your own workout.
+    ///
+    /// Letting go is in-memory only. The session row keeps its owner and the
+    /// saved resume point is left exactly where it is, because the workout is
+    /// not abandoned: it belongs to somebody who is not currently signed in,
+    /// and they are entitled to find it again.
+    func applyScope(_ newScope: WorkoutDataScope) {
+        guard isConfigured, newScope != scope else {
+            scope = newScope
+            return
+        }
+        scope = newScope
+        if let session, !newScope.matches(ownerAccountID: session.ownerAccountID) {
+            detachFromActiveSession()
+        }
+        if session == nil {
+            restoreIfPossible()
+        }
+    }
+
+    /// Drop the in-memory workout without touching the stored session or the
+    /// saved resume point.
+    private func detachFromActiveSession() {
+        if let sessionId {
+            cancelRestNotification(for: sessionId)
+        }
+        stopTimer()
+        invalidateCompleteContext()
+        invalidateAttention()
+        completion = nil
+        session = nil
+        sessionId = nil
+        routine = nil
+        routineId = nil
+        steps = []
+        currentStepIndex = 0
+        currentSetIndex = 0
+        currentReps = 0
+        phase = .done
+        restDeadline = nil
+        remainingSeconds = 0
+        previousPerformance = nil
+        progression = nil
+    }
+
     func start(routine: Routine) {
         guard let modelContext else { return }
+        // No workout is started under an unknown scope. It would have to guess
+        // an owner, and the harmless-looking guess — "guest for now" — makes an
+        // account holder's workout invisible the moment their session confirms.
+        guard scope.canCreateWorkouts else { return }
         completion = nil
         invalidateCompleteContext()
         stopTimer()
@@ -87,7 +147,11 @@ final class RunnerViewModel: ObservableObject {
         self.restDeadline = nil
         self.remainingSeconds = 0
 
-        let session = Session(routineId: routine.id, dayDate: DateUtils.startOfDay(Date()))
+        let session = Session(
+            routineId: routine.id,
+            dayDate: DateUtils.startOfDay(Date()),
+            ownerAccountID: scope.creationOwnerAccountID
+        )
         modelContext.insert(session)
         self.session = session
         self.sessionId = session.id
@@ -275,8 +339,11 @@ final class RunnerViewModel: ObservableObject {
             return
         }
         let allSteps = (try? modelContext.fetch(FetchDescriptor<Step>())) ?? []
-        let allSessions = (try? modelContext.fetch(FetchDescriptor<Session>())) ?? []
-        let allResults = (try? modelContext.fetch(FetchDescriptor<StepResult>())) ?? []
+        // History in scope only: a previous-performance number is a claim about
+        // what *you* lifted last time, and the current account's is the only
+        // honest source for it.
+        let allSessions = scope.visible((try? modelContext.fetch(FetchDescriptor<Session>())) ?? [])
+        let allResults = scope.visible((try? modelContext.fetch(FetchDescriptor<StepResult>())) ?? [])
 
         let previous = PreviousPerformanceQuery.latest(
             exerciseId: exerciseId,
@@ -516,7 +583,7 @@ final class RunnerViewModel: ObservableObject {
         routine = nil
         steps = []
         session = nil
-        RunnerPersistence.clear()
+        RunnerPersistence.clear(scope: scope)
     }
 
     private func recordStepResult(done: Bool, actualReps: Int?) {
@@ -533,12 +600,17 @@ final class RunnerViewModel: ObservableObject {
             existing.actualReps = actualReps
             return
         }
+        // Owner comes from the parent session, never from the current account.
+        // Reading the account here would let a result be written under a
+        // different owner than the workout it belongs to — the one pair the
+        // server's composite foreign key refuses.
         let result = StepResult(
             sessionId: sessionId,
             stepId: step.id,
             setIndex: currentSetIndex,
             done: done,
-            actualReps: actualReps
+            actualReps: actualReps,
+            ownerAccountID: session?.ownerAccountID
         )
         modelContext.insert(result)
     }
@@ -717,11 +789,11 @@ final class RunnerViewModel: ObservableObject {
             restDeadline: restDeadline,
             lastUpdatedAt: Date()
         )
-        RunnerPersistence.save(state)
+        RunnerPersistence.save(state, scope: scope)
     }
 
     private func restoreIfPossible() {
-        guard let modelContext, let state = RunnerPersistence.load() else { return }
+        guard let modelContext, let state = RunnerPersistence.load(scope: scope) else { return }
 
         let sessionDescriptor = FetchDescriptor<Session>(predicate: #Predicate<Session> { $0.id == state.sessionId })
         let routineDescriptor = FetchDescriptor<Routine>(predicate: #Predicate<Routine> { $0.id == state.routineId })
@@ -729,15 +801,21 @@ final class RunnerViewModel: ObservableObject {
         guard let session = try? modelContext.fetch(sessionDescriptor).first,
               let routine = try? modelContext.fetch(routineDescriptor).first else {
             cancelRestNotification(for: state.sessionId)
-            RunnerPersistence.clear()
+            RunnerPersistence.clear(scope: scope)
             return
         }
 
         if session.status != .inProgress {
             cancelRestNotification(for: state.sessionId)
-            RunnerPersistence.clear()
+            RunnerPersistence.clear(scope: scope)
             return
         }
+
+        // Out of scope: somebody else's workout, or ours before the account is
+        // confirmed. Return without clearing — unlike a finished or deleted
+        // session, this one is still resumable, just not by whoever is holding
+        // the phone right now.
+        guard scope.matches(ownerAccountID: session.ownerAccountID) else { return }
 
         self.session = session
         self.routine = routine

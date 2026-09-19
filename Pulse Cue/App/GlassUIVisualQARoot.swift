@@ -55,6 +55,10 @@ struct GlassUIVisualQARoot: View {
     @Query private var gyms: [Gym]
     @Query private var sessions: [Session]
     @State private var seedingFailed = false
+    /// The QA fixtures are unowned data and this root never signs in, so every
+    /// screen below renders in guest scope — exactly what they showed before
+    /// scoping existed.
+    @StateObject private var dataScope = WorkoutDataScopeResolver(fixed: .guest)
 
     var body: some View {
         Group {
@@ -69,6 +73,7 @@ struct GlassUIVisualQARoot: View {
                 ProgressView("Visual QA fixtureを準備中…")
             }
         }
+        .environmentObject(dataScope)
         .task {
             guard gyms.isEmpty else { return }
             do {
