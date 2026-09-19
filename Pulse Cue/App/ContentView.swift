@@ -14,6 +14,7 @@ struct ContentView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var authSession: AuthSessionStore
     @EnvironmentObject var serverAccount: ServerAccountStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     @State private var selectedTab: AppTab = PrimaryNavigation.defaultTab
     @StateObject private var runnerPresenter = RunnerPresenter()
@@ -81,7 +82,7 @@ struct ContentView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .preferredColorScheme(.dark)
         .task {
-            runnerViewModel.configure(modelContext: modelContext)
+            runnerViewModel.configure(modelContext: modelContext, scope: dataScope.scope)
             PulseCueUITestFixtureSeeder.seedIfNeeded(modelContext: modelContext)
             SampleDataSeeder.seedIfNeeded(modelContext: modelContext)
             // `configure` may recover a session persisted from a previous
@@ -106,6 +107,13 @@ struct ContentView: View {
         // never started/ended from here.
         .onChange(of: runnerViewModel.shouldPresentRunner) { _, shouldPresent in
             runnerPresenter.syncPresentation(shouldPresent: shouldPresent)
+        }
+        // The signed-in account changing is the one event that can make an
+        // active workout not ours — and, coming the other way, can hand one
+        // back. The Runner decides what that means; this only tells it.
+        .onChange(of: dataScope.scope) { _, scope in
+            runnerViewModel.applyScope(scope)
+            runnerPresenter.syncPresentation(shouldPresent: runnerViewModel.shouldPresentRunner)
         }
         .fullScreenCover(isPresented: onboardingPresented) {
             OnboardingView {

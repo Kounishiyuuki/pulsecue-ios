@@ -162,8 +162,14 @@ struct AccountScopedSyncMigrationTests {
 
             try Self.openV6Store(at: url) { context in
                 let store = AccountScopedSyncStore()
+                let session = Session(
+                    routineId: UUID(),
+                    dayDate: Date(),
+                    ownerAccountID: account
+                )
+                context.insert(session)
                 try store.advanceCursor(for: account, to: 9, in: context)
-                try store.record(.delete, .session, UUID(), for: account, in: context)
+                try store.recordSessionMutation(.upsert, session, for: account, in: context)
                 try context.save()
 
                 #expect(try store.cursor(for: account, in: context)?.lastPulledSequence == 9)

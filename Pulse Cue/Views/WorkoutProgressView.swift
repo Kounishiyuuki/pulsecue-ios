@@ -13,11 +13,17 @@ import SwiftUI
 import SwiftData
 
 struct WorkoutProgressView: View {
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
+
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
-    private var sessions: [Session]
-    @Query private var stepResults: [StepResult]
+    private var allSessions: [Session]
+    @Query private var allStepResults: [StepResult]
     @Query private var routines: [Routine]
     @Query private var allSteps: [Step]
+
+    /// Progress is a claim about the signed-in account's own training.
+    private var sessions: [Session] { dataScope.scope.visible(allSessions) }
+    private var stepResults: [StepResult] { dataScope.scope.visible(allStepResults) }
 
     @State private var summary: HomeProgressSummary = .empty
     @State private var insights: [ExerciseProgressInsight] = []
@@ -42,8 +48,20 @@ struct WorkoutProgressView: View {
         .navigationTitle("進捗")
         .navigationBarTitleDisplayMode(.inline)
         .task { recompute() }
-        .onChange(of: sessions.count) { _, _ in recompute() }
-        .onChange(of: stepResults.count) { _, _ in recompute() }
+        .onChange(of: progressSignature) { _, _ in recompute() }
+    }
+
+    /// What the cached figures are derived from — row identity and the scope,
+    /// not row counts. Counting is what let an account switch between two
+    /// people with the same number of workouts leave the previous account's
+    /// totals on screen.
+    private var progressSignature: ScopedProgressSignature {
+        ScopedProgressSignature(
+            scope: dataScope.scope,
+            allSessions: allSessions,
+            allResults: allStepResults,
+            routines: routines
+        )
     }
 
     private func recompute() {

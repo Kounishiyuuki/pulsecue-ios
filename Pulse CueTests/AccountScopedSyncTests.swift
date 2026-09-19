@@ -23,7 +23,7 @@ struct AccountScopedSyncTests {
     // MARK: - Fixture
 
     private static func makeContext() throws -> ModelContext {
-        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV7.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -262,46 +262,51 @@ struct AccountScopedSyncTests {
         let context = try Self.makeContext()
         let a = UUID()
         let b = UUID()
-        let entity = UUID()
+        let session = Self.insertSession(context, owner: a)
+        try context.save()
         let store = AccountScopedSyncStore()
 
-        try store.record(.upsert, .session, entity, for: a, in: context)
+        try store.recordSessionMutation(.upsert, session, for: a, in: context)
         try context.save()
 
         let aItems = try store.outboxItems(for: a, in: context)
         #expect(aItems.count == 1)
-        #expect(aItems.first?.entityID == entity)
+        #expect(aItems.first?.entityID == session.id)
         #expect(aItems.first?.entityType == .session)
         #expect(aItems.first?.mutation == .upsert)
         #expect(try store.outboxItems(for: b, in: context).isEmpty)
     }
 
-    @Test("Two accounts can hold an entry for the same entity id, separately")
-    func theSameEntityIdIsSeparatePerAccount() throws {
-        let context = try Self.makeContext()
+    @Test("The queue key separates two accounts holding the same entity id")
+    func theSameEntityIdIsSeparatePerAccount() {
         let a = UUID()
         let b = UUID()
         let entity = UUID()
-        let store = AccountScopedSyncStore()
 
-        try store.record(.upsert, .session, entity, for: a, in: context)
-        try store.record(.delete, .session, entity, for: b, in: context)
-        try context.save()
-
-        #expect(try store.outboxItems(for: a, in: context).first?.mutation == .upsert)
-        #expect(try store.outboxItems(for: b, in: context).first?.mutation == .delete)
+        // The entity id is the server's id and is only unique *per user*
+        // (`PRIMARY KEY (user_id, id)`), so the local key has to carry the
+        // account too or one account's entry lands on the other's.
+        #expect(
+            SyncOutboxItem.identity(accountID: a, entityType: .session, entityID: entity)
+                != SyncOutboxItem.identity(accountID: b, entityType: .session, entityID: entity)
+        )
+        #expect(
+            SyncOutboxItem.identity(accountID: a, entityType: .session, entityID: entity)
+                != SyncOutboxItem.identity(accountID: a, entityType: .stepResult, entityID: entity)
+        )
     }
 
     @Test("Recording the same mutation again is one entry, not two")
     func recordingIsIdempotentPerEntity() throws {
         let context = try Self.makeContext()
         let a = UUID()
-        let entity = UUID()
+        let session = Self.insertSession(context, owner: a)
+        try context.save()
         let store = AccountScopedSyncStore()
 
-        try store.record(.upsert, .session, entity, for: a, in: context)
-        try store.record(.upsert, .session, entity, for: a, in: context)
-        try store.record(.upsert, .session, entity, for: a, in: context)
+        try store.recordSessionMutation(.upsert, session, for: a, in: context)
+        try store.recordSessionMutation(.upsert, session, for: a, in: context)
+        try store.recordSessionMutation(.upsert, session, for: a, in: context)
         try context.save()
 
         #expect(try store.outboxItems(for: a, in: context).count == 1)
@@ -311,11 +316,13 @@ struct AccountScopedSyncTests {
     func deleteSupersedesAPendingUpsert() throws {
         let context = try Self.makeContext()
         let a = UUID()
-        let entity = UUID()
+        let session = Self.insertSession(context, owner: a)
+        let result = Self.insertResult(context, session: session, owner: a)
+        try context.save()
         let store = AccountScopedSyncStore()
 
-        try store.record(.upsert, .stepResult, entity, for: a, in: context)
-        try store.record(.delete, .stepResult, entity, for: a, in: context)
+        try store.recordStepResultMutation(.upsert, result, for: a, in: context)
+        try store.recordStepResultMutation(.delete, result, for: a, in: context)
         try context.save()
 
         let items = try store.outboxItems(for: a, in: context)
@@ -323,18 +330,19 @@ struct AccountScopedSyncTests {
         #expect(items.first?.mutation == .delete)
     }
 
-    @Test("A tombstone is terminal: an upsert after a delete is refused")
-    func tombstoneIsTerminal() throws {
+    @Test("A pending delete is terminal: an upsert behind it is refused")
+    func pendingDeleteIsTerminal() throws {
         let context = try Self.makeContext()
         let a = UUID()
-        let entity = UUID()
+        let session = Self.insertSession(context, owner: a)
+        try context.save()
         let store = AccountScopedSyncStore()
 
-        try store.record(.delete, .session, entity, for: a, in: context)
+        try store.recordSessionMutation(.delete, session, for: a, in: context)
         try context.save()
 
-        #expect(throws: AccountScopedSyncError.tombstoneIsTerminal(.session, entity)) {
-            try store.record(.upsert, .session, entity, for: a, in: context)
+        #expect(throws: AccountScopedSyncError.tombstoneIsTerminal(.session, session.id)) {
+            try store.recordSessionMutation(.upsert, session, for: a, in: context)
         }
         #expect(try store.outboxItems(for: a, in: context).first?.mutation == .delete)
     }
@@ -344,11 +352,13 @@ struct AccountScopedSyncTests {
         let context = try Self.makeContext()
         let a = UUID()
         let b = UUID()
-        let entity = UUID()
+        let aSession = Self.insertSession(context, owner: a)
+        let bSession = Self.insertSession(context, owner: b)
+        try context.save()
         let store = AccountScopedSyncStore()
 
-        try store.record(.upsert, .session, entity, for: a, in: context)
-        try store.record(.upsert, .session, entity, for: b, in: context)
+        try store.recordSessionMutation(.upsert, aSession, for: a, in: context)
+        try store.recordSessionMutation(.upsert, bSession, for: b, in: context)
         try context.save()
 
         let sent = try #require(try store.outboxItems(for: a, in: context).first)

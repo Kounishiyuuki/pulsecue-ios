@@ -24,11 +24,11 @@ struct Pulse_CueApp: App {
     // provider link above. With no API base URL configured — the shipped state
     // today — this sits in `.notConfigured` and touches nothing: Guest and
     // every local feature behave exactly as before.
-    @StateObject private var serverAccount = ServerAccountStore(
-        api: PulseCueAccountAPIClient(configuration: .fromMainBundle()),
-        tokenStore: KeychainServerSessionTokenStore(),
-        deviceName: UIDevice.current.name
-    )
+    @StateObject private var serverAccount: ServerAccountStore
+    // Whose workout data the app is showing and resuming, derived from the
+    // account state above. Read-only with respect to the account: it observes
+    // and never writes back, so sign-in, sign-out and deletion are untouched.
+    @StateObject private var dataScope: WorkoutDataScopeResolver
 
     var sharedModelContainer: ModelContainer = {
         // In-memory (never opening the user's persistent V4 store) for the
@@ -46,13 +46,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV6.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV7.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             return try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV6.self),
+                for: Schema(versionedSchema: PulseCueSchemaV7.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -70,6 +70,13 @@ struct Pulse_CueApp: App {
         }
         _settings = StateObject(wrappedValue: settings)
         _runnerViewModel = StateObject(wrappedValue: RunnerViewModel(settings: settings))
+        let account = ServerAccountStore(
+            api: PulseCueAccountAPIClient(configuration: .fromMainBundle()),
+            tokenStore: KeychainServerSessionTokenStore(),
+            deviceName: UIDevice.current.name
+        )
+        _serverAccount = StateObject(wrappedValue: account)
+        _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(account: account))
     }
 
     var body: some Scene {
@@ -106,10 +113,14 @@ struct Pulse_CueApp: App {
 
     private var normalRoot: some View {
         ContentView()
+            // Applied before the environment objects below, so the prompt's
+            // own body is inside them rather than wrapped around them.
+            .guestWorkoutAdoptionPrompt()
             .environmentObject(settings)
             .environmentObject(runnerViewModel)
             .environmentObject(authSession)
             .environmentObject(serverAccount)
+            .environmentObject(dataScope)
     }
 
     /// Routes incoming URLs to GoogleSignIn only. Returns immediately when the
@@ -526,6 +537,34 @@ enum PulseCueSchemaV6: VersionedSchema {
     }
 }
 
+/// Adds `SyncTombstone`: which entities an account has deleted, for good.
+///
+/// Purely additive — one new entity, no change to any existing model — so it
+/// is lightweight and existing rows are never enumerated. Nothing is
+/// backfilled: a store upgrading to V7 has no tombstones, which is correct,
+/// because nothing has been uploaded yet and so nothing has been deleted
+/// server-side to remember.
+enum PulseCueSchemaV7: VersionedSchema {
+    static var versionIdentifier = Schema.Version(7, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Routine.self,
+            Step.self,
+            Session.self,
+            StepResult.self,
+            DayLog.self,
+            MealEntry.self,
+            UserProfile.self,
+            Gym.self,
+            GymMachine.self,
+            CustomMachine.self,
+            SyncCursor.self,
+            SyncOutboxItem.self,
+            SyncTombstone.self
+        ]
+    }
+}
+
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -534,7 +573,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV3.self,
             PulseCueSchemaV4.self,
             PulseCueSchemaV5.self,
-            PulseCueSchemaV6.self
+            PulseCueSchemaV6.self,
+            PulseCueSchemaV7.self
         ]
     }
 
@@ -559,6 +599,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV5.self,
                 toVersion: PulseCueSchemaV6.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV6.self,
+                toVersion: PulseCueSchemaV7.self
             )
         ]
     }

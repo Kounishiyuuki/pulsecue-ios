@@ -41,6 +41,11 @@
 		0030153F89E046C493437F05 /* StepResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A1C70A4F4C4790A97F5998 /* StepResult.swift */; };
 		0B22E96C2DEA44F1A240BB25 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = F53D2167ACB84391A781A5F8 /* Session.swift */; };
 		C0FFEE0000000000000C0002 /* AccountScopedSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000C0001 /* AccountScopedSync.swift */; };
+		C0FFEE0000000000000D0002 /* WorkoutDataScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0001 /* WorkoutDataScope.swift */; };
+		C0FFEE0000000000000D0004 /* GuestWorkoutAdoptionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0003 /* GuestWorkoutAdoptionPrompt.swift */; };
+		C0FFEE0000000000000D0006 /* WorkoutDataScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */; };
+		C0FFEE0000000000000D0008 /* AccountDataPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */; };
+		C0FFEE0000000000000D000A /* SyncTombstoneMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0009 /* SyncTombstoneMigrationTests.swift */; };
 		C0FFEE0000000000000C0004 /* AccountScopedSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000C0003 /* AccountScopedSyncTests.swift */; };
 		C0FFEE0000000000000C0006 /* AccountScopedSyncMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000C0005 /* AccountScopedSyncMigrationTests.swift */; };
 		11D66B1ADAFF48799ED94A65 /* Routine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */; };
@@ -525,6 +530,11 @@
 		EEA51C8303A042F49C6E267B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F53D2167ACB84391A781A5F8 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000C0001 /* AccountScopedSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopedSync.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000D0001 /* WorkoutDataScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDataScope.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000D0003 /* GuestWorkoutAdoptionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestWorkoutAdoptionPrompt.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDataScopeTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDataPolicyTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000D0009 /* SyncTombstoneMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTombstoneMigrationTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000C0003 /* AccountScopedSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopedSyncTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000C0005 /* AccountScopedSyncMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopedSyncMigrationTests.swift; sourceTree = "<group>"; };
 		F7C6345AAB114B9B95FCCF6D /* RunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerView.swift; sourceTree = "<group>"; };
@@ -744,6 +754,7 @@
 				9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */,
 				D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */,
 				2FD02E7540234858B9B7F496 /* HistoryView.swift */,
+				C0FFEE0000000000000D0003 /* GuestWorkoutAdoptionPrompt.swift */,
 				AAB10C000000000000003001 /* MeView.swift */,
 				C0DE13700000000000000002 /* ExerciseLibraryView.swift */,
 				7F38FF5AE06247CA876EF7E0 /* InfoCard.swift */,
@@ -1014,6 +1025,7 @@
 			isa = PBXGroup;
 			children = (
 				C0FFEE0000000000000C0001 /* AccountScopedSync.swift */,
+				C0FFEE0000000000000D0001 /* WorkoutDataScope.swift */,
 			);
 			path = Sync;
 			sourceTree = "<group>";
@@ -1151,6 +1163,9 @@
 				AAB10C0000000000000000D3 /* AppleSignInResultTests.swift */,
 				AAB10C0000000000000000FC /* GoogleSignInResultTests.swift */,
 				C0FFEE0000000000000C0003 /* AccountScopedSyncTests.swift */,
+				C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */,
+				C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */,
+				C0FFEE0000000000000D0009 /* SyncTombstoneMigrationTests.swift */,
 				C0FFEE0000000000000C0005 /* AccountScopedSyncMigrationTests.swift */,
 			);
 			path = "Pulse CueTests";
@@ -1377,6 +1392,8 @@
 				11D66B1ADAFF48799ED94A65 /* Routine.swift in Sources */,
 				0B22E96C2DEA44F1A240BB25 /* Session.swift in Sources */,
 				C0FFEE0000000000000C0002 /* AccountScopedSync.swift in Sources */,
+				C0FFEE0000000000000D0002 /* WorkoutDataScope.swift in Sources */,
+				C0FFEE0000000000000D0004 /* GuestWorkoutAdoptionPrompt.swift in Sources */,
 				3468F1E5463D451698CE3737 /* Step.swift in Sources */,
 				0030153F89E046C493437F05 /* StepResult.swift in Sources */,
 				A23D57A79B7F4E2893F935BD /* NotificationManager.swift in Sources */,
@@ -1574,6 +1591,9 @@
 			files = (
 				AAB10C00000000000000200F /* ServerAccountSessionTests.swift in Sources */,
 				C0FFEE0000000000000C0004 /* AccountScopedSyncTests.swift in Sources */,
+				C0FFEE0000000000000D0006 /* WorkoutDataScopeTests.swift in Sources */,
+				C0FFEE0000000000000D0008 /* AccountDataPolicyTests.swift in Sources */,
+				C0FFEE0000000000000D000A /* SyncTombstoneMigrationTests.swift in Sources */,
 				C0FFEE0000000000000C0006 /* AccountScopedSyncMigrationTests.swift in Sources */,
 				AAB10C000000000000002031 /* ProviderSignInGateTests.swift in Sources */,
 				AAB10C000000000000002035 /* ProviderPermitEpochTests.swift in Sources */,
