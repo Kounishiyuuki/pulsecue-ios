@@ -81,11 +81,11 @@ struct StepExerciseIdMigrationTests {
     /// V3 → V4 lightweight stage).
     private static func openV4Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
         let config = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV5.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV6.self),
             url: url
         )
         let container = try ModelContainer(
-            for: Schema(versionedSchema: PulseCueSchemaV5.self),
+            for: Schema(versionedSchema: PulseCueSchemaV6.self),
             migrationPlan: PulseCueMigrationPlan.self,
             configurations: config
         )
@@ -121,12 +121,12 @@ struct StepExerciseIdMigrationTests {
                     id: Self.routineId, name: "胸の日",
                     createdAt: Self.createdAt, updatedAt: Self.updatedAt, isPinned: true
                 ))
-                context.insert(Session(
+                context.insert(PulseCueSchemaV1.Session(
                     id: Self.sessionId, routineId: Self.routineId, dayDate: Self.createdAt,
                     startedAt: Self.updatedAt, endedAt: Self.endedAt,
                     status: .completed, totalSeconds: 800
                 ))
-                context.insert(StepResult(
+                context.insert(PulseCueSchemaV1.StepResult(
                     id: Self.resultId, sessionId: Self.sessionId, stepId: Self.step0Id,
                     setIndex: 0, done: true, actualReps: 10, memo: "完了"
                 ))
@@ -213,7 +213,7 @@ struct StepExerciseIdMigrationTests {
             title: "ウォームアップ", sets: 1, repsTarget: 15, restSeconds: 30,
             note: "", isWarmup: true
         ))
-        let session = Session(
+        let session = PulseCueSchemaV1.Session(
             id: sessionId,
             routineId: routineId,
             dayDate: createdAt,
@@ -223,7 +223,7 @@ struct StepExerciseIdMigrationTests {
             totalSeconds: 800
         )
         context.insert(session)
-        context.insert(StepResult(
+        context.insert(PulseCueSchemaV1.StepResult(
             id: resultId,
             sessionId: sessionId,
             stepId: step0Id,
@@ -540,14 +540,14 @@ struct StepExerciseIdMigrationTests {
                     note: "V1メモ",
                     isWarmup: false
                 ))
-                context.insert(Session(
+                context.insert(PulseCueSchemaV1.Session(
                     id: Self.sessionId,
                     routineId: Self.routineId,
                     dayDate: Self.createdAt,
                     status: .completed,
                     totalSeconds: 600
                 ))
-                context.insert(StepResult(
+                context.insert(PulseCueSchemaV1.StepResult(
                     id: Self.resultId,
                     sessionId: Self.sessionId,
                     stepId: Self.step0Id,
@@ -560,8 +560,10 @@ struct StepExerciseIdMigrationTests {
             try Self.openV2Store(at: url) { context in
                 let routines = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Routine>())
                 let steps = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Step>())
-                let sessions = try context.fetch(FetchDescriptor<Session>())
-                let results = try context.fetch(FetchDescriptor<StepResult>())
+                // V2's Session / StepResult are the version-specific legacy
+                // shapes (no ownerAccountID), as its Routine and Step are.
+                let sessions = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Session>())
+                let results = try context.fetch(FetchDescriptor<PulseCueSchemaV1.StepResult>())
                 #expect(routines.count == 1)
                 #expect(steps.count == 1)
                 #expect(sessions.count == 1)

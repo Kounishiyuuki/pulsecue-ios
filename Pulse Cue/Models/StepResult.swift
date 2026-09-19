@@ -17,6 +17,15 @@ final class StepResult {
     var done: Bool
     var actualReps: Int?
     var memo: String?
+    /// Sync owner, mirroring `Session.ownerAccountID` for the parent session.
+    ///
+    /// The truth lives on the session; it is duplicated here because the
+    /// server's `step_results` row carries `user_id` of its own (composite key
+    /// `(user_id, id)`, composite FK `(user_id, session_id)`), and because
+    /// there is no SwiftData relationship to traverse — `sessionId` is a plain
+    /// UUID. `AccountScopedSyncStore` is the only writer, and it never leaves
+    /// a result owned by an account other than its session's.
+    var ownerAccountID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -25,7 +34,8 @@ final class StepResult {
         setIndex: Int,
         done: Bool,
         actualReps: Int? = nil,
-        memo: String? = nil
+        memo: String? = nil,
+        ownerAccountID: UUID? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -34,5 +44,6 @@ final class StepResult {
         self.done = done
         self.actualReps = actualReps
         self.memo = memo
+        self.ownerAccountID = ownerAccountID
     }
 }

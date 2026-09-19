@@ -90,7 +90,7 @@ struct GlassUIVisualQARouteTests {
     }
 
     @Test func historyFixtureHasStableConnectedRecords() throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -123,7 +123,7 @@ struct GlassUIVisualQARouteTests {
     /// Returns a retained in-memory container (the caller MUST keep it alive —
     /// `mainContext` dangles if the container deallocates).
     private func inventoryContainer() throws -> ModelContainer {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         return try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -209,7 +209,7 @@ struct GlassUIVisualQARouteTests {
     /// present a polished, active gym with machines — never the UI-test
     /// "UIテストジム" empty-machine state that the review rejected.
     @Test func homeScreenshotFixtureUsesPolishedActiveGymWithMachines() throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -236,7 +236,7 @@ struct GlassUIVisualQARouteTests {
     /// runner-active / runner-rest routes are deterministic from the fixture.
     /// Uses only the existing public Runner API (no state-machine change).
     @Test func screenshotRunnerRoutesAreDeterministicFromFixture() throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -275,7 +275,7 @@ struct GlassUIVisualQARouteTests {
     /// static exercise phase advanced past the first set — visually distinct
     /// from `runner-active`. Uses only the public Runner API.
     @Test func screenshotRunnerLaterSetIsDeterministicAndAdvanced() throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

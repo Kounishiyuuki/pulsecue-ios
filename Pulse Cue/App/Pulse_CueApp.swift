@@ -46,13 +46,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV5.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV6.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             return try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV5.self),
+                for: Schema(versionedSchema: PulseCueSchemaV6.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -341,12 +341,77 @@ enum PulseCueSchemaV1: VersionedSchema {
         }
     }
 
+    /// Version-specific historical `Session` (schemas V1–V5). Mirrors the
+    /// pre-V6 shipped `Session` exactly — same entity name "Session" and the
+    /// same attributes, with NO `ownerAccountID`. V6 uses the current
+    /// top-level `Session`. Not used by app code.
+    @Model
+    final class Session {
+        @Attribute(.unique) var id: UUID
+        var routineId: UUID
+        var dayDate: Date
+        var startedAt: Date
+        var endedAt: Date?
+        var status: SessionStatus
+        var totalSeconds: Int
+
+        init(
+            id: UUID = UUID(),
+            routineId: UUID,
+            dayDate: Date,
+            startedAt: Date = Date(),
+            endedAt: Date? = nil,
+            status: SessionStatus = .inProgress,
+            totalSeconds: Int = 0
+        ) {
+            self.id = id
+            self.routineId = routineId
+            self.dayDate = dayDate
+            self.startedAt = startedAt
+            self.endedAt = endedAt
+            self.status = status
+            self.totalSeconds = totalSeconds
+        }
+    }
+
+    /// Version-specific historical `StepResult` (schemas V1–V5). Mirrors the
+    /// pre-V6 shipped `StepResult` exactly, with NO `ownerAccountID`. Not used
+    /// by app code.
+    @Model
+    final class StepResult {
+        @Attribute(.unique) var id: UUID
+        var sessionId: UUID
+        var stepId: UUID
+        var setIndex: Int
+        var done: Bool
+        var actualReps: Int?
+        var memo: String?
+
+        init(
+            id: UUID = UUID(),
+            sessionId: UUID,
+            stepId: UUID,
+            setIndex: Int,
+            done: Bool,
+            actualReps: Int? = nil,
+            memo: String? = nil
+        ) {
+            self.id = id
+            self.sessionId = sessionId
+            self.stepId = stepId
+            self.setIndex = setIndex
+            self.done = done
+            self.actualReps = actualReps
+            self.memo = memo
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
             PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
-            Session.self,
-            StepResult.self,
+            PulseCueSchemaV1.Session.self,
+            PulseCueSchemaV1.StepResult.self,
             DayLog.self,
             MealEntry.self,
             UserProfile.self
@@ -360,8 +425,8 @@ enum PulseCueSchemaV2: VersionedSchema {
         [
             PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
-            Session.self,
-            StepResult.self,
+            PulseCueSchemaV1.Session.self,
+            PulseCueSchemaV1.StepResult.self,
             DayLog.self,
             MealEntry.self,
             UserProfile.self,
@@ -377,8 +442,8 @@ enum PulseCueSchemaV3: VersionedSchema {
         [
             PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
-            Session.self,
-            StepResult.self,
+            PulseCueSchemaV1.Session.self,
+            PulseCueSchemaV1.StepResult.self,
             DayLog.self,
             MealEntry.self,
             UserProfile.self,
@@ -395,8 +460,8 @@ enum PulseCueSchemaV4: VersionedSchema {
         [
             PulseCueSchemaV1.Routine.self,
             Step.self,
-            Session.self,
-            StepResult.self,
+            PulseCueSchemaV1.Session.self,
+            PulseCueSchemaV1.StepResult.self,
             DayLog.self,
             MealEntry.self,
             UserProfile.self,
@@ -417,6 +482,36 @@ enum PulseCueSchemaV5: VersionedSchema {
         [
             Routine.self,
             Step.self,
+            PulseCueSchemaV1.Session.self,
+            PulseCueSchemaV1.StepResult.self,
+            DayLog.self,
+            MealEntry.self,
+            UserProfile.self,
+            Gym.self,
+            GymMachine.self,
+            CustomMachine.self
+        ]
+    }
+}
+
+/// Adds the account-scoped sync foundation: `Session.ownerAccountID` and
+/// `StepResult.ownerAccountID`, plus the `SyncCursor` and `SyncOutboxItem`
+/// entities.
+///
+/// Lightweight on both counts. The two attributes are optional, so every row
+/// that already exists migrates to `nil` — which `AccountScopedSyncStore`
+/// reads as guest, unowned data. That is the only safe default: history
+/// recorded before this version says nothing about which account it belongs
+/// to, and assigning it to whoever happens to be signed in is exactly the
+/// move this whole foundation exists to make impossible. It becomes owned
+/// only through an explicit `adoptGuestWorkoutData` call. The two new
+/// entities are additive, like V1→V2 and V2→V3 before them.
+enum PulseCueSchemaV6: VersionedSchema {
+    static var versionIdentifier = Schema.Version(6, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Routine.self,
+            Step.self,
             Session.self,
             StepResult.self,
             DayLog.self,
@@ -424,7 +519,9 @@ enum PulseCueSchemaV5: VersionedSchema {
             UserProfile.self,
             Gym.self,
             GymMachine.self,
-            CustomMachine.self
+            CustomMachine.self,
+            SyncCursor.self,
+            SyncOutboxItem.self
         ]
     }
 }
@@ -436,7 +533,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV2.self,
             PulseCueSchemaV3.self,
             PulseCueSchemaV4.self,
-            PulseCueSchemaV5.self
+            PulseCueSchemaV5.self,
+            PulseCueSchemaV6.self
         ]
     }
 
@@ -457,6 +555,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV4.self,
                 toVersion: PulseCueSchemaV5.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV5.self,
+                toVersion: PulseCueSchemaV6.self
             )
         ]
     }
