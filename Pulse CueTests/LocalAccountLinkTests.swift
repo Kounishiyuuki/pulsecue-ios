@@ -243,7 +243,7 @@ struct LocalAccountLinkTests {
 
     @Test
     func unlinkingLeavesWorkoutDataAlone() throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

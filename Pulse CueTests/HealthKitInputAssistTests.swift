@@ -265,7 +265,7 @@ struct HealthKitInputAssistTests {
 
     @Test
     func fetchingWritesNothingToTheDayLog() async throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -297,7 +297,7 @@ struct HealthKitInputAssistTests {
     /// Manual entry keeps working untouched, with or without Health.
     @Test
     func manualEntryIsUnaffected() throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

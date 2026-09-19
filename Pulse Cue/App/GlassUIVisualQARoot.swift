@@ -450,7 +450,7 @@ private struct ScreenshotGymHost: View {
 
     init(mode: GlassUIVisualQAFixture.GymInventoryMode) {
         self.mode = mode
-        let schema = Schema(versionedSchema: PulseCueSchemaV5.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
         let built = try! ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

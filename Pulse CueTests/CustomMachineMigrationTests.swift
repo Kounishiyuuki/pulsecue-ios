@@ -118,9 +118,9 @@ struct CustomMachineMigrationTests {
             repsTarget: 10,
             restSeconds: 90
         ))
-        let session = Session(id: sessionId, routineId: routineId, dayDate: createdAt)
+        let session = PulseCueSchemaV1.Session(id: sessionId, routineId: routineId, dayDate: createdAt)
         context.insert(session)
-        context.insert(StepResult(
+        context.insert(PulseCueSchemaV1.StepResult(
             sessionId: sessionId,
             stepId: stepId,
             setIndex: 0,
@@ -170,8 +170,9 @@ struct CustomMachineMigrationTests {
                 let routines = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Routine>())
                 // V3 store holds the legacy Step shape.
                 let steps = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Step>())
-                let sessions = try context.fetch(FetchDescriptor<Session>())
-                let results = try context.fetch(FetchDescriptor<StepResult>())
+                // V3 holds the legacy Session / StepResult shapes too.
+                let sessions = try context.fetch(FetchDescriptor<PulseCueSchemaV1.Session>())
+                let results = try context.fetch(FetchDescriptor<PulseCueSchemaV1.StepResult>())
                 #expect(routines.count == 1)
                 #expect(steps.count == 1)
                 #expect(sessions.count == 1)

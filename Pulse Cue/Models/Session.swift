@@ -17,6 +17,14 @@ final class Session {
     var endedAt: Date?
     var status: SessionStatus
     var totalSeconds: Int
+    /// Which server account this session's *sync* belongs to, or nil for
+    /// guest data no account has adopted yet.
+    ///
+    /// The value is the account UUID the server issues (`GET /v1/me` →
+    /// `user.id`), never an Apple/Google subject. It governs sync ownership,
+    /// not visibility: local history is displayed exactly as before. See
+    /// `AccountScopedSyncStore`.
+    var ownerAccountID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -25,7 +33,8 @@ final class Session {
         startedAt: Date = Date(),
         endedAt: Date? = nil,
         status: SessionStatus = .inProgress,
-        totalSeconds: Int = 0
+        totalSeconds: Int = 0,
+        ownerAccountID: UUID? = nil
     ) {
         self.id = id
         self.routineId = routineId
@@ -34,5 +43,6 @@ final class Session {
         self.endedAt = endedAt
         self.status = status
         self.totalSeconds = totalSeconds
+        self.ownerAccountID = ownerAccountID
     }
 }
