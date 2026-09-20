@@ -95,6 +95,33 @@ struct ExerciseMotionProfileTests {
         }
     }
 
+    @Test func skeletonHierarchyAndSymmetryStayCoherent() {
+        let bones = MannequinSkeleton.bones
+        #expect(bones.count == ExerciseJoint.allCases.count)
+        #expect(Set(bones.map(\.joint)).count == bones.count)
+        #expect(bones.filter { $0.parent == nil }.map(\.joint) == [.root])
+
+        var preceding = Set<ExerciseJoint>()
+        for bone in bones {
+            if let parent = bone.parent {
+                #expect(preceding.contains(parent), "\(bone.joint) parent must precede child")
+            }
+            #expect(bone.restOffset.x.isFinite && bone.restOffset.y.isFinite && bone.restOffset.z.isFinite)
+            preceding.insert(bone.joint)
+        }
+
+        let p = MannequinSkeleton.Proportions.self
+        #expect(p.shoulderHalfWidth > p.hipHalfWidth)
+        #expect(p.upperArmLength > 0 && p.forearmLength > 0)
+        #expect(p.thighLength > 0 && p.shinLength > 0)
+        #expect(MannequinSkeleton.restOffset(of: .leftShoulder).x == -MannequinSkeleton.restOffset(of: .rightShoulder).x)
+        #expect(MannequinSkeleton.restOffset(of: .leftHip).x == -MannequinSkeleton.restOffset(of: .rightHip).x)
+        #expect(simd_length(MannequinSkeleton.restOffset(of: .leftForearm)) ==
+                simd_length(MannequinSkeleton.restOffset(of: .rightForearm)))
+        #expect(simd_length(MannequinSkeleton.restOffset(of: .leftShin)) ==
+                simd_length(MannequinSkeleton.restOffset(of: .rightShin)))
+    }
+
     // MARK: - Semantic direction (via forward kinematics, sign only)
 
     private func engine(_ id: ExerciseID) -> ExerciseMotionEngine {

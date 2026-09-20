@@ -51,10 +51,18 @@ enum EquipmentSceneFactory {
     }
 
     private static var frameMaterial: SimpleMaterial {
-        SimpleMaterial(color: UIColor(white: 0.35, alpha: 1.0), roughness: 0.7, isMetallic: true)
+        SimpleMaterial(
+            color: UIColor(red: 0.08, green: 0.20, blue: 0.35, alpha: 1),
+            roughness: 0.4,
+            isMetallic: true
+        )
     }
     private static var padMaterial: SimpleMaterial {
-        SimpleMaterial(color: UIColor(red: 0.22, green: 0.24, blue: 0.30, alpha: 1.0), roughness: 0.9, isMetallic: false)
+        SimpleMaterial(
+            color: UIColor(red: 0.16, green: 0.24, blue: 0.34, alpha: 1),
+            roughness: 0.78,
+            isMetallic: false
+        )
     }
 
     private static func box(_ size: SIMD3<Float>, _ position: SIMD3<Float>, _ material: SimpleMaterial) -> ModelEntity {
