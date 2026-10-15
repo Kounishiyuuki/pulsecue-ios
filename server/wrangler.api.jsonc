@@ -14,6 +14,11 @@
  *
  * No routes / custom domain are configured, and no secrets are declared —
  * D1 is a binding, not a secret.
+ *
+ * The Cron trigger retries account deletions a provider blocked
+ * (`scheduled` in src/api/index.ts). Every 15 minutes matches the 15-minute
+ * retry backoff (DELETION_RETRY_BACKOFF_SECONDS): more often would mostly
+ * find nothing due.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -25,6 +30,11 @@
 		"enabled": true
 	},
 	"upload_source_maps": true,
+	"triggers": {
+		"crons": [
+			"*/15 * * * *"
+		]
+	},
 	"compatibility_flags": [
 		"nodejs_compat"
 	],

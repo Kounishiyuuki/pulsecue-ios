@@ -321,11 +321,12 @@ describe("the retry processor", () => {
 		expect(await processDueAccountDeletions(deps, NOW + 60)).toEqual({
 			completed: 0,
 			stillPending: 0,
+			failed: 0,
 		});
 		// Due now, and still failing.
 		expect(
 			await processDueAccountDeletions(deps, NOW + DELETION_RETRY_BACKOFF_SECONDS),
-		).toEqual({ completed: 0, stillPending: 1 });
+		).toEqual({ completed: 0, stillPending: 1, failed: 0 });
 		db.close();
 	});
 
@@ -779,7 +780,7 @@ describe("running the processor more than once", () => {
 		// The user is gone, so later runs have nothing to do — and Apple is
 		// not asked again for a token that no longer exists here.
 		expect(second).toEqual({ status: "notPending" });
-		expect(third).toEqual({ completed: 0, stillPending: 0 });
+		expect(third).toEqual({ completed: 0, stillPending: 0, failed: 0 });
 		expect(endpoint.requests).toHaveLength(1);
 		expect(await findUserById(db, account.user.id)).toBeNull();
 		db.close();
