@@ -46,16 +46,18 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV7.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV8.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
-            return try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV7.self),
+            let container = try ModelContainer(
+                for: Schema(versionedSchema: PulseCueSchemaV8.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
+            try PulseCueSchemaV8.backfillScopedDayKeys(in: ModelContext(container))
+            return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
@@ -417,15 +419,123 @@ enum PulseCueSchemaV1: VersionedSchema {
         }
     }
 
+    /// Version-specific historical health models (schemas V1–V7). Each mirrors
+    /// the pre-V8 shipped model exactly — same entity name, same attributes,
+    /// same `.unique` — with NO `ownerAccountID`, and `DayLog.date` still
+    /// globally unique. None of the three changed shape between V1 and V7
+    /// (verified against git history), so one pinned copy serves all seven
+    /// versions. V8 uses the current top-level models. Not used by app code.
+    @Model
+    final class DayLog {
+        @Attribute(.unique) var date: Date
+        var intakeCalories: Int?
+        var exerciseCalories: Int?
+        var sleepMinutes: Int?
+        var weightKg: Double?
+        var note: String?
+
+        init(
+            date: Date,
+            intakeCalories: Int? = nil,
+            exerciseCalories: Int? = nil,
+            sleepMinutes: Int? = nil,
+            weightKg: Double? = nil,
+            note: String? = nil
+        ) {
+            self.date = date
+            self.intakeCalories = intakeCalories
+            self.exerciseCalories = exerciseCalories
+            self.sleepMinutes = sleepMinutes
+            self.weightKg = weightKg
+            self.note = note
+        }
+    }
+
+    @Model
+    final class MealEntry {
+        @Attribute(.unique) var id: UUID
+        var dayDate: Date
+        var slotRaw: String
+        var name: String
+        var kcal: Int
+        var proteinGrams: Int?
+        var carbGrams: Int?
+        var fatGrams: Int?
+        var statusRaw: String
+        var sourceRaw: String
+        var note: String?
+        var createdAt: Date
+
+        init(
+            id: UUID = UUID(),
+            dayDate: Date,
+            slotRaw: String,
+            name: String,
+            kcal: Int,
+            proteinGrams: Int? = nil,
+            carbGrams: Int? = nil,
+            fatGrams: Int? = nil,
+            statusRaw: String,
+            sourceRaw: String,
+            note: String? = nil,
+            createdAt: Date
+        ) {
+            self.id = id
+            self.dayDate = dayDate
+            self.slotRaw = slotRaw
+            self.name = name
+            self.kcal = kcal
+            self.proteinGrams = proteinGrams
+            self.carbGrams = carbGrams
+            self.fatGrams = fatGrams
+            self.statusRaw = statusRaw
+            self.sourceRaw = sourceRaw
+            self.note = note
+            self.createdAt = createdAt
+        }
+    }
+
+    @Model
+    final class UserProfile {
+        @Attribute(.unique) var id: UUID
+        var heightCm: Int
+        var ageYears: Int
+        var biologicalSexRaw: String
+        var activityFactorRaw: String
+        var goalWeightKg: Double
+        var weeklyChangeKg: Double
+        var updatedAt: Date
+
+        init(
+            id: UUID = UUID(),
+            heightCm: Int,
+            ageYears: Int,
+            biologicalSexRaw: String,
+            activityFactorRaw: String,
+            goalWeightKg: Double,
+            weeklyChangeKg: Double,
+            updatedAt: Date
+        ) {
+            self.id = id
+            self.heightCm = heightCm
+            self.ageYears = ageYears
+            self.biologicalSexRaw = biologicalSexRaw
+            self.activityFactorRaw = activityFactorRaw
+            self.goalWeightKg = goalWeightKg
+            self.weeklyChangeKg = weeklyChangeKg
+            self.updatedAt = updatedAt
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
             PulseCueSchemaV1.Routine.self,
             PulseCueSchemaV1.Step.self,
             PulseCueSchemaV1.Session.self,
             PulseCueSchemaV1.StepResult.self,
-            DayLog.self,
-            MealEntry.self,
-            UserProfile.self
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self
         ]
     }
 }
@@ -438,9 +548,9 @@ enum PulseCueSchemaV2: VersionedSchema {
             PulseCueSchemaV1.Step.self,
             PulseCueSchemaV1.Session.self,
             PulseCueSchemaV1.StepResult.self,
-            DayLog.self,
-            MealEntry.self,
-            UserProfile.self,
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self,
             Gym.self,
             GymMachine.self
         ]
@@ -455,9 +565,9 @@ enum PulseCueSchemaV3: VersionedSchema {
             PulseCueSchemaV1.Step.self,
             PulseCueSchemaV1.Session.self,
             PulseCueSchemaV1.StepResult.self,
-            DayLog.self,
-            MealEntry.self,
-            UserProfile.self,
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self,
             Gym.self,
             GymMachine.self,
             CustomMachine.self
@@ -473,9 +583,9 @@ enum PulseCueSchemaV4: VersionedSchema {
             Step.self,
             PulseCueSchemaV1.Session.self,
             PulseCueSchemaV1.StepResult.self,
-            DayLog.self,
-            MealEntry.self,
-            UserProfile.self,
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self,
             Gym.self,
             GymMachine.self,
             CustomMachine.self
@@ -495,9 +605,9 @@ enum PulseCueSchemaV5: VersionedSchema {
             Step.self,
             PulseCueSchemaV1.Session.self,
             PulseCueSchemaV1.StepResult.self,
-            DayLog.self,
-            MealEntry.self,
-            UserProfile.self,
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self,
             Gym.self,
             GymMachine.self,
             CustomMachine.self
@@ -525,9 +635,9 @@ enum PulseCueSchemaV6: VersionedSchema {
             Step.self,
             Session.self,
             StepResult.self,
-            DayLog.self,
-            MealEntry.self,
-            UserProfile.self,
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self,
             Gym.self,
             GymMachine.self,
             CustomMachine.self,
@@ -546,6 +656,61 @@ enum PulseCueSchemaV6: VersionedSchema {
 /// server-side to remember.
 enum PulseCueSchemaV7: VersionedSchema {
     static var versionIdentifier = Schema.Version(7, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Routine.self,
+            Step.self,
+            Session.self,
+            StepResult.self,
+            PulseCueSchemaV1.DayLog.self,
+            PulseCueSchemaV1.MealEntry.self,
+            PulseCueSchemaV1.UserProfile.self,
+            Gym.self,
+            GymMachine.self,
+            CustomMachine.self,
+            SyncCursor.self,
+            SyncOutboxItem.self,
+            SyncTombstone.self
+        ]
+    }
+}
+
+/// Adds account ownership to health and nutrition data: `ownerAccountID` on
+/// `DayLog`, `MealEntry` and `UserProfile` (V1–V7 keep the owner-less pinned
+/// `PulseCueSchemaV1` copies, so their shipped hashes are untouched).
+///
+/// - Every pre-existing row migrates to `ownerAccountID == nil` — guest data.
+///   Nothing is attributed to whoever is signed in; that only ever happens
+///   through an explicit guest adoption (not part of this version).
+/// - `DayLog.date` loses its global `.unique`. Guest, A and B each need their
+///   own log for the same day. Per-owner uniqueness moves to the new
+///   `DayLog.scopedDayKey` (`.unique`, "<owner or guest>|<exact date bits>"),
+///   which collides exactly when (owner, date) does — the same upsert
+///   semantics `date` had, now scoped. iOS 17 has no compound `#Unique`.
+/// - `MealEntry.id` / `UserProfile.id` stay globally unique. One profile per
+///   owner is left to the repository; the schema does not enforce it.
+///
+/// Lightweight stage: it adds the optional columns and drops the `date`
+/// constraint. Legacy DayLogs come out with `scopedDayKey == nil`, and
+/// `backfillScopedDayKeys` fills them as soon as the container opens. That
+/// cannot collide: pre-V8 dates were globally unique and every legacy row is
+/// guest. It is not a `.custom` stage because a custom stage in the plan makes
+/// every container opened at an intermediate version through the plan fail
+/// to load (observed on the V2–V7 migration tests). Owners are never touched.
+enum PulseCueSchemaV8: VersionedSchema {
+    static var versionIdentifier = Schema.Version(8, 0, 0)
+
+    /// Idempotent; a no-op once every DayLog has its key.
+    static func backfillScopedDayKeys(in context: ModelContext) throws {
+        let pending = try context.fetch(FetchDescriptor<DayLog>(
+            predicate: #Predicate { $0.scopedDayKey == nil }
+        ))
+        guard !pending.isEmpty else { return }
+        for log in pending {
+            log.refreshScopedDayKey()
+        }
+        try context.save()
+    }
     static var models: [any PersistentModel.Type] {
         [
             Routine.self,
@@ -574,7 +739,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV4.self,
             PulseCueSchemaV5.self,
             PulseCueSchemaV6.self,
-            PulseCueSchemaV7.self
+            PulseCueSchemaV7.self,
+            PulseCueSchemaV8.self
         ]
     }
 
@@ -603,6 +769,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV6.self,
                 toVersion: PulseCueSchemaV7.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV7.self,
+                toVersion: PulseCueSchemaV8.self
             )
         ]
     }

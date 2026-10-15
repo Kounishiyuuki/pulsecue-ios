@@ -46,6 +46,7 @@
 		C0FFEE0000000000000D0006 /* WorkoutDataScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */; };
 		C0FFEE0000000000000D0008 /* AccountDataPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */; };
 		C0FFEE0000000000000D000A /* SyncTombstoneMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0009 /* SyncTombstoneMigrationTests.swift */; };
+		C0FFEE0000000000000E0002 /* HealthDataOwnershipMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000E0001 /* HealthDataOwnershipMigrationTests.swift */; };
 		C0FFEE0000000000000C0004 /* AccountScopedSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000C0003 /* AccountScopedSyncTests.swift */; };
 		C0FFEE0000000000000C0006 /* AccountScopedSyncMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000C0005 /* AccountScopedSyncMigrationTests.swift */; };
 		11D66B1ADAFF48799ED94A65 /* Routine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACFADAAE08D4045A0D5BEE1 /* Routine.swift */; };
@@ -535,6 +536,7 @@
 		C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDataScopeTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDataPolicyTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000D0009 /* SyncTombstoneMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTombstoneMigrationTests.swift; sourceTree = "<group>"; };
+		C0FFEE0000000000000E0001 /* HealthDataOwnershipMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataOwnershipMigrationTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000C0003 /* AccountScopedSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopedSyncTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000C0005 /* AccountScopedSyncMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScopedSyncMigrationTests.swift; sourceTree = "<group>"; };
 		F7C6345AAB114B9B95FCCF6D /* RunnerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerView.swift; sourceTree = "<group>"; };
@@ -1166,6 +1168,7 @@
 				C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */,
 				C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */,
 				C0FFEE0000000000000D0009 /* SyncTombstoneMigrationTests.swift */,
+				C0FFEE0000000000000E0001 /* HealthDataOwnershipMigrationTests.swift */,
 				C0FFEE0000000000000C0005 /* AccountScopedSyncMigrationTests.swift */,
 			);
 			path = "Pulse CueTests";
@@ -1594,6 +1597,7 @@
 				C0FFEE0000000000000D0006 /* WorkoutDataScopeTests.swift in Sources */,
 				C0FFEE0000000000000D0008 /* AccountDataPolicyTests.swift in Sources */,
 				C0FFEE0000000000000D000A /* SyncTombstoneMigrationTests.swift in Sources */,
+				C0FFEE0000000000000E0002 /* HealthDataOwnershipMigrationTests.swift in Sources */,
 				C0FFEE0000000000000C0006 /* AccountScopedSyncMigrationTests.swift in Sources */,
 				AAB10C000000000000002031 /* ProviderSignInGateTests.swift in Sources */,
 				AAB10C000000000000002035 /* ProviderPermitEpochTests.swift in Sources */,

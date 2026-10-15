@@ -35,6 +35,10 @@ final class MealEntry {
     var sourceRaw: String
     var note: String?
     var createdAt: Date
+    /// Schema V8. nil = guest; otherwise the server-confirmed internal account
+    /// UUID. `id` stays globally unique: a meal belongs to exactly one owner and
+    /// is never re-parented to another account.
+    private(set) var ownerAccountID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -48,7 +52,8 @@ final class MealEntry {
         status: MealStatus,
         source: MealSource,
         note: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        ownerAccountID: UUID? = nil
     ) {
         self.id = id
         self.dayDate = DateUtils.startOfDay(dayDate)
@@ -62,6 +67,7 @@ final class MealEntry {
         self.sourceRaw = source.rawValue
         self.note = note
         self.createdAt = createdAt
+        self.ownerAccountID = ownerAccountID
     }
 
     var slot: MealSlot { MealSlot(rawValue: slotRaw) ?? .snack }
