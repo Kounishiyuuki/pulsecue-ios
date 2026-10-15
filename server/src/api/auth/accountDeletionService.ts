@@ -14,13 +14,13 @@
  *
  * `processAccountDeletion` is written to be called from anywhere: the DELETE
  * route calls it once, synchronously, so the common case finishes while the
- * user is still looking at the screen; a future scheduled invocation can call
- * it for whatever is due. No queue or cron exists yet, and none is created
- * here — this is the boundary one would attach to.
+ * user is still looking at the screen; the Worker's Cron-triggered
+ * `scheduled` handler retries whatever is due via `processDueAccountDeletions`.
  */
 
 import {
 	type DeletionErrorCode,
+	deferDeletionAfterUnexpectedFailure,
 	findAccountDeletion,
 	findUserForDeletion,
 	hardDeleteUser,
@@ -167,25 +167,40 @@ export async function processAccountDeletion(
 /**
  * Retries every deletion that is due.
  *
- * The boundary a scheduled invocation would call. Nothing invokes it yet —
- * creating a Cron trigger is a production resource change and is not part of
- * this work — but it exists, and is tested, so wiring it up later is
- * configuration rather than design.
+ * Called by the Worker's `scheduled` handler (see `src/api/index.ts`).
+ *
+ * One account that throws — a D1 hiccup, a bug in one row's data — must not
+ * strand every deletion queued behind it, so each is isolated and counted as
+ * `failed`, and its next attempt is deferred by the usual backoff so it
+ * cannot occupy the batch forever. A failure to record that deferral is
+ * thrown. Nothing about the original error is returned: repository errors
+ * quote the values they failed on.
  */
 export async function processDueAccountDeletions(
 	deps: DeletionDependencies,
 	now: EpochSeconds = Math.floor(Date.now() / 1000),
 	limit = 50,
-): Promise<{ completed: number; stillPending: number }> {
+): Promise<{ completed: number; stillPending: number; failed: number }> {
 	const due = await listDueAccountDeletions(deps.db, now, limit);
 	let completed = 0;
 	let stillPending = 0;
+	let failed = 0;
 
 	for (const row of due) {
-		const outcome = await processAccountDeletion(deps, row.user_id, now);
+		let outcome: DeletionOutcome;
+		try {
+			outcome = await processAccountDeletion(deps, row.user_id, now);
+		} catch {
+			// Push the row back so it cannot hold its place in every batch.
+			// If even that write fails, the batch has no way to make progress
+			// fairly, so the run itself fails rather than reporting success.
+			await deferDeletionAfterUnexpectedFailure(deps.db, row.user_id, now);
+			failed += 1;
+			continue;
+		}
 		if (outcome.status === "pending") stillPending += 1;
 		else completed += 1;
 	}
 
-	return { completed, stillPending };
+	return { completed, stillPending, failed };
 }

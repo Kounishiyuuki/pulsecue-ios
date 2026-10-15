@@ -9,6 +9,7 @@
 
 import { Hono } from "hono";
 import { createAppleJwksProvider } from "./auth/apple";
+import { processDueAccountDeletions } from "./auth/accountDeletionService";
 import { appleClientSecretConfigFromEnv } from "./auth/appleClientSecret";
 import { createGoogleJwksProvider } from "./auth/google";
 import { tokenCipherFromEnv } from "./crypto/tokenCipher";
@@ -23,6 +24,7 @@ import {
 	makeUploadWorkoutsHandler,
 } from "./routes/syncWorkouts";
 import { handleGetMe } from "./routes/me";
+import type { ApiEnv } from "./types";
 
 const app = new Hono<AuthedEnv>();
 
@@ -121,4 +123,47 @@ app.onError((_err, c) => {
 	);
 });
 
-export default app;
+/**
+ * Cron-triggered retry of account deletions a provider blocked.
+ *
+ * Without a caller, an account whose Apple revocation failed once would stay
+ * `deleting` forever. The dependencies are built exactly as the DELETE route
+ * builds them, and the account deletion service stays the only business
+ * logic.
+ *
+ * Only aggregate counts are logged. On an unexpected failure a fixed error is
+ * rethrown — not the original, whose message may quote ids or SQL — so the
+ * Cron run is marked failed without publishing anything about a user. This
+ * runs as its own invocation and cannot affect `fetch`.
+ */
+async function scheduled(
+	controller: ScheduledController,
+	env: ApiEnv,
+	_ctx: ExecutionContext,
+): Promise<void> {
+	let result: Awaited<ReturnType<typeof processDueAccountDeletions>>;
+	try {
+		result = await processDueAccountDeletions(
+			{
+				db: env.DB,
+				appleConfig: appleClientSecretConfigFromEnv(env),
+				cipher: tokenCipherFromEnv(env),
+			},
+			Math.floor(controller.scheduledTime / 1000),
+		);
+	} catch {
+		console.error(
+			JSON.stringify({
+				event: "account_deletion_retry_run_failed",
+				code: "internal_error",
+			}),
+		);
+		throw new Error("account deletion retry run failed");
+	}
+	console.log(JSON.stringify({ event: "account_deletion_retry_run", ...result }));
+}
+
+export default {
+	fetch: app.fetch,
+	scheduled,
+} satisfies ExportedHandler<ApiEnv>;
