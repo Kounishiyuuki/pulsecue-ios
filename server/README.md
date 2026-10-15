@@ -709,7 +709,10 @@ two cannot disagree.
 (`src/api/index.ts`), driven by a `*/15 * * * *` Cron trigger in
 `wrangler.api.jsonc` — the same cadence as the backoff. Dependencies are built
 from env exactly as the DELETE route builds them. One account that throws is
-counted as `failed` and stays due for the next run; it never stops the others.
+counted as `failed`, its next attempt is deferred by the backoff (keeping its
+`last_error_code`), and it never stops the others; if that deferral cannot be
+written, the run fails. Due rows are taken in `next_attempt_at` order, so rows
+that keep failing rotate behind newer deletions instead of starving them.
 Only aggregate counts (`completed` / `stillPending` / `failed`) are logged.
 
 #### When a credential cannot be decrypted

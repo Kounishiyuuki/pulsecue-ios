@@ -17,6 +17,8 @@ import { TokenCipher } from "../../src/api/crypto/tokenCipher";
 import {
 	DELETION_RETRY_BACKOFF_SECONDS,
 	findAccountDeletion,
+	listDueAccountDeletions,
+	recordDeletionAttempt,
 	requestAccountDeletion,
 } from "../../src/api/db/accountDeletion";
 import { findOrCreateAccountForIdentity, findUserById } from "../../src/api/db/accounts";
@@ -245,36 +247,224 @@ describe("the exported Worker's scheduled handler", () => {
 	});
 });
 
+/**
+ * A database on which every statement bound to one of `broken` throws, as a
+ * D1 fault would. The deferral UPDATE is let through unless `failDeferral`.
+ */
+function faultyDb(
+	db: TestDatabase,
+	broken: string[],
+	options: { failDeferral?: boolean } = {},
+): SqlDatabase {
+	return {
+		prepare(query) {
+			const statement = db.prepare(query);
+			const isDeferral = /SET attempts\s*=\s*attempts \+ 1,\s*last_attempt_at = \?,\s*next_attempt_at/.test(
+				query,
+			);
+			if (isDeferral && !options.failDeferral) return statement;
+			const bind = statement.bind.bind(statement);
+			statement.bind = (...values: unknown[]) => {
+				if (values.some((v) => broken.includes(v as string))) {
+					throw new Error(`D1 failed for ${String(values)}`);
+				}
+				return bind(...values);
+			};
+			return statement;
+		},
+		batch: (statements) => db.batch(statements),
+	};
+}
+
+/** A Google-only user (no credential to revoke) whose deletion is requested. */
+async function deletingGoogleUser(db: TestDatabase, subject: string, requestedAt: number) {
+	const account = await findOrCreateAccountForIdentity(
+		db,
+		{ provider: "google", subject },
+		requestedAt,
+	);
+	await requestAccountDeletion(db, account.user.id, requestedAt);
+	return account.user.id;
+}
+
 describe("processDueAccountDeletions isolates a throwing account", () => {
-	it("still finishes the others and counts the failure", async () => {
+	it("still finishes the others, counts the failure and defers the row", async () => {
 		const { db, cipher, key } = await setup();
 		const broken = await deletingAppleUser(db, cipher, "apple-broken", NOW - 10);
 		const healthy = await deletingAppleUser(db, cipher, "apple-healthy", NOW);
 		const apple = fakeAppleEndpoint(ok);
-		// Any statement bound to the broken user throws, as a D1 fault would.
-		const faulty: SqlDatabase = {
-			prepare(query) {
-				const statement = db.prepare(query);
-				const bind = statement.bind.bind(statement);
-				statement.bind = (...values: unknown[]) => {
-					if (values.includes(broken)) throw new Error(`D1 failed for ${broken}`);
-					return bind(...values);
-				};
-				return statement;
-			},
-			batch: (statements) => db.batch(statements),
-		};
 
 		const result = await processDueAccountDeletions(
-			{ db: faulty, appleConfig: key.config, cipher, fetchImpl: apple.fetchImpl },
+			{ db: faultyDb(db, [broken]), appleConfig: key.config, cipher, fetchImpl: apple.fetchImpl },
 			NOW,
 		);
 
 		expect(result).toEqual({ completed: 1, stillPending: 0, failed: 1 });
 		expect(await findUserById(db, healthy)).toBeNull();
 		expect((await findUserById(db, broken))?.state).toBe("deleting");
-		// Still due, so the next run retries it.
-		expect((await findAccountDeletion(db, broken))?.next_attempt_at).toBeLessThanOrEqual(NOW);
+		db.close();
+	});
+
+	it("records the attempt without inventing an error code", async () => {
+		const { db, cipher, key } = await setup();
+		const broken = await deletingAppleUser(db, cipher, "apple-broken", NOW - 1_000);
+		// An earlier, genuine provider failure.
+		await recordDeletionAttempt(db, broken, "provider_rejected", NOW - 1_000, 0);
+		const deps = { db: faultyDb(db, [broken]), appleConfig: key.config, cipher };
+
+		await processDueAccountDeletions(deps, NOW);
+
+		const row = await findAccountDeletion(db, broken);
+		expect(row?.attempts).toBe(2);
+		expect(row?.last_attempt_at).toBe(NOW);
+		expect(row?.next_attempt_at).toBe(NOW + DELETION_RETRY_BACKOFF_SECONDS);
+		expect(row?.last_error_code).toBe("provider_rejected");
+		db.close();
+	});
+
+	it("keeps a first-time throw's error code empty rather than guessing one", async () => {
+		const { db } = await setup();
+		const broken = await deletingGoogleUser(db, "google-broken", NOW);
+
+		await processDueAccountDeletions(
+			{ db: faultyDb(db, [broken]), appleConfig: null, cipher: null },
+			NOW,
+		);
+
+		const row = await findAccountDeletion(db, broken);
+		expect(row?.attempts).toBe(1);
+		expect(row?.last_error_code).toBeNull();
+		db.close();
+	});
+
+	it("defers again on a repeat throw instead of hot-looping", async () => {
+		const { db } = await setup();
+		const broken = await deletingGoogleUser(db, "google-broken", NOW);
+		const deps = { db: faultyDb(db, [broken]), appleConfig: null, cipher: null };
+		const later = NOW + DELETION_RETRY_BACKOFF_SECONDS;
+
+		await processDueAccountDeletions(deps, NOW);
+		// Not due yet: the next cron tick inside the backoff does nothing.
+		expect(await processDueAccountDeletions(deps, NOW + 60)).toEqual({
+			completed: 0,
+			stillPending: 0,
+			failed: 0,
+		});
+		expect(await processDueAccountDeletions(deps, later)).toEqual({
+			completed: 0,
+			stillPending: 0,
+			failed: 1,
+		});
+
+		const row = await findAccountDeletion(db, broken);
+		expect(row?.attempts).toBe(2);
+		expect(row?.last_attempt_at).toBe(later);
+		expect(row?.next_attempt_at).toBe(later + DELETION_RETRY_BACKOFF_SECONDS);
+		db.close();
+	});
+
+	it("fails the run when the deferral itself cannot be written", async () => {
+		const { db, env } = await setup();
+		const broken = await deletingGoogleUser(db, "google-broken", NOW - 10);
+		const faulty = faultyDb(db, [broken], { failDeferral: true });
+
+		await expect(
+			processDueAccountDeletions({ db: faulty, appleConfig: null, cipher: null }, NOW),
+		).rejects.toThrow();
+		// And through the Worker, as the fixed Cron failure.
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		await expect(
+			runCron({ ...env, DB: faulty } as unknown as ApiEnv, NOW),
+		).rejects.toThrow("account deletion retry run failed");
+		expect(JSON.stringify(error.mock.calls)).not.toContain(broken);
+		expect((await findUserById(db, broken))?.state).toBe("deleting");
+		db.close();
+	});
+});
+
+describe("fair selection of due deletions", () => {
+	it("a newer deletion is not starved by 50+ rows that always throw", async () => {
+		const { db } = await setup();
+		const broken: string[] = [];
+		for (let i = 0; i < 55; i += 1) {
+			broken.push(await deletingGoogleUser(db, `google-broken-${i}`, NOW - 1_000 + i));
+		}
+		const healthy = await deletingGoogleUser(db, "google-healthy", NOW);
+		const deps = { db: faultyDb(db, broken), appleConfig: null, cipher: null };
+
+		// First run: the 50 oldest fill the batch, throw, and are deferred.
+		expect(await processDueAccountDeletions(deps, NOW, 50)).toEqual({
+			completed: 0,
+			stillPending: 0,
+			failed: 50,
+		});
+		// Next cron tick at the backoff: everything is due again, but the
+		// healthy row has waited longest and is taken ahead of them.
+		const next = await processDueAccountDeletions(
+			deps,
+			NOW + DELETION_RETRY_BACKOFF_SECONDS,
+			50,
+		);
+
+		expect(next.completed).toBe(1);
+		expect(await findUserById(db, healthy)).toBeNull();
+		db.close();
+	});
+
+	it("a newer deletion is not starved by rows pending on a provider error", async () => {
+		const { db, cipher, key } = await setup();
+		const old = await deletingAppleUser(db, cipher, "apple-old", NOW - 1_000);
+		const fresh = await deletingAppleUser(db, cipher, "apple-new", NOW);
+		const apple = fakeAppleEndpoint((request) =>
+			request.form.token === "refresh-apple-old" ? new Response("", { status: 400 }) : ok(),
+		);
+		const deps = { db, appleConfig: key.config, cipher, fetchImpl: apple.fetchImpl };
+
+		// Batch of one: the old row is taken first and stays pending.
+		expect(await processDueAccountDeletions(deps, NOW, 1)).toEqual({
+			completed: 0,
+			stillPending: 1,
+			failed: 0,
+		});
+		expect((await findAccountDeletion(db, old))?.last_error_code).toBe("provider_rejected");
+		// Both due again; the new one has waited longer.
+		expect(
+			await processDueAccountDeletions(deps, NOW + DELETION_RETRY_BACKOFF_SECONDS, 1),
+		).toEqual({ completed: 1, stillPending: 0, failed: 0 });
+		expect(await findUserById(db, fresh)).toBeNull();
+		db.close();
+	});
+
+	it("orders by next_attempt_at, then requested_at", async () => {
+		const { db } = await setup();
+		const oldLate = await deletingGoogleUser(db, "old-late", NOW - 1_000);
+		const newEarly = await deletingGoogleUser(db, "new-early", NOW - 100);
+		const tieOld = await deletingGoogleUser(db, "tie-old", NOW - 900);
+		const tieNew = await deletingGoogleUser(db, "tie-new", NOW - 800);
+		await recordDeletionAttempt(db, oldLate, "credential_unreadable", NOW - 50, 0);
+		await recordDeletionAttempt(db, tieOld, "provider_unavailable", NOW - 200, 0);
+		await recordDeletionAttempt(db, tieNew, "provider_unavailable", NOW - 200, 0);
+
+		const due = await listDueAccountDeletions(db, NOW, 10);
+
+		expect(due.map((row) => row.user_id)).toEqual([tieOld, tieNew, newEarly, oldLate]);
+		db.close();
+	});
+
+	it("parallel runs leave the account deleted, never resurrected", async () => {
+		const { db, cipher, key } = await setup();
+		const userId = await deletingAppleUser(db, cipher, "apple-a");
+		const apple = fakeAppleEndpoint(ok);
+		const deps = { db, appleConfig: key.config, cipher, fetchImpl: apple.fetchImpl };
+
+		const results = await Promise.all([
+			processDueAccountDeletions(deps, NOW),
+			processDueAccountDeletions(deps, NOW),
+		]);
+
+		expect(results.every((r) => r.failed === 0)).toBe(true);
+		expect(await findUserById(db, userId)).toBeNull();
+		expect(await findAccountDeletion(db, userId)).toBeNull();
 		db.close();
 	});
 });

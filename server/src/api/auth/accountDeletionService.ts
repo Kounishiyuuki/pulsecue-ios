@@ -20,6 +20,7 @@
 
 import {
 	type DeletionErrorCode,
+	deferDeletionAfterUnexpectedFailure,
 	findAccountDeletion,
 	findUserForDeletion,
 	hardDeleteUser,
@@ -170,9 +171,10 @@ export async function processAccountDeletion(
  *
  * One account that throws — a D1 hiccup, a bug in one row's data — must not
  * strand every deletion queued behind it, so each is isolated and counted as
- * `failed`. Its `next_attempt_at` is left untouched, so it is simply due
- * again on the next run. Nothing about the error is returned: repository
- * errors quote the values they failed on.
+ * `failed`, and its next attempt is deferred by the usual backoff so it
+ * cannot occupy the batch forever. A failure to record that deferral is
+ * thrown. Nothing about the original error is returned: repository errors
+ * quote the values they failed on.
  */
 export async function processDueAccountDeletions(
 	deps: DeletionDependencies,
@@ -189,6 +191,10 @@ export async function processDueAccountDeletions(
 		try {
 			outcome = await processAccountDeletion(deps, row.user_id, now);
 		} catch {
+			// Push the row back so it cannot hold its place in every batch.
+			// If even that write fails, the batch has no way to make progress
+			// fairly, so the run itself fails rather than reporting success.
+			await deferDeletionAfterUnexpectedFailure(deps.db, row.user_id, now);
 			failed += 1;
 			continue;
 		}

@@ -116,7 +116,40 @@ export async function recordDeletionAttempt(
 		.run();
 }
 
-/** Deletions whose next attempt is due. Ordered oldest-request-first. */
+/**
+ * Records an attempt that failed for a reason outside the closed error set —
+ * an unexpected throw — and pushes the next attempt out by the backoff.
+ *
+ * `last_error_code` is left as it was: writing a provider code here would
+ * claim a cause nobody observed. Without this, a row that throws stays due at
+ * the same `next_attempt_at` and is picked again every run.
+ */
+export async function deferDeletionAfterUnexpectedFailure(
+	db: SqlDatabase,
+	userId: string,
+	now: EpochSeconds = nowSeconds(),
+	backoffSeconds: EpochSeconds = DELETION_RETRY_BACKOFF_SECONDS,
+): Promise<void> {
+	await db
+		.prepare(
+			`UPDATE account_deletions
+			    SET attempts        = attempts + 1,
+			        last_attempt_at = ?,
+			        next_attempt_at = ?
+			  WHERE user_id = ?`,
+		)
+		.bind(now, now + backoffSeconds, userId)
+		.run();
+}
+
+/**
+ * Deletions whose next attempt is due, longest-waiting first.
+ *
+ * Ordered by `next_attempt_at`, not `requested_at`: every attempt pushes a
+ * row's `next_attempt_at` forward, so rows that keep failing rotate to the
+ * back instead of permanently filling the batch ahead of newer deletions.
+ * `requested_at` only breaks ties.
+ */
 export async function listDueAccountDeletions(
 	db: SqlDatabase,
 	now: EpochSeconds = nowSeconds(),
@@ -126,7 +159,7 @@ export async function listDueAccountDeletions(
 		.prepare(
 			`SELECT * FROM account_deletions
 			  WHERE next_attempt_at <= ?
-			  ORDER BY requested_at ASC
+			  ORDER BY next_attempt_at ASC, requested_at ASC
 			  LIMIT ?`,
 		)
 		.bind(now, limit)
