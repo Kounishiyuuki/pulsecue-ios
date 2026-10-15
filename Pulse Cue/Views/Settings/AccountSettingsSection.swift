@@ -156,7 +156,7 @@ struct AccountSettingsSection: View {
                 + "このビルドではPulseCueアカウントは作成されず、データが別端末と同期・バックアップされることはありません。"
                 + localData
 
-        case .restoring, .signingIn, .unreachable:
+        case .unresolved, .restoring, .signingIn, .unreachable:
             // Not "no account" — unknown. The device may well hold a session
             // that simply could not be confirmed.
             return base

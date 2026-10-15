@@ -446,12 +446,13 @@ final class ProviderSignInLinkRecordingTests: XCTestCase {
     func testNoLinkIsRecordedWhenTheUserCancelsTheSheet() async {
         let gate = makeGate()
         gate.google.outcome = .cancelled
+        let stateBefore = gate.account.state
 
         let outcome = await gate.coordinator.signInWithGoogle()
 
         XCTAssertEqual(outcome, .cancelled)
         XCTAssertTrue(gate.links.recorded.isEmpty)
-        XCTAssertEqual(gate.account.state, .guest, "cancelling is not a failure")
+        XCTAssertEqual(gate.account.state, stateBefore, "cancelling is not a failure")
     }
 }
 
