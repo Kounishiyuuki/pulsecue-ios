@@ -177,7 +177,7 @@ struct ServerAccountSettingsSection: View {
         switch store.state {
         case .authenticated: return "サインイン済み"
         case .unreachable:   return "オフライン"
-        case .restoring:     return "確認中"
+        case .unresolved, .restoring: return "確認中"
         case .signingIn:     return "処理中"
         case .guest:         return "ローカルのみ"
         case .notConfigured: return "未設定"
@@ -224,7 +224,7 @@ struct ServerAccountSettingsSection: View {
                 サインインしていなくても、記録・ルーティン・履歴などすべての機能を利用できます。\
                 トレーニング記録は現在この端末に保存されます。
                 """
-        case .restoring, .signingIn:
+        case .unresolved, .restoring, .signingIn:
             return """
                 アカウントの状態を確認しています。\
                 記録・ルーティン・履歴などすべての機能はそのまま利用できます。

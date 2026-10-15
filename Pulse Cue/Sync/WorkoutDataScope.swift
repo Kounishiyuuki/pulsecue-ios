@@ -131,7 +131,7 @@ enum WorkoutDataScope: Equatable {
             guard let last = lastConfirmedAccountID else { return .undetermined }
             return .account(last)
 
-        case .restoring, .signingIn:
+        case .unresolved, .restoring, .signingIn:
             return .undetermined
 
         case .localCleanupFailed:
@@ -247,7 +247,7 @@ final class WorkoutDataScopeResolver: ObservableObject {
             // A confirmed sign-out. Forgetting is the point: the next launch
             // must be guest, not a stale account.
             defaults.removeObject(forKey: Self.lastConfirmedAccountKey)
-        case .restoring, .signingIn, .unreachable, .notConfigured, .localCleanupFailed:
+        case .unresolved, .restoring, .signingIn, .unreachable, .notConfigured, .localCleanupFailed:
             break
         }
         scope = WorkoutDataScope.resolve(

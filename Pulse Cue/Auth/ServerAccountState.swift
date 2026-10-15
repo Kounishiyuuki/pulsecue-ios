@@ -25,6 +25,15 @@ enum ServerAccountState: Equatable {
     /// No server session. Every local feature works; this is not an error.
     case guest
 
+    /// Launch has not reached a verdict yet: nothing has been read from the
+    /// Keychain or asked of the server.
+    ///
+    /// Deliberately not `.guest`. Guest is a verdict — "there is no session"
+    /// — and observers act on it (the scope resolver forgets the last
+    /// confirmed account). Starting as `.guest` let that verdict fire before
+    /// `restore()` had looked, so an offline launch lost its account scope.
+    case unresolved
+
     /// Checking a stored session at launch.
     case restoring
 
@@ -73,7 +82,7 @@ enum ServerAccountState: Equatable {
     /// token might still be on disk.
     var holdsSession: Bool {
         switch self {
-        case .authenticated, .unreachable, .restoring, .localCleanupFailed:
+        case .authenticated, .unreachable, .unresolved, .restoring, .localCleanupFailed:
             return true
         case .guest, .signingIn, .notConfigured:
             return false
@@ -89,7 +98,7 @@ enum ServerAccountState: Equatable {
         switch self {
         case .guest:
             return "ゲスト（この端末に保存）"
-        case .restoring:
+        case .unresolved, .restoring:
             return "アカウントを確認中…"
         case .signingIn:
             return "サインイン中…"

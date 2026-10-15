@@ -188,7 +188,7 @@ final class ServerAccountStore: ObservableObject {
         self.api = api
         self.tokenStore = tokenStore
         self.deviceName = deviceName
-        self.state = api.isConfigured ? .guest : .notConfigured
+        self.state = api.isConfigured ? .unresolved : .notConfigured
     }
 
     // MARK: - Operation ownership
