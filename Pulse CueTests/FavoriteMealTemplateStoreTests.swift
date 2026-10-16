@@ -194,7 +194,7 @@ struct FavoriteMealTemplateStoreTests {
             source: .manual
         )
         context.insert(fresh)
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
 
         #expect(fresh.dayDate == todayStart)
         #expect(fresh.status == .confirmed)
@@ -204,7 +204,7 @@ struct FavoriteMealTemplateStoreTests {
         #expect(fresh.slot == .dinner)
         #expect(fresh.name == "鶏むね 200g")
 
-        let dayLog = DayLogStore.fetch(date: todayStart, modelContext: context)
+        let dayLog = DayLogStore.fetch(date: todayStart, scope: .guest, modelContext: context)
         #expect(dayLog?.intakeCalories == 320)
     }
 
@@ -228,7 +228,7 @@ struct FavoriteMealTemplateStoreTests {
             source: .manual
         )
         context.insert(fresh)
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
 
         let daily = ProteinTotals.daily(meals: [fresh], kcalTarget: 2000)
         #expect(daily.confirmedGrams == 30)

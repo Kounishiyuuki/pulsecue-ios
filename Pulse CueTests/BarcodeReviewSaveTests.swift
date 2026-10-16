@@ -64,7 +64,8 @@ struct BarcodeReviewSaveTests {
             carbText: carbText,
             fatText: fatText,
             note: note,
-            source: .barcode
+            source: .barcode,
+            ownerAccountID: nil
         )
     }
 
@@ -130,10 +131,10 @@ struct BarcodeReviewSaveTests {
 
         // Mirrors save(): insert the confirmed meal, then sync.
         context.insert(entry)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 640)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 640)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 640)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 640)
     }
 
     // MARK: - No save before confirmation (cancel boundary)
@@ -146,14 +147,14 @@ struct BarcodeReviewSaveTests {
         // store stays empty — backing out (cancel) leaves no trace.
         let entry = makeEntry(slot: .snack, name: "プロテインバー", kcalText: "180")
         #expect(try context.fetch(FetchDescriptor<MealEntry>()).isEmpty)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
         #expect(try context.fetch(FetchDescriptor<DayLog>()).isEmpty)
 
         // Confirm = insert + sync. This is the only path that writes.
         context.insert(entry)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
         #expect(try context.fetch(FetchDescriptor<MealEntry>()).count == 1)
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 180)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 180)
     }
 
     @Test func lookupResultCandidateDoesNotPersistAnything() throws {

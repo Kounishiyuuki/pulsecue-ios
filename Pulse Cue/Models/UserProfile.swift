@@ -26,8 +26,8 @@ final class UserProfile {
     var weeklyChangeKg: Double
     var updatedAt: Date
     /// Schema V8. nil = guest; otherwise the server-confirmed internal account
-    /// UUID. At most one profile per owner is a repository contract (not yet
-    /// enforced here), so multiple rows remain representable by design.
+    /// UUID. At most one profile per owner is `UserProfileStore`'s contract,
+    /// not the schema's, so multiple rows remain representable by design.
     private(set) var ownerAccountID: UUID?
 
     init(
@@ -115,5 +115,21 @@ final class UserProfile {
     private func effectiveWeight(currentWeightKg: Double?) -> Double? {
         if let measured = currentWeightKg, measured > 0 { return measured }
         return goalWeightKg > 0 ? goalWeightKg : nil
+    }
+}
+
+extension UserProfile {
+    /// Moves a guest profile into `accountID`. Nil, with nothing changed, if it
+    /// already belongs to an account — account → account is never an adoption.
+    func adopt(into accountID: UUID) -> HealthOwnerAdoption? {
+        guard ownerAccountID == nil else { return nil }
+        ownerAccountID = accountID
+        return HealthOwnerAdoption(accountID: accountID)
+    }
+
+    /// Puts a profile `adopt(into:)` moved back into guest data.
+    func undoAdoption(_ adoption: HealthOwnerAdoption) {
+        guard ownerAccountID == adoption.accountID else { return }
+        ownerAccountID = nil
     }
 }

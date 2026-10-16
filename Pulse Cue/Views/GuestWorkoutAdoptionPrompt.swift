@@ -19,6 +19,13 @@
 //  Rows owned by another account are not in scope and cannot be: the operation
 //  behind "引き継ぐ" fetches `ownerAccountID == nil` and nothing else.
 //
+//  Health data (day logs, meals, profile) rides on the same question rather
+//  than a second alert: "この端末の記録をこのアカウントに引き継ぐ" is one
+//  decision about one device. Both halves land in one save — health
+//  adoption's commit runs the workout adoption — so a failure leaves both as
+//  guest data. Each half is remembered separately, because an account asked
+//  about workouts by an earlier build has not yet been asked about health.
+//
 //  A plain `.alert`. Two buttons and a sentence is exactly what Alert is for,
 //  and a hand-built sheet here would lose the system's focus order, Dynamic
 //  Type behaviour and VoiceOver handling to gain nothing.
@@ -46,6 +53,11 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
     /// a decline is a decision rather than a question that returns every
     /// launch.
     @AppStorage("sync.adoptionAnsweredAccountIDs") private var answeredRaw = ""
+    @AppStorage("sync.healthAdoptionAnsweredAccountIDs") private var healthAnsweredRaw = ""
+
+    /// Which halves the pending question covers.
+    @State private var pendingWorkout = false
+    @State private var pendingHealth = false
 
     func body(content: Content) -> some View {
         content
@@ -61,7 +73,7 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
                 Button("引き継ぐ") { adopt() }
                 Button("引き継がない", role: .cancel) { decline() }
             } message: {
-                Text("この端末にゲストとして記録したトレーニング履歴を、このアカウントのものにします。他のアカウントの記録は変わりません。")
+                Text("この端末にゲストとして記録した\(pendingSubject)を、このアカウントのものにします。他のアカウントの記録は変わりません。")
             }
             .alert("引き継げませんでした", isPresented: $failed) {
                 Button("OK", role: .cancel) {}
@@ -75,22 +87,50 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
             pendingAccountID = nil
             return
         }
-        guard !answered.contains(id) else { return }
         // Nothing to hand over means nothing to ask about.
-        let guests = (try? AccountScopedSyncStore().guestSessions(in: modelContext)) ?? []
-        guard !guests.isEmpty else { return }
+        let workout = !Self.ids(answeredRaw).contains(id)
+            && !((try? AccountScopedSyncStore().guestSessions(in: modelContext)) ?? []).isEmpty
+        let health = !Self.ids(healthAnsweredRaw).contains(id)
+            && ((try? HealthDataAdoptionStore().hasGuestHealthData(in: modelContext)) ?? false)
+        guard workout || health else { return }
+        pendingWorkout = workout
+        pendingHealth = health
         pendingAccountID = id
+    }
+
+    private var pendingSubject: String {
+        switch (pendingWorkout, pendingHealth) {
+        case (true, true): return "トレーニング・食事・体重や睡眠の記録"
+        case (false, true): return "食事・体重や睡眠の記録"
+        default: return "トレーニング履歴"
+        }
     }
 
     private func adopt() {
         guard let id = pendingAccountID else { return }
         pendingAccountID = nil
+        let workout = pendingWorkout
+        let health = pendingHealth
         do {
-            try AccountScopedSyncStore().adoptGuestWorkoutData(for: id, in: modelContext)
-            markAnswered(id)
+            if health {
+                // One save for both halves: the health commit runs the workout
+                // adoption, whose own save carries the health changes too (or
+                // which restores its rows and throws). It saves nothing when it
+                // had nothing to move, and only then is a save of ours needed.
+                try HealthDataAdoptionStore(commit: { context in
+                    let moved = workout
+                        ? try AccountScopedSyncStore().adoptGuestWorkoutData(for: id, in: context)
+                        : .nothing
+                    if moved == .nothing { try context.save() }
+                }).adoptGuestHealthData(for: id, in: modelContext)
+            } else if workout {
+                try AccountScopedSyncStore().adoptGuestWorkoutData(for: id, in: modelContext)
+            }
+            markAnswered(id, workout: workout, health: health)
         } catch {
             // Say nothing succeeded, because nothing did: adoption saves once,
-            // so the guest rows are still guest rows. The account is left
+            // so the guest rows — workouts and health alike — are still guest
+            // rows. The account is left
             // alone — a failed transfer is not a reason to end a session.
             failed = true
         }
@@ -99,16 +139,23 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
     private func decline() {
         guard let id = pendingAccountID else { return }
         pendingAccountID = nil
-        markAnswered(id)
+        markAnswered(id, workout: pendingWorkout, health: pendingHealth)
     }
 
-    private var answered: Set<UUID> {
-        Set(answeredRaw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+    private static func ids(_ raw: String) -> Set<UUID> {
+        Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
     }
 
-    private func markAnswered(_ id: UUID) {
-        var ids = answered
+    private static func adding(_ id: UUID, to raw: String) -> String {
+        var ids = ids(raw)
         ids.insert(id)
-        answeredRaw = ids.map(\.uuidString).sorted().joined(separator: ",")
+        return ids.map(\.uuidString).sorted().joined(separator: ",")
+    }
+
+    /// Only the halves that were asked: a workout-only question is not an
+    /// answer about health data that did not exist yet.
+    private func markAnswered(_ id: UUID, workout: Bool, health: Bool) {
+        if workout { answeredRaw = Self.adding(id, to: answeredRaw) }
+        if health { healthAnsweredRaw = Self.adding(id, to: healthAnsweredRaw) }
     }
 }

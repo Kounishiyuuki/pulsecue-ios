@@ -46,7 +46,7 @@ struct DayLogStoreTests {
     func fetchOrCreateTodayNormalizesToStartOfDay() throws {
         let context = try Self.makeContext()
         let now = Date()
-        let log = DayLogStore.fetchOrCreateToday(modelContext: context, now: now)
+        let log = try #require(DayLogStore.fetchOrCreateToday(scope: .guest, modelContext: context, now: now))
         #expect(log.date == DateUtils.startOfDay(now))
     }
 
@@ -56,8 +56,8 @@ struct DayLogStoreTests {
         let morning = makeDate(year: 2026, month: 5, day: 3, hour: 7)
         let evening = makeDate(year: 2026, month: 5, day: 3, hour: 22)
 
-        let first = DayLogStore.fetchOrCreate(date: morning, modelContext: context)
-        let second = DayLogStore.fetchOrCreate(date: evening, modelContext: context)
+        let first = try #require(DayLogStore.fetchOrCreate(date: morning, scope: .guest, modelContext: context))
+        let second = try #require(DayLogStore.fetchOrCreate(date: evening, scope: .guest, modelContext: context))
 
         // Same instance returned for the same local date despite different times.
         #expect(first === second)
@@ -75,8 +75,8 @@ struct DayLogStoreTests {
         let day1 = makeDate(year: 2026, month: 5, day: 1)
         let day2 = makeDate(year: 2026, month: 5, day: 2)
 
-        let log1 = DayLogStore.fetchOrCreate(date: day1, modelContext: context)
-        let log2 = DayLogStore.fetchOrCreate(date: day2, modelContext: context)
+        let log1 = try #require(DayLogStore.fetchOrCreate(date: day1, scope: .guest, modelContext: context))
+        let log2 = try #require(DayLogStore.fetchOrCreate(date: day2, scope: .guest, modelContext: context))
 
         #expect(log1.date != log2.date)
         let all = try context.fetch(FetchDescriptor<DayLog>())
@@ -87,15 +87,15 @@ struct DayLogStoreTests {
     func fetchReturnsNilWhenAbsent() throws {
         let context = try Self.makeContext()
         let day = makeDate(year: 2026, month: 5, day: 3)
-        #expect(DayLogStore.fetch(date: day, modelContext: context) == nil)
+        #expect(DayLogStore.fetch(date: day, scope: .guest, modelContext: context) == nil)
     }
 
     @Test
     func fetchReturnsExistingRecord() throws {
         let context = try Self.makeContext()
         let day = makeDate(year: 2026, month: 5, day: 3)
-        let created = DayLogStore.fetchOrCreate(date: day, modelContext: context)
-        let found = DayLogStore.fetch(date: day, modelContext: context)
+        let created = try #require(DayLogStore.fetchOrCreate(date: day, scope: .guest, modelContext: context))
+        let found = DayLogStore.fetch(date: day, scope: .guest, modelContext: context)
         #expect(found === created)
     }
 
@@ -106,10 +106,10 @@ struct DayLogStoreTests {
         // Window with days: 7 → covers offsets [-6 ... 0] inclusive.
         for offset in [0, -1, -3, -6, -7, -15] {
             let date = Calendar.current.date(byAdding: .day, value: offset, to: now)!
-            _ = DayLogStore.fetchOrCreate(date: date, modelContext: context)
+            _ = DayLogStore.fetchOrCreate(date: date, scope: .guest, modelContext: context)
         }
 
-        let recent = DayLogStore.recent(days: 7, ending: now, modelContext: context)
+        let recent = DayLogStore.recent(days: 7, ending: now, scope: .guest, modelContext: context)
         // -7 and -15 are outside; the rest are inside.
         #expect(recent.count == 4)
         // Sorted descending — first element is today (offset 0).

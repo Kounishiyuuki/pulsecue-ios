@@ -76,7 +76,7 @@ struct BodyWeightTruthTests {
         // The old source saw nothing at all — that is the bug, stated.
         #expect(try fourteenDayWindowWeight(context) == nil)
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 75)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == 75)
     }
 
     @Test func bmrUsesTheOldWeighInRatherThanTreatingItAsMissing() throws {
@@ -84,7 +84,7 @@ struct BodyWeightTruthTests {
         let profile = insertProfile(context)
         insertWeight(context, daysAgo: 20, kg: 75)
 
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
         let windowed = try fourteenDayWindowWeight(context)
 
         #expect(profile.bmr(currentWeightKg: resolved) == profile.bmr(currentWeightKg: 75))
@@ -96,7 +96,7 @@ struct BodyWeightTruthTests {
         let profile = insertProfile(context)
         insertWeight(context, daysAgo: 20, kg: 75)
 
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
         #expect(profile.tdee(currentWeightKg: resolved) == profile.tdee(currentWeightKg: 75))
     }
 
@@ -107,7 +107,7 @@ struct BodyWeightTruthTests {
         let profile = insertProfile(context)
         insertWeight(context, daysAgo: 20, kg: 75)
 
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
         #expect(
             profile.targetIntake(currentWeightKg: resolved)
                 == profile.targetIntake(currentWeightKg: 75)
@@ -126,7 +126,7 @@ struct BodyWeightTruthTests {
 
         let metrics = BodyMetrics.derive(
             profile: profile,
-            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(scope: .guest, modelContext: context)
         )
 
         #expect(metrics.currentWeightKg == 75)
@@ -144,7 +144,7 @@ struct BodyWeightTruthTests {
 
         let metrics = BodyMetrics.derive(
             profile: profile,
-            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(scope: .guest, modelContext: context)
         )
         let windowed = try fourteenDayWindowWeight(context)
 
@@ -162,7 +162,7 @@ struct BodyWeightTruthTests {
 
         let metrics = BodyMetrics.derive(
             profile: profile,
-            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(scope: .guest, modelContext: context)
         )
         #expect(metrics.currentWeightKg == 73)
         #expect(metrics.tdee == profile.tdee(currentWeightKg: 73))
@@ -174,7 +174,7 @@ struct BodyWeightTruthTests {
 
         let metrics = BodyMetrics.derive(
             profile: profile,
-            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+            currentWeightKg: BodyMetrics.resolveCurrentWeightKg(scope: .guest, modelContext: context)
         )
         #expect(metrics.currentWeightKg == nil)
         #expect(metrics.bmr == profile.bmr(currentWeightKg: nil))
@@ -188,7 +188,7 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 20, kg: 75)
         insertWeight(context, daysAgo: 3, kg: 73)
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 73)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == 73)
     }
 
     @Test func everyCalculationAgreesOnTheNewerWeighIn() throws {
@@ -197,7 +197,7 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 20, kg: 75)
         insertWeight(context, daysAgo: 3, kg: 73)
 
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
 
         #expect(profile.bmr(currentWeightKg: resolved) == profile.bmr(currentWeightKg: 73))
         #expect(profile.tdee(currentWeightKg: resolved) == profile.tdee(currentWeightKg: 73))
@@ -214,7 +214,7 @@ struct BodyWeightTruthTests {
         let context = try makeContext()
         insertProfile(context)
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == nil)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == nil)
     }
 
     @Test func everySurfaceSeesTheSameAbsence() throws {
@@ -223,7 +223,7 @@ struct BodyWeightTruthTests {
         let context = try makeContext()
         let profile = insertProfile(context)
 
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
         #expect(resolved == nil)
         #expect(profile.bmr(currentWeightKg: resolved) == profile.bmr(currentWeightKg: nil))
     }
@@ -239,10 +239,10 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 1, kg: 75)
 
         let logs = try context.fetch(FetchDescriptor<DayLog>())
-        let before = LatestBodyWeightResolver.changeSignature(for: logs)
+        let before = LatestBodyWeightResolver.changeSignature(for: logs, scope: .guest)
 
         logs.first(where: { $0.weightKg != nil })?.weightKg = 73
-        let after = LatestBodyWeightResolver.changeSignature(for: logs)
+        let after = LatestBodyWeightResolver.changeSignature(for: logs, scope: .guest)
 
         #expect(before != after)
     }
@@ -253,12 +253,14 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 10, kg: 80)
 
         let before = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
 
         insertWeight(context, daysAgo: 1, kg: 80)
         let after = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
 
         // Same number, different row — "which weigh-in is latest" changed, and
@@ -273,11 +275,12 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 2, kg: 75)
 
         let logs = try context.fetch(FetchDescriptor<DayLog>())
-        let before = LatestBodyWeightResolver.changeSignature(for: logs)
+        let before = LatestBodyWeightResolver.changeSignature(for: logs, scope: .guest)
 
         context.insert(DayLog(date: Date(), intakeCalories: 1_500))
         let after = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
 
         #expect(before == after)
@@ -287,9 +290,9 @@ struct BodyWeightTruthTests {
         let context = try makeContext()
         insertProfile(context)
 
-        #expect(LatestBodyWeightResolver.changeSignature(for: []) == "none")
+        #expect(LatestBodyWeightResolver.changeSignature(for: [], scope: .guest) == "guest:none")
         let logs = try context.fetch(FetchDescriptor<DayLog>())
-        #expect(LatestBodyWeightResolver.changeSignature(for: logs) == "none")
+        #expect(LatestBodyWeightResolver.changeSignature(for: logs, scope: .guest) == "guest:none")
     }
 
     // MARK: - Logs without a weight
@@ -301,7 +304,7 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 18, kg: 80)
         context.insert(DayLog(date: Date(), intakeCalories: 1_500))
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 80)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == 80)
     }
 
     // MARK: - The signal Home and Nutrition now observe
@@ -317,7 +320,8 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 1, kg: 78)
 
         let before = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
 
         // Remove the newest. The older weigh-in becomes current, so the screens
@@ -329,7 +333,8 @@ struct BodyWeightTruthTests {
         context.delete(newest!)
 
         let after = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
         #expect(before != after)
     }
@@ -342,13 +347,15 @@ struct BodyWeightTruthTests {
         insertWeight(context, daysAgo: 3, kg: 74)
 
         let before = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
 
         context.insert(DayLog(date: Date(), sleepMinutes: 420))
 
         let after = LatestBodyWeightResolver.changeSignature(
-            for: try context.fetch(FetchDescriptor<DayLog>())
+            for: try context.fetch(FetchDescriptor<DayLog>()),
+            scope: .guest
         )
         #expect(before == after)
     }
@@ -364,8 +371,8 @@ struct BodyWeightTruthTests {
         context.insert(DayLog(date: Date(), intakeCalories: 1_900))
 
         let logs = try context.fetch(FetchDescriptor<DayLog>())
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
-        let signature = LatestBodyWeightResolver.changeSignature(for: logs)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
+        let signature = LatestBodyWeightResolver.changeSignature(for: logs, scope: .guest)
 
         #expect(resolved == 81)
         #expect(signature.hasSuffix(":81.0"))
@@ -410,7 +417,7 @@ struct BodyMetricsLiveEditTests {
         ) ?? Date()
         context.insert(DayLog(date: date, weightKg: 75))
 
-        return (profile, BodyMetrics.resolveCurrentWeightKg(modelContext: context))
+        return (profile, BodyMetrics.resolveCurrentWeightKg(scope: .guest, modelContext: context))
     }
 
     @Test func editingHeightUpdatesBmrAndTdeeImmediately() throws {
@@ -492,7 +499,7 @@ struct BodyMetricsLiveEditTests {
         profile.goalWeightKg = 70
         context.insert(profile)
 
-        let noWeight = BodyMetrics.resolveCurrentWeightKg(modelContext: context)
+        let noWeight = BodyMetrics.resolveCurrentWeightKg(scope: .guest, modelContext: context)
         #expect(noWeight == nil)
 
         let before = BodyMetrics.derive(profile: profile, currentWeightKg: noWeight)

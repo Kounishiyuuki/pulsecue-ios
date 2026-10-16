@@ -46,6 +46,7 @@ struct MealEntrySheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     let mode: Mode
 
@@ -128,7 +129,7 @@ struct MealEntrySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saveTitle) { save() }
-                        .disabled(!isFormValid)
+                        .disabled(!isFormValid || !dataScope.scope.canCreateHealthData)
                 }
             }
         }
@@ -187,6 +188,8 @@ struct MealEntrySheet: View {
 
         switch mode {
         case .add(let source, _):
+            // No owner to give the meal while the scope is unknown.
+            guard dataScope.scope.canCreateHealthData else { return }
             let resolvedName = trimmedName.isEmpty ? slot.label : trimmedName
             let entry = MealEntry(
                 dayDate: Date(),
@@ -198,13 +201,14 @@ struct MealEntrySheet: View {
                 fatGrams: f,
                 status: source == .ai ? .pending : .confirmed,
                 source: source,
-                note: trimmedNote.isEmpty ? nil : trimmedNote
+                note: trimmedNote.isEmpty ? nil : trimmedNote,
+                ownerAccountID: dataScope.scope.creationOwnerAccountID
             )
             modelContext.insert(entry)
             // For manual confirmed entries, sync DayLog now. AI entries
             // wait for the explicit 確定 in NutritionView.
             if source == .manual {
-                NutritionLedger.syncDayLogIntake(for: Date(), modelContext: modelContext)
+                NutritionLedger.syncDayLogIntake(for: Date(), scope: dataScope.scope, modelContext: modelContext)
             }
         case .edit(let meal):
             let oldStatus = meal.status
@@ -218,7 +222,11 @@ struct MealEntrySheet: View {
             // Edits never auto-promote a pending meal to confirmed —
             // promotion happens only via the explicit 確定 action.
             if oldStatus == .confirmed {
-                NutritionLedger.syncDayLogIntake(for: meal.dayDate, modelContext: modelContext)
+                NutritionLedger.syncDayLogIntake(
+                    for: meal.dayDate,
+                    scope: .owning(meal.ownerAccountID),
+                    modelContext: modelContext
+                )
             }
         }
         dismiss()

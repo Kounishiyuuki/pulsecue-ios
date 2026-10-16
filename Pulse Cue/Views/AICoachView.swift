@@ -35,12 +35,13 @@ struct AICoachView: View {
     private var unscopedSessions: [Session]
 
     @Query private var unscopedStepResults: [StepResult]
-    @Query private var allDayLogs: [DayLog]
+    @Query private var unscopedDayLogs: [DayLog]
 
     /// Advice is a statement about the signed-in account's own training, so it
     /// is built from that account's rows and no others.
     private var sessions: [Session] { dataScope.scope.visible(unscopedSessions) }
     private var allStepResults: [StepResult] { dataScope.scope.visible(unscopedStepResults) }
+    private var allDayLogs: [DayLog] { dataScope.scope.visible(unscopedDayLogs) }
 
     @State private var savedAlertVisible = false
     @State private var selectedOptionId: UUID?
@@ -362,15 +363,19 @@ struct AICoachView: View {
             proposedAction: nil
         )
         let confirmed = UserConfirmed(coachSuggestion)
-        applyConfirmedSuggestion(confirmed)
+        // Nothing is saved — and "saved" is not claimed — while there is no
+        // owner to write today's note for.
+        guard applyConfirmedSuggestion(confirmed) else { return }
         if settings.hapticsEnabled {
             SoundHapticManager.playHaptic()
         }
         savedAlertVisible = true
     }
 
-    private func applyConfirmedSuggestion(_ confirmed: UserConfirmed<AICoachSuggestion>) {
-        let log = DayLogStore.fetchOrCreateToday(modelContext: modelContext)
+    private func applyConfirmedSuggestion(_ confirmed: UserConfirmed<AICoachSuggestion>) -> Bool {
+        guard let log = DayLogStore.fetchOrCreateToday(scope: dataScope.scope, modelContext: modelContext) else {
+            return false
+        }
         let timeStr = formatTimeShort(confirmed.confirmedAt)
         let entry = "[\(timeStr) AI コーチ] \(confirmed.value.title)"
         if let existing = log.note, !existing.isEmpty {
@@ -378,6 +383,7 @@ struct AICoachView: View {
         } else {
             log.note = entry
         }
+        return true
     }
 
     // MARK: - Glass surfaces

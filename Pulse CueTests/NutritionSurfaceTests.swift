@@ -84,7 +84,7 @@ struct NutritionSurfaceTests {
             mealsForDay: meals,
             manualTargetKcal: manualTargetKcal,
             profileTargetKcal: profile?.targetIntake(
-                currentWeightKg: LatestBodyWeightResolver.latestWeightKg(
+                currentWeightKg: LatestBodyWeightResolver.latestWeightKg(scope: .guest,
                     modelContext: context
                 )
             )

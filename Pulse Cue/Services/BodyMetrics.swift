@@ -68,7 +68,7 @@ struct BodyMetrics: Equatable {
     /// store. Home, Nutrition, Me and Body all resolve through here, so they
     /// cannot disagree about which weigh-in is current.
     @MainActor
-    static func resolveCurrentWeightKg(modelContext: ModelContext) -> Double? {
-        LatestBodyWeightResolver.latestWeightKg(modelContext: modelContext)
+    static func resolveCurrentWeightKg(scope: HealthDataScope, modelContext: ModelContext) -> Double? {
+        LatestBodyWeightResolver.latestWeightKg(scope: scope, modelContext: modelContext)
     }
 }

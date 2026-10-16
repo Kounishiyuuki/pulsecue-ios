@@ -29,10 +29,11 @@ struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
-    // UserProfile is the source of truth for profile / goal fields.
-    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
-    private var profiles: [UserProfile]
+    // UserProfile is the source of truth for profile / goal fields — the
+    // current scope's profile, never another account's.
+    @Query private var everyProfile: [UserProfile]
 
     @State private var showSavedToast = false
 
@@ -46,12 +47,14 @@ struct SettingsView: View {
         ZStack(alignment: .bottom) {
             PulseAtmosphericBackground().ignoresSafeArea()
 
-            if let profile = profiles.first {
+            if let profile = UserProfileStore.select(from: everyProfile, scope: dataScope.scope) {
                 content(profile: profile)
             } else {
+                // Keyed on the scope: while it is undetermined nothing is
+                // created, and the confirmed scope must get its chance.
                 ProgressView("読み込み中…")
-                    .task {
-                        _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
+                    .task(id: dataScope.scope) {
+                        UserProfileStore.fetchOrCreateProfile(for: dataScope.scope, modelContext: modelContext)
                     }
             }
 

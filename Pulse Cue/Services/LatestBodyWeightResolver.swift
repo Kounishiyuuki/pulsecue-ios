@@ -33,12 +33,26 @@ enum LatestBodyWeightResolver {
     /// Fetches a single row: newest first, weight present. What counts as a
     /// usable weight is unchanged — a non-nil `weightKg` — because inventing
     /// a validity rule here would quietly change targets for existing users.
+    ///
+    /// Only the scope's own logs: a target built from account A's profile and
+    /// account B's weight is a number about nobody.
     @MainActor
-    static func latestWeightKg(modelContext: ModelContext) -> Double? {
-        var descriptor = FetchDescriptor<DayLog>(
-            predicate: #Predicate<DayLog> { $0.weightKg != nil },
-            sortBy: [SortDescriptor(\DayLog.date, order: .reverse)]
-        )
+    static func latestWeightKg(scope: HealthDataScope, modelContext: ModelContext) -> Double? {
+        var descriptor: FetchDescriptor<DayLog>
+        switch scope {
+        case .undetermined:
+            return nil
+        case .guest:
+            descriptor = FetchDescriptor<DayLog>(
+                predicate: #Predicate<DayLog> { $0.weightKg != nil && $0.ownerAccountID == nil },
+                sortBy: [SortDescriptor(\DayLog.date, order: .reverse)]
+            )
+        case let .account(id):
+            descriptor = FetchDescriptor<DayLog>(
+                predicate: #Predicate<DayLog> { $0.weightKg != nil && $0.ownerAccountID == id },
+                sortBy: [SortDescriptor(\DayLog.date, order: .reverse)]
+            )
+        }
         descriptor.fetchLimit = 1
         return (try? modelContext.fetch(descriptor))?.first?.weightKg
     }
@@ -54,7 +68,14 @@ enum LatestBodyWeightResolver {
     ///
     /// A signature rather than the weight itself because "which row is latest"
     /// can change without the number changing, and that still needs a refresh.
-    static func changeSignature(for logs: [DayLog]) -> String {
+    ///
+    /// Carries the scope, so switching to an account whose latest weigh-in
+    /// happens to share a date and value still refreshes.
+    static func changeSignature(for logs: [DayLog], scope: HealthDataScope) -> String {
+        "\(scope):" + changeSignature(for: scope.visible(logs))
+    }
+
+    private static func changeSignature(for logs: [DayLog]) -> String {
         guard let latest = logs
             .filter({ $0.weightKg != nil })
             .max(by: { $0.date < $1.date })

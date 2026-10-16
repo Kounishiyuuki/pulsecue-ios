@@ -33,6 +33,11 @@
 //     confirmed meals remain (including "no meals at all"), it
 //     clears the meal-derived intake so a stale total can't linger.
 //
+//  Scope: every entry point takes the health scope and reads only that
+//  owner's meals and writes only that owner's DayLog. Guest meals total into
+//  the guest log, account A's into A's — never a cross-owner sum. An
+//  undetermined scope reads no meals and writes nothing.
+//
 //  Past versions returned early when the confirmed list was empty,
 //  which left `DayLog.intakeCalories` stale after the last confirmed
 //  meal was deleted. That bug is fixed by `reconcileAfterMealRemoval`.
@@ -49,10 +54,10 @@ enum NutritionLedger {
     /// edited, or confirmed. Does **not** touch DayLog when the
     /// day has no MealEntry rows at all (preserves
     /// `DayLogQuickInputSheet` values).
-    static func syncDayLogIntake(for date: Date, modelContext: ModelContext) {
-        let mealsForDay = mealsForDay(date, modelContext: modelContext)
+    static func syncDayLogIntake(for date: Date, scope: HealthDataScope, modelContext: ModelContext) {
+        let mealsForDay = mealsForDay(date, scope: scope, modelContext: modelContext)
         guard !mealsForDay.isEmpty else { return }
-        writeMealOwnedIntake(for: date, mealsForDay: mealsForDay, modelContext: modelContext)
+        writeMealOwnedIntake(for: date, mealsForDay: mealsForDay, scope: scope, modelContext: modelContext)
     }
 
     /// Reconcile DayLog.intakeCalories after a meal has been
@@ -60,11 +65,12 @@ enum NutritionLedger {
     /// (or no meals remain at all), clears the meal-derived intake.
     /// Existing DayLog rows with a previously-synced meal sum are
     /// reset to nil so a stale total cannot linger.
-    static func reconcileAfterMealRemoval(for date: Date, modelContext: ModelContext) {
-        let mealsForDay = mealsForDay(date, modelContext: modelContext)
+    static func reconcileAfterMealRemoval(for date: Date, scope: HealthDataScope, modelContext: ModelContext) {
+        let mealsForDay = mealsForDay(date, scope: scope, modelContext: modelContext)
         writeMealOwnedIntake(
             for: date,
             mealsForDay: mealsForDay,
+            scope: scope,
             modelContext: modelContext,
             clearIfEmpty: true,
         )
@@ -76,8 +82,8 @@ enum NutritionLedger {
     /// DayLog. Useful when a view needs the authoritative
     /// meal-derived value independent of what's currently persisted
     /// on DayLog.
-    static func confirmedTotal(for date: Date, modelContext: ModelContext) -> Int {
-        mealsForDay(date, modelContext: modelContext)
+    static func confirmedTotal(for date: Date, scope: HealthDataScope, modelContext: ModelContext) -> Int {
+        mealsForDay(date, scope: scope, modelContext: modelContext)
             .filter { $0.status == .confirmed }
             .reduce(0) { $0 + $1.kcal }
     }
@@ -86,8 +92,8 @@ enum NutritionLedger {
     /// regardless of status. Indicates that meals own the day's
     /// intake (see the file header). UI surfaces may use this to
     /// suppress duplicate manual entry paths when meals are active.
-    static func hasAnyMeal(for date: Date, modelContext: ModelContext) -> Bool {
-        !mealsForDay(date, modelContext: modelContext).isEmpty
+    static func hasAnyMeal(for date: Date, scope: HealthDataScope, modelContext: ModelContext) -> Bool {
+        !mealsForDay(date, scope: scope, modelContext: modelContext).isEmpty
     }
 
     // MARK: - Internals
@@ -104,6 +110,7 @@ enum NutritionLedger {
     private static func writeMealOwnedIntake(
         for date: Date,
         mealsForDay: [MealEntry],
+        scope: HealthDataScope,
         modelContext: ModelContext,
         clearIfEmpty: Bool = false,
     ) {
@@ -116,8 +123,8 @@ enum NutritionLedger {
             // Confirmed meals exist → write the sum into DayLog
             // (creating the row if needed). Quick-input value is
             // intentionally overwritten because meals now own the day.
-            let dayLog = DayLogStore.fetchOrCreate(date: day, modelContext: modelContext)
-            dayLog.intakeCalories = confirmedSum
+            let dayLog = DayLogStore.fetchOrCreate(date: day, scope: scope, modelContext: modelContext)
+            dayLog?.intakeCalories = confirmedSum
             return
         }
 
@@ -128,15 +135,21 @@ enum NutritionLedger {
         // Clear an existing DayLog row's intakeCalories, but don't
         // *create* a row just to hold nil. If the row never existed
         // there's nothing stale to wipe.
-        if let dayLog = DayLogStore.fetch(date: day, modelContext: modelContext) {
+        if let dayLog = DayLogStore.fetch(date: day, scope: scope, modelContext: modelContext) {
             dayLog.intakeCalories = nil
         }
     }
 
-    private static func mealsForDay(_ date: Date, modelContext: ModelContext) -> [MealEntry] {
+    private static func mealsForDay(
+        _ date: Date,
+        scope: HealthDataScope,
+        modelContext: ModelContext
+    ) -> [MealEntry] {
         let day = DateUtils.startOfDay(date)
         let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: day) ?? day
-        let all = (try? modelContext.fetch(FetchDescriptor<MealEntry>())) ?? []
-        return all.filter { $0.dayDate >= day && $0.dayDate < nextDay }
+        let all = (try? modelContext.fetch(FetchDescriptor<MealEntry>(
+            predicate: #Predicate<MealEntry> { $0.dayDate >= day && $0.dayDate < nextDay }
+        ))) ?? []
+        return scope.visible(all)
     }
 }
