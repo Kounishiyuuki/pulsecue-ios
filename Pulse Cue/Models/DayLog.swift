@@ -11,9 +11,11 @@
 //  carried by `scopedDayKey`, which SwiftData enforces (insert of a second row
 //  with the same key upserts into the first, exactly as `date` used to).
 //
-//  Both are `private(set)`: the key must never drift from (owner, date), and
-//  ownership only ever moves nil → account through an explicit adoption, which
-//  does not exist yet.
+//  `date`, `ownerAccountID` and `scopedDayKey` are one identity, all
+//  `private(set)` and set together only by the initializer, so the key can
+//  never drift from (owner, date). Ownership only ever moves nil → account
+//  through an explicit adoption, which does not exist yet; nor does any
+//  "change a log's date" operation.
 //
 
 import Foundation
@@ -21,7 +23,7 @@ import SwiftData
 
 @Model
 final class DayLog {
-    var date: Date
+    private(set) var date: Date
     var intakeCalories: Int?
     var exerciseCalories: Int?
     var sleepMinutes: Int?
@@ -62,10 +64,13 @@ final class DayLog {
     /// The date half is the exact bit pattern of the stored instant, so two
     /// logs collide precisely when the old `@Attribute(.unique) date` would
     /// have made them collide — no calendar, no rounding, no formatting. The
-    /// day normalization stays where it always was, in `DayLogStore`.
+    /// day normalization stays where it always was, in `DayLogStore`. -0.0 is
+    /// canonicalized to +0.0: they are the same instant but different bits.
     static func scopedDayKey(ownerAccountID: UUID?, date: Date) -> String {
         let owner = ownerAccountID?.uuidString ?? "guest"
-        let instant = String(date.timeIntervalSinceReferenceDate.bitPattern, radix: 16)
+        let seconds = date.timeIntervalSinceReferenceDate
+        let bits: UInt64 = seconds == 0 ? 0 : seconds.bitPattern
+        let instant = String(bits, radix: 16)
         return "\(owner)|\(instant)"
     }
 }

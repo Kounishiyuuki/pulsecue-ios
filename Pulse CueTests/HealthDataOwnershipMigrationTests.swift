@@ -188,6 +188,32 @@ struct HealthDataOwnershipMigrationTests {
         }
     }
 
+    @Test("After V7 → V8 the old global UNIQUE(date) is gone: A and B join a migrated guest day")
+    func migratedStoreAcceptsAccountsOnAGuestDay() throws {
+        let a = UUID()
+        let b = UUID()
+
+        try Self.withTempStore { url in
+            try Self.seed(PulseCueSchemaV7.self, at: url) { context in
+                context.insert(PulseCueSchemaV1.DayLog(date: Self.dayX, intakeCalories: 1000))
+            }
+
+            try Self.openV8Store(at: url) { context in
+                context.insert(DayLog(date: Self.dayX, intakeCalories: 2000, ownerAccountID: a))
+                context.insert(DayLog(date: Self.dayX, intakeCalories: 3000, ownerAccountID: b))
+            }
+
+            try Self.openV8Store(at: url) { context in
+                let logs = try context.fetch(FetchDescriptor<DayLog>())
+                #expect(logs.count == 3)
+                #expect(logs.allSatisfy { $0.date == Self.dayX })
+                #expect(logs.first { $0.ownerAccountID == nil }?.intakeCalories == 1000)
+                #expect(logs.first { $0.ownerAccountID == a }?.intakeCalories == 2000)
+                #expect(logs.first { $0.ownerAccountID == b }?.intakeCalories == 3000)
+            }
+        }
+    }
+
     // MARK: - DayLog per-owner uniqueness
 
     @Test("Guest, A and B each keep their own DayLog for the same date")
@@ -209,6 +235,8 @@ struct HealthDataOwnershipMigrationTests {
                 #expect(logs.first { $0.ownerAccountID == a }?.intakeCalories == 2000)
                 #expect(logs.first { $0.ownerAccountID == b }?.intakeCalories == 3000)
                 #expect(Set(logs.map(\.scopedDayKey)).count == 3)
+                // `date` has a private setter; SwiftData still restores it.
+                #expect(logs.allSatisfy { $0.date == Self.dayX })
             }
         }
     }
@@ -240,6 +268,16 @@ struct HealthDataOwnershipMigrationTests {
         #expect(key == "00000000-0000-0000-0000-0000000000AA|41c7d78400000000")
         #expect(DayLog.scopedDayKey(ownerAccountID: nil, date: Self.dayX) == "guest|41c7d78400000000")
         #expect(key != DayLog.scopedDayKey(ownerAccountID: a, date: Self.dayY))
+    }
+
+    @Test("+0.0 and -0.0 are one instant, so they get one key")
+    func signedZeroSharesOneKey() {
+        let positive = Date(timeIntervalSinceReferenceDate: 0.0)
+        let negative = Date(timeIntervalSinceReferenceDate: -0.0)
+        let a = UUID()
+        #expect(DayLog.scopedDayKey(ownerAccountID: a, date: positive)
+            == DayLog.scopedDayKey(ownerAccountID: a, date: negative))
+        #expect(DayLog.scopedDayKey(ownerAccountID: nil, date: negative) == "guest|0")
     }
 
     // MARK: - MealEntry / UserProfile ownership
