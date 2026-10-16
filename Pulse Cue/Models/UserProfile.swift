@@ -25,6 +25,10 @@ final class UserProfile {
     var goalWeightKg: Double
     var weeklyChangeKg: Double
     var updatedAt: Date
+    /// Schema V8. nil = guest; otherwise the server-confirmed internal account
+    /// UUID. At most one profile per owner is a repository contract (not yet
+    /// enforced here), so multiple rows remain representable by design.
+    private(set) var ownerAccountID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -34,7 +38,8 @@ final class UserProfile {
         activityFactor: ActivityFactor = .moderate,
         goalWeightKg: Double = 65.0,
         weeklyChangeKg: Double = -0.5,
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        ownerAccountID: UUID? = nil
     ) {
         self.id = id
         self.heightCm = max(0, heightCm)
@@ -44,6 +49,7 @@ final class UserProfile {
         self.goalWeightKg = max(0, goalWeightKg)
         self.weeklyChangeKg = weeklyChangeKg
         self.updatedAt = updatedAt
+        self.ownerAccountID = ownerAccountID
     }
 
     var biologicalSex: BiologicalSex {
