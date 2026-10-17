@@ -211,19 +211,19 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
         let monday = Self.mondayDate()
 
-        store.updateDefaults(HealthTargets(intakeCalories: 2000, sleepMinutes: 420))
-        store.updateWeekdayOverride(.monday, targets: HealthTargets(sleepMinutes: 480))
-        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500))
+        store.updateDefaults(HealthTargets(intakeCalories: 2000, sleepMinutes: 420), in: .guest)
+        store.updateWeekdayOverride(.monday, targets: HealthTargets(sleepMinutes: 480), in: .guest)
+        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500), in: .guest)
 
         // Re-hydrate from the same UserDefaults and confirm resolver
         // still walks all three layers correctly.
-        let reloaded = HealthTargetStore(defaults: suite, storageKey: "test.key")
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: reloaded.settings, calendar: Self.calendar) == 2500)
-        #expect(HealthTargetResolver.resolve(metric: .sleepMinutes, date: monday, settings: reloaded.settings, calendar: Self.calendar) == 480)
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: Self.tuesdayDate(), settings: reloaded.settings, calendar: Self.calendar) == 2000)
+        let reloaded = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: reloaded.settings(in: .guest), calendar: Self.calendar) == 2500)
+        #expect(HealthTargetResolver.resolve(metric: .sleepMinutes, date: monday, settings: reloaded.settings(in: .guest), calendar: Self.calendar) == 480)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: Self.tuesdayDate(), settings: reloaded.settings(in: .guest), calendar: Self.calendar) == 2000)
     }
 
     @Test func storeClearsEmptyOverrides() {
@@ -231,12 +231,12 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
-        store.updateWeekdayOverride(.monday, targets: HealthTargets(sleepMinutes: 480))
-        #expect(store.settings.weekdayOverrides[.monday] != nil)
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
+        store.updateWeekdayOverride(.monday, targets: HealthTargets(sleepMinutes: 480), in: .guest)
+        #expect(store.settings(in: .guest).weekdayOverrides[.monday] != nil)
         // Writing an empty target set should remove the entry.
-        store.updateWeekdayOverride(.monday, targets: HealthTargets())
-        #expect(store.settings.weekdayOverrides[.monday] == nil)
+        store.updateWeekdayOverride(.monday, targets: HealthTargets(), in: .guest)
+        #expect(store.settings(in: .guest).weekdayOverrides[.monday] == nil)
     }
 
     // MARK: - Date override store API (PR #37)
@@ -249,21 +249,21 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
-        store.updateDefaults(HealthTargets(intakeCalories: 2000))
-        store.updateWeekdayOverride(.monday, targets: HealthTargets(intakeCalories: 2200))
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
+        store.updateDefaults(HealthTargets(intakeCalories: 2000), in: .guest)
+        store.updateWeekdayOverride(.monday, targets: HealthTargets(intakeCalories: 2200), in: .guest)
 
         let monday = Self.mondayDate()
-        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500))
+        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500), in: .guest)
 
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings, calendar: Self.calendar) == 2500)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings(in: .guest), calendar: Self.calendar) == 2500)
 
-        store.clearDateOverride(monday)
+        store.clearDateOverride(monday, in: .guest)
         // Now weekday override should drive the value.
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings, calendar: Self.calendar) == 2200)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings(in: .guest), calendar: Self.calendar) == 2200)
         // And the dictionary entry is gone.
         let dayKey = Self.calendar.startOfDay(for: monday)
-        #expect(store.settings.dateOverrides[dayKey] == nil)
+        #expect(store.settings(in: .guest).dateOverrides[dayKey] == nil)
     }
 
     /// Writing an empty `HealthTargets` for a date entry removes it
@@ -275,14 +275,14 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
         let monday = Self.mondayDate()
-        store.updateDateOverride(monday, targets: HealthTargets(sleepMinutes: 510))
+        store.updateDateOverride(monday, targets: HealthTargets(sleepMinutes: 510), in: .guest)
         let dayKey = Self.calendar.startOfDay(for: monday)
-        #expect(store.settings.dateOverrides[dayKey] != nil)
+        #expect(store.settings(in: .guest).dateOverrides[dayKey] != nil)
 
-        store.updateDateOverride(monday, targets: HealthTargets())
-        #expect(store.settings.dateOverrides[dayKey] == nil)
+        store.updateDateOverride(monday, targets: HealthTargets(), in: .guest)
+        #expect(store.settings(in: .guest).dateOverrides[dayKey] == nil)
     }
 
     /// Different times within the same local day must collapse to the
@@ -293,16 +293,16 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
         let morning = Self.mondayDate()       // 09:30
         let lateNight = Self.mondayLateDate() // 23:59 — same local day
 
-        store.updateDateOverride(morning, targets: HealthTargets(intakeCalories: 2500))
+        store.updateDateOverride(morning, targets: HealthTargets(intakeCalories: 2500), in: .guest)
 
         // The late-night Date should resolve through the same key.
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: lateNight, settings: store.settings, calendar: Self.calendar) == 2500)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: lateNight, settings: store.settings(in: .guest), calendar: Self.calendar) == 2500)
         // Exactly one dictionary entry — no duplicate at 23:59.
-        #expect(store.settings.dateOverrides.count == 1)
+        #expect(store.settings(in: .guest).dateOverrides.count == 1)
     }
 
     /// Two distinct local days must each get their own dictionary
@@ -313,23 +313,23 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
         let monday = Self.mondayDate()
         let tuesday = Self.tuesdayDate()
 
-        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500))
-        store.updateDateOverride(tuesday, targets: HealthTargets(intakeCalories: 1800))
+        store.updateDateOverride(monday, targets: HealthTargets(intakeCalories: 2500), in: .guest)
+        store.updateDateOverride(tuesday, targets: HealthTargets(intakeCalories: 1800), in: .guest)
 
-        #expect(store.settings.dateOverrides.count == 2)
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings, calendar: Self.calendar) == 2500)
-        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: tuesday, settings: store.settings, calendar: Self.calendar) == 1800)
+        #expect(store.settings(in: .guest).dateOverrides.count == 2)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: monday, settings: store.settings(in: .guest), calendar: Self.calendar) == 2500)
+        #expect(HealthTargetResolver.resolve(metric: .intakeCalories, date: tuesday, settings: store.settings(in: .guest), calendar: Self.calendar) == 1800)
 
         // Clearing one date does not affect the other.
-        store.clearDateOverride(monday)
+        store.clearDateOverride(monday, in: .guest)
         let mondayKey = Self.calendar.startOfDay(for: monday)
         let tuesdayKey = Self.calendar.startOfDay(for: tuesday)
-        #expect(store.settings.dateOverrides[mondayKey] == nil)
-        #expect(store.settings.dateOverrides[tuesdayKey] != nil)
+        #expect(store.settings(in: .guest).dateOverrides[mondayKey] == nil)
+        #expect(store.settings(in: .guest).dateOverrides[tuesdayKey] != nil)
     }
 
     /// Date-override round-trip across a re-loaded store: the date
@@ -341,17 +341,17 @@ struct HealthTargetResolverTests {
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
 
-        let store = HealthTargetStore(defaults: suite, storageKey: "test.key")
+        let store = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
         let monday = Self.mondayDate()
         store.updateDateOverride(monday, targets: HealthTargets(
             intakeCalories: 2500,
             sleepMinutes: 510,
             exerciseCalories: 600,
             balanceCalories: 1800,
-        ))
+        ), in: .guest)
 
-        let reloaded = HealthTargetStore(defaults: suite, storageKey: "test.key")
-        let resolved = HealthTargetResolver.resolveAll(date: monday, settings: reloaded.settings, calendar: Self.calendar)
+        let reloaded = HealthTargetStore(defaults: suite, storageKey: "test.key", scope: .guest)
+        let resolved = HealthTargetResolver.resolveAll(date: monday, settings: reloaded.settings(in: .guest), calendar: Self.calendar)
         #expect(resolved.intakeCalories == 2500)
         #expect(resolved.sleepMinutes == 510)
         #expect(resolved.exerciseCalories == 600)

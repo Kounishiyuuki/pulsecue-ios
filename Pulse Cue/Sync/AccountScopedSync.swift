@@ -335,12 +335,8 @@ struct AccountScopedSyncStore {
     /// queue entry it had just written, and a throw there was a mutation with
     /// no record of itself.
     ///
-    /// The commit can still fail, so apply undoes exactly what it did —
-    /// owners back to the values the plan recorded, inserted queue entries
-    /// removed, and pre-existing queue entries restored field by field. A
-    /// pre-existing entry is never deleted as part of "cleanup": it was not
-    /// this operation's to remove, and deleting it would drop a mutation still
-    /// owed to the server.
+    /// The commit can still fail, so `AppliedAdoption.undo` puts back exactly
+    /// what apply did.
     ///
     /// Deliberately not `context.rollback()`: that discards *every* unsaved
     /// change in the context, including work this operation never touched.
@@ -352,11 +348,14 @@ struct AccountScopedSyncStore {
     ) throws -> GuestAdoptionSummary {
         let plan = try preflightAdoption(for: accountID, in: context)
         guard !plan.isEmpty else { return .nothing }
-        try apply(plan, for: accountID, in: context, now: now)
-        return GuestAdoptionSummary(
-            adoptedSessions: plan.sessions.count,
-            adoptedStepResults: plan.results.count
-        )
+        let applied = applyAdoption(plan, for: accountID, in: context, now: now)
+        do {
+            try commit(context)
+        } catch {
+            applied.undo(in: context)
+            throw error
+        }
+        return plan.summary
     }
 
     // MARK: Adoption plan
@@ -366,7 +365,7 @@ struct AccountScopedSyncStore {
     /// `existing == nil` means this operation inserts the entry, so undoing is
     /// deleting it. Otherwise the entry was already there and undoing means
     /// putting its fields back — not removing a row the operation found.
-    private struct OutboxStep {
+    fileprivate struct OutboxStep {
         let identity: String
         let entityType: SyncEntityType
         let entityID: UUID
@@ -378,19 +377,47 @@ struct AccountScopedSyncStore {
     /// Everything the write phase needs, resolved and validated in advance.
     ///
     /// Holds live model objects but has not touched a property on any of
-    /// them — building a plan is a read.
-    private struct AdoptionPlan {
-        let sessions: [(row: Session, previousOwner: UUID?)]
-        let results: [(row: StepResult, previousOwner: UUID?)]
-        let outbox: [OutboxStep]
+    /// them — building a plan is a read. Visible to the module so
+    /// `AccountLocalDataAdoptionStore` can preflight workouts and health
+    /// before either is applied; its contents stay private.
+    struct AdoptionPlan {
+        fileprivate let sessions: [(row: Session, previousOwner: UUID?)]
+        fileprivate let results: [(row: StepResult, previousOwner: UUID?)]
+        fileprivate let outbox: [OutboxStep]
 
         var isEmpty: Bool { sessions.isEmpty && results.isEmpty }
+
+        var summary: GuestAdoptionSummary {
+            GuestAdoptionSummary(adoptedSessions: sessions.count, adoptedStepResults: results.count)
+        }
+    }
+
+    /// What `applyAdoption` changed, enough to put every row back.
+    struct AppliedAdoption {
+        fileprivate let plan: AdoptionPlan
+        fileprivate let inserted: [SyncOutboxItem]
+
+        /// Owners back to the values the plan recorded, inserted queue entries
+        /// removed, and pre-existing queue entries restored field by field. A
+        /// pre-existing entry is never deleted as part of "cleanup": it was
+        /// not this operation's to remove, and deleting it would drop a
+        /// mutation still owed to the server.
+        func undo(in context: ModelContext) {
+            for entry in plan.sessions { entry.row.ownerAccountID = entry.previousOwner }
+            for entry in plan.results { entry.row.ownerAccountID = entry.previousOwner }
+            for item in inserted { context.delete(item) }
+            for step in plan.outbox {
+                guard let existing = step.existing else { continue }
+                if let mutation = step.previousMutation { existing.mutation = mutation }
+                if let updatedAt = step.previousUpdatedAt { existing.updatedAt = updatedAt }
+            }
+        }
     }
 
     /// Phase 1. Every fetch, every refusal, zero writes.
     ///
     /// If this throws, the context carries nothing from adoption.
-    private func preflightAdoption(
+    func preflightAdoption(
         for accountID: UUID,
         in context: ModelContext
     ) throws -> AdoptionPlan {
@@ -462,14 +489,14 @@ struct AccountScopedSyncStore {
         )
     }
 
-    /// Phase 2. Assignments and inserts only — no fetch, no validation, and
-    /// the single throwing call is the commit at the end.
-    private func apply(
+    /// Phase 2. Assignments and inserts only — no fetch, no validation,
+    /// nothing that can throw. The caller commits, and undoes on failure.
+    func applyAdoption(
         _ plan: AdoptionPlan,
         for accountID: UUID,
         in context: ModelContext,
         now: Date
-    ) throws {
+    ) -> AppliedAdoption {
         var inserted: [SyncOutboxItem] = []
 
         for entry in plan.sessions { entry.row.ownerAccountID = accountID }
@@ -492,20 +519,7 @@ struct AccountScopedSyncStore {
                 inserted.append(item)
             }
         }
-
-        do {
-            try commit(context)
-        } catch {
-            for entry in plan.sessions { entry.row.ownerAccountID = entry.previousOwner }
-            for entry in plan.results { entry.row.ownerAccountID = entry.previousOwner }
-            for item in inserted { context.delete(item) }
-            for step in plan.outbox {
-                guard let existing = step.existing else { continue }
-                if let mutation = step.previousMutation { existing.mutation = mutation }
-                if let updatedAt = step.previousUpdatedAt { existing.updatedAt = updatedAt }
-            }
-            throw error
-        }
+        return AppliedAdoption(plan: plan, inserted: inserted)
     }
 
     // MARK: Cursor

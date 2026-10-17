@@ -127,7 +127,7 @@ struct TodayView: View {
     /// target for that metric — the UI preserves the prior display in
     /// that case.
     private var resolvedTargets: HealthTargets {
-        HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings)
+        HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings(in: healthScope))
     }
 
     /// The latest weigh-in — both the figure the personal status row shows and
@@ -208,13 +208,16 @@ struct TodayView: View {
         }
         .task {
             refreshLatestWeight()
-            ensureHealthRowsExist()
+            ensureTodayLogExists()
             recomputeProgressSummary()
         }
         // A newly confirmed account (or a sign-out back to guest) gets its own
-        // log for today and its own profile; nothing is created while the
-        // scope is still undetermined.
-        .onChange(of: healthScope) { _, _ in ensureHealthRowsExist() }
+        // log for today; nothing is created while the scope is still
+        // undetermined. Not a profile: an account profile made by opening
+        // Home would already exist when the adoption prompt is answered, and
+        // the guest profile would be left behind. Only an edit creates one.
+        .onChange(of: healthScope) { _, _ in ensureTodayLogExists() }
+        .task(id: healthScope) { targetStore.use(healthScope) }
         .onChange(of: latestWeightSignature) { _, _ in refreshLatestWeight() }
         .onChange(of: progressSignature) { _, _ in recomputeProgressSummary() }
     }
@@ -241,7 +244,7 @@ struct TodayView: View {
             mealsForDay: todaysMeals,
             profile: profile,
             currentWeightKg: latestWeightKg,
-            targetSettings: targetStore.settings
+            targetSettings: targetStore.settings(in: healthScope)
         )
     }
 
@@ -380,14 +383,16 @@ struct TodayView: View {
 
     private func ensureTodayLogExists() {
         if todayLog == nil {
-            _ = DayLogStore.fetchOrCreateToday(scope: healthScope, modelContext: modelContext)
+            Self.prepareHealthRows(scope: healthScope, modelContext: modelContext)
         }
     }
 
-    private func ensureHealthRowsExist() {
-        ensureTodayLogExists()
-        UserProfileStore.fetchOrCreateProfile(for: healthScope, modelContext: modelContext)
+    /// What Home creates for a scope just by being shown: today's log, and
+    /// deliberately not a profile — see the `onChange(of: healthScope)` note.
+    static func prepareHealthRows(scope: HealthDataScope, modelContext: ModelContext) {
+        _ = DayLogStore.fetchOrCreateToday(scope: scope, modelContext: modelContext)
     }
+
 
     private func openField(_ field: DayLogField) {
         ensureTodayLogExists()

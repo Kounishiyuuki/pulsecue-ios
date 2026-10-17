@@ -43,7 +43,7 @@ struct HealthSummaryView: View {
         HealthTargetWeeklyAverage.averageTarget(
             metric: metric,
             endingAt: Date(),
-            settings: targetStore.settings
+            settings: targetStore.settings(in: dataScope.scope)
         )
     }
 
@@ -57,6 +57,7 @@ struct HealthSummaryView: View {
             footerSection
         }
         .navigationTitle("健康サマリー")
+        .task(id: dataScope.scope) { targetStore.use(dataScope.scope) }
         .scrollContentBackground(.hidden)
         .background(AppTheme.background)
         .listStyle(.insetGrouped)

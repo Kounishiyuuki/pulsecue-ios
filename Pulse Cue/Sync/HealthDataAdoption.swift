@@ -45,6 +45,10 @@
 //
 //  ## Atomicity
 //
+//  Favorite meals and manual targets are not adopted: they are per-scope
+//  UserDefaults settings (`HealthScopedDefaults`), not records, and keeping
+//  them out keeps this a SwiftData-only transaction.
+//
 //  The `AccountScopedSyncStore` shape: preflight does every fetch and decision
 //  and touches nothing; apply only assigns, inserts and deletes; then one
 //  commit. If the commit throws, apply's own record puts back exactly what it
@@ -72,8 +76,9 @@ struct HealthDataAdoptionStore {
     }
 
     /// Production saves; tests substitute a failing commit. The guest-adoption
-    /// prompt substitutes one that also runs workout adoption, so a single
-    /// consent lands as a single save.
+    /// prompt does not use this entry point: it goes through
+    /// `AccountLocalDataAdoptionStore`, which preflights workouts and health
+    /// before applying either and saves once.
     private let commit: (ModelContext) throws -> Void
 
     init() {
@@ -96,6 +101,18 @@ struct HealthDataAdoptionStore {
         return logs.contains { !Self.isEmpty($0) }
     }
 
+    /// Whether adopting into `accountID` would move the guest profile: one
+    /// exists and the account has none. Not a reason to ask on its own, but
+    /// part of the answer once the question is asked.
+    func wouldAdoptGuestProfile(into accountID: UUID, in context: ModelContext) throws -> Bool {
+        var account = FetchDescriptor<UserProfile>(predicate: #Predicate { $0.ownerAccountID == accountID })
+        account.fetchLimit = 1
+        guard try context.fetch(account).isEmpty else { return false }
+        var guest = FetchDescriptor<UserProfile>(predicate: #Predicate { $0.ownerAccountID == nil })
+        guest.fetchLimit = 1
+        return try !context.fetch(guest).isEmpty
+    }
+
     @discardableResult
     func adoptGuestHealthData(for accountID: UUID, in context: ModelContext) throws -> Summary {
         let plan = try preflight(for: accountID, in: context)
@@ -111,13 +128,13 @@ struct HealthDataAdoptionStore {
 
     // MARK: Plan
 
-    private struct Merge {
+    fileprivate struct Merge {
         let target: DayLog
         let guest: DayLog
         let values: Fields
     }
 
-    private struct Fields: Equatable {
+    fileprivate struct Fields: Equatable {
         var intakeCalories: Int?
         var exerciseCalories: Int?
         var sleepMinutes: Int?
@@ -141,18 +158,21 @@ struct HealthDataAdoptionStore {
         }
     }
 
-    private struct Plan {
-        var adoptLogs: [DayLog] = []
+    /// Every decision preflight made. Visible to the module so
+    /// `AccountLocalDataAdoptionStore` can preflight health and workouts
+    /// before either is applied; its contents stay private.
+    struct Plan {
+        fileprivate var adoptLogs: [DayLog] = []
         /// A guest log adopted as-is whose intake the merged meals now own.
-        var adoptLogIntakes: [(log: DayLog, intake: Int?)] = []
-        var merges: [Merge] = []
+        fileprivate var adoptLogIntakes: [(log: DayLog, intake: Int?)] = []
+        fileprivate var merges: [Merge] = []
         /// Account logs that exist only to hold a recomputed intake.
-        var newLogs: [(day: Date, intake: Int)] = []
+        fileprivate var newLogs: [(day: Date, intake: Int)] = []
         /// Existing account logs whose intake the merged meals now own.
-        var accountIntakes: [(log: DayLog, intake: Int?)] = []
-        var adoptMeals: [MealEntry] = []
-        var adoptProfile: UserProfile?
-        var conflictingDays: [Date] = []
+        fileprivate var accountIntakes: [(log: DayLog, intake: Int?)] = []
+        fileprivate var adoptMeals: [MealEntry] = []
+        fileprivate var adoptProfile: UserProfile?
+        fileprivate var conflictingDays: [Date] = []
 
         var summary: Summary {
             Summary(
@@ -166,7 +186,7 @@ struct HealthDataAdoptionStore {
     }
 
     /// Every fetch and every decision; no writes.
-    private func preflight(for accountID: UUID, in context: ModelContext) throws -> Plan {
+    func preflight(for accountID: UUID, in context: ModelContext) throws -> Plan {
         let guestLogs = try context.fetch(FetchDescriptor<DayLog>(predicate: #Predicate { $0.ownerAccountID == nil }))
         let accountLogs = try context.fetch(FetchDescriptor<DayLog>(predicate: #Predicate { $0.ownerAccountID == accountID }))
         let guestMeals = try context.fetch(FetchDescriptor<MealEntry>(predicate: #Predicate { $0.ownerAccountID == nil }))
@@ -271,17 +291,17 @@ struct HealthDataAdoptionStore {
     // MARK: Apply
 
     /// What apply changed, enough to put every row back.
-    private struct Applied {
-        var adoptedLogs: [(DayLog, HealthOwnerAdoption, intake: Int?)] = []
-        var mergedTargets: [(DayLog, Fields)] = []
+    struct Applied {
+        fileprivate var adoptedLogs: [(DayLog, HealthOwnerAdoption, intake: Int?)] = []
+        fileprivate var mergedTargets: [(DayLog, Fields)] = []
         /// Deleted merged guest logs, by day and value. SwiftData does not
         /// undo a delete by re-inserting the same object, so undo recreates
         /// the row instead.
-        var deletedGuests: [(date: Date, values: Fields)] = []
-        var insertedLogs: [DayLog] = []
-        var accountIntakes: [(DayLog, Int?)] = []
-        var adoptedMeals: [(MealEntry, HealthOwnerAdoption)] = []
-        var adoptedProfile: (UserProfile, HealthOwnerAdoption)?
+        fileprivate var deletedGuests: [(date: Date, values: Fields)] = []
+        fileprivate var insertedLogs: [DayLog] = []
+        fileprivate var accountIntakes: [(DayLog, Int?)] = []
+        fileprivate var adoptedMeals: [(MealEntry, HealthOwnerAdoption)] = []
+        fileprivate var adoptedProfile: (UserProfile, HealthOwnerAdoption)?
 
         func undo(in context: ModelContext) {
             for (log, adoption, intake) in adoptedLogs {
@@ -302,7 +322,7 @@ struct HealthDataAdoptionStore {
     }
 
     /// Assignments, inserts and deletes only — nothing here can throw.
-    private func apply(_ plan: Plan, for accountID: UUID, in context: ModelContext) -> Applied {
+    func apply(_ plan: Plan, for accountID: UUID, in context: ModelContext) -> Applied {
         var applied = Applied()
 
         for log in plan.adoptLogs {

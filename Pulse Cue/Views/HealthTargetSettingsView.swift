@@ -9,19 +9,22 @@
 //    - date-specific overrides (one-off plans: trips, holidays, races)
 //
 //  Resolution priority remains date > weekday > default, locked by
-//  HealthTargetResolverTests. Storage continues to use the existing
-//  `health.targetSettings.v1` UserDefaults JSON — this PR adds UI
-//  only, no persistence format changes.
+//  HealthTargetResolverTests. Storage is `HealthTargetStore`, one blob per `HealthDataScope`; every
+//  read and write names the current scope, so this screen never shows or
+//  edits another account's targets.
 //
 
 import SwiftUI
 
 struct HealthTargetSettingsView: View {
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
     @StateObject private var store = HealthTargetStore()
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var showAddDateSheet = false
     @State private var pendingNewDate: Date = Date()
+
+    private var scope: HealthDataScope { dataScope.scope }
 
     var body: some View {
         ScrollView {
@@ -36,6 +39,7 @@ struct HealthTargetSettingsView: View {
             .padding(.top, 8)
         }
         .background(backgroundLayer.ignoresSafeArea())
+        .task(id: scope) { store.use(scope) }
         .navigationTitle("健康目標")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showAddDateSheet) {
@@ -64,8 +68,8 @@ struct HealthTargetSettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 targetEditor(
-                    targets: store.settings.defaults,
-                    apply: { store.updateDefaults($0) },
+                    targets: store.settings(in: scope).defaults,
+                    apply: { store.updateDefaults($0, in: scope) },
                 )
             }
         }
@@ -86,17 +90,17 @@ struct HealthTargetSettingsView: View {
     }
 
     private func weekdayRow(_ weekday: HealthTargetWeekday) -> some View {
-        let current = store.settings.weekdayOverrides[weekday] ?? HealthTargets()
+        let current = store.settings(in: scope).weekdayOverrides[weekday] ?? HealthTargets()
         let hasAny = !current.isEmpty
         return DisclosureGroup {
             VStack(spacing: 10) {
                 targetEditor(
                     targets: current,
-                    apply: { store.updateWeekdayOverride(weekday, targets: $0) },
+                    apply: { store.updateWeekdayOverride(weekday, targets: $0, in: scope) },
                 )
                 if hasAny {
                     Button(role: .destructive) {
-                        store.clearWeekdayOverride(weekday)
+                        store.clearWeekdayOverride(weekday, in: scope)
                     } label: {
                         Label("この曜日の上書きを削除", systemImage: "trash")
                             .font(.caption.weight(.semibold))
@@ -132,7 +136,7 @@ struct HealthTargetSettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                let sortedDates = store.settings.dateOverrides.keys.sorted()
+                let sortedDates = store.settings(in: scope).dateOverrides.keys.sorted()
                 if sortedDates.isEmpty {
                     Text("まだ日付指定の上書きはありません。")
                         .font(.caption)
@@ -168,16 +172,16 @@ struct HealthTargetSettingsView: View {
     }
 
     private func dateOverrideRow(_ day: Date) -> some View {
-        let current = store.settings.dateOverrides[day] ?? HealthTargets()
+        let current = store.settings(in: scope).dateOverrides[day] ?? HealthTargets()
         let hasAny = !current.isEmpty
         return DisclosureGroup {
             VStack(spacing: 10) {
                 targetEditor(
                     targets: current,
-                    apply: { store.updateDateOverride(day, targets: $0) },
+                    apply: { store.updateDateOverride(day, targets: $0, in: scope) },
                 )
                 Button(role: .destructive) {
-                    store.clearDateOverride(day)
+                    store.clearDateOverride(day, in: scope)
                 } label: {
                     Label("この日の上書きを削除", systemImage: "trash")
                         .font(.caption.weight(.semibold))
@@ -203,7 +207,7 @@ struct HealthTargetSettingsView: View {
     }
 
     private var addDateSheet: some View {
-        let alreadyConfigured = store.settings.dateOverrides[Calendar.current.startOfDay(for: pendingNewDate)] != nil
+        let alreadyConfigured = store.settings(in: scope).dateOverrides[Calendar.current.startOfDay(for: pendingNewDate)] != nil
         return NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 Text("対象日")
@@ -252,17 +256,17 @@ struct HealthTargetSettingsView: View {
         // through a one-field default copied from the defaults — this
         // gives the user a visible starting point they can clear.
         let seed = HealthTargets(
-            intakeCalories: store.settings.defaults.intakeCalories,
-            sleepMinutes: store.settings.defaults.sleepMinutes,
-            exerciseCalories: store.settings.defaults.exerciseCalories,
-            balanceCalories: store.settings.defaults.balanceCalories
+            intakeCalories: store.settings(in: scope).defaults.intakeCalories,
+            sleepMinutes: store.settings(in: scope).defaults.sleepMinutes,
+            exerciseCalories: store.settings(in: scope).defaults.exerciseCalories,
+            balanceCalories: store.settings(in: scope).defaults.balanceCalories
         )
         if seed.isEmpty {
             // No defaults configured — fall back to intake = 2000 so
             // the row isn't empty (the store would otherwise drop it).
-            store.updateDateOverride(day, targets: HealthTargets(intakeCalories: 2000))
+            store.updateDateOverride(day, targets: HealthTargets(intakeCalories: 2000), in: scope)
         } else {
-            store.updateDateOverride(day, targets: seed)
+            store.updateDateOverride(day, targets: seed, in: scope)
         }
         showAddDateSheet = false
     }
@@ -388,4 +392,5 @@ struct HealthTargetSettingsView: View {
     NavigationStack {
         HealthTargetSettingsView()
     }
+    .environmentObject(WorkoutDataScopeResolver(fixed: .guest))
 }

@@ -21,10 +21,15 @@
 //
 //  Health data (day logs, meals, profile) rides on the same question rather
 //  than a second alert: "この端末の記録をこのアカウントに引き継ぐ" is one
-//  decision about one device. Both halves land in one save — health
-//  adoption's commit runs the workout adoption — so a failure leaves both as
+//  decision about one device. `AccountLocalDataAdoptionStore` preflights both
+//  halves before applying either and saves once, so a failure leaves both as
 //  guest data. Each half is remembered separately, because an account asked
 //  about workouts by an earlier build has not yet been asked about health.
+//
+//  The guest profile alone does not raise the question, but once it is asked
+//  the profile goes with the rest — unless the account already has one, which
+//  stays authoritative. Favorite meals and manual targets are per-scope
+//  settings and are not part of this; the copy does not claim them.
 //
 //  A plain `.alert`. Two buttons and a sentence is exactly what Alert is for,
 //  and a hand-built sheet here would lose the system's focus order, Dynamic
@@ -46,7 +51,7 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
     @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
     @Environment(\.modelContext) private var modelContext
 
-    @State private var pendingAccountID: UUID?
+    @State private var pending: GuestAdoptionConsent.Question?
     @State private var failed = false
 
     /// Accounts already asked on this device, accepted or declined. Stored so
@@ -55,10 +60,6 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
     @AppStorage("sync.adoptionAnsweredAccountIDs") private var answeredRaw = ""
     @AppStorage("sync.healthAdoptionAnsweredAccountIDs") private var healthAnsweredRaw = ""
 
-    /// Which halves the pending question covers.
-    @State private var pendingWorkout = false
-    @State private var pendingHealth = false
-
     func body(content: Content) -> some View {
         content
             .onAppear { evaluate(dataScope.scope) }
@@ -66,14 +67,14 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
             .alert(
                 "ゲストの記録を引き継ぎますか？",
                 isPresented: Binding(
-                    get: { pendingAccountID != nil },
-                    set: { if !$0 { pendingAccountID = nil } }
+                    get: { pending != nil },
+                    set: { if !$0 { pending = nil } }
                 )
             ) {
                 Button("引き継ぐ") { adopt() }
                 Button("引き継がない", role: .cancel) { decline() }
             } message: {
-                Text("この端末にゲストとして記録した\(pendingSubject)を、このアカウントのものにします。他のアカウントの記録は変わりません。")
+                Text("この端末にゲストとして記録した\(pending?.subject ?? "")を、このアカウントのものにします。他のアカウントの記録は変わりません。")
             }
             .alert("引き継げませんでした", isPresented: $failed) {
                 Button("OK", role: .cancel) {}
@@ -82,80 +83,123 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
             }
     }
 
-    private func evaluate(_ scope: WorkoutDataScope) {
-        guard case let .account(id) = scope else {
-            pendingAccountID = nil
-            return
+    private var answers: GuestAdoptionConsent.Answers {
+        get { .init(workoutRaw: answeredRaw, healthRaw: healthAnsweredRaw) }
+        nonmutating set {
+            answeredRaw = newValue.workoutRaw
+            healthAnsweredRaw = newValue.healthRaw
         }
-        // Nothing to hand over means nothing to ask about.
-        let workout = !Self.ids(answeredRaw).contains(id)
-            && !((try? AccountScopedSyncStore().guestSessions(in: modelContext)) ?? []).isEmpty
-        let health = !Self.ids(healthAnsweredRaw).contains(id)
-            && ((try? HealthDataAdoptionStore().hasGuestHealthData(in: modelContext)) ?? false)
-        guard workout || health else { return }
-        pendingWorkout = workout
-        pendingHealth = health
-        pendingAccountID = id
     }
 
-    private var pendingSubject: String {
-        switch (pendingWorkout, pendingHealth) {
-        case (true, true): return "トレーニング・食事・体重や睡眠の記録"
-        case (false, true): return "食事・体重や睡眠の記録"
-        default: return "トレーニング履歴"
+    private func evaluate(_ scope: WorkoutDataScope) {
+        guard case let .account(id) = scope else {
+            pending = nil
+            return
         }
+        pending = GuestAdoptionConsent.question(for: id, answers: answers, in: modelContext)
     }
 
     private func adopt() {
-        guard let id = pendingAccountID else { return }
-        pendingAccountID = nil
-        let workout = pendingWorkout
-        let health = pendingHealth
+        guard let question = pending else { return }
+        pending = nil
+        var updated = answers
         do {
-            if health {
-                // One save for both halves: the health commit runs the workout
-                // adoption, whose own save carries the health changes too (or
-                // which restores its rows and throws). It saves nothing when it
-                // had nothing to move, and only then is a save of ours needed.
-                try HealthDataAdoptionStore(commit: { context in
-                    let moved = workout
-                        ? try AccountScopedSyncStore().adoptGuestWorkoutData(for: id, in: context)
-                        : .nothing
-                    if moved == .nothing { try context.save() }
-                }).adoptGuestHealthData(for: id, in: modelContext)
-            } else if workout {
-                try AccountScopedSyncStore().adoptGuestWorkoutData(for: id, in: modelContext)
-            }
-            markAnswered(id, workout: workout, health: health)
+            try GuestAdoptionConsent.accept(question, answers: &updated, in: modelContext)
+            answers = updated
         } catch {
-            // Say nothing succeeded, because nothing did: adoption saves once,
-            // so the guest rows — workouts and health alike — are still guest
-            // rows. The account is left
-            // alone — a failed transfer is not a reason to end a session.
+            // Say nothing succeeded, because nothing did: the rows — workouts
+            // and health alike — are still guest rows, and the question stays
+            // unanswered so it can be retried. The account is left alone — a
+            // failed transfer is not a reason to end a session.
             failed = true
         }
     }
 
     private func decline() {
-        guard let id = pendingAccountID else { return }
-        pendingAccountID = nil
-        markAnswered(id, workout: pendingWorkout, health: pendingHealth)
+        guard let question = pending else { return }
+        pending = nil
+        answers = answers.marking(question)
+    }
+}
+
+/// The question's logic, apart from the alert, so its contract is testable:
+/// what is asked, what accepting moves, and which answers are recorded when.
+enum GuestAdoptionConsent {
+
+    /// One pending question for one account. `profile` is the guest profile
+    /// riding along with an unanswered health half; it never raises the
+    /// question on its own.
+    struct Question: Equatable {
+        let accountID: UUID
+        let workout: Bool
+        let health: Bool
+        let profile: Bool
+
+        var subject: String {
+            var parts: [String] = []
+            if workout { parts.append("トレーニング") }
+            if health { parts.append("食事記録・体重や睡眠") }
+            if profile { parts.append("プロフィール") }
+            return parts.joined(separator: "・")
+        }
     }
 
-    private static func ids(_ raw: String) -> Set<UUID> {
-        Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+    /// The per-domain "already asked" sets, as stored.
+    struct Answers: Equatable {
+        var workoutRaw: String
+        var healthRaw: String
+
+        func answeredWorkout(_ id: UUID) -> Bool { Self.ids(workoutRaw).contains(id) }
+        func answeredHealth(_ id: UUID) -> Bool { Self.ids(healthRaw).contains(id) }
+
+        /// Only the halves that were asked: a workout-only question is not an
+        /// answer about health data that did not exist yet.
+        func marking(_ question: Question) -> Answers {
+            var next = self
+            if question.workout { next.workoutRaw = Self.adding(question.accountID, to: workoutRaw) }
+            if question.health { next.healthRaw = Self.adding(question.accountID, to: healthRaw) }
+            return next
+        }
+
+        private static func ids(_ raw: String) -> Set<UUID> {
+            Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+        }
+
+        private static func adding(_ id: UUID, to raw: String) -> String {
+            var ids = ids(raw)
+            ids.insert(id)
+            return ids.map(\.uuidString).sorted().joined(separator: ",")
+        }
     }
 
-    private static func adding(_ id: UUID, to raw: String) -> String {
-        var ids = ids(raw)
-        ids.insert(id)
-        return ids.map(\.uuidString).sorted().joined(separator: ",")
+    /// The question to ask `accountID` now, or nil when there is nothing
+    /// unanswered to hand over.
+    static func question(for accountID: UUID, answers: Answers, in context: ModelContext) -> Question? {
+        let workout = !answers.answeredWorkout(accountID)
+            && !((try? AccountScopedSyncStore().guestSessions(in: context)) ?? []).isEmpty
+        let healthUnanswered = !answers.answeredHealth(accountID)
+        let health = healthUnanswered
+            && ((try? HealthDataAdoptionStore().hasGuestHealthData(in: context)) ?? false)
+        guard workout || health else { return nil }
+        let profile = healthUnanswered
+            && ((try? HealthDataAdoptionStore().wouldAdoptGuestProfile(into: accountID, in: context)) ?? false)
+        return Question(accountID: accountID, workout: workout, health: health, profile: profile)
     }
 
-    /// Only the halves that were asked: a workout-only question is not an
-    /// answer about health data that did not exist yet.
-    private func markAnswered(_ id: UUID, workout: Bool, health: Bool) {
-        if workout { answeredRaw = Self.adding(id, to: answeredRaw) }
-        if health { healthAnsweredRaw = Self.adding(id, to: healthAnsweredRaw) }
+    /// Adopts what `question` covers in one transaction, then records the
+    /// answer. A throw records nothing, so the question can be asked again.
+    static func accept(
+        _ question: Question,
+        answers: inout Answers,
+        in context: ModelContext,
+        store: AccountLocalDataAdoptionStore = AccountLocalDataAdoptionStore()
+    ) throws {
+        try store.adoptGuestData(
+            workout: question.workout,
+            health: question.health || question.profile,
+            for: question.accountID,
+            in: context
+        )
+        answers = answers.marking(question)
     }
 }

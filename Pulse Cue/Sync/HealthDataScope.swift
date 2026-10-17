@@ -66,3 +66,38 @@ struct HealthScopedValue<Value> {
         scope == current ? value : nil
     }
 }
+
+/// UserDefaults keys for per-person health settings — favorite meals, manual
+/// targets — namespaced the way `HealthDataScope` namespaces rows.
+///
+/// These blobs were device-global before accounts existed, so whoever signed
+/// in saw, edited and computed with whoever came before. The pre-account
+/// value is guest data: it is copied into the guest namespace only, never
+/// into an account (signing in is not consent to take it), and the legacy key
+/// is left in place so a downgraded build still finds it.
+///
+/// Not part of guest adoption: these are re-entry conveniences and settings,
+/// not records, and they live outside the SwiftData transaction adoption
+/// commits in.
+enum HealthScopedDefaults {
+    /// `<base>.guest`, `<base>.account.<UUID>`, or nil while undetermined —
+    /// there is no key to read or write until the scope is known.
+    static func key(_ base: String, for scope: HealthDataScope) -> String? {
+        switch scope {
+        case .guest: return "\(base).guest"
+        case let .account(id): return "\(base).account.\(id.uuidString)"
+        case .undetermined: return nil
+        }
+    }
+
+    /// The scope's stored data. For guest, a pre-account value under `base`
+    /// is copied in first (once — afterwards the guest key exists).
+    static func data(_ base: String, for scope: HealthDataScope, in defaults: UserDefaults) -> Data? {
+        guard let key = key(base, for: scope) else { return nil }
+        if scope == .guest, defaults.object(forKey: key) == nil,
+           let legacy = defaults.data(forKey: base) {
+            defaults.set(legacy, forKey: key)
+        }
+        return defaults.data(forKey: key)
+    }
+}

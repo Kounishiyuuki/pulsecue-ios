@@ -90,7 +90,7 @@ struct NutritionView: View {
             mealsForDay: mealsForDay,
             profile: profile,
             currentWeightKg: latestWeightKg,
-            targetSettings: targetStore.settings
+            targetSettings: targetStore.settings(in: scope)
         )
     }
 
@@ -158,6 +158,10 @@ struct NutritionView: View {
         .navigationTitle("栄養")
         .navigationBarTitleDisplayMode(.inline)
         .task { refreshLatestWeight() }
+        .task(id: scope) {
+            favoriteTemplates.use(scope)
+            targetStore.use(scope)
+        }
         .onChange(of: latestWeightSignature) { _, _ in refreshLatestWeight() }
         .sheet(item: $sheetMode) { mode in
             MealEntrySheet(mode: mode)
@@ -265,11 +269,11 @@ struct NutritionView: View {
         case .recentAndFavourites:
             NutritionQuickReentrySection(
                 suggestions: recentMealSuggestions,
-                templates: favoriteTemplates.templates,
+                templates: favoriteTemplates.templates(in: scope),
                 proteinGradient: proteinGradient,
                 onAddSuggestion: addRecentMeal,
                 onAddTemplate: addFavoriteTemplate,
-                onRemoveTemplate: favoriteTemplates.remove
+                onRemoveTemplate: { favoriteTemplates.remove($0, in: scope) }
             )
 
         case .weeklyTrend:
@@ -523,7 +527,8 @@ struct NutritionView: View {
                 kcal: meal.kcal,
                 proteinGrams: meal.proteinGrams,
                 slot: meal.slot
-            )
+            ),
+            in: scope
         )
         if settings.hapticsEnabled {
             SoundHapticManager.playHaptic()
@@ -536,7 +541,7 @@ struct NutritionView: View {
     private func canSaveAsFavorite(_ meal: MealEntry) -> Bool {
         meal.status == .confirmed
             && meal.source == .manual
-            && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal)
+            && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal, in: scope)
     }
 
     /// Wraps the meal as `UserConfirmed<MealEstimate>` and calls
