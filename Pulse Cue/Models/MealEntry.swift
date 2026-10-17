@@ -37,7 +37,8 @@ final class MealEntry {
     var createdAt: Date
     /// Schema V8. nil = guest; otherwise the server-confirmed internal account
     /// UUID. `id` stays globally unique: a meal belongs to exactly one owner and
-    /// is never re-parented to another account.
+    /// is never re-parented to another account (only guest → account, through
+    /// `adopt(into:)`).
     private(set) var ownerAccountID: UUID?
 
     init(
@@ -173,5 +174,21 @@ enum MealSource: String, CaseIterable, Codable {
         case .barcode: return "バーコード"
         case .ocr: return "OCR"
         }
+    }
+}
+
+extension MealEntry {
+    /// Moves a guest meal into `accountID`. Nil, with nothing changed, if it
+    /// already belongs to an account — account → account is never an adoption.
+    func adopt(into accountID: UUID) -> HealthOwnerAdoption? {
+        guard ownerAccountID == nil else { return nil }
+        ownerAccountID = accountID
+        return HealthOwnerAdoption(accountID: accountID)
+    }
+
+    /// Puts a meal `adopt(into:)` moved back into guest data.
+    func undoAdoption(_ adoption: HealthOwnerAdoption) {
+        guard ownerAccountID == adoption.accountID else { return }
+        ownerAccountID = nil
     }
 }

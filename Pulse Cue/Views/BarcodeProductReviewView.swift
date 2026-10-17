@@ -25,6 +25,7 @@ import SwiftData
 struct BarcodeProductReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     /// The looked-up candidate. When the product was not found this
     /// still carries the scanned `barcode` with empty nutrition
@@ -75,7 +76,7 @@ struct BarcodeProductReviewView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("記録する") { save() }
-                    .disabled(!isFormValid)
+                    .disabled(!isFormValid || !dataScope.scope.canCreateHealthData)
             }
         }
     }
@@ -173,6 +174,8 @@ struct BarcodeProductReviewView: View {
     /// This is the single point where the barcode flow writes to the
     /// store and syncs DayLog — nothing before this touched either.
     private func save() {
+        // No owner to give the meal while the scope is unknown.
+        guard dataScope.scope.canCreateHealthData else { return }
         let entry = ConfirmedMealEntryFactory.make(
             day: Date(),
             slot: slot,
@@ -182,12 +185,13 @@ struct BarcodeProductReviewView: View {
             carbText: carbText,
             fatText: fatText,
             note: note,
-            source: .barcode
+            source: .barcode,
+            ownerAccountID: dataScope.scope.creationOwnerAccountID
         )
         modelContext.insert(entry)
         // Mirrors the manual-entry path in MealEntrySheet: a confirmed
         // meal is reflected in the day's intake immediately.
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: modelContext)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: dataScope.scope, modelContext: modelContext)
         onSaved()
     }
 }

@@ -39,6 +39,8 @@ enum ConfirmedMealEntryFactory {
     ///    button on a valid calorie value, so a real value is present
     ///    in the UI.
     ///  - protein / carbs / fat parse to optional `Int`s.
+    ///  - the owner is required, with no default, so a review flow
+    ///    cannot quietly save an account holder's meal as guest data.
     static func make(
         day: Date,
         slot: MealSlot,
@@ -48,7 +50,8 @@ enum ConfirmedMealEntryFactory {
         carbText: String,
         fatText: String,
         note: String,
-        source: MealSource
+        source: MealSource,
+        ownerAccountID: UUID?
     ) -> MealEntry {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -62,7 +65,8 @@ enum ConfirmedMealEntryFactory {
             fatGrams: Int(fatText),
             status: .confirmed,
             source: source,
-            note: trimmedNote.isEmpty ? nil : trimmedNote
+            note: trimmedNote.isEmpty ? nil : trimmedNote,
+            ownerAccountID: ownerAccountID
         )
     }
 }

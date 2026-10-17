@@ -41,9 +41,15 @@ struct TodayView: View {
     /// keeps one.
     let onOpenNutrition: () -> Void
 
-    @Query private var recentLogs: [DayLog]
-    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
-    private var profiles: [UserProfile]
+    // Health rows for every owner; read only through the scoped accessors
+    // below, with the same scope the workout summary uses.
+    @Query private var everyRecentLog: [DayLog]
+    @Query private var everyProfile: [UserProfile]
+
+    private var healthScope: HealthDataScope { dataScope.scope }
+    private var recentLogs: [DayLog] { healthScope.visible(everyRecentLog) }
+    private var profile: UserProfile? { UserProfileStore.select(from: everyProfile, scope: healthScope) }
+    private var todaysMeals: [MealEntry] { healthScope.visible(everyTodaysMeal) }
 
     // Workout history for the Home progress summary / "repeat" action. Derived
     // read-only via `WorkoutProgress`; never mutated here.
@@ -67,14 +73,14 @@ struct TodayView: View {
     /// cost is bounded by the calendar rather than by usage. The meal query
     /// above is the one where that distinction mattered.
     @Query(sort: [SortDescriptor(\DayLog.date, order: .reverse)])
-    private var allDayLogs: [DayLog]
+    private var everyDayLog: [DayLog]
 
     /// Today's meals only. Read-only; Home never writes a meal.
     ///
     /// Date-bounded in the query rather than fetched whole and filtered:
     /// Home rendered every meal the user has ever logged in order to add up
     /// one day, and that cost grows with the history forever.
-    @Query private var todaysMeals: [MealEntry]
+    @Query private var everyTodaysMeal: [MealEntry]
 
     @StateObject private var targetStore = HealthTargetStore()
     /// Stateless UserDefaults accessor (same as WorkoutView), for the shared
@@ -99,12 +105,12 @@ struct TodayView: View {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -13, to: today) ?? today
-        self._recentLogs = Query(
+        self._everyRecentLog = Query(
             filter: #Predicate<DayLog> { $0.date >= start },
             sort: [SortDescriptor(\DayLog.date, order: .reverse)]
         )
         let tomorrow = cal.date(byAdding: .day, value: 1, to: today) ?? today
-        self._todaysMeals = Query(
+        self._everyTodaysMeal = Query(
             filter: #Predicate<MealEntry> { $0.dayDate >= today && $0.dayDate < tomorrow }
         )
     }
@@ -121,7 +127,7 @@ struct TodayView: View {
     /// target for that metric — the UI preserves the prior display in
     /// that case.
     private var resolvedTargets: HealthTargets {
-        HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings)
+        HealthTargetResolver.resolveAll(date: Date(), settings: targetStore.settings(in: healthScope))
     }
 
     /// The latest weigh-in — both the figure the personal status row shows and
@@ -136,7 +142,11 @@ struct TodayView: View {
     ///
     /// Cached rather than fetched per render, and refreshed when the logs
     /// change.
-    @State private var latestWeightKg: Double?
+    @State private var cachedLatestWeight: HealthScopedValue<Double?>?
+
+    private var latestWeightKg: Double? {
+        cachedLatestWeight?.value(in: healthScope) ?? nil
+    }
 
     /// Refresh signal for the cached weight.
     ///
@@ -144,12 +154,13 @@ struct TodayView: View {
     /// editing a weight in place left the array equal and this screen kept
     /// showing a weight no longer on disk.
     private var latestWeightSignature: String {
-        LatestBodyWeightResolver.changeSignature(for: allDayLogs)
+        LatestBodyWeightResolver.changeSignature(for: everyDayLog, scope: healthScope)
     }
 
     private func refreshLatestWeight() {
-        latestWeightKg = LatestBodyWeightResolver.latestWeightKg(
-            modelContext: modelContext
+        cachedLatestWeight = HealthScopedValue(
+            scope: healthScope,
+            value: LatestBodyWeightResolver.latestWeightKg(scope: healthScope, modelContext: modelContext)
         )
     }
 
@@ -198,9 +209,15 @@ struct TodayView: View {
         .task {
             refreshLatestWeight()
             ensureTodayLogExists()
-            _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
             recomputeProgressSummary()
         }
+        // A newly confirmed account (or a sign-out back to guest) gets its own
+        // log for today; nothing is created while the scope is still
+        // undetermined. Not a profile: an account profile made by opening
+        // Home would already exist when the adoption prompt is answered, and
+        // the guest profile would be left behind. Only an edit creates one.
+        .onChange(of: healthScope) { _, _ in ensureTodayLogExists() }
+        .task(id: healthScope) { targetStore.use(healthScope) }
         .onChange(of: latestWeightSignature) { _, _ in refreshLatestWeight() }
         .onChange(of: progressSignature) { _, _ in recomputeProgressSummary() }
     }
@@ -225,9 +242,9 @@ struct TodayView: View {
             Date(),
             dayLog: todayLog,
             mealsForDay: todaysMeals,
-            profile: profiles.first,
+            profile: profile,
             currentWeightKg: latestWeightKg,
-            targetSettings: targetStore.settings
+            targetSettings: targetStore.settings(in: healthScope)
         )
     }
 
@@ -246,7 +263,7 @@ struct TodayView: View {
                 todayLog: todayLog,
                 targets: resolvedTargets,
                 nutritionSummary: nutritionSummary,
-                goalWeightKg: profiles.first?.goalWeightKg,
+                goalWeightKg: profile?.goalWeightKg,
                 onOpenNutrition: onOpenNutrition,
                 onOpenField: openField
             )
@@ -356,7 +373,7 @@ struct TodayView: View {
     /// disagree about the sign.
     private var goalDifferenceText: String? {
         guard let current = todayLog?.weightKg,
-              let goal = profiles.first?.goalWeightKg,
+              let goal = profile?.goalWeightKg,
               let diff = WeightTargetDifference.goalDifference(current: current, goal: goal)
         else { return nil }
         return diff.label
@@ -366,9 +383,16 @@ struct TodayView: View {
 
     private func ensureTodayLogExists() {
         if todayLog == nil {
-            _ = DayLogStore.fetchOrCreateToday(modelContext: modelContext)
+            Self.prepareHealthRows(scope: healthScope, modelContext: modelContext)
         }
     }
+
+    /// What Home creates for a scope just by being shown: today's log, and
+    /// deliberately not a profile — see the `onChange(of: healthScope)` note.
+    static func prepareHealthRows(scope: HealthDataScope, modelContext: ModelContext) {
+        _ = DayLogStore.fetchOrCreateToday(scope: scope, modelContext: modelContext)
+    }
+
 
     private func openField(_ field: DayLogField) {
         ensureTodayLogExists()

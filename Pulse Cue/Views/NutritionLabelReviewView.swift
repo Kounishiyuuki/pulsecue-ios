@@ -25,6 +25,7 @@ import SwiftData
 struct NutritionLabelReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
     /// The OCR candidate. When nothing was recognized this still
     /// carries empty fields so the user can record the item manually.
@@ -74,7 +75,7 @@ struct NutritionLabelReviewView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("食事として保存") { save() }
-                    .disabled(!isFormValid)
+                    .disabled(!isFormValid || !dataScope.scope.canCreateHealthData)
             }
         }
     }
@@ -174,6 +175,8 @@ struct NutritionLabelReviewView: View {
     /// This is the single point where the OCR flow writes to the
     /// store and syncs DayLog — nothing before this touched either.
     private func save() {
+        // No owner to give the meal while the scope is unknown.
+        guard dataScope.scope.canCreateHealthData else { return }
         let entry = ConfirmedMealEntryFactory.make(
             day: Date(),
             slot: slot,
@@ -183,12 +186,13 @@ struct NutritionLabelReviewView: View {
             carbText: carbText,
             fatText: fatText,
             note: note,
-            source: .ocr
+            source: .ocr,
+            ownerAccountID: dataScope.scope.creationOwnerAccountID
         )
         modelContext.insert(entry)
         // Mirrors the manual-entry path: a confirmed meal is reflected
         // in the day's intake immediately, via the canonical ledger.
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: modelContext)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: dataScope.scope, modelContext: modelContext)
         onSaved()
     }
 }

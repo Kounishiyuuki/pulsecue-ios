@@ -9,16 +9,22 @@ import SwiftUI
 import SwiftData
 
 struct HealthSummaryView: View {
-    @Query private var recentLogs: [DayLog]
-    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
-    private var profiles: [UserProfile]
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
+    // Every owner's rows; read only through the scoped accessors below.
+    @Query private var everyRecentLog: [DayLog]
+    @Query private var everyProfile: [UserProfile]
+
+    private var recentLogs: [DayLog] { dataScope.scope.visible(everyRecentLog) }
+    private var profile: UserProfile? {
+        UserProfileStore.select(from: everyProfile, scope: dataScope.scope)
+    }
     @StateObject private var targetStore = HealthTargetStore()
 
     init() {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         let start = cal.date(byAdding: .day, value: -29, to: today) ?? today
-        self._recentLogs = Query(
+        self._everyRecentLog = Query(
             filter: #Predicate<DayLog> { $0.date >= start },
             sort: [SortDescriptor(\DayLog.date, order: .reverse)]
         )
@@ -37,7 +43,7 @@ struct HealthSummaryView: View {
         HealthTargetWeeklyAverage.averageTarget(
             metric: metric,
             endingAt: Date(),
-            settings: targetStore.settings
+            settings: targetStore.settings(in: dataScope.scope)
         )
     }
 
@@ -51,6 +57,7 @@ struct HealthSummaryView: View {
             footerSection
         }
         .navigationTitle("健康サマリー")
+        .task(id: dataScope.scope) { targetStore.use(dataScope.scope) }
         .scrollContentBackground(.hidden)
         .background(AppTheme.background)
         .listStyle(.insetGrouped)
@@ -207,7 +214,7 @@ struct HealthSummaryView: View {
     /// "no target" display rule.
     private func weightGoalRow() -> AnyView? {
         guard let current = summary.latestWeight,
-              let profile = profiles.first,
+              let profile,
               let diff = WeightTargetDifference.goalDifference(
                 current: current,
                 goal: profile.goalWeightKg

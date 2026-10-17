@@ -33,9 +33,12 @@ import SwiftUI
 
 struct MeView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
-    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
-    private var profiles: [UserProfile]
+    @Query private var everyProfile: [UserProfile]
+    private var profile: UserProfile? {
+        UserProfileStore.select(from: everyProfile, scope: dataScope.scope)
+    }
     /// Change trigger for the cached weight. Not bounded to a display window,
     /// for the reason `TodayView` documents: a presentation range must not
     /// decide which weigh-in the app considers current.
@@ -45,12 +48,16 @@ struct MeView: View {
     /// Refresh signal for the cached weight; see `changeSignature` for why the
     /// array itself is not enough.
     private var latestWeightSignature: String {
-        LatestBodyWeightResolver.changeSignature(for: allDayLogs)
+        LatestBodyWeightResolver.changeSignature(for: allDayLogs, scope: dataScope.scope)
     }
 
     /// The latest weigh-in, through the shared resolver, so Me, Home and
     /// Nutrition cannot disagree about which one it is.
-    @State private var latestWeightKg: Double?
+    @State private var cachedLatestWeight: HealthScopedValue<Double?>?
+
+    private var latestWeightKg: Double? {
+        cachedLatestWeight?.value(in: dataScope.scope) ?? nil
+    }
 
     var body: some View {
         ZStack {
@@ -143,7 +150,7 @@ struct MeView: View {
     /// derived here that the profile does not already hold.
     private var goalDifferenceText: String? {
         guard let latestWeightKg,
-              let goal = profiles.first?.goalWeightKg,
+              let goal = profile?.goalWeightKg,
               goal > 0
         else { return nil }
 
@@ -166,8 +173,9 @@ struct MeView: View {
     }
 
     private func refreshWeight() {
-        latestWeightKg = LatestBodyWeightResolver.latestWeightKg(
-            modelContext: modelContext
+        cachedLatestWeight = HealthScopedValue(
+            scope: dataScope.scope,
+            value: LatestBodyWeightResolver.latestWeightKg(scope: dataScope.scope, modelContext: modelContext)
         )
     }
 

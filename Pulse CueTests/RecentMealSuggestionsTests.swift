@@ -230,7 +230,7 @@ struct RecentMealSuggestionsTests {
             source: .manual
         )
         context.insert(resurrected)
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
 
         // Check the new entry's invariants.
         #expect(resurrected.dayDate == todayStart)
@@ -240,7 +240,7 @@ struct RecentMealSuggestionsTests {
         #expect(resurrected.name == "鶏むね 200g")
 
         // DayLog should reflect today's confirmed total = 320.
-        let dayLog = DayLogStore.fetch(date: todayStart, modelContext: context)
+        let dayLog = DayLogStore.fetch(date: todayStart, scope: .guest, modelContext: context)
         #expect(dayLog?.intakeCalories == 320)
     }
 
@@ -277,9 +277,9 @@ struct RecentMealSuggestionsTests {
             )
             context.insert(fresh)
         }
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
 
-        let dayLog = DayLogStore.fetch(date: todayStart, modelContext: context)
+        let dayLog = DayLogStore.fetch(date: todayStart, scope: .guest, modelContext: context)
         #expect(dayLog?.intakeCalories == 250 + 180)
     }
 }

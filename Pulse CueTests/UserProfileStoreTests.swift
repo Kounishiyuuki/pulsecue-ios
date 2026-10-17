@@ -50,9 +50,9 @@ struct UserProfileStoreTests {
         let context = try Self.makeContext()
         let defaults = Self.makeIsolatedDefaults()
 
-        #expect(UserProfileStore.current(modelContext: context) == nil)
+        #expect(UserProfileStore.profile(for: .guest, modelContext: context) == nil)
 
-        let profile = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let profile = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         let all = try context.fetch(FetchDescriptor<UserProfile>())
         #expect(all.count == 1)
         #expect(all.first?.id == profile.id)
@@ -63,9 +63,9 @@ struct UserProfileStoreTests {
         let context = try Self.makeContext()
         let defaults = Self.makeIsolatedDefaults()
 
-        let first = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
-        let second = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
-        let third = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let first = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
+        let second = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
+        let third = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
 
         #expect(first === second)
         #expect(second === third)
@@ -80,7 +80,7 @@ struct UserProfileStoreTests {
         let context = try Self.makeContext()
         let defaults = Self.makeIsolatedDefaults() // empty
 
-        let profile = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let profile = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
 
         #expect(profile.heightCm == 170)
         #expect(profile.ageYears == 30)
@@ -101,7 +101,7 @@ struct UserProfileStoreTests {
         let context = try Self.makeContext()
         let defaults = Self.makeIsolatedDefaults()
 
-        let profile = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let profile = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         let baselineBMR = try #require(profile.bmr(currentWeightKg: 70))
         let baselineTDEE = try #require(profile.tdee(currentWeightKg: 70))
 
@@ -131,7 +131,7 @@ struct UserProfileStoreTests {
         let context = try Self.makeContext()
         let defaults = Self.makeIsolatedDefaults()
 
-        let profile = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let profile = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         let originalTimestamp = profile.updatedAt
 
         // The enum setters bump updatedAt explicitly.
@@ -147,7 +147,7 @@ struct UserProfileStoreTests {
         let defaults = Self.makeIsolatedDefaults()
         let settings = SettingsStore(defaults: defaults)
 
-        let profile = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let profile = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         let snapshotHeight = profile.heightCm
         let snapshotAge = profile.ageYears
         let snapshotSex = profile.biologicalSex
@@ -179,7 +179,7 @@ struct UserProfileStoreTests {
         defaults.set(72.5, forKey: "settings.goalWeightKg")
         defaults.set(-0.3, forKey: "settings.weeklyChangeKg")
 
-        let profile = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let profile = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         #expect(profile.heightCm == 178)
         #expect(profile.ageYears == 42)
         #expect(profile.biologicalSex == .male)
@@ -194,7 +194,7 @@ struct UserProfileStoreTests {
         let defaults = Self.makeIsolatedDefaults()
 
         defaults.set(160, forKey: "settings.heightCm")
-        let first = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let first = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         #expect(first.heightCm == 160)
 
         // Mutate the existing profile, then mutate the legacy defaults
@@ -202,7 +202,7 @@ struct UserProfileStoreTests {
         first.heightCm = 175
         defaults.set(190, forKey: "settings.heightCm")
 
-        let second = UserProfileStore.fetchOrCreate(modelContext: context, legacyDefaults: defaults)
+        let second = try #require(UserProfileStore.fetchOrCreateProfile(for: .guest, modelContext: context, legacyDefaults: defaults))
         #expect(second === first)
         #expect(second.heightCm == 175)
     }

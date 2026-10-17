@@ -8,6 +8,13 @@
 //  and seeds the new `UserProfile` from them. After that, all reads
 //  and writes flow through SwiftData via `@Query` + `@Bindable`.
 //
+//  One profile per owner — guest, account A, account B — is this type's
+//  contract, not the schema's. Every read goes through `select(from:scope:)`,
+//  so a store that already holds two rows for one owner (an older build, a
+//  race) still resolves to the same row on every screen: newest `updatedAt`,
+//  then lowest `id`. The extra row is left alone — deleting it would be a
+//  guess about which one the person meant to keep.
+//
 
 import Foundation
 import SwiftData
@@ -15,34 +22,86 @@ import SwiftData
 @MainActor
 enum UserProfileStore {
 
-    /// Returns the existing `UserProfile`. On first call, creates one
-    /// seeded from the legacy `SettingsStore` UserDefaults keys (so a
-    /// user upgrading from a pre-binding build keeps their height /
-    /// age / sex / activity / goal weight / weekly rate).
+    /// The scope's profile, inserted if it has none. Nil while the scope is
+    /// undetermined.
+    ///
+    /// For an explicit edit only — never a screen appearing or the scope
+    /// changing. An account profile created by merely looking would be
+    /// "the account already has a profile" by the time the adoption prompt
+    /// is answered, and the guest's profile would stay behind. Screens that
+    /// only display use `profile(for:)` / `select(from:scope:)` and treat nil
+    /// as "no profile yet"; Settings edits a `draftProfile(for:)` and
+    /// persists it when the person changes something.
+    @discardableResult
+    static func fetchOrCreateProfile(
+        for scope: HealthDataScope,
+        modelContext: ModelContext,
+        legacyDefaults: UserDefaults = .standard
+    ) -> UserProfile? {
+        if let existing = profile(for: scope, modelContext: modelContext) {
+            return existing
+        }
+        guard let draft = draftProfile(for: scope, legacyDefaults: legacyDefaults) else { return nil }
+        return persistDraft(draft, for: scope, modelContext: modelContext)
+    }
+
+    /// A profile for `scope` that is not in the store — what an edit screen
+    /// shows before anything has been saved. Nil while undetermined.
+    ///
+    /// Only a guest draft is seeded from the legacy `SettingsStore` keys:
+    /// they were written on this device before accounts existed, which is
+    /// what guest data means. An account's first profile starts from the
+    /// defaults rather than inheriting whoever used the device before — that
+    /// handover is adoption's job, and it asks first.
     ///
     /// The legacy keys are not deleted; SettingsStore no longer reads
     /// them, but they remain as a safety net for downgrade scenarios.
-    @discardableResult
-    static func fetchOrCreate(
-        modelContext: ModelContext,
-        legacyDefaults: UserDefaults = .standard
-    ) -> UserProfile {
-        if let existing = current(modelContext: modelContext) {
-            return existing
+    static func draftProfile(for scope: HealthDataScope, legacyDefaults: UserDefaults = .standard) -> UserProfile? {
+        switch scope {
+        case .undetermined: return nil
+        case .guest: return makeProfile(fromLegacy: legacyDefaults)
+        case let .account(id): return UserProfile(ownerAccountID: id)
         }
-        let profile = makeProfile(fromLegacy: legacyDefaults)
-        modelContext.insert(profile)
-        return profile
     }
 
-    /// Returns the current `UserProfile` if one is already stored.
-    /// Never inserts a new row.
-    static func current(modelContext: ModelContext) -> UserProfile? {
-        var descriptor = FetchDescriptor<UserProfile>(
-            sortBy: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)]
-        )
-        descriptor.fetchLimit = 1
-        return try? modelContext.fetch(descriptor).first
+    /// Stores `draft` as `scope`'s profile — unless the scope gained one in
+    /// the meantime (adoption, another screen), which then wins and is
+    /// returned instead. Nil if `draft` does not belong to `scope`.
+    @discardableResult
+    static func persistDraft(_ draft: UserProfile, for scope: HealthDataScope, modelContext: ModelContext) -> UserProfile? {
+        guard scope.canCreateHealthData, scope.matches(ownerAccountID: draft.ownerAccountID) else { return nil }
+        if let existing = profile(for: scope, modelContext: modelContext) {
+            return existing
+        }
+        modelContext.insert(draft)
+        return draft
+    }
+
+    /// The scope's profile if one is stored. Never inserts.
+    static func profile(for scope: HealthDataScope, modelContext: ModelContext) -> UserProfile? {
+        let descriptor: FetchDescriptor<UserProfile>
+        switch scope {
+        case .undetermined:
+            return nil
+        case .guest:
+            descriptor = FetchDescriptor<UserProfile>(
+                predicate: #Predicate<UserProfile> { $0.ownerAccountID == nil }
+            )
+        case let .account(id):
+            descriptor = FetchDescriptor<UserProfile>(
+                predicate: #Predicate<UserProfile> { $0.ownerAccountID == id }
+            )
+        }
+        return select(from: (try? modelContext.fetch(descriptor)) ?? [], scope: scope)
+    }
+
+    /// The one profile `scope` resolves to among `profiles` — which may be
+    /// every profile on the device, as a view's `@Query` returns them.
+    static func select(from profiles: [UserProfile], scope: HealthDataScope) -> UserProfile? {
+        scope.visible(profiles).min { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 
     // MARK: - Migration from legacy UserDefaults
@@ -82,7 +141,7 @@ enum UserProfileStore {
 
     /// The UserDefaults keys SettingsStore used to write before the
     /// SwiftData migration. Held here for the one-shot read on
-    /// `fetchOrCreate`. Do not introduce new writes against these.
+    /// `draftProfile(for:)`. Do not introduce new writes against these.
     private enum LegacyKeys {
         static let heightCm = "settings.heightCm"
         static let ageYears = "settings.ageYears"

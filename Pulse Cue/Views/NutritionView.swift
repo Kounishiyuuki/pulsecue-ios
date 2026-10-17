@@ -33,11 +33,18 @@ import SwiftData
 struct NutritionView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
-    @Query(sort: [SortDescriptor(\MealEntry.createdAt, order: .forward)]) private var allMeals: [MealEntry]
-    @Query private var allDayLogs: [DayLog]
-    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
-    private var profiles: [UserProfile]
+    // Every owner's rows; read only through the scoped accessors below, so a
+    // switch from account A to B never renders one of A's meals under B.
+    @Query(sort: [SortDescriptor(\MealEntry.createdAt, order: .forward)]) private var everyMeal: [MealEntry]
+    @Query private var everyDayLog: [DayLog]
+    @Query private var everyProfile: [UserProfile]
+
+    private var scope: HealthDataScope { dataScope.scope }
+    private var allMeals: [MealEntry] { scope.visible(everyMeal) }
+    private var allDayLogs: [DayLog] { scope.visible(everyDayLog) }
+    private var profile: UserProfile? { UserProfileStore.select(from: everyProfile, scope: scope) }
 
     @StateObject private var favoriteTemplates = FavoriteMealTemplateStore()
     /// Same resolver Home uses, so a manual intake target moves both screens.
@@ -81,9 +88,9 @@ struct NutritionView: View {
             Date(),
             dayLog: todaysDayLog,
             mealsForDay: mealsForDay,
-            profile: profiles.first,
+            profile: profile,
             currentWeightKg: latestWeightKg,
-            targetSettings: targetStore.settings
+            targetSettings: targetStore.settings(in: scope)
         )
     }
 
@@ -92,7 +99,11 @@ struct NutritionView: View {
     /// Shared with Home, Me and 体と目標 through `LatestBodyWeightResolver` so
     /// every screen resolves the same weigh-in. Cached and refreshed with the
     /// logs rather than sorting the whole history on every render.
-    @State private var latestWeightKg: Double?
+    @State private var cachedLatestWeight: HealthScopedValue<Double?>?
+
+    private var latestWeightKg: Double? {
+        cachedLatestWeight?.value(in: scope) ?? nil
+    }
 
     /// Refresh signal for the cached weight.
     ///
@@ -100,12 +111,13 @@ struct NutritionView: View {
     /// editing a weight in place left the array equal and this screen kept
     /// computing the target from a weight no longer on disk.
     private var latestWeightSignature: String {
-        LatestBodyWeightResolver.changeSignature(for: allDayLogs)
+        LatestBodyWeightResolver.changeSignature(for: everyDayLog, scope: scope)
     }
 
     private func refreshLatestWeight() {
-        latestWeightKg = LatestBodyWeightResolver.latestWeightKg(
-            modelContext: modelContext
+        cachedLatestWeight = HealthScopedValue(
+            scope: scope,
+            value: LatestBodyWeightResolver.latestWeightKg(scope: scope, modelContext: modelContext)
         )
     }
 
@@ -146,6 +158,10 @@ struct NutritionView: View {
         .navigationTitle("栄養")
         .navigationBarTitleDisplayMode(.inline)
         .task { refreshLatestWeight() }
+        .task(id: scope) {
+            favoriteTemplates.use(scope)
+            targetStore.use(scope)
+        }
         .onChange(of: latestWeightSignature) { _, _ in refreshLatestWeight() }
         .sheet(item: $sheetMode) { mode in
             MealEntrySheet(mode: mode)
@@ -253,11 +269,11 @@ struct NutritionView: View {
         case .recentAndFavourites:
             NutritionQuickReentrySection(
                 suggestions: recentMealSuggestions,
-                templates: favoriteTemplates.templates,
+                templates: favoriteTemplates.templates(in: scope),
                 proteinGradient: proteinGradient,
                 onAddSuggestion: addRecentMeal,
                 onAddTemplate: addFavoriteTemplate,
-                onRemoveTemplate: favoriteTemplates.remove
+                onRemoveTemplate: { favoriteTemplates.remove($0, in: scope) }
             )
 
         case .weeklyTrend:
@@ -472,6 +488,8 @@ struct NutritionView: View {
         fatGrams: Int? = nil
     ) {
         let now = Date()
+        // No owner to give the meal while the scope is unknown.
+        guard scope.canCreateHealthData else { return }
         modelContext.insert(
             MealEntry(
                 dayDate: now,
@@ -482,10 +500,11 @@ struct NutritionView: View {
                 carbGrams: carbGrams,
                 fatGrams: fatGrams,
                 status: .confirmed,
-                source: .manual
+                source: .manual,
+                ownerAccountID: scope.creationOwnerAccountID
             )
         )
-        NutritionLedger.syncDayLogIntake(for: now, modelContext: modelContext)
+        NutritionLedger.syncDayLogIntake(for: now, scope: scope, modelContext: modelContext)
     }
 
     /// Deleting a meal reconciles rather than syncs: removing the day's last
@@ -493,8 +512,9 @@ struct NutritionView: View {
     /// different question from re-summing what remains.
     private func discard(_ meal: MealEntry) {
         let day = meal.dayDate
+        let owner = HealthDataScope.owning(meal.ownerAccountID)
         modelContext.delete(meal)
-        NutritionLedger.reconcileAfterMealRemoval(for: day, modelContext: modelContext)
+        NutritionLedger.reconcileAfterMealRemoval(for: day, scope: owner, modelContext: modelContext)
     }
 
     /// Pin a confirmed manual meal as a reusable template. Stored via
@@ -507,7 +527,8 @@ struct NutritionView: View {
                 kcal: meal.kcal,
                 proteinGrams: meal.proteinGrams,
                 slot: meal.slot
-            )
+            ),
+            in: scope
         )
         if settings.hapticsEnabled {
             SoundHapticManager.playHaptic()
@@ -520,7 +541,7 @@ struct NutritionView: View {
     private func canSaveAsFavorite(_ meal: MealEntry) -> Bool {
         meal.status == .confirmed
             && meal.source == .manual
-            && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal)
+            && !favoriteTemplates.contains(name: meal.name, kcal: meal.kcal, in: scope)
     }
 
     /// Wraps the meal as `UserConfirmed<MealEstimate>` and calls
@@ -547,12 +568,13 @@ struct NutritionView: View {
             ]
         )
         let confirmed = UserConfirmed(estimate)
-        let dayLog = DayLogStore.fetchOrCreate(date: meal.dayDate, modelContext: modelContext)
+        let owner = HealthDataScope.owning(meal.ownerAccountID)
+        let dayLog = DayLogStore.fetchOrCreate(date: meal.dayDate, scope: owner, modelContext: modelContext)
         // Promote the meal first so the ledger sum picks it up.
         meal.statusRaw = MealStatus.confirmed.rawValue
         // Sync via the canonical ledger so DayLog matches the sum of confirmed
         // meals (handles edits / deletes consistently).
-        NutritionLedger.syncDayLogIntake(for: meal.dayDate, modelContext: modelContext)
+        NutritionLedger.syncDayLogIntake(for: meal.dayDate, scope: owner, modelContext: modelContext)
         // Touch DayLog through the privacy boundary so the helper remains
         // exercised from a single call site. (No-op in practice because
         // syncDayLogIntake already wrote the correct sum.)

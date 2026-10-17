@@ -13,8 +13,8 @@
 //
 //  `date`, `ownerAccountID` and `scopedDayKey` are one identity, all
 //  `private(set)` and set together only by the initializer, so the key can
-//  never drift from (owner, date). Ownership only ever moves nil → account
-//  through an explicit adoption, which does not exist yet; nor does any
+//  never drift from (owner, date). Ownership only ever moves nil → account,
+//  through `adopt(into:)`, which re-keys in the same step; there is no
 //  "change a log's date" operation.
 //
 
@@ -72,5 +72,38 @@ final class DayLog {
         let bits: UInt64 = seconds == 0 ? 0 : seconds.bitPattern
         let instant = String(bits, radix: 16)
         return "\(owner)|\(instant)"
+    }
+}
+
+/// A completed nil → account move, and the only way to undo it.
+///
+/// Returned by `adopt(into:)` on a day log, meal or profile. Adoption keeps it
+/// solely to put rows back if its save fails; holding one is what makes an
+/// account → guest assignment possible at all, so nothing else has a reason
+/// to create one.
+struct HealthOwnerAdoption: Equatable {
+    let accountID: UUID
+}
+
+extension DayLog {
+    /// Moves a guest log into `accountID`, owner and key together.
+    ///
+    /// Nil — and nothing changes — for a log that already has an owner:
+    /// account → account and account → guest are not adoptions. The caller
+    /// must already know `accountID` has no log for this day; adoption's
+    /// preflight checks that, and the unique key is the last line if it did
+    /// not.
+    func adopt(into accountID: UUID) -> HealthOwnerAdoption? {
+        guard ownerAccountID == nil else { return nil }
+        ownerAccountID = accountID
+        scopedDayKey = Self.scopedDayKey(ownerAccountID: accountID, date: date)
+        return HealthOwnerAdoption(accountID: accountID)
+    }
+
+    /// Puts a log `adopt(into:)` moved back into guest data.
+    func undoAdoption(_ adoption: HealthOwnerAdoption) {
+        guard ownerAccountID == adoption.accountID else { return }
+        ownerAccountID = nil
+        scopedDayKey = Self.scopedDayKey(ownerAccountID: nil, date: date)
     }
 }

@@ -70,12 +70,12 @@ struct NutritionLedgerTests {
         let context = try Self.makeContext()
         _ = insertMeal(in: context, kcal: 650, status: .pending, source: .ai)
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         // No confirmed meals → the ledger must not create a DayLog row.
         let logs = try context.fetch(FetchDescriptor<DayLog>())
         #expect(logs.isEmpty)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 0)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 0)
     }
 
     @Test
@@ -83,8 +83,8 @@ struct NutritionLedgerTests {
         let context = try Self.makeContext()
         _ = insertMeal(in: context, kcal: 400, status: .pending, source: .manual)
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 0)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 0)
     }
 
     // MARK: - Confirmed contributes
@@ -94,12 +94,12 @@ struct NutritionLedgerTests {
         let context = try Self.makeContext()
         _ = insertMeal(in: context, slot: .breakfast, kcal: 320, status: .confirmed)
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         let logs = try context.fetch(FetchDescriptor<DayLog>())
         #expect(logs.count == 1)
         #expect(logs.first?.intakeCalories == 320)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 320)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 320)
     }
 
     @Test
@@ -109,7 +109,7 @@ struct NutritionLedgerTests {
         _ = insertMeal(in: context, slot: .lunch, kcal: 650, status: .confirmed)
         _ = insertMeal(in: context, slot: .dinner, kcal: 480, status: .confirmed)
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         let log = try #require(try context.fetch(FetchDescriptor<DayLog>()).first)
         #expect(log.intakeCalories == 320 + 650 + 480)
@@ -123,13 +123,13 @@ struct NutritionLedgerTests {
         _ = insertMeal(in: context, slot: .breakfast, kcal: 300, status: .confirmed)
         let pending = insertMeal(in: context, slot: .lunch, kcal: 650, status: .pending, source: .ai)
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 300)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 300)
 
         // Discard: delete the pending entry.
         context.delete(pending)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 300)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 300)
         let log = try #require(try context.fetch(FetchDescriptor<DayLog>()).first)
         #expect(log.intakeCalories == 300)
     }
@@ -144,10 +144,10 @@ struct NutritionLedgerTests {
         _ = insertMeal(in: context, slot: .dinner, kcal: 480, status: .confirmed)
         _ = insertMeal(in: context, slot: .snack, kcal: 150, status: .pending, source: .manual)
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         // Only the two .confirmed meals (320 + 480 = 800).
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 800)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 800)
         let log = try #require(try context.fetch(FetchDescriptor<DayLog>()).first)
         #expect(log.intakeCalories == 800)
     }
@@ -158,12 +158,12 @@ struct NutritionLedgerTests {
     func promotingPendingToConfirmedUpdatesDayLog() throws {
         let context = try Self.makeContext()
         let meal = insertMeal(in: context, slot: .lunch, kcal: 650, status: .pending, source: .ai)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 0)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 0)
 
         // User confirms the AI estimate.
         meal.statusRaw = MealStatus.confirmed.rawValue
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
         let log = try #require(try context.fetch(FetchDescriptor<DayLog>()).first)
         #expect(log.intakeCalories == 650)
     }
@@ -179,10 +179,10 @@ struct NutritionLedgerTests {
 
         _ = insertMeal(in: context, date: yesterday, kcal: 999, status: .confirmed)
 
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
-        #expect(NutritionLedger.confirmedTotal(for: today, modelContext: context) == 0)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
+        #expect(NutritionLedger.confirmedTotal(for: today, scope: .guest, modelContext: context) == 0)
         // Yesterday's total is still correct.
-        #expect(NutritionLedger.confirmedTotal(for: yesterday, modelContext: context) == 999)
+        #expect(NutritionLedger.confirmedTotal(for: yesterday, scope: .guest, modelContext: context) == 999)
     }
 
     // MARK: - Robustness
@@ -190,8 +190,8 @@ struct NutritionLedgerTests {
     @Test
     func emptyStoreIsSafeAndDoesNotCrash() throws {
         let context = try Self.makeContext()
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 0)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 0)
         let logs = try context.fetch(FetchDescriptor<DayLog>())
         #expect(logs.isEmpty)
     }
@@ -202,14 +202,14 @@ struct NutritionLedgerTests {
     func editingConfirmedMealKcalUpdatesDayLog() throws {
         let context = try Self.makeContext()
         let meal = insertMeal(in: context, kcal: 400, status: .confirmed)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 400)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 400)
 
         meal.kcal = 650
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 650)
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 650)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 650)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 650)
     }
 
     @Test
@@ -217,13 +217,13 @@ struct NutritionLedgerTests {
         let context = try Self.makeContext()
         let breakfast = insertMeal(in: context, slot: .breakfast, kcal: 400, status: .confirmed)
         _ = insertMeal(in: context, slot: .lunch, kcal: 800, status: .confirmed)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 1200)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 1200)
 
         context.delete(breakfast)
-        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 800)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 800)
     }
 
     /// Regression for the bug PR #33 fixes: deleting the *last*
@@ -233,19 +233,19 @@ struct NutritionLedgerTests {
     func deletingTheLastConfirmedMealClearsDayLogIntake() throws {
         let context = try Self.makeContext()
         let meal = insertMeal(in: context, kcal: 500, status: .confirmed)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 500)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 500)
 
         context.delete(meal)
-        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), scope: .guest, modelContext: context)
 
         // DayLog row may still exist (other fields might have been
         // populated independently), but the meal-derived intake must
         // be cleared so Today/Balance doesn't show a stale 500.
-        if let dayLog = DayLogStore.fetch(date: Date(), modelContext: context) {
+        if let dayLog = DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context) {
             #expect(dayLog.intakeCalories == nil)
         }
-        #expect(NutritionLedger.confirmedTotal(for: Date(), modelContext: context) == 0)
+        #expect(NutritionLedger.confirmedTotal(for: Date(), scope: .guest, modelContext: context) == 0)
     }
 
     @Test
@@ -253,15 +253,15 @@ struct NutritionLedgerTests {
         let context = try Self.makeContext()
         let confirmed = insertMeal(in: context, kcal: 600, status: .confirmed)
         _ = insertMeal(in: context, kcal: 350, status: .pending, source: .ai)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 600)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 600)
 
         context.delete(confirmed)
-        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), scope: .guest, modelContext: context)
 
         // Pending-only state: intake must be nil so the pending AI
         // estimate doesn't accidentally read as confirmed.
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == nil)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == nil)
     }
 
     // MARK: - Source-of-truth rule
@@ -273,14 +273,14 @@ struct NutritionLedgerTests {
     func firstConfirmedMealOverwritesQuickInputValue() throws {
         let context = try Self.makeContext()
         // Simulate a prior DayLogQuickInputSheet write.
-        let existing = DayLogStore.fetchOrCreate(date: Date(), modelContext: context)
+        let existing = try #require(DayLogStore.fetchOrCreate(date: Date(), scope: .guest, modelContext: context))
         existing.intakeCalories = 2000
         try context.save()
 
         _ = insertMeal(in: context, kcal: 450, status: .confirmed)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 450)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 450)
     }
 
     /// `syncDayLogIntake` must not wipe a quick-input value on a day
@@ -289,26 +289,26 @@ struct NutritionLedgerTests {
     @Test
     func syncDoesNotAffectDayLogWhenNoMealsExist() throws {
         let context = try Self.makeContext()
-        let log = DayLogStore.fetchOrCreate(date: Date(), modelContext: context)
+        let log = try #require(DayLogStore.fetchOrCreate(date: Date(), scope: .guest, modelContext: context))
         log.intakeCalories = 1800
         try context.save()
 
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: Date(), modelContext: context)?.intakeCalories == 1800)
+        #expect(DayLogStore.fetch(date: Date(), scope: .guest, modelContext: context)?.intakeCalories == 1800)
     }
 
     @Test
     func hasAnyMealReflectsAnyStatusForTheLocalDay() throws {
         let context = try Self.makeContext()
-        #expect(NutritionLedger.hasAnyMeal(for: Date(), modelContext: context) == false)
+        #expect(NutritionLedger.hasAnyMeal(for: Date(), scope: .guest, modelContext: context) == false)
 
         _ = insertMeal(in: context, kcal: 100, status: .pending, source: .ai)
-        #expect(NutritionLedger.hasAnyMeal(for: Date(), modelContext: context) == true)
+        #expect(NutritionLedger.hasAnyMeal(for: Date(), scope: .guest, modelContext: context) == true)
 
         // A different day still reports false.
         let twoDaysAgo = Calendar.current.date(byAdding: .day, value: -2, to: Date())!
-        #expect(NutritionLedger.hasAnyMeal(for: twoDaysAgo, modelContext: context) == false)
+        #expect(NutritionLedger.hasAnyMeal(for: twoDaysAgo, scope: .guest, modelContext: context) == false)
     }
 
     // MARK: - Multi-day isolation
@@ -323,11 +323,11 @@ struct NutritionLedgerTests {
         _ = insertMeal(in: context, date: today, slot: .lunch, kcal: 700, status: .confirmed)
         _ = insertMeal(in: context, date: yesterday, slot: .dinner, kcal: 900, status: .confirmed)
 
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
-        NutritionLedger.syncDayLogIntake(for: yesterday, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: yesterday, scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: today, modelContext: context)?.intakeCalories == 1000)
-        #expect(DayLogStore.fetch(date: yesterday, modelContext: context)?.intakeCalories == 900)
+        #expect(DayLogStore.fetch(date: today, scope: .guest, modelContext: context)?.intakeCalories == 1000)
+        #expect(DayLogStore.fetch(date: yesterday, scope: .guest, modelContext: context)?.intakeCalories == 900)
     }
 
     @Test
@@ -335,7 +335,7 @@ struct NutritionLedgerTests {
         let context = try Self.makeContext()
         // No DayLog row, no meals — must not crash, must not create a
         // DayLog just to hold nil.
-        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), scope: .guest, modelContext: context)
         let logs = try context.fetch(FetchDescriptor<DayLog>())
         #expect(logs.isEmpty)
     }
@@ -371,16 +371,16 @@ struct NutritionLedgerTests {
         _ = insertMeal(in: context, date: late, kcal: 500, status: .confirmed)
         _ = insertMeal(in: context, date: early, kcal: 700, status: .confirmed)
 
-        NutritionLedger.syncDayLogIntake(for: late, modelContext: context)
-        NutritionLedger.syncDayLogIntake(for: early, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: late, scope: .guest, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: early, scope: .guest, modelContext: context)
 
         let day10 = cal.startOfDay(for: late)
         let day11 = cal.startOfDay(for: early)
         #expect(day10 != day11)
-        #expect(DayLogStore.fetch(date: day10, modelContext: context)?.intakeCalories == 500)
-        #expect(DayLogStore.fetch(date: day11, modelContext: context)?.intakeCalories == 700)
-        #expect(NutritionLedger.confirmedTotal(for: late, modelContext: context) == 500)
-        #expect(NutritionLedger.confirmedTotal(for: early, modelContext: context) == 700)
+        #expect(DayLogStore.fetch(date: day10, scope: .guest, modelContext: context)?.intakeCalories == 500)
+        #expect(DayLogStore.fetch(date: day11, scope: .guest, modelContext: context)?.intakeCalories == 700)
+        #expect(NutritionLedger.confirmedTotal(for: late, scope: .guest, modelContext: context) == 500)
+        #expect(NutritionLedger.confirmedTotal(for: early, scope: .guest, modelContext: context) == 700)
     }
 
     @Test
@@ -417,17 +417,17 @@ struct NutritionLedgerTests {
         _ = insertMeal(in: context, date: yesterday, kcal: 600, status: .confirmed)
         _ = insertMeal(in: context, date: twoDaysAgo, kcal: 1100, status: .confirmed)
 
-        NutritionLedger.syncDayLogIntake(for: today, modelContext: context)
-        NutritionLedger.syncDayLogIntake(for: yesterday, modelContext: context)
-        NutritionLedger.syncDayLogIntake(for: twoDaysAgo, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: today, scope: .guest, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: yesterday, scope: .guest, modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: twoDaysAgo, scope: .guest, modelContext: context)
 
-        #expect(DayLogStore.fetch(date: today, modelContext: context)?.intakeCalories == 800)
-        #expect(DayLogStore.fetch(date: yesterday, modelContext: context)?.intakeCalories == 600)
-        #expect(DayLogStore.fetch(date: twoDaysAgo, modelContext: context)?.intakeCalories == 1100)
+        #expect(DayLogStore.fetch(date: today, scope: .guest, modelContext: context)?.intakeCalories == 800)
+        #expect(DayLogStore.fetch(date: yesterday, scope: .guest, modelContext: context)?.intakeCalories == 600)
+        #expect(DayLogStore.fetch(date: twoDaysAgo, scope: .guest, modelContext: context)?.intakeCalories == 1100)
 
-        #expect(NutritionLedger.confirmedTotal(for: today, modelContext: context) == 800)
-        #expect(NutritionLedger.confirmedTotal(for: yesterday, modelContext: context) == 600)
-        #expect(NutritionLedger.confirmedTotal(for: twoDaysAgo, modelContext: context) == 1100)
+        #expect(NutritionLedger.confirmedTotal(for: today, scope: .guest, modelContext: context) == 800)
+        #expect(NutritionLedger.confirmedTotal(for: yesterday, scope: .guest, modelContext: context) == 600)
+        #expect(NutritionLedger.confirmedTotal(for: twoDaysAgo, scope: .guest, modelContext: context) == 1100)
     }
 
     @Test
@@ -439,8 +439,8 @@ struct NutritionLedgerTests {
 
         _ = insertMeal(in: context, date: yesterday, kcal: 400, status: .confirmed)
 
-        #expect(NutritionLedger.hasAnyMeal(for: yesterday, modelContext: context) == true)
-        #expect(NutritionLedger.hasAnyMeal(for: today, modelContext: context) == false)
+        #expect(NutritionLedger.hasAnyMeal(for: yesterday, scope: .guest, modelContext: context) == true)
+        #expect(NutritionLedger.hasAnyMeal(for: today, scope: .guest, modelContext: context) == false)
     }
 
     @Test

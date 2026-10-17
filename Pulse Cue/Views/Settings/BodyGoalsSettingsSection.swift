@@ -36,7 +36,7 @@ struct BodyGoalsSettingsSection: View {
 
     /// 14 days of DayLog, for today's intake in the goal-gap row. A display
     /// window, and used only as one.
-    @Query private var recentLogs: [DayLog]
+    @Query private var everyRecentLog: [DayLog]
 
     /// Every day log, as the source of the weight-refresh signal.
     ///
@@ -45,7 +45,16 @@ struct BodyGoalsSettingsSection: View {
     @Query(sort: [SortDescriptor(\DayLog.date, order: .reverse)])
     private var allDayLogs: [DayLog]
 
-    @State private var currentWeightKg: Double?
+    /// Whose logs the figures come from: the profile's own owner, so the
+    /// calculation can never pair this profile with another owner's weight.
+    private var scope: HealthDataScope { .owning(profile.ownerAccountID) }
+    private var recentLogs: [DayLog] { scope.visible(everyRecentLog) }
+
+    @State private var cachedCurrentWeight: HealthScopedValue<Double?>?
+
+    private var currentWeightKg: Double? {
+        cachedCurrentWeight?.value(in: scope) ?? nil
+    }
 
     init(profile: UserProfile, onSaved: @escaping () -> Void) {
         self.profile = profile
@@ -53,7 +62,7 @@ struct BodyGoalsSettingsSection: View {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let start = calendar.date(byAdding: .day, value: -13, to: today) ?? today
-        self._recentLogs = Query(
+        self._everyRecentLog = Query(
             filter: #Predicate<DayLog> { $0.date >= start },
             sort: [SortDescriptor(\DayLog.date, order: .reverse)]
         )
@@ -91,12 +100,13 @@ struct BodyGoalsSettingsSection: View {
     /// Refresh signal for the cached weight; see `changeSignature` for why the
     /// array itself is not enough.
     private var latestWeightSignature: String {
-        LatestBodyWeightResolver.changeSignature(for: allDayLogs)
+        LatestBodyWeightResolver.changeSignature(for: allDayLogs, scope: scope)
     }
 
     private func refreshCurrentWeight() {
-        currentWeightKg = BodyMetrics.resolveCurrentWeightKg(
-            modelContext: modelContext
+        cachedCurrentWeight = HealthScopedValue(
+            scope: scope,
+            value: BodyMetrics.resolveCurrentWeightKg(scope: scope, modelContext: modelContext)
         )
     }
 

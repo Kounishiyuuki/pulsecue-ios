@@ -29,12 +29,21 @@ struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
 
-    // UserProfile is the source of truth for profile / goal fields.
-    @Query(sort: [SortDescriptor(\UserProfile.updatedAt, order: .reverse)])
-    private var profiles: [UserProfile]
+    // UserProfile is the source of truth for profile / goal fields — the
+    // current scope's profile, never another account's.
+    @Query private var everyProfile: [UserProfile]
 
     @State private var showSavedToast = false
+
+    /// The profile shown while the scope has none stored. Looking at Settings
+    /// is not an edit, so nothing is inserted until something changes: an
+    /// account profile created by opening this screen would already exist
+    /// when the adoption prompt is answered, and the guest's profile would
+    /// stay behind. Tagged with its scope so a draft for A is never shown or
+    /// saved under B.
+    @State private var draft: HealthScopedValue<UserProfile>?
 
     /// - Parameter section: which group to show. `nil` shows all of them,
     ///   which is what the previews and the QA harness use.
@@ -46,12 +55,18 @@ struct SettingsView: View {
         ZStack(alignment: .bottom) {
             PulseAtmosphericBackground().ignoresSafeArea()
 
-            if let profile = profiles.first {
+            if let profile = UserProfileStore.select(from: everyProfile, scope: dataScope.scope) {
                 content(profile: profile)
+            } else if let draft = draft?.value(in: dataScope.scope) {
+                content(profile: draft)
+                    .onChange(of: Self.editSignature(draft)) { _, _ in persistDraft() }
             } else {
+                // Keyed on the scope: while it is undetermined there is no
+                // draft, and the confirmed scope must get its chance.
                 ProgressView("読み込み中…")
-                    .task {
-                        _ = UserProfileStore.fetchOrCreate(modelContext: modelContext)
+                    .task(id: dataScope.scope) {
+                        draft = UserProfileStore.draftProfile(for: dataScope.scope)
+                            .map { HealthScopedValue(scope: dataScope.scope, value: $0) }
                     }
             }
 
@@ -121,7 +136,20 @@ struct SettingsView: View {
     /// Cosmetic confirmation. Every control writes through on change, so there
     /// is nothing to commit — the toast exists because a settings screen with
     /// no acknowledgement leaves people unsure their edit took.
+    /// Stores the draft once the person has edited or saved it. A no-op once
+    /// the scope has a stored profile.
+    private func persistDraft() {
+        guard let draft = draft?.value(in: dataScope.scope) else { return }
+        UserProfileStore.persistDraft(draft, for: dataScope.scope, modelContext: modelContext)
+    }
+
+    /// Every field the body-and-goals controls write.
+    private static func editSignature(_ profile: UserProfile) -> String {
+        "\(profile.heightCm)|\(profile.ageYears)|\(profile.biologicalSexRaw)|\(profile.activityFactorRaw)|\(profile.goalWeightKg)|\(profile.weeklyChangeKg)"
+    }
+
     private func confirmSave() {
+        persistDraft()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             showSavedToast = true
         }

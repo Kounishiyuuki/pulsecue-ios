@@ -111,7 +111,7 @@ struct HomeNutritionWiringTests {
             dayLog: try todayLog(context),
             mealsForDay: try mealsToday(context),
             profile: try context.fetch(FetchDescriptor<UserProfile>()).first,
-            currentWeightKg: LatestBodyWeightResolver.latestWeightKg(modelContext: context),
+            currentWeightKg: LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context),
             targetSettings: targetSettings(intakeOverride: manualTargetKcal)
         )
     }
@@ -207,7 +207,7 @@ struct HomeNutritionWiringTests {
 
         let summary = try screenSummary(context)
         let ledgerSaysMealOwned = NutritionLedger.hasAnyMeal(
-            for: Date(), modelContext: context
+            for: Date(), scope: .guest, modelContext: context
         )
 
         #expect(ledgerSaysMealOwned)
@@ -287,7 +287,7 @@ struct HomeNutritionWiringTests {
                 kcal: 800, status: .pending, source: .ai
             )
         )
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         let after = try screenSummary(context)
         #expect(after.intakeSource == .meals)
@@ -303,13 +303,13 @@ struct HomeNutritionWiringTests {
             kcal: 500, status: .pending, source: .manual
         )
         context.insert(meal)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         let before = try screenSummary(context)
         #expect(before.consumedKcal == 0)
 
         meal.statusRaw = MealStatus.confirmed.rawValue
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         let after = try screenSummary(context)
         #expect(after.consumedKcal == 500)
@@ -331,10 +331,10 @@ struct HomeNutritionWiringTests {
             kcal: 800, status: .pending, source: .ai
         )
         context.insert(meal)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
 
         context.delete(meal)
-        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), scope: .guest, modelContext: context)
 
         let after = try screenSummary(context)
         #expect(after.intakeSource != .meals)
@@ -350,11 +350,11 @@ struct HomeNutritionWiringTests {
             kcal: 500, status: .confirmed, source: .manual
         )
         context.insert(meal)
-        NutritionLedger.syncDayLogIntake(for: Date(), modelContext: context)
+        NutritionLedger.syncDayLogIntake(for: Date(), scope: .guest, modelContext: context)
         #expect(try screenSummary(context).consumedKcal == 500)
 
         context.delete(meal)
-        NutritionLedger.reconcileAfterMealRemoval(for: Date(), modelContext: context)
+        NutritionLedger.reconcileAfterMealRemoval(for: Date(), scope: .guest, modelContext: context)
 
         let after = try screenSummary(context)
         #expect(after.consumedKcal != 500, "the deleted meal must not linger")
@@ -391,7 +391,7 @@ struct HomeNutritionWiringTests {
         _ = insertProfile(context)
         _ = insertLog(context, daysAgo: 20, weightKg: 78)
 
-        let resolved = LatestBodyWeightResolver.latestWeightKg(modelContext: context)
+        let resolved = LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context)
         #expect(resolved == 78)
 
         let summary = try screenSummary(context)
@@ -406,7 +406,7 @@ struct HomeNutritionWiringTests {
         _ = insertLog(context, daysAgo: 20, weightKg: 75)
         _ = insertLog(context, daysAgo: 3, weightKg: 73)
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 73)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == 73)
     }
 
     @Test func logsWithoutAWeightAreSkipped() throws {
@@ -417,7 +417,7 @@ struct HomeNutritionWiringTests {
         _ = insertLog(context, daysAgo: 10, weightKg: 80)
         _ = insertLog(context, daysAgo: 0, intake: 1_500)
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 80)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == 80)
     }
 
     @Test func noWeighInAnywhereResolvesToNil() throws {
@@ -427,7 +427,7 @@ struct HomeNutritionWiringTests {
         _ = insertProfile(context)
         _ = insertLog(context, daysAgo: 0, intake: 1_500)
 
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == nil)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == nil)
     }
 
     // MARK: - Target source, named truthfully
@@ -482,6 +482,6 @@ struct HomeNutritionWiringTests {
         #expect(summary.proteinGrams == 40)
         #expect(summary.intakeSource == .meals)
         #expect(summary.acceptsManualIntakeEntry == false)
-        #expect(LatestBodyWeightResolver.latestWeightKg(modelContext: context) == 82)
+        #expect(LatestBodyWeightResolver.latestWeightKg(scope: .guest, modelContext: context) == 82)
     }
 }

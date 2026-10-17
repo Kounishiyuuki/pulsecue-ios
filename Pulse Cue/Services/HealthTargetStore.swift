@@ -7,7 +7,10 @@
 //  this PR stays additive — no schema version bump, no migration.
 //
 //  Storage format:
-//    - One JSON blob at key `health.targetSettings.v1`.
+//    - One JSON blob per `HealthDataScope`, under
+//      `HealthScopedDefaults.key("health.targetSettings.v1", for:)`. The
+//      bare `health.targetSettings.v1` key is the pre-account,
+//      device-global blob; it seeds the guest scope only.
 //    - Keys/values that don't decode cleanly fall back to
 //      `HealthTargetSettings.empty` rather than crashing.
 //    - `dateOverrides` is encoded with an explicit
@@ -15,8 +18,13 @@
 //      JSON stays human-readable and tolerant of legacy / future
 //      Calendar locale changes.
 //
+//  The store holds one scope's settings at a time. `settings(in:)` returns
+//  `.empty` for any other scope and writes for another scope are dropped, so
+//  an A → B switch on the same instance cannot show, compute with or
+//  overwrite A's targets under B before `use(_:)` reloads.
+//
 //  Resolver consumers (TodayView, HealthSummaryView, future cards)
-//  should read `store.settings` once and pass it into
+//  should read `store.settings(in:)` once and pass it into
 //  `HealthTargetResolver.resolve(...)`. The store does not perform
 //  resolution itself — that's the resolver's job.
 //
@@ -27,7 +35,7 @@ import Combine
 @MainActor
 final class HealthTargetStore: ObservableObject {
 
-    @Published private(set) var settings: HealthTargetSettings
+    @Published private var loaded: HealthScopedValue<HealthTargetSettings>
 
     private let defaults: UserDefaults
     private let storageKey: String
@@ -36,6 +44,7 @@ final class HealthTargetStore: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         storageKey: String = "health.targetSettings.v1",
+        scope: HealthDataScope = .undetermined,
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
@@ -47,60 +56,83 @@ final class HealthTargetStore: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd"
         self.isoDateFormatter = formatter
 
-        self.settings = Self.load(
-            from: defaults,
-            key: storageKey,
-            dateFormatter: formatter,
+        self.loaded = HealthScopedValue(
+            scope: scope,
+            value: Self.load(from: defaults, key: storageKey, scope: scope, dateFormatter: formatter)
         )
+    }
+
+    /// Loads `scope`'s settings. Called when the current scope changes.
+    func use(_ scope: HealthDataScope) {
+        guard loaded.scope != scope else { return }
+        loaded = HealthScopedValue(
+            scope: scope,
+            value: Self.load(from: defaults, key: storageKey, scope: scope, dateFormatter: isoDateFormatter)
+        )
+    }
+
+    /// `scope`'s settings, or `.empty` while the store holds another scope's.
+    func settings(in scope: HealthDataScope) -> HealthTargetSettings {
+        loaded.value(in: scope) ?? .empty
     }
 
     // MARK: - Mutations
 
-    func updateDefaults(_ targets: HealthTargets) {
-        settings.defaults = targets
-        persist()
+    func updateDefaults(_ targets: HealthTargets, in scope: HealthDataScope) {
+        mutate(scope) { $0.defaults = targets }
     }
 
-    func updateWeekdayOverride(_ weekday: HealthTargetWeekday, targets: HealthTargets) {
-        if targets.isEmpty {
-            settings.weekdayOverrides.removeValue(forKey: weekday)
-        } else {
-            settings.weekdayOverrides[weekday] = targets
+    func updateWeekdayOverride(_ weekday: HealthTargetWeekday, targets: HealthTargets, in scope: HealthDataScope) {
+        mutate(scope) { settings in
+            if targets.isEmpty {
+                settings.weekdayOverrides.removeValue(forKey: weekday)
+            } else {
+                settings.weekdayOverrides[weekday] = targets
+            }
         }
-        persist()
     }
 
-    func clearWeekdayOverride(_ weekday: HealthTargetWeekday) {
-        settings.weekdayOverrides.removeValue(forKey: weekday)
-        persist()
+    func clearWeekdayOverride(_ weekday: HealthTargetWeekday, in scope: HealthDataScope) {
+        mutate(scope) { $0.weekdayOverrides.removeValue(forKey: weekday) }
     }
 
-    func updateDateOverride(_ date: Date, targets: HealthTargets, calendar: Calendar = .current) {
+    func updateDateOverride(_ date: Date, targets: HealthTargets, in scope: HealthDataScope, calendar: Calendar = .current) {
         let day = calendar.startOfDay(for: date)
-        if targets.isEmpty {
-            settings.dateOverrides.removeValue(forKey: day)
-        } else {
-            settings.dateOverrides[day] = targets
+        mutate(scope) { settings in
+            if targets.isEmpty {
+                settings.dateOverrides.removeValue(forKey: day)
+            } else {
+                settings.dateOverrides[day] = targets
+            }
         }
-        persist()
     }
 
-    func clearDateOverride(_ date: Date, calendar: Calendar = .current) {
+    func clearDateOverride(_ date: Date, in scope: HealthDataScope, calendar: Calendar = .current) {
         let day = calendar.startOfDay(for: date)
-        settings.dateOverrides.removeValue(forKey: day)
-        persist()
+        mutate(scope) { $0.dateOverrides.removeValue(forKey: day) }
     }
 
-    /// Resets all stored target configuration. Primarily for tests and
+    /// Resets `scope`'s target configuration. Primarily for tests and
     /// a future "reset to defaults" affordance.
-    func resetAll() {
-        settings = .empty
-        defaults.removeObject(forKey: storageKey)
+    func resetAll(in scope: HealthDataScope) {
+        guard let key = HealthScopedDefaults.key(storageKey, for: scope),
+              loaded.scope == scope else { return }
+        loaded = HealthScopedValue(scope: scope, value: .empty)
+        defaults.removeObject(forKey: key)
+    }
+
+    /// Applies `change` only to the loaded scope, and only once it is known.
+    private func mutate(_ scope: HealthDataScope, _ change: (inout HealthTargetSettings) -> Void) {
+        guard let key = HealthScopedDefaults.key(storageKey, for: scope),
+              var settings = loaded.value(in: scope) else { return }
+        change(&settings)
+        loaded = HealthScopedValue(scope: scope, value: settings)
+        persist(settings, key: key)
     }
 
     // MARK: - Persistence
 
-    private func persist() {
+    private func persist(_ settings: HealthTargetSettings, key: String) {
         let encoded = Encoded(
             defaults: settings.defaults,
             weekdayOverrides: settings.weekdayOverrides.reduce(into: [:]) { acc, entry in
@@ -111,15 +143,16 @@ final class HealthTargetStore: ObservableObject {
             }
         )
         guard let data = try? JSONEncoder().encode(encoded) else { return }
-        defaults.set(data, forKey: storageKey)
+        defaults.set(data, forKey: key)
     }
 
     private static func load(
         from defaults: UserDefaults,
         key: String,
+        scope: HealthDataScope,
         dateFormatter: DateFormatter,
     ) -> HealthTargetSettings {
-        guard let data = defaults.data(forKey: key),
+        guard let data = HealthScopedDefaults.data(key, for: scope, in: defaults),
               let encoded = try? JSONDecoder().decode(Encoded.self, from: data) else {
             return .empty
         }

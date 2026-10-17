@@ -66,28 +66,53 @@ struct FavoriteMealTemplate: Codable, Equatable, Identifiable, Hashable {
     var dedupeKey: String { "\(name)|\(kcal)" }
 }
 
-/// UserDefaults-backed list of `FavoriteMealTemplate`. Published so
-/// SwiftUI can observe insert/delete via `@StateObject` /
-/// `@ObservedObject` without manual refresh plumbing.
+/// UserDefaults-backed list of `FavoriteMealTemplate`, one list per
+/// `HealthDataScope`. Published so SwiftUI can observe insert/delete via
+/// `@StateObject` / `@ObservedObject` without manual refresh plumbing.
+///
+/// The store holds one scope's list at a time and answers only for that
+/// scope: `templates(in:)` returns `[]` for any other scope, and writes for a
+/// scope that is not the loaded one are dropped. Switching account A → B on
+/// the same instance therefore cannot show or modify A's list under B in the
+/// render before `use(_:)` reloads it.
 final class FavoriteMealTemplateStore: ObservableObject {
 
-    /// Default storage key. Versioned so a future schema change (e.g.
-    /// adding carb/fat fields) can ship under a new key without
-    /// corrupting v1 data.
+    /// Base storage key. Versioned so a future schema change (e.g. adding
+    /// carb/fat fields) can ship under a new key without corrupting v1 data.
+    /// The bare key is the pre-account, device-global list; each scope stores
+    /// under `HealthScopedDefaults.key(_:for:)`.
     static let defaultStorageKey = "favoriteMealTemplates.v1"
 
-    @Published private(set) var templates: [FavoriteMealTemplate]
+    @Published private var loaded: HealthScopedValue<[FavoriteMealTemplate]>
 
     private let defaults: UserDefaults
     private let storageKey: String
 
     init(
         defaults: UserDefaults = .standard,
-        storageKey: String = FavoriteMealTemplateStore.defaultStorageKey
+        storageKey: String = FavoriteMealTemplateStore.defaultStorageKey,
+        scope: HealthDataScope = .undetermined
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
-        self.templates = Self.load(defaults: defaults, key: storageKey)
+        self.loaded = HealthScopedValue(
+            scope: scope,
+            value: Self.load(defaults: defaults, key: storageKey, scope: scope)
+        )
+    }
+
+    /// Loads `scope`'s list. Called when the current scope changes.
+    func use(_ scope: HealthDataScope) {
+        guard loaded.scope != scope else { return }
+        loaded = HealthScopedValue(
+            scope: scope,
+            value: Self.load(defaults: defaults, key: storageKey, scope: scope)
+        )
+    }
+
+    /// `scope`'s templates, or `[]` when the store holds another scope's.
+    func templates(in scope: HealthDataScope) -> [FavoriteMealTemplate] {
+        loaded.value(in: scope) ?? []
     }
 
     /// Add a template. If a template with the same `(name, kcal)`
@@ -95,39 +120,53 @@ final class FavoriteMealTemplateStore: ObservableObject {
     /// "保存" twice should not produce two entries). Returns true when
     /// the list actually grew.
     @discardableResult
-    func add(_ template: FavoriteMealTemplate) -> Bool {
-        if templates.contains(where: { $0.dedupeKey == template.dedupeKey }) {
+    func add(_ template: FavoriteMealTemplate, in scope: HealthDataScope) -> Bool {
+        guard var templates = writable(scope),
+              !templates.contains(where: { $0.dedupeKey == template.dedupeKey }) else {
             return false
         }
         templates.append(template)
-        persist()
+        persist(templates, in: scope)
         return true
     }
 
     /// Remove by `id`. Removing a non-existent id is a safe no-op.
-    func remove(_ template: FavoriteMealTemplate) {
+    func remove(_ template: FavoriteMealTemplate, in scope: HealthDataScope) {
+        guard var templates = writable(scope) else { return }
         let before = templates.count
         templates.removeAll { $0.id == template.id }
         if templates.count != before {
-            persist()
+            persist(templates, in: scope)
         }
     }
 
     /// `true` if a template with `(name, kcal)` already exists. Used by
     /// the UI to hide the "保存" button when the meal is already pinned.
-    func contains(name: String, kcal: Int) -> Bool {
-        templates.contains { $0.name == name && $0.kcal == kcal }
+    func contains(name: String, kcal: Int, in scope: HealthDataScope) -> Bool {
+        templates(in: scope).contains { $0.name == name && $0.kcal == kcal }
     }
 
     // MARK: - Persistence
 
-    private func persist() {
-        guard let data = try? JSONEncoder().encode(templates) else { return }
-        defaults.set(data, forKey: storageKey)
+    /// The loaded list, if `scope` is the loaded scope and has a key.
+    private func writable(_ scope: HealthDataScope) -> [FavoriteMealTemplate]? {
+        guard HealthScopedDefaults.key(storageKey, for: scope) != nil else { return nil }
+        return loaded.value(in: scope)
     }
 
-    private static func load(defaults: UserDefaults, key: String) -> [FavoriteMealTemplate] {
-        guard let data = defaults.data(forKey: key) else { return [] }
+    private func persist(_ templates: [FavoriteMealTemplate], in scope: HealthDataScope) {
+        loaded = HealthScopedValue(scope: scope, value: templates)
+        guard let key = HealthScopedDefaults.key(storageKey, for: scope),
+              let data = try? JSONEncoder().encode(templates) else { return }
+        defaults.set(data, forKey: key)
+    }
+
+    private static func load(
+        defaults: UserDefaults,
+        key: String,
+        scope: HealthDataScope
+    ) -> [FavoriteMealTemplate] {
+        guard let data = HealthScopedDefaults.data(key, for: scope, in: defaults) else { return [] }
         return (try? JSONDecoder().decode([FavoriteMealTemplate].self, from: data)) ?? []
     }
 }
