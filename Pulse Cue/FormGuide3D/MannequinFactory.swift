@@ -23,30 +23,80 @@ import simd
 @MainActor
 enum MannequinFactory {
 
+    /// End-effector volumes are shared with contact regression tests. Every
+    /// equipment binding targets the joint pivot, so that pivot (and the
+    /// small plate/roller Z nudge) must remain inside the visible volume.
+    enum ContactGeometry {
+        static let handSize = SIMD3<Float>(0.085, 0.13, 0.07)
+        static let handOffset = SIMD3<Float>(0, -0.035, 0.018)
+        static let footSize = SIMD3<Float>(0.11, 0.09, 0.24)
+        static let footOffset = SIMD3<Float>(0, -0.025, 0.075)
+
+        static func contains(_ point: SIMD3<Float>, size: SIMD3<Float>, offset: SIMD3<Float>) -> Bool {
+            let delta = point - offset
+            let half = size * 0.5
+            return abs(delta.x) <= half.x && abs(delta.y) <= half.y && abs(delta.z) <= half.z
+        }
+    }
+
     struct Mannequin {
         let root: Entity
         let joints: [ExerciseJoint: Entity]
     }
 
-    /// Approximate limb thickness per joint segment (meters), for coherent
-    /// proportions. Falls back to a default.
-    private static func thickness(for joint: ExerciseJoint) -> Float {
+    private enum Style {
+        static let sphereMesh = MeshResource.generateSphere(radius: 0.5)
+        static let bodyMaterial = SimpleMaterial(
+            color: UIColor(red: 0.76, green: 0.91, blue: 1.0, alpha: 1),
+            roughness: 0.32,
+            isMetallic: false
+        )
+        static let coreMaterial = SimpleMaterial(
+            color: UIColor(red: 0.49, green: 0.63, blue: 0.79, alpha: 1),
+            roughness: 0.4,
+            isMetallic: false
+        )
+        static let contactMaterial = SimpleMaterial(
+            color: UIColor(red: 0.32, green: 0.51, blue: 0.70, alpha: 1),
+            roughness: 0.36,
+            isMetallic: false
+        )
+    }
+
+    /// Segment diameter in meters. Proximal limbs are deliberately fuller
+    /// than distal limbs so the silhouette reads as a human at phone scale.
+    private static func diameter(for joint: ExerciseJoint) -> Float {
         switch joint {
-        case .torso, .chest, .pelvis: return 0.16
-        case .neck: return 0.07
-        case .head: return 0.11
-        case .leftUpperArm, .rightUpperArm, .leftForearm, .rightForearm: return 0.065
-        case .leftThigh, .rightThigh: return 0.11
-        case .leftShin, .rightShin: return 0.09
-        case .leftHand, .rightHand, .leftFoot, .rightFoot: return 0.07
+        case .leftForearm, .rightForearm: return 0.085
+        case .leftHand, .rightHand: return 0.068
+        case .leftShin, .rightShin: return 0.125
+        case .leftFoot, .rightFoot: return 0.09
         default: return 0.06
         }
     }
 
-    static func makeMannequin() -> Mannequin {
-        let bodyMaterial = SimpleMaterial(color: UIColor(white: 0.72, alpha: 1.0), roughness: 0.9, isMetallic: false)
-        let jointMaterial = SimpleMaterial(color: UIColor(red: 0.42, green: 0.52, blue: 0.85, alpha: 1.0), roughness: 0.6, isMetallic: false)
+    private static func ellipsoid(
+        size: SIMD3<Float>,
+        position: SIMD3<Float> = .zero,
+        orientation: simd_quatf = simd_quatf()
+    ) -> ModelEntity {
+        let entity = ModelEntity(mesh: Style.sphereMesh, materials: [Style.bodyMaterial])
+        entity.scale = size
+        entity.position = position
+        entity.orientation = orientation
+        return entity
+    }
 
+    private static func addMass(
+        to joint: ExerciseJoint,
+        joints: [ExerciseJoint: Entity],
+        size: SIMD3<Float>,
+        position: SIMD3<Float> = .zero
+    ) {
+        joints[joint]?.addChild(ellipsoid(size: size, position: position))
+    }
+
+    static func makeMannequin() -> Mannequin {
         var joints: [ExerciseJoint: Entity] = [:]
 
         // 1) Create a pivot entity per joint at its rest offset from parent.
@@ -64,33 +114,68 @@ enum MannequinFactory {
             }
         }
 
-        // 3) Add a rounded joint sphere at every pivot.
-        for bone in MannequinSkeleton.bones {
-            guard let entity = joints[bone.joint] else { continue }
-            let radius = max(0.03, thickness(for: bone.joint) * 0.55)
-            let sphere = ModelEntity(
-                mesh: .generateSphere(radius: radius),
-                materials: [bone.joint == .head ? bodyMaterial : jointMaterial]
-            )
-            entity.addChild(sphere)
+        // 3) Soft anatomical masses. They overlap slightly at rest to avoid
+        // background gaps while preserving every original animation pivot.
+        addMass(to: .pelvis, joints: joints, size: SIMD3(0.25, 0.17, 0.17))
+        addMass(to: .torso, joints: joints, size: SIMD3(0.34, 0.40, 0.20), position: SIMD3(0, 0.07, 0))
+        addMass(to: .chest, joints: joints, size: SIMD3(0.38, 0.14, 0.17), position: SIMD3(0, 0.045, 0))
+        addMass(to: .neck, joints: joints, size: SIMD3(0.085, 0.15, 0.08), position: SIMD3(0, 0.045, 0))
+        addMass(to: .head, joints: joints, size: SIMD3(0.18, 0.23, 0.17), position: SIMD3(0, 0.055, 0.015))
+
+        // Rounded shoulder and hip transitions are body-colored and mostly
+        // buried inside adjacent masses, eliminating the old blue bead look.
+        for joint in [ExerciseJoint.leftShoulder, .rightShoulder] {
+            addMass(to: joint, joints: joints, size: SIMD3(0.09, 0.09, 0.09))
         }
 
-        // 4) Add a limb box for every non-root bone, parented to the PARENT
-        //    joint so it rotates with the parent and spans toward this joint.
+        // 4) Organic limb ellipsoids span each animated segment. Torso,
+        // shoulder and hip connector bones are represented by the masses
+        // above, not by visible debug rods.
+        let hiddenConnectors: Set<ExerciseJoint> = [
+            .pelvis, .torso, .chest, .neck, .head,
+            .leftShoulder, .rightShoulder, .leftUpperArm, .rightUpperArm,
+            .leftHip, .rightHip, .leftThigh, .rightThigh,
+        ]
         for bone in MannequinSkeleton.bones {
+            guard !hiddenConnectors.contains(bone.joint) else { continue }
             guard let parent = bone.parent, let parentEntity = joints[parent] else { continue }
             let offset = bone.restOffset
             let length = simd_length(offset)
             guard length > 0.001 else { continue }
-            let t = thickness(for: bone.joint)
-            let box = ModelEntity(
-                mesh: .generateBox(size: SIMD3(t, length, t), cornerRadius: t * 0.5),
-                materials: [bodyMaterial]
+            let d = diameter(for: bone.joint)
+            let segment = ellipsoid(
+                size: SIMD3(d, length + d * 0.55, d),
+                position: offset * 0.5,
+                orientation: simd_quatf(from: SIMD3(0, 1, 0), to: simd_normalize(offset))
             )
-            // Place at the midpoint and rotate its +Y to point along `offset`.
-            box.position = offset * 0.5
-            box.orientation = simd_quatf(from: SIMD3(0, 1, 0), to: simd_normalize(offset))
-            parentEntity.addChild(box)
+            parentEntity.addChild(segment)
+        }
+
+        // 5) Subtle joint cores support readable bending without becoming
+        // exposed beads. Hands and feet get directional end forms.
+        for joint in [ExerciseJoint.leftForearm, .rightForearm, .leftShin, .rightShin] {
+            guard let pivot = joints[joint] else { continue }
+            let core = ModelEntity(mesh: Style.sphereMesh, materials: [Style.coreMaterial])
+            core.scale = SIMD3(repeating: joint == .leftShin || joint == .rightShin ? 0.09 : 0.064)
+            pivot.addChild(core)
+        }
+        for joint in [ExerciseJoint.leftHand, .rightHand] {
+            guard let pivot = joints[joint] else { continue }
+            let hand = ModelEntity(
+                mesh: .generateBox(size: ContactGeometry.handSize, cornerRadius: 0.032),
+                materials: [Style.contactMaterial]
+            )
+            hand.position = ContactGeometry.handOffset
+            pivot.addChild(hand)
+        }
+        for joint in [ExerciseJoint.leftFoot, .rightFoot] {
+            guard let pivot = joints[joint] else { continue }
+            let foot = ModelEntity(
+                mesh: .generateBox(size: ContactGeometry.footSize, cornerRadius: 0.038),
+                materials: [Style.contactMaterial]
+            )
+            foot.position = ContactGeometry.footOffset
+            pivot.addChild(foot)
         }
 
         let root = joints[.root] ?? Entity()

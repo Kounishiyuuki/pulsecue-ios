@@ -93,6 +93,36 @@ struct EquipmentSceneContactTests {
         return (SIMD3(a.x, a.y, a.z), SIMD3(b.x, b.y, b.z))
     }
 
+    private func localPoint(_ worldPoint: SIMD3<Float>, in entity: Entity) -> SIMD3<Float> {
+        let p = simd_inverse(entity.transformMatrix(relativeTo: nil))
+            * SIMD4<Float>(worldPoint.x, worldPoint.y, worldPoint.z, 1)
+        return SIMD3(p.x, p.y, p.z)
+    }
+
+    private func visibleEndEffectorContains(
+        _ worldPoint: SIMD3<Float>,
+        joint: ExerciseJoint,
+        rig: Rig
+    ) -> Bool {
+        let local = localPoint(worldPoint, in: rig.mannequin.joints[joint]!)
+        switch joint {
+        case .leftHand, .rightHand:
+            return MannequinFactory.ContactGeometry.contains(
+                local,
+                size: MannequinFactory.ContactGeometry.handSize,
+                offset: MannequinFactory.ContactGeometry.handOffset
+            )
+        case .leftFoot, .rightFoot:
+            return MannequinFactory.ContactGeometry.contains(
+                local,
+                size: MannequinFactory.ContactGeometry.footSize,
+                offset: MannequinFactory.ContactGeometry.footOffset
+            )
+        default:
+            return false
+        }
+    }
+
     // MARK: - Two-handed bar: endpoints/segment actually reach both hands
 
     @Test func barSegmentReachesBothHandsAndLengthTracksSpan() throws {
@@ -189,6 +219,58 @@ struct EquipmentSceneContactTests {
                 // …and never occupies the head region.
                 #expect(simd_distance(g.entity.position(relativeTo: nil), head) > 0.12,
                         "shoulder press grip near head at \(p)")
+            }
+        }
+    }
+
+    @Test func renderedEndEffectorsOverlapTheirActualEquipmentContacts() {
+        let contactExercises: [ExerciseID] = [
+            "machine_chest_press", "lat_pulldown", "machine_seated_row",
+            "machine_shoulder_press", "leg_press", "leg_extension", "leg_curl",
+            "machine_arm_curl", "cable_triceps_pushdown",
+        ]
+
+        for id in contactExercises {
+            let rig = makeRig(id)
+            for p in phases {
+                apply(rig, p)
+                for contact in rig.scene.contacts {
+                    switch contact.kind {
+                    case .barBetweenHands:
+                        let (a, b) = barEndpoints(contact.entity)
+                        let axis = simd_normalize(a - b)
+                        let center = contact.entity.position(relativeTo: nil)
+                        for joint: ExerciseJoint in [.leftHand, .rightHand] {
+                            let hand = jointWorld(rig, joint)
+                            let pointOnBar = center + simd_dot(hand - center, axis) * axis
+                            #expect(
+                                visibleEndEffectorContains(pointOnBar, joint: joint, rig: rig),
+                                "\(id) \(joint) visible hand misses bar at \(p)"
+                            )
+                        }
+
+                    case .gripAtHand(let joint):
+                        #expect(
+                            visibleEndEffectorContains(
+                                contact.entity.position(relativeTo: nil),
+                                joint: joint,
+                                rig: rig
+                            ),
+                            "\(id) \(joint) visible hand misses grip at \(p)"
+                        )
+
+                    case .footPlate, .ankleRoller:
+                        let center = contact.entity.position(relativeTo: nil)
+                        for joint: ExerciseJoint in [.leftFoot, .rightFoot] {
+                            let foot = jointWorld(rig, joint)
+                            let pointAcrossContact = SIMD3<Float>(foot.x, center.y, center.z)
+                            #expect(
+                                visibleEndEffectorContains(pointAcrossContact, joint: joint, rig: rig),
+                                "\(id) \(joint) visible foot misses contact at \(p)"
+                            )
+                        }
+                    }
+                }
             }
         }
     }
