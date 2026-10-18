@@ -30,7 +30,9 @@ struct Pulse_CueApp: App {
     // and never writes back, so sign-in, sign-out and deletion are untouched.
     @StateObject private var dataScope: WorkoutDataScopeResolver
 
-    var sharedModelContainer: ModelContainer = {
+    let sharedModelContainer: ModelContainer
+
+    private static func makeSharedModelContainer() -> ModelContainer {
         // In-memory (never opening the user's persistent V4 store) for the
         // deterministic UI-test / QA fixtures. These are ALL DEBUG-only launch
         // arguments: Release never honours them, so a production build always
@@ -46,13 +48,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV8.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV9.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             let container = try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV8.self),
+                for: Schema(versionedSchema: PulseCueSchemaV9.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -61,9 +63,13 @@ struct Pulse_CueApp: App {
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
-    }()
+    }
 
     init() {
+        // Built first: the account store needs it to record a confirmed
+        // deletion before it can delete the session.
+        let container = Self.makeSharedModelContainer()
+        sharedModelContainer = container
         let settings = SettingsStore()
         if PulseCueUITestSupport.shouldCompleteCustomMachineOnboarding() {
             // Custom-machine UI fixture skips onboarding. The Form Guide debug
@@ -75,10 +81,17 @@ struct Pulse_CueApp: App {
         let account = ServerAccountStore(
             api: PulseCueAccountAPIClient(configuration: .fromMainBundle()),
             tokenStore: KeychainServerSessionTokenStore(),
-            deviceName: UIDevice.current.name
+            deviceName: UIDevice.current.name,
+            recordConfirmedDeletion: { try AccountLocalDataCleanup(container: container).recordConfirmedDeletion(of: $0) }
         )
         _serverAccount = StateObject(wrappedValue: account)
-        _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(account: account))
+        _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(
+            account: account,
+            isPendingDeletion: { AccountLocalDataCleanup(container: container).isPending($0) }
+        ))
+        // A deleted account's cleanup that a crash or failed save interrupted.
+        // Its rows are already out of every scope; this finishes removing them.
+        AccountLocalDataCleanup(container: container).resumePending()
     }
 
     var body: some Scene {
@@ -730,6 +743,19 @@ enum PulseCueSchemaV8: VersionedSchema {
     }
 }
 
+/// Adds `PendingAccountLocalCleanup`: the durable receipt of a server-confirmed
+/// account deletion whose local cleanup has not finished.
+///
+/// Purely additive — one new entity, no change to any existing model — so it
+/// is lightweight and existing rows are never enumerated. A store upgrading to
+/// V9 has no markers, which is correct: before V9 no deletion was recorded.
+enum PulseCueSchemaV9: VersionedSchema {
+    static var versionIdentifier = Schema.Version(9, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PulseCueSchemaV8.models + [PendingAccountLocalCleanup.self]
+    }
+}
+
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -740,7 +766,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV5.self,
             PulseCueSchemaV6.self,
             PulseCueSchemaV7.self,
-            PulseCueSchemaV8.self
+            PulseCueSchemaV8.self,
+            PulseCueSchemaV9.self
         ]
     }
 
@@ -773,6 +800,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV7.self,
                 toVersion: PulseCueSchemaV8.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV8.self,
+                toVersion: PulseCueSchemaV9.self
             )
         ]
     }

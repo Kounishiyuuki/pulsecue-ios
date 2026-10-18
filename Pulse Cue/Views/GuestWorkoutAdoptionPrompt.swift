@@ -57,8 +57,8 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
     /// Accounts already asked on this device, accepted or declined. Stored so
     /// a decline is a decision rather than a question that returns every
     /// launch.
-    @AppStorage("sync.adoptionAnsweredAccountIDs") private var answeredRaw = ""
-    @AppStorage("sync.healthAdoptionAnsweredAccountIDs") private var healthAnsweredRaw = ""
+    @AppStorage(GuestAdoptionConsent.workoutAnsweredKey) private var answeredRaw = ""
+    @AppStorage(GuestAdoptionConsent.healthAnsweredKey) private var healthAnsweredRaw = ""
 
     func body(content: Content) -> some View {
         content
@@ -126,6 +126,9 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
 /// what is asked, what accepting moves, and which answers are recorded when.
 enum GuestAdoptionConsent {
 
+    static let workoutAnsweredKey = "sync.adoptionAnsweredAccountIDs"
+    static let healthAnsweredKey = "sync.healthAdoptionAnsweredAccountIDs"
+
     /// One pending question for one account. `profile` is the guest profile
     /// riding along with an unanswered health half; it never raises the
     /// question on its own.
@@ -161,6 +164,12 @@ enum GuestAdoptionConsent {
             return next
         }
 
+        /// Forgets `id` in both halves — for an account deleted from this
+        /// device, whose answers no longer describe anybody.
+        func removing(_ id: UUID) -> Answers {
+            Answers(workoutRaw: Self.removing(id, from: workoutRaw), healthRaw: Self.removing(id, from: healthRaw))
+        }
+
         private static func ids(_ raw: String) -> Set<UUID> {
             Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
         }
@@ -168,6 +177,12 @@ enum GuestAdoptionConsent {
         private static func adding(_ id: UUID, to raw: String) -> String {
             var ids = ids(raw)
             ids.insert(id)
+            return ids.map(\.uuidString).sorted().joined(separator: ",")
+        }
+
+        private static func removing(_ id: UUID, from raw: String) -> String {
+            var ids = ids(raw)
+            ids.remove(id)
             return ids.map(\.uuidString).sorted().joined(separator: ",")
         }
     }

@@ -19,11 +19,13 @@
 //  sections' business.
 //
 
+import SwiftData
 import SwiftUI
 
 struct AccountSettingsSection: View {
     @EnvironmentObject private var authSession: AuthSessionStore
     @EnvironmentObject private var serverAccount: ServerAccountStore
+    @Environment(\.modelContext) private var modelContext
 
     @State private var showLoginSheet = false
 
@@ -50,7 +52,11 @@ struct AccountSettingsSection: View {
                 // The PulseCue server account. Separate from the local link
                 // above on purpose: a local link means a provider was once
                 // attached to this device, never that a server account exists.
-                ServerAccountSettingsSection(store: serverAccount, authSession: authSession)
+                ServerAccountSettingsSection(
+                    store: serverAccount,
+                    authSession: authSession,
+                    localDataCleanup: AccountLocalDataCleanup(container: modelContext.container, mainContext: modelContext)
+                )
 
                 Button {
                     showLoginSheet = true

@@ -187,7 +187,7 @@ struct WorkoutDataScopeLaunchRestoreTests {
         let tokens = InMemoryServerSessionTokenStore(token: token)
         configure(api, tokens)
         let store = ServerAccountStore(api: api, tokenStore: tokens)
-        let resolver = WorkoutDataScopeResolver(account: store, defaults: defaults)
+        let resolver = WorkoutDataScopeResolver(account: store, defaults: defaults, isPendingDeletion: { _ in false })
         return Rig(api: api, tokens: tokens, defaults: defaults, store: store, resolver: resolver)
     }
 
