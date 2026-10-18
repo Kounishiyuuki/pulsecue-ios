@@ -287,7 +287,8 @@ struct ServerAccountSettingsSection: View {
         do {
             try localDataCleanup.run(for: accountID)
         } catch {
-            print("ServerAccountSettingsSection: local cleanup for \(accountID) failed and stays pending: \(error)")
+            // No account id in the log: it identifies a deleted user.
+            print("ServerAccountSettingsSection: local cleanup failed and stays pending: \(error)")
         }
     }
 

@@ -154,6 +154,9 @@ final class ServerAccountStore: ObservableObject {
     private let api: any PulseCueAccountAPI
     private let tokenStore: any ServerSessionTokenStoring
     private let deviceName: String?
+    /// Durably records a server-confirmed deletion of a user id, before the
+    /// session is deleted. See `AccountLocalDataCleanup`.
+    private let recordConfirmedDeletion: (String) -> Void
 
     /// Bumped by every authoritative operation; see `beginOperation`.
     private var operationGeneration: UInt64 = 0
@@ -183,11 +186,13 @@ final class ServerAccountStore: ObservableObject {
     init(
         api: any PulseCueAccountAPI,
         tokenStore: any ServerSessionTokenStoring,
-        deviceName: String? = nil
+        deviceName: String? = nil,
+        recordConfirmedDeletion: @escaping (String) -> Void = { _ in }
     ) {
         self.api = api
         self.tokenStore = tokenStore
         self.deviceName = deviceName
+        self.recordConfirmedDeletion = recordConfirmedDeletion
         self.state = api.isConfigured ? .unresolved : .notConfigured
     }
 
@@ -675,6 +680,12 @@ final class ServerAccountStore: ObservableObject {
         // create a brand-new session for an account the user just deleted.
         invalidateActiveProviderSignIn()
         let generation = beginOperation()
+        // Taken before the request: once the session is cleared nothing says
+        // whose account it was.
+        var userID: String?
+        if case let .authenticated(profile) = state {
+            userID = profile.user.id
+        }
 
         // Read the token explicitly rather than through `tokenIfPresent`: an
         // unreadable Keychain must not look like an absent one here. Without a
@@ -696,6 +707,13 @@ final class ServerAccountStore: ObservableObject {
         case let .token(token):
             do {
                 let outcome = try await api.deleteAccount(sessionToken: token)
+                // Recorded before the generation check and before the session
+                // is cleared: the server has deleted the account whatever this
+                // operation's fate, and a crash from here on must still leave
+                // its local data retryably pending cleanup.
+                if let userID {
+                    recordConfirmedDeletion(userID)
+                }
                 guard isCurrent(generation) else {
                     return .notAttempted(.superseded)
                 }

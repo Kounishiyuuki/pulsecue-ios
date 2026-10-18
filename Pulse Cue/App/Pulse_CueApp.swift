@@ -75,7 +75,8 @@ struct Pulse_CueApp: App {
         let account = ServerAccountStore(
             api: PulseCueAccountAPIClient(configuration: .fromMainBundle()),
             tokenStore: KeychainServerSessionTokenStore(),
-            deviceName: UIDevice.current.name
+            deviceName: UIDevice.current.name,
+            recordConfirmedDeletion: { AccountLocalDataCleanup.recordConfirmedDeletion(of: $0) }
         )
         _serverAccount = StateObject(wrappedValue: account)
         _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(account: account))

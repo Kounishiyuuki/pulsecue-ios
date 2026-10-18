@@ -117,23 +117,37 @@ struct AccountLocalDataCleanupTests {
         defaults.set(accountA.uuidString, forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey)
     }
 
-    /// Everything one owner has, as values — equal snapshots mean nothing of
-    /// theirs was deleted or changed.
+    /// Everything one owner has, as values — every stored property, so equal
+    /// snapshots mean nothing of theirs was deleted or changed.
     private static func rows(of owner: UUID?, _ context: ModelContext) throws -> [String] {
         var out: [String] = []
         out += try context.fetch(FetchDescriptor<Session>()).filter { $0.ownerAccountID == owner }
-            .map { "session \($0.id) \($0.routineId) \($0.dayDate)" }
+            .map { row in
+                "session \(row.id) \(row.routineId) \(row.dayDate) \(row.startedAt) \(String(describing: row.endedAt)) "
+                    + "\(row.status) \(row.totalSeconds)"
+            }
         out += try context.fetch(FetchDescriptor<StepResult>()).filter { $0.ownerAccountID == owner }
-            .map { "result \($0.id) \($0.sessionId) \($0.setIndex) \($0.done)" }
+            .map { row in
+                "result \(row.id) \(row.sessionId) \(row.stepId) \(row.setIndex) \(row.done) "
+                    + "\(String(describing: row.actualReps)) \(String(describing: row.memo))"
+            }
         out += try context.fetch(FetchDescriptor<DayLog>()).filter { $0.ownerAccountID == owner }
             .map { log -> String in
                 let values = [log.intakeCalories, log.exerciseCalories, log.sleepMinutes].map { String(describing: $0) }
-                return "log \(log.date) \(values) \(String(describing: log.weightKg)) \(log.note ?? "")"
+                return "log \(log.date) \(values) \(String(describing: log.weightKg)) \(String(describing: log.note)) "
+                    + "\(String(describing: log.scopedDayKey))"
             }
         out += try context.fetch(FetchDescriptor<MealEntry>()).filter { $0.ownerAccountID == owner }
-            .map { "meal \($0.id) \($0.name) \($0.kcal) \(String(describing: $0.proteinGrams))" }
+            .map { meal -> String in
+                let grams = [meal.proteinGrams, meal.carbGrams, meal.fatGrams].map { String(describing: $0) }
+                return "meal \(meal.id) \(meal.dayDate) \(meal.slotRaw) \(meal.name) \(meal.kcal) \(grams) "
+                    + "\(meal.statusRaw) \(meal.sourceRaw) \(String(describing: meal.note)) \(meal.createdAt)"
+            }
         out += try context.fetch(FetchDescriptor<UserProfile>()).filter { $0.ownerAccountID == owner }
-            .map { "profile \($0.heightCm)" }
+            .map { profile in
+                "profile \(profile.id) \(profile.heightCm) \(profile.ageYears) \(profile.biologicalSexRaw) "
+                    + "\(profile.activityFactorRaw) \(profile.goalWeightKg) \(profile.weeklyChangeKg) \(profile.updatedAt)"
+            }
         if let owner {
             out += try context.fetch(FetchDescriptor<SyncOutboxItem>()).filter { $0.accountID == owner }
                 .map { "outbox \($0.identity) \($0.mutation)" }
@@ -143,6 +157,23 @@ struct AccountLocalDataCleanupTests {
                 .map { "cursor \($0.lastPulledSequence)" }
         }
         return out.sorted()
+    }
+
+    /// Records with no owner at all — nothing proves they were A's.
+    private static func seedOwnerless(_ context: ModelContext) throws {
+        context.insert(Routine(name: "routine", isPinned: true))
+        context.insert(Gym(name: "gym", officialUrl: "https://example.com", isActive: true))
+        try context.save()
+    }
+
+    private static func ownerless(_ context: ModelContext) throws -> [String] {
+        let routines = try context.fetch(FetchDescriptor<Routine>()).map { row in
+            "routine \(row.id) \(row.name) \(row.createdAt) \(row.updatedAt) \(row.isPinned) \(String(describing: row.storedOrigin))"
+        }
+        let gyms = try context.fetch(FetchDescriptor<Gym>()).map { row in
+            "gym \(row.id) \(row.name) \(String(describing: row.officialUrl)) \(row.isActive) \(row.createdAt) \(row.updatedAt)"
+        }
+        return (routines + gyms).sorted()
     }
 
     private static func defaultsSnapshot(_ defaults: UserDefaults, keys: [String]) -> [String: String] {
@@ -178,8 +209,11 @@ struct AccountLocalDataCleanupTests {
             Self.seedDefaults(defaults)
             let container = try Self.container(url)
             try Self.seedRows(ModelContext(container))
+            try Self.seedOwnerless(ModelContext(container))
 
             let seeded = ModelContext(container)
+            let ownerlessBefore = try Self.ownerless(seeded)
+            #expect(ownerlessBefore.count == 2)
             let guestBefore = try Self.rows(of: nil, seeded)
             let bBefore = try Self.rows(of: Self.accountB, seeded)
             #expect(guestBefore.count == 5)
@@ -196,6 +230,7 @@ struct AccountLocalDataCleanupTests {
             #expect(try Self.rows(of: Self.accountA, reopened).isEmpty)
             #expect(try Self.rows(of: nil, reopened) == guestBefore)
             #expect(try Self.rows(of: Self.accountB, reopened) == bBefore)
+            #expect(try Self.ownerless(reopened) == ownerlessBefore)
 
             for key in Self.keys(of: .account(Self.accountA)) {
                 #expect(defaults.object(forKey: key) == nil, "\(key)")
@@ -382,5 +417,170 @@ struct AccountLocalDataCleanupTests {
 
         #expect(try Self.rows(of: Self.accountA, ModelContext(try Self.container(url))) == aBefore)
         #expect(defaults.object(forKey: Self.keys(of: .account(Self.accountA))[0]) != nil)
+    }
+
+    // MARK: - Unsaved rows in the main context
+
+    @Test
+    func theMainContextsUnsavedRowsOfANeverComeBackAndNobodyElsesAreLost() throws {
+        try Self.withTempStore { url in
+            let defaults = Self.makeDefaults()
+            let container = try Self.container(url)
+            try Self.seedRows(ModelContext(container))
+            let main = container.mainContext
+            main.autosaveEnabled = false
+            let dayY = Self.dayX.addingTimeInterval(86_400)
+
+            // A: unsaved inserts of every owned type, and an unsaved edit of a saved row.
+            main.insert(Session(routineId: UUID(), dayDate: dayY, ownerAccountID: Self.accountA))
+            main.insert(StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 9, done: true, ownerAccountID: Self.accountA))
+            main.insert(DayLog(date: dayY, sleepMinutes: 1, ownerAccountID: Self.accountA))
+            main.insert(MealEntry(
+                dayDate: dayY, slot: .dinner, name: "unsaved-A", kcal: 1,
+                status: .confirmed, source: .manual, ownerAccountID: Self.accountA
+            ))
+            let savedA = try main.fetch(FetchDescriptor<MealEntry>()).first { $0.ownerAccountID == Self.accountA }!
+            savedA.name = "edited-A"
+            // Guest and B: an unsaved insert and an unsaved edit each.
+            main.insert(DayLog(date: dayY, sleepMinutes: 2, ownerAccountID: nil))
+            main.insert(DayLog(date: dayY, sleepMinutes: 3, ownerAccountID: Self.accountB))
+            let logs = try main.fetch(FetchDescriptor<DayLog>())
+            logs.first { $0.ownerAccountID == nil && $0.date == Self.dayX }!.note = "edited-G"
+            logs.first { $0.ownerAccountID == Self.accountB && $0.date == Self.dayX }!.note = "edited-B"
+            // A guest row whose unsaved edit hands it to A is still Guest's on disk.
+            let handedOver = try main.fetch(FetchDescriptor<Session>()).first { $0.ownerAccountID == nil }!
+            let handedOverID = handedOver.id
+            handedOver.ownerAccountID = Self.accountA
+
+            try AccountLocalDataCleanup(container: container, defaults: defaults, mainContext: main).run(for: Self.accountA)
+            // The app's next save — the moment a resurrection would happen.
+            try main.save()
+
+            let reopened = ModelContext(try Self.container(url))
+            let aAfter = try Self.rows(of: Self.accountA, reopened)
+            #expect(aAfter.allSatisfy { $0.contains(handedOverID.uuidString) }, "\(aAfter)")
+            #expect(aAfter.count == 1)
+            let logsAfter = try reopened.fetch(FetchDescriptor<DayLog>())
+            #expect(logsAfter.contains { $0.ownerAccountID == nil && $0.sleepMinutes == 2 })
+            #expect(logsAfter.contains { $0.ownerAccountID == Self.accountB && $0.sleepMinutes == 3 })
+            #expect(logsAfter.contains { $0.ownerAccountID == nil && $0.note == "edited-G" })
+            #expect(logsAfter.contains { $0.ownerAccountID == Self.accountB && $0.note == "edited-B" })
+            #expect(try Self.rows(of: nil, reopened).count == 5)
+            #expect(try Self.rows(of: Self.accountB, reopened).count == 9)
+        }
+    }
+
+    @Test
+    func aFailedSaveLeavesTheMainContextsCopiesOfAForItsOwnSave() throws {
+        try Self.withTempStore { url in
+            let defaults = Self.makeDefaults()
+            let container = try Self.container(url)
+            try Self.seedRows(ModelContext(container))
+            let main = container.mainContext
+            main.autosaveEnabled = false
+            let savedA = try main.fetch(FetchDescriptor<MealEntry>()).first { $0.ownerAccountID == Self.accountA }!
+            savedA.name = "edited-A"
+
+            let failing = AccountLocalDataCleanup(
+                container: container, defaults: defaults, mainContext: main, commit: { _ in throw CommitFailure() }
+            )
+            #expect(throws: CommitFailure.self) { try failing.run(for: Self.accountA) }
+            try main.save()
+
+            // Nothing was committed, so the main context's next save must not
+            // have removed A's rows either; the pending retry does that.
+            let reopened = ModelContext(try Self.container(url))
+            let aAfter = try Self.rows(of: Self.accountA, reopened)
+            #expect(aAfter.count == 8)
+            #expect(aAfter.contains { $0.contains("edited-A") })
+            #expect(failing.pendingIDs() == [Self.accountA])
+        }
+    }
+
+    // MARK: - Crash windows around a confirmed deletion
+
+    /// A store wired the way the app wires it: confirmed deletions recorded in
+    /// `defaults`, and the Keychain state at that moment captured.
+    private static func recordingStore(
+        deleteResult: Result<AccountDeletionOutcome, Error>,
+        defaults: UserDefaults,
+        tokenAtRecord: @escaping (Bool) -> Void = { _ in }
+    ) async -> ServerAccountStore {
+        let api = StubAccountAPI()
+        api.profileResult = .success(ServerAccountProfile(
+            user: .init(id: accountA.uuidString, state: "active", displayName: "A", createdAt: 1),
+            linkedProviders: [],
+            session: .init(expiresAt: 1_800_000_000)
+        ))
+        api.deleteResult = deleteResult
+        let tokens = InMemoryServerSessionTokenStore(token: "session-token")
+        let store = ServerAccountStore(
+            api: api,
+            tokenStore: tokens,
+            deviceName: "iPhone",
+            recordConfirmedDeletion: { id in
+                if case .token = tokens.read() { tokenAtRecord(true) } else { tokenAtRecord(false) }
+                AccountLocalDataCleanup.recordConfirmedDeletion(of: id, in: defaults)
+            }
+        )
+        await store.restore()
+        return store
+    }
+
+    @Test(arguments: [AccountDeletionOutcome.deleted, .pending])
+    func theDeletionIsRecordedBeforeTheSessionIsGone(_ outcome: AccountDeletionOutcome) async throws {
+        let defaults = Self.makeDefaults()
+        var sessionStillThere: Bool?
+        let store = await Self.recordingStore(deleteResult: .success(outcome), defaults: defaults) { sessionStillThere = $0 }
+        _ = await store.deleteAccount()
+        // The record precedes the session's removal, so no crash point after
+        // the server's answer has neither.
+        #expect(sessionStillThere == true)
+        #expect(defaults.string(forKey: AccountLocalDataCleanup.pendingKey) == Self.accountA.uuidString)
+    }
+
+    @Test(arguments: [AccountDeletionOutcome.deleted, .pending])
+    func aCrashAfterTheServerConfirmsIsFinishedAtTheNextLaunch(_ outcome: AccountDeletionOutcome) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("pulsecue-cleanup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("store.sqlite")
+        let defaults = Self.makeDefaults()
+        let container = try Self.seededA(url, defaults)
+        let guestBefore = try Self.rows(of: nil, ModelContext(container))
+        let bBefore = try Self.rows(of: Self.accountB, ModelContext(container))
+
+        // The server confirms and the session is cleared, then the process
+        // dies before the UI runs the cleanup: the store is used on its own.
+        let store = await Self.recordingStore(deleteResult: .success(outcome), defaults: defaults)
+        _ = await store.deleteAccount()
+        #expect(try Self.rows(of: Self.accountA, ModelContext(try Self.container(url))).count == 8)
+
+        // The next launch, from disk only.
+        AccountLocalDataCleanup(container: try Self.container(url), defaults: defaults).resumePending()
+        let after = ModelContext(try Self.container(url))
+        #expect(try Self.rows(of: Self.accountA, after).isEmpty)
+        #expect(try Self.rows(of: nil, after) == guestBefore)
+        #expect(try Self.rows(of: Self.accountB, after) == bBefore)
+        #expect(defaults.object(forKey: Self.keys(of: .account(Self.accountA))[0]) == nil)
+        #expect(AccountLocalDataCleanup(container: container, defaults: defaults).pendingIDs().isEmpty)
+    }
+
+    @Test(arguments: [AccountAPIError.unavailable, AccountAPIError.invalidCredentials])
+    func anUnknownOutcomeIsNeverRecordedSoTheNextLaunchDeletesNothing(_ error: AccountAPIError) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("pulsecue-cleanup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("store.sqlite")
+        let defaults = Self.makeDefaults()
+        let container = try Self.seededA(url, defaults)
+        let aBefore = try Self.rows(of: Self.accountA, ModelContext(container))
+
+        let store = await Self.recordingStore(deleteResult: .failure(error), defaults: defaults)
+        _ = await store.deleteAccount()
+        AccountLocalDataCleanup(container: try Self.container(url), defaults: defaults).resumePending()
+
+        #expect(defaults.string(forKey: AccountLocalDataCleanup.pendingKey) == nil)
+        #expect(try Self.rows(of: Self.accountA, ModelContext(try Self.container(url))) == aBefore)
     }
 }

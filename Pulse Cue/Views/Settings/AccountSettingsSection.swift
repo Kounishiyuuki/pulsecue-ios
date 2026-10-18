@@ -55,7 +55,7 @@ struct AccountSettingsSection: View {
                 ServerAccountSettingsSection(
                     store: serverAccount,
                     authSession: authSession,
-                    localDataCleanup: AccountLocalDataCleanup(container: modelContext.container)
+                    localDataCleanup: AccountLocalDataCleanup(container: modelContext.container, mainContext: modelContext)
                 )
 
                 Button {
