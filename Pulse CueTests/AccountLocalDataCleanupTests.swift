@@ -238,7 +238,7 @@ struct AccountLocalDataCleanupTests {
             })
             try cleanup.run(for: Self.accountA)
             // The marker is its own first and last commit, never part of the rows'.
-            #expect(saves == [.recordMarker, .deleteRows, .removeMarker])
+            #expect(saves == [.recordMarker, .deleteRows, .stampMarker])
 
             let reopened = ModelContext(try Self.container(url))
             #expect(try Self.rows(of: Self.accountA, reopened).isEmpty)
@@ -256,7 +256,8 @@ struct AccountLocalDataCleanupTests {
             #expect(answers.answeredWorkout(Self.accountB))
             #expect(answers.answeredHealth(Self.accountB))
             #expect(defaults.object(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey) == nil)
-            #expect(try cleanup.pendingIDs().isEmpty)
+            // Kept: only a later process can acknowledge it.
+            #expect(try cleanup.pendingIDs() == [Self.accountA])
         }
     }
 
@@ -311,7 +312,7 @@ struct AccountLocalDataCleanupTests {
             #expect(try failing.pendingIDs() == [Self.accountA])
 
             // The next launch.
-            AccountLocalDataCleanup(container: try Self.container(url), defaults: defaults).resumePending()
+            try Self.relaunch(url, defaults)
             let finished = ModelContext(try Self.container(url))
             #expect(try Self.rows(of: Self.accountA, finished).isEmpty)
             #expect(try Self.rows(of: nil, finished) == guestBefore)
@@ -321,6 +322,8 @@ struct AccountLocalDataCleanupTests {
             }
             #expect(!Self.answered(defaults).answeredWorkout(Self.accountA))
             #expect(Self.answered(defaults).answeredWorkout(Self.accountB))
+            #expect(try failing.pendingIDs() == [Self.accountA])
+            try Self.relaunch(url, defaults)
             #expect(try failing.pendingIDs().isEmpty)
         }
     }
@@ -559,9 +562,27 @@ struct AccountLocalDataCleanupTests {
         return false
     }
 
-    /// The next launch: a fresh container on the same file, then resume.
-    private static func relaunch(_ url: URL, _ defaults: UserDefaults) throws {
-        AccountLocalDataCleanup(container: try container(url), defaults: defaults).resumePending()
+    /// The next launch: a fresh container on the same file and a new process
+    /// id, then resume.
+    private static func relaunch(
+        _ url: URL,
+        _ defaults: UserDefaults,
+        processID: UUID = UUID(),
+        commit: ((ModelContext, AccountLocalDataCleanup.Commit) throws -> Void)? = nil
+    ) throws {
+        AccountLocalDataCleanup(
+            container: try container(url),
+            defaults: defaults,
+            processID: processID,
+            commit: commit ?? { context, _ in try context.save() }
+        ).resumePending()
+    }
+
+    /// The marker's process stamp: nil when there is no marker, `.some(nil)`
+    /// when no process has run the cleanup yet.
+    private static func stamp(_ url: URL) throws -> UUID?? {
+        try ModelContext(try container(url)).fetch(FetchDescriptor<PendingAccountLocalCleanup>())
+            .first.map(\.lastCleanupProcessID)
     }
 
     private static func expectAGoneAndOthersKept(
@@ -575,6 +596,8 @@ struct AccountLocalDataCleanupTests {
             #expect(defaults.object(forKey: key) == nil, "\(key)")
         }
         #expect(answered(defaults).answeredWorkout(accountB))
+        // The launch after the one that cleaned up is the one that acknowledges.
+        try relaunch(url, defaults)
         #expect(try AccountLocalDataCleanup(container: try container(url), defaults: defaults).pendingIDs().isEmpty)
     }
 
@@ -656,6 +679,34 @@ struct AccountLocalDataCleanupTests {
         try Self.expectAGoneAndOthersKept(url, defaults, guest: guestBefore, b: bBefore)
     }
 
+    // 15. The crash above leaves A's token in the Keychain. The next launch
+    // must not show A as signed in: the server revoked A's sessions, and
+    // offline the remembered account id is already gone with the cleanup.
+    @Test(arguments: [AccountAPIError.invalidCredentials, AccountAPIError.unavailable])
+    func aSessionLeftByThatCrashNeverRestoresA(_ meError: AccountAPIError) async throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let container = try Self.seededA(url, defaults)
+        let (store, tokens, api) = await Self.recordingStore(deleteResult: .success(.deleted), container: container) {
+            try AccountLocalDataCleanup(container: container).recordConfirmedDeletion(of: $0)
+            throw Crash()
+        }
+        _ = await store.deleteAccount()
+        #expect(Self.hasToken(tokens))
+
+        // The next launch, in the app's order: cleanup in init, then restore.
+        try Self.relaunch(url, defaults)
+        api.profileResult = .failure(meError)
+        let relaunched = ServerAccountStore(api: api, tokenStore: tokens, deviceName: "iPhone")
+        await relaunched.restore()
+        #expect(!relaunched.state.isAuthenticated)
+        let last = defaults.string(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey).flatMap(UUID.init(uuidString:))
+        let scope = WorkoutDataScope.resolve(state: relaunched.state, lastConfirmedAccountID: last)
+        #expect(scope != .account(Self.accountA))
+        if meError == .invalidCredentials { #expect(!Self.hasToken(tokens)) }
+    }
+
     // E: session cleared, crash before any cleanup.
     @Test(arguments: [AccountDeletionOutcome.deleted, .pending])
     func aCrashAfterTheSessionIsClearedIsFinishedAtTheNextLaunch(_ outcome: AccountDeletionOutcome) async throws {
@@ -701,9 +752,9 @@ struct AccountLocalDataCleanupTests {
         try Self.expectAGoneAndOthersKept(url, defaults, guest: guestBefore, b: bBefore)
     }
 
-    // 5. / G and 6. / 8: everything done but the marker's removal.
+    // 5. / G and 6. / 8: everything done but the marker's stamp.
     @Test(arguments: [false, true])
-    func aCrashOrFailureBeforeTheMarkerIsRemovedIsFinishedAtTheNextLaunch(_ saveFails: Bool) throws {
+    func aCrashOrFailureOfTheStampIsFinishedAtTheNextLaunch(_ saveFails: Bool) throws {
         let (url, cleanup) = try Self.tempURL()
         defer { cleanup() }
         let defaults = Self.makeDefaults()
@@ -713,12 +764,13 @@ struct AccountLocalDataCleanupTests {
         let defaultsBefore = Self.defaultsSnapshot(defaults, keys: Self.survivingKeys)
 
         let stopping = AccountLocalDataCleanup(container: container, defaults: defaults, commit: { context, step in
-            guard step == .removeMarker else { return try context.save() }
-            // A crash never saves; a failed save throws. Either way, no removal.
+            guard step == .stampMarker else { return try context.save() }
+            // A crash never saves; a failed save throws. Either way, no stamp.
             throw saveFails ? CommitFailure() as Error : Crash() as Error
         })
         #expect(throws: (any Error).self) { try stopping.run(for: Self.accountA) }
         #expect(try stopping.pendingIDs() == [Self.accountA])
+        #expect(try Self.stamp(url) == .some(nil))
         #expect(try Self.rows(of: Self.accountA, ModelContext(try Self.container(url))).isEmpty)
         #expect(defaults.object(forKey: Self.keys(of: .account(Self.accountA))[0]) == nil)
 
@@ -728,21 +780,165 @@ struct AccountLocalDataCleanupTests {
         #expect(Self.defaultsSnapshot(defaults, keys: Self.survivingKeys) == defaultsBefore)
     }
 
-    // 7. / H: a finished cleanup leaves no marker, and a later launch is a no-op.
+    // 7. / H: an acknowledged cleanup leaves no marker, and a later launch is a no-op.
     @Test
-    func aFinishedCleanupLeavesNoMarkerAndALaterLaunchChangesNothing() throws {
+    func anAcknowledgedCleanupLeavesNoMarkerAndALaterLaunchChangesNothing() throws {
         let (url, cleanup) = try Self.tempURL()
         defer { cleanup() }
         let defaults = Self.makeDefaults()
         let container = try Self.seededA(url, defaults)
         try AccountLocalDataCleanup(container: container, defaults: defaults).run(for: Self.accountA)
+        try Self.relaunch(url, defaults)
         #expect(try AccountLocalDataCleanup(container: container).pendingIDs().isEmpty)
         let guestAfter = try Self.rows(of: nil, ModelContext(try Self.container(url)))
         let bAfter = try Self.rows(of: Self.accountB, ModelContext(try Self.container(url)))
+        let defaultsAfter = Self.defaultsSnapshot(defaults, keys: Self.survivingKeys)
 
         try Self.relaunch(url, defaults)
         #expect(try Self.rows(of: nil, ModelContext(try Self.container(url))) == guestAfter)
         #expect(try Self.rows(of: Self.accountB, ModelContext(try Self.container(url))) == bAfter)
+        #expect(Self.defaultsSnapshot(defaults, keys: Self.survivingKeys) == defaultsAfter)
+    }
+
+    // MARK: - Acknowledgement across a process boundary
+    //
+    // A UserDefaults removal reaches disk at a time no API reports, so the
+    // process that made it cannot acknowledge it. Each "process" here is a
+    // cleanup with its own id; a value put back into the defaults stands for
+    // a removal that never reached disk before the crash.
+
+    private static let p1 = UUID(uuidString: "00000000-0000-0000-0000-0000000000F1")!
+    private static let p2 = UUID(uuidString: "00000000-0000-0000-0000-0000000000F2")!
+
+    /// A cleaned up by process P1: rows gone, marker stamped P1.
+    private static func cleanedUpByP1(_ url: URL, _ defaults: UserDefaults) throws -> (guest: [String], b: [String]) {
+        let container = try seededA(url, defaults)
+        let guest = try rows(of: nil, ModelContext(container))
+        let b = try rows(of: accountB, ModelContext(container))
+        try AccountLocalDataCleanup(container: container, defaults: defaults, processID: p1).run(for: accountA)
+        #expect(try stamp(url) == .some(p1))
+        return (guest, b)
+    }
+
+    // 11.
+    @Test
+    func theProcessThatCleanedUpNeverAcknowledgesIt() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        _ = try Self.cleanedUpByP1(url, defaults)
+
+        try Self.relaunch(url, defaults, processID: Self.p1)
+        try Self.relaunch(url, defaults, processID: Self.p1)
+        #expect(try Self.stamp(url) == .some(Self.p1))
+    }
+
+    // 12.
+    @Test
+    func aLaterProcessThatFindsEverythingGoneAcknowledges() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let (guest, b) = try Self.cleanedUpByP1(url, defaults)
+        let defaultsBefore = Self.defaultsSnapshot(defaults, keys: Self.survivingKeys)
+
+        try Self.relaunch(url, defaults, processID: Self.p2)
+        #expect(try Self.stamp(url) == nil)
+        #expect(try Self.rows(of: nil, ModelContext(try Self.container(url))) == guest)
+        #expect(try Self.rows(of: Self.accountB, ModelContext(try Self.container(url))) == b)
+        #expect(Self.defaultsSnapshot(defaults, keys: Self.survivingKeys) == defaultsBefore)
+    }
+
+    // 13.
+    @Test(arguments: [0, 1, 2])
+    func aSlotThatNeverReachedDiskIsCleanedAgainAndKeepsTheMarker(_ slot: Int) throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let (guest, b) = try Self.cleanedUpByP1(url, defaults)
+        let defaultsBefore = Self.defaultsSnapshot(defaults, keys: Self.survivingKeys)
+        let key = Self.keys(of: .account(Self.accountA))[slot]
+        defaults.set(Data([1]), forKey: key)
+
+        try Self.relaunch(url, defaults, processID: Self.p2)
+        #expect(defaults.object(forKey: key) == nil)
+        #expect(try Self.stamp(url) == .some(Self.p2))
+        // The process that retried cannot acknowledge its own retry either.
+        try Self.relaunch(url, defaults, processID: Self.p2)
+        #expect(try Self.stamp(url) == .some(Self.p2))
+
+        try Self.relaunch(url, defaults)
+        #expect(try Self.stamp(url) == nil)
+        #expect(try Self.rows(of: nil, ModelContext(try Self.container(url))) == guest)
+        #expect(try Self.rows(of: Self.accountB, ModelContext(try Self.container(url))) == b)
+        #expect(Self.defaultsSnapshot(defaults, keys: Self.survivingKeys) == defaultsBefore)
+    }
+
+    // 14.
+    @Test(arguments: [0, 1, 2])
+    func aSharedValueStillNamingAIsCleanedAgainAndKeepsTheMarker(_ which: Int) throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        _ = try Self.cleanedUpByP1(url, defaults)
+        let both = "\(Self.accountA.uuidString),\(Self.accountB.uuidString)"
+        switch which {
+        case 0: defaults.set(both, forKey: GuestAdoptionConsent.workoutAnsweredKey)
+        case 1: defaults.set(both, forKey: GuestAdoptionConsent.healthAnsweredKey)
+        default: defaults.set(Self.accountA.uuidString, forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey)
+        }
+
+        try Self.relaunch(url, defaults, processID: Self.p2)
+        #expect(try Self.stamp(url) == .some(Self.p2))
+        let answers = Self.answered(defaults)
+        #expect(!answers.answeredWorkout(Self.accountA) && !answers.answeredHealth(Self.accountA))
+        #expect(answers.answeredWorkout(Self.accountB) && answers.answeredHealth(Self.accountB))
+        #expect(defaults.object(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey) == nil)
+
+        try Self.relaunch(url, defaults)
+        #expect(try Self.stamp(url) == nil)
+    }
+
+    @Test
+    func aRowOfAStillInTheStoreIsCleanedAgainAndKeepsTheMarker() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let (guest, b) = try Self.cleanedUpByP1(url, defaults)
+        let context = ModelContext(try Self.container(url))
+        context.insert(DayLog(date: Self.dayX.addingTimeInterval(3 * 86_400), sleepMinutes: 1, ownerAccountID: Self.accountA))
+        try context.save()
+
+        try Self.relaunch(url, defaults, processID: Self.p2)
+        #expect(try Self.stamp(url) == .some(Self.p2))
+        #expect(try Self.rows(of: Self.accountA, ModelContext(try Self.container(url))).isEmpty)
+        #expect(try Self.rows(of: nil, ModelContext(try Self.container(url))) == guest)
+        #expect(try Self.rows(of: Self.accountB, ModelContext(try Self.container(url))) == b)
+    }
+
+    // 10. A failed acknowledgement keeps the marker for the next launch.
+    @Test
+    func aFailedMarkerRemovalKeepsItForTheNextLaunch() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let (guest, b) = try Self.cleanedUpByP1(url, defaults)
+
+        try Self.relaunch(url, defaults, processID: Self.p2, commit: Self.failing(.removeMarker))
+        #expect(try Self.stamp(url) == .some(Self.p1))
+
+        try Self.relaunch(url, defaults)
+        #expect(try Self.stamp(url) == nil)
+        #expect(try Self.rows(of: nil, ModelContext(try Self.container(url))) == guest)
+        #expect(try Self.rows(of: Self.accountB, ModelContext(try Self.container(url))) == b)
+    }
+
+    @Test
+    func aNewMarkerHasNoProcessStamp() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        try AccountLocalDataCleanup(container: try Self.container(url)).recordConfirmedDeletion(of: Self.accountA.uuidString)
+        #expect(try Self.stamp(url) == .some(nil))
     }
 
     // A / B / 9: no answer, or no request — no marker, and nothing deleted.

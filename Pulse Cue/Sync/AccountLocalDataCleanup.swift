@@ -43,9 +43,15 @@
 //    3. then the UserDefaults slots — they cannot join the SwiftData
 //       transaction, so they follow a commit rather than precede a possible
 //       failure;
-//    4. the marker is deleted and saved last: the acknowledgement that every
-//       step before it finished. Steps 1–3 are idempotent, so a crash anywhere
-//       before this save simply runs them again at the next launch.
+//    4. the marker is stamped with this process's id and saved — and kept.
+//       UserDefaults reaches disk asynchronously, and no API says when, so the
+//       process that removed the values can never know they are gone. Only a
+//       later process, which read them back from disk, can.
+//    5. a later launch (`resumePending()` with a different process id) checks
+//       the account's rows and slots are all gone, and only then deletes the
+//       marker. Anything still there — a slot whose removal never reached
+//       disk — and it runs the cleanup again instead, stamped with its own id.
+//       Steps 1–3 are idempotent, so a crash anywhere repeats them safely.
 //
 
 import Foundation
@@ -60,10 +66,14 @@ import SwiftData
 final class PendingAccountLocalCleanup {
     @Attribute(.unique) var accountID: UUID
     var confirmedAt: Date
+    /// The process that last ran the cleanup, nil until one has. That process
+    /// cannot acknowledge its own UserDefaults removals; see step 4 above.
+    var lastCleanupProcessID: UUID?
 
-    init(accountID: UUID, confirmedAt: Date = Date()) {
+    init(accountID: UUID, confirmedAt: Date = Date(), lastCleanupProcessID: UUID? = nil) {
         self.accountID = accountID
         self.confirmedAt = confirmedAt
+        self.lastCleanupProcessID = lastCleanupProcessID
     }
 }
 
@@ -71,8 +81,11 @@ struct AccountLocalDataCleanup {
 
     /// The saves the cleanup makes, so tests can fail exactly one of them.
     enum Commit {
-        case recordMarker, deleteRows, removeMarker
+        case recordMarker, deleteRows, stampMarker, removeMarker
     }
+
+    /// New in every process, the same for its whole life.
+    static let currentProcessID = UUID()
 
     private let container: ModelContainer
     private let defaults: UserDefaults
@@ -81,21 +94,26 @@ struct AccountLocalDataCleanup {
     private let mainContext: ModelContext?
     /// Production saves; tests substitute a commit that inspects or fails.
     private let commit: (ModelContext, Commit) throws -> Void
+    /// Tests stand in for separate launches by passing different ids.
+    private let processID: UUID
 
     init(
         container: ModelContainer,
         defaults: UserDefaults = .standard,
         mainContext: ModelContext? = nil,
+        processID: UUID = AccountLocalDataCleanup.currentProcessID,
         commit: @escaping (ModelContext, Commit) throws -> Void = { context, _ in try context.save() }
     ) {
         self.container = container
         self.defaults = defaults
         self.mainContext = mainContext
+        self.processID = processID
         self.commit = commit
     }
 
-    /// Removes everything `accountID` owns on this device. Throws, leaving the
-    /// marker in place for `resumePending()`, if any save fails.
+    /// Removes everything `accountID` owns on this device. The marker stays,
+    /// stamped with this process, for a later launch to acknowledge. Throws if
+    /// any save fails.
     func run(for accountID: UUID) throws {
         try recordMarker(for: accountID)
         let deleted = try deleteRows(of: accountID)
@@ -103,7 +121,7 @@ struct AccountLocalDataCleanup {
             discardMainContextRows(of: accountID, persisted: deleted, in: mainContext)
         }
         deleteDefaults(of: accountID)
-        try removeMarker(for: accountID)
+        try stampMarker(for: accountID)
     }
 
     /// Durably records a server-confirmed deletion of `serverUserID`. Called by
@@ -115,19 +133,26 @@ struct AccountLocalDataCleanup {
         try recordMarker(for: id)
     }
 
-    /// Retries cleanups a previous launch did not finish. A failure stays
-    /// pending for the next launch.
+    /// Acknowledges cleanups an earlier process finished and finds complete
+    /// on disk, and runs every other one again. A failure stays pending for
+    /// the next launch.
     func resumePending() {
-        let ids: [UUID]
+        let markers: [(accountID: UUID, lastCleanupProcessID: UUID?)]
         do {
-            ids = try pendingIDs()
+            markers = try ModelContext(container).fetch(FetchDescriptor<PendingAccountLocalCleanup>())
+                .map { ($0.accountID, $0.lastCleanupProcessID) }
         } catch {
             print("AccountLocalDataCleanup: could not read pending cleanups: \(error)")
             return
         }
-        for id in ids {
+        for marker in markers {
+            let id = marker.accountID
             do {
-                try run(for: id)
+                if let last = marker.lastCleanupProcessID, last != processID, try isClean(id) {
+                    try removeMarker(for: id)
+                } else {
+                    try run(for: id)
+                }
             } catch {
                 // No account id in the log: it identifies a deleted user.
                 print("AccountLocalDataCleanup: a pending cleanup failed and stays pending: \(error)")
@@ -156,6 +181,18 @@ struct AccountLocalDataCleanup {
         try commit(context, .recordMarker)
     }
 
+    private func stampMarker(for accountID: UUID) throws {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let markers = try context.fetch(FetchDescriptor<PendingAccountLocalCleanup>(
+            predicate: #Predicate { $0.accountID == accountID }
+        ))
+        for marker in markers where marker.accountID == accountID {
+            marker.lastCleanupProcessID = processID
+        }
+        try commit(context, .stampMarker)
+    }
+
     private func removeMarker(for accountID: UUID) throws {
         let context = ModelContext(container)
         context.autosaveEnabled = false
@@ -170,10 +207,42 @@ struct AccountLocalDataCleanup {
 
     // MARK: - SwiftData
 
+    /// Whether nothing the account owned is left, read from the store and
+    /// from UserDefaults as this process loaded them.
+    private func isClean(_ accountID: UUID) throws -> Bool {
+        let context = ModelContext(container)
+        guard try ownedRows(of: accountID, in: context).isEmpty else { return false }
+
+        let scope = WorkoutDataScope.account(accountID)
+        let keys = [
+            HealthScopedDefaults.key(FavoriteMealTemplateStore.defaultStorageKey, for: scope),
+            HealthScopedDefaults.key(HealthTargetStore.defaultStorageKey, for: scope),
+            RunnerPersistence.key(for: scope),
+        ]
+        for case let key? in keys where defaults.object(forKey: key) != nil {
+            return false
+        }
+        let answers = GuestAdoptionConsent.Answers(
+            workoutRaw: defaults.string(forKey: GuestAdoptionConsent.workoutAnsweredKey) ?? "",
+            healthRaw: defaults.string(forKey: GuestAdoptionConsent.healthAnsweredKey) ?? ""
+        )
+        if answers.answeredWorkout(accountID) || answers.answeredHealth(accountID) { return false }
+        let last = defaults.string(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey)
+        return last.flatMap(UUID.init(uuidString:)) != accountID
+    }
+
     /// Returns the ids of the rows the save removed.
     private func deleteRows(of accountID: UUID) throws -> Set<PersistentIdentifier> {
         let context = ModelContext(container)
         context.autosaveEnabled = false
+        let owned = try ownedRows(of: accountID, in: context)
+        for row in owned { context.delete(row) }
+
+        try commit(context, .deleteRows)
+        return Set(owned.map(\.persistentModelID))
+    }
+
+    private func ownedRows(of accountID: UUID, in context: ModelContext) throws -> [any PersistentModel] {
         let owner: UUID? = accountID
 
         // The predicate narrows the fetch; the filter after it is the rule.
@@ -188,11 +257,7 @@ struct AccountLocalDataCleanup {
         let cursors = try context.fetch(FetchDescriptor<SyncCursor>(predicate: #Predicate { $0.accountID == accountID }))
 
         let rows: [any PersistentModel] = sessions + results + logs + meals + profiles + outbox + tombstones + cursors
-        let owned = rows.filter { Self.owner(of: $0) == accountID }
-        for row in owned { context.delete(row) }
-
-        try commit(context, .deleteRows)
-        return Set(owned.map(\.persistentModelID))
+        return rows.filter { Self.owner(of: $0) == accountID }
     }
 
     /// Deletes, in the main context, its unsaved inserts owned by the account
