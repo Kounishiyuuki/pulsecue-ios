@@ -40,18 +40,23 @@
 //       rows are deleted there too, unsaved inserts included — otherwise its
 //       next save would write them back. Nobody else's unsaved work is
 //       touched;
-//    3. then the UserDefaults slots — they cannot join the SwiftData
+//    3. the marker is stamped with this process's id and saved — and kept —
+//       *before* any UserDefaults change, so a failed stamp leaves them as
+//       they were;
+//    4. then the UserDefaults slots — they cannot join the SwiftData
 //       transaction, so they follow a commit rather than precede a possible
-//       failure;
-//    4. the marker is stamped with this process's id and saved — and kept.
-//       UserDefaults reaches disk asynchronously, and no API says when, so the
-//       process that removed the values can never know they are gone. Only a
-//       later process, which read them back from disk, can.
+//       failure. They reach disk asynchronously, and no API says when, so the
+//       process that removed them can never know they are gone. Only a later
+//       process, which read them back from disk, can — so the marker stays;
 //    5. a later launch (`resumePending()` with a different process id) checks
 //       the account's rows and slots are all gone, and only then deletes the
 //       marker. Anything still there — a slot whose removal never reached
 //       disk — and it runs the cleanup again instead, stamped with its own id.
-//       Steps 1–3 are idempotent, so a crash anywhere repeats them safely.
+//       Steps 1–4 are idempotent, so a crash anywhere repeats them safely.
+//
+//  The marker is also a quarantine: while it exists, `WorkoutDataScopeResolver`
+//  never resolves to the account, online or offline, whether or not the
+//  cleanup succeeded. Privacy does not wait on the physical deletion.
 //
 
 import Foundation
@@ -67,7 +72,7 @@ final class PendingAccountLocalCleanup {
     @Attribute(.unique) var accountID: UUID
     var confirmedAt: Date
     /// The process that last ran the cleanup, nil until one has. That process
-    /// cannot acknowledge its own UserDefaults removals; see step 4 above.
+    /// cannot acknowledge its own UserDefaults removals; see steps 3–5 above.
     var lastCleanupProcessID: UUID?
 
     init(accountID: UUID, confirmedAt: Date = Date(), lastCleanupProcessID: UUID? = nil) {
@@ -120,8 +125,11 @@ struct AccountLocalDataCleanup {
         if let mainContext {
             discardMainContextRows(of: accountID, persisted: deleted, in: mainContext)
         }
-        deleteDefaults(of: accountID)
+        // Stamped before the UserDefaults change, so a failed stamp throws
+        // with them untouched: no process ever holds a removal it has not
+        // stamped as its own.
         try stampMarker(for: accountID)
+        deleteDefaults(of: accountID)
     }
 
     /// Durably records a server-confirmed deletion of `serverUserID`. Called by
@@ -157,6 +165,18 @@ struct AccountLocalDataCleanup {
                 // No account id in the log: it identifies a deleted user.
                 print("AccountLocalDataCleanup: a pending cleanup failed and stays pending: \(error)")
             }
+        }
+    }
+
+    /// Whether `accountID` has a marker: nil when the store cannot be read,
+    /// which callers must treat as pending.
+    func isPending(_ accountID: UUID) -> Bool? {
+        do {
+            return try ModelContext(container).fetchCount(FetchDescriptor<PendingAccountLocalCleanup>(
+                predicate: #Predicate { $0.accountID == accountID }
+            )) > 0
+        } catch {
+            return nil
         }
     }
 

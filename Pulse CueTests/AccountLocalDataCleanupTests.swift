@@ -772,7 +772,11 @@ struct AccountLocalDataCleanupTests {
         #expect(try stopping.pendingIDs() == [Self.accountA])
         #expect(try Self.stamp(url) == .some(nil))
         #expect(try Self.rows(of: Self.accountA, ModelContext(try Self.container(url))).isEmpty)
-        #expect(defaults.object(forKey: Self.keys(of: .account(Self.accountA))[0]) == nil)
+        // The stamp precedes every UserDefaults change: none was made.
+        for key in Self.keys(of: .account(Self.accountA)) {
+            #expect(defaults.object(forKey: key) != nil, "\(key)")
+        }
+        #expect(defaults.string(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey) == Self.accountA.uuidString)
 
         // The retry repeats every step — all idempotent — and acknowledges.
         try Self.relaunch(url, defaults)
@@ -933,6 +937,56 @@ struct AccountLocalDataCleanupTests {
         #expect(try Self.rows(of: Self.accountB, ModelContext(try Self.container(url))) == b)
     }
 
+    // 16. A stamp that fails over an older one leaves no memory-only clean
+    // state for the same process to acknowledge.
+    @Test
+    func aFailedStampOverAnOlderOneChangesNoDefaultsAndIsNeverAcknowledgedInProcess() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let container = try Self.seededA(url, defaults)
+        let p0 = UUID()
+        let context = ModelContext(container)
+        context.insert(PendingAccountLocalCleanup(accountID: Self.accountA, lastCleanupProcessID: p0))
+        try context.save()
+
+        let failing = AccountLocalDataCleanup(
+            container: container, defaults: defaults, processID: Self.p1, commit: Self.failing(.stampMarker)
+        )
+        #expect(throws: CommitFailure.self) { try failing.run(for: Self.accountA) }
+        for key in Self.keys(of: .account(Self.accountA)) {
+            #expect(defaults.object(forKey: key) != nil, "\(key)")
+        }
+        #expect(try Self.stamp(url) == .some(p0))
+
+        try Self.relaunch(url, defaults, processID: Self.p1)
+        #expect(try Self.stamp(url) == .some(Self.p1))
+        try Self.relaunch(url, defaults, processID: Self.p1)
+        #expect(try Self.stamp(url) == .some(Self.p1))
+    }
+
+    // 14. Stamped, then the process dies before touching UserDefaults.
+    @Test
+    func aCrashBetweenTheStampAndTheDefaultsIsCleanedByTheNextProcess() throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let container = try Self.seededA(url, defaults)
+        let crashing = AccountLocalDataCleanup(container: container, defaults: defaults, processID: Self.p1, commit: { context, step in
+            try context.save()
+            if step == .stampMarker { throw Crash() }
+        })
+        #expect(throws: Crash.self) { try crashing.run(for: Self.accountA) }
+        #expect(try Self.stamp(url) == .some(Self.p1))
+        #expect(defaults.object(forKey: Self.keys(of: .account(Self.accountA))[0]) != nil)
+
+        try Self.relaunch(url, defaults, processID: Self.p2)
+        #expect(try Self.stamp(url) == .some(Self.p2))
+        for key in Self.keys(of: .account(Self.accountA)) {
+            #expect(defaults.object(forKey: key) == nil, "\(key)")
+        }
+    }
+
     @Test
     func aNewMarkerHasNoProcessStamp() throws {
         let (url, cleanup) = try Self.tempURL()
@@ -1009,6 +1063,154 @@ struct AccountLocalDataCleanupTests {
         try Self.relaunch(url, defaults)
         try Self.expectAGoneAndOthersKept(url, defaults, guest: guestBefore, b: bBefore)
         #expect(defaults.string(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey) == Self.accountB.uuidString)
+    }
+
+    // MARK: - Scope quarantine
+    //
+    // A marker means "the server deleted this account": while it exists the
+    // account is never the current scope, whatever the session or the
+    // offline fallback say and whether or not the cleanup succeeded.
+
+    /// A store that has run its launch restore as `id` (nil: no profile), or
+    /// offline with a held token.
+    private static func restored(as id: UUID, offline: Bool) async -> ServerAccountStore {
+        let api = StubAccountAPI()
+        api.profileResult = offline
+            ? .failure(AccountAPIError.unavailable)
+            : .success(ServerAccountProfile(
+                user: .init(id: id.uuidString, state: "active", displayName: nil, createdAt: 1),
+                linkedProviders: [],
+                session: .init(expiresAt: 1_800_000_000)
+            ))
+        let store = ServerAccountStore(api: api, tokenStore: InMemoryServerSessionTokenStore(token: "session-token"))
+        await store.restore()
+        return store
+    }
+
+    /// The resolver as the app wires it, built after restore so its scope is
+    /// already applied.
+    private static func scope(
+        _ store: ServerAccountStore,
+        _ defaults: UserDefaults,
+        _ container: ModelContainer
+    ) -> WorkoutDataScope {
+        WorkoutDataScopeResolver(
+            account: store,
+            defaults: defaults,
+            isPendingDeletion: { AccountLocalDataCleanup(container: container).isPending($0) }
+        ).scope
+    }
+
+    private static func markPending(_ id: UUID, _ container: ModelContainer) throws {
+        try AccountLocalDataCleanup(container: container).recordConfirmedDeletion(of: id.uuidString)
+    }
+
+    // 5. / A / F / 18 / 19: the route Codex found, end to end.
+    @Test
+    func aFailedCleanupWithAStaleTokenOfflineNeverBringsBackA() async throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let container = try Self.seededA(url, defaults)
+        // Confirmed, then a crash before the session was cleared.
+        let (store, tokens, api) = await Self.recordingStore(deleteResult: .success(.deleted), container: container) {
+            try AccountLocalDataCleanup(container: container).recordConfirmedDeletion(of: $0)
+            throw Crash()
+        }
+        _ = await store.deleteAccount()
+        #expect(Self.hasToken(tokens))
+
+        // The next launch: the cleanup fails, so everything of A's stays.
+        AccountLocalDataCleanup(
+            container: try Self.container(url), defaults: defaults, processID: UUID(), commit: Self.failing(.deleteRows)
+        ).resumePending()
+        let reopened = try Self.container(url)
+        #expect(try Self.rows(of: Self.accountA, ModelContext(reopened)).count == 8)
+        #expect(defaults.string(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey) == Self.accountA.uuidString)
+        #expect(try AccountLocalDataCleanup(container: reopened).pendingIDs() == [Self.accountA])
+
+        api.profileResult = .failure(AccountAPIError.unavailable)
+        let relaunched = ServerAccountStore(api: api, tokenStore: tokens)
+        await relaunched.restore()
+        #expect(relaunched.state == .unreachable)
+
+        let scope = Self.scope(relaunched, defaults, reopened)
+        #expect(scope == .undetermined)
+        let read = ModelContext(reopened)
+        #expect(scope.visible(try read.fetch(FetchDescriptor<Session>())).isEmpty)
+        #expect(scope.visible(try read.fetch(FetchDescriptor<StepResult>())).isEmpty)
+        #expect(scope.visible(try read.fetch(FetchDescriptor<DayLog>())).isEmpty)
+        #expect(scope.visible(try read.fetch(FetchDescriptor<MealEntry>())).isEmpty)
+        #expect(scope.visible(try read.fetch(FetchDescriptor<UserProfile>())).isEmpty)
+        #expect(!scope.canCreateWorkouts)
+        #expect(!scope.canCreateHealthData)
+        // A's favorites and targets are still on disk, and unreachable.
+        #expect(defaults.object(forKey: Self.keys(of: .account(Self.accountA))[0]) != nil)
+        #expect(HealthScopedDefaults.key(FavoriteMealTemplateStore.defaultStorageKey, for: scope) == nil)
+        #expect(HealthScopedDefaults.key(HealthTargetStore.defaultStorageKey, for: scope) == nil)
+        #expect(RunnerPersistence.key(for: scope) == nil)
+    }
+
+    // 6. / B: defense in depth — a session that somehow confirms A.
+    @Test
+    func aPendingAccountIsNeverInScopeEvenAuthenticated() async throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        let container = try Self.container(url)
+        try Self.markPending(Self.accountA, container)
+
+        let store = await Self.restored(as: Self.accountA, offline: false)
+        #expect(store.state.isAuthenticated)
+        #expect(Self.scope(store, defaults, container) == .undetermined)
+        // And it is not remembered as the last confirmed account.
+        #expect(defaults.string(forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey) == nil)
+    }
+
+    // 7. / C / D: only the marked account is quarantined.
+    @Test(arguments: [false, true])
+    func anotherAccountAndGuestAreUnaffectedByAsMarker(_ offline: Bool) async throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        defaults.set(Self.accountB.uuidString, forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey)
+        let container = try Self.container(url)
+        try Self.markPending(Self.accountA, container)
+
+        let store = await Self.restored(as: Self.accountB, offline: offline)
+        #expect(Self.scope(store, defaults, container) == .account(Self.accountB))
+
+        let guest = ServerAccountStore(api: StubAccountAPI(), tokenStore: InMemoryServerSessionTokenStore(token: nil))
+        await guest.restore()
+        #expect(Self.scope(guest, defaults, container) == .guest)
+    }
+
+    // 8. / E: a marker store that cannot be read is not "nothing pending".
+    @Test(arguments: [false, true])
+    func anUnreadableMarkerStoreClosesTheAccountScope(_ offline: Bool) async throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(Self.accountA.uuidString, forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey)
+        let store = await Self.restored(as: Self.accountA, offline: offline)
+        let scope = WorkoutDataScopeResolver(account: store, defaults: defaults, isPendingDeletion: { _ in nil }).scope
+        #expect(scope == .undetermined)
+    }
+
+    // 9. / 22: no marker — the normal online and offline contract, unchanged.
+    @Test(arguments: [false, true])
+    func withoutAMarkerTheAccountResolvesAsBefore(_ offline: Bool) async throws {
+        let (url, cleanup) = try Self.tempURL()
+        defer { cleanup() }
+        let defaults = Self.makeDefaults()
+        defaults.set(Self.accountA.uuidString, forKey: WorkoutDataScopeResolver.lastConfirmedAccountKey)
+        let container = try Self.container(url)
+        try Self.markPending(Self.accountA, container)
+        // The cleanup finished and a later process acknowledged it.
+        try AccountLocalDataCleanup(container: container, defaults: Self.makeDefaults(), processID: Self.p1).run(for: Self.accountA)
+        AccountLocalDataCleanup(container: container, defaults: Self.makeDefaults(), processID: Self.p2).resumePending()
+        #expect(try AccountLocalDataCleanup(container: container).pendingIDs().isEmpty)
+
+        let store = await Self.restored(as: Self.accountA, offline: offline)
+        #expect(Self.scope(store, defaults, container) == .account(Self.accountA))
     }
 
     // MARK: - V9 migration

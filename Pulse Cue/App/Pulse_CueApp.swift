@@ -85,7 +85,10 @@ struct Pulse_CueApp: App {
             recordConfirmedDeletion: { try AccountLocalDataCleanup(container: container).recordConfirmedDeletion(of: $0) }
         )
         _serverAccount = StateObject(wrappedValue: account)
-        _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(account: account))
+        _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(
+            account: account,
+            isPendingDeletion: { AccountLocalDataCleanup(container: container).isPending($0) }
+        ))
         // A deleted account's cleanup that a crash or failed save interrupted.
         // Its rows are already out of every scope; this finishes removing them.
         AccountLocalDataCleanup(container: container).resumePending()

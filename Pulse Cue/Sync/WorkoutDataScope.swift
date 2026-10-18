@@ -218,13 +218,23 @@ final class WorkoutDataScopeResolver: ObservableObject {
 
     private let defaults: UserDefaults
     private var cancellable: AnyCancellable?
+    /// Whether an account's server-confirmed deletion still has a pending
+    /// local cleanup: true, false, or nil when that cannot be read.
+    private let isPendingDeletion: (UUID) -> Bool?
 
     /// Where the last server-confirmed account id is kept. A UUID string, and
     /// nothing else about the person.
     static let lastConfirmedAccountKey = "sync.lastConfirmedAccountID"
 
-    init(account: ServerAccountStore, defaults: UserDefaults = .standard) {
+    /// `isPendingDeletion` has no default on purpose: production must pass the
+    /// marker store, and a forgotten argument must not mean "nothing pending".
+    init(
+        account: ServerAccountStore,
+        defaults: UserDefaults = .standard,
+        isPendingDeletion: @escaping (UUID) -> Bool?
+    ) {
         self.defaults = defaults
+        self.isPendingDeletion = isPendingDeletion
         apply(account.state)
         cancellable = account.$state
             .receive(on: RunLoop.main)
@@ -234,13 +244,16 @@ final class WorkoutDataScopeResolver: ObservableObject {
     /// For tests and previews: a fixed scope with no store behind it.
     init(fixed scope: WorkoutDataScope, defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.isPendingDeletion = { _ in false }
         self.scope = scope
     }
 
     private func apply(_ state: ServerAccountState) {
         switch state {
         case let .authenticated(profile):
-            if let id = UUID(uuidString: profile.user.id) {
+            // A deleted account is never remembered again, or its cleanup
+            // could not finish removing it.
+            if let id = UUID(uuidString: profile.user.id), isPendingDeletion(id) == false {
                 defaults.set(id.uuidString, forKey: Self.lastConfirmedAccountKey)
             }
         case .guest:
@@ -250,10 +263,20 @@ final class WorkoutDataScopeResolver: ObservableObject {
         case .unresolved, .restoring, .signingIn, .unreachable, .notConfigured, .localCleanupFailed:
             break
         }
-        scope = WorkoutDataScope.resolve(
+        let resolved = WorkoutDataScope.resolve(
             state: state,
             lastConfirmedAccountID: lastConfirmedAccountID
         )
+        // The deletion marker outranks every route to an account — a live
+        // session or the offline fallback alike — and an unreadable marker
+        // store is treated as pending. Its cleanup may have failed and left
+        // the account's rows and remembered id behind; the scope, not the
+        // cleanup, is what keeps them out of sight.
+        if case let .account(id) = resolved, isPendingDeletion(id) != false {
+            scope = .undetermined
+        } else {
+            scope = resolved
+        }
     }
 
     private var lastConfirmedAccountID: UUID? {
