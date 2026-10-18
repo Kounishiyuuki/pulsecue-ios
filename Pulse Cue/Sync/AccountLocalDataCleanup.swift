@@ -23,36 +23,56 @@
 //  a scope. Routines, gyms, machines and device settings carry no owner, so
 //  nothing proves they were the account's; they stay.
 //
-//  Order, and why:
+//  Order, and why — every step is a persistent state a crash can stop at, and
+//  each one is safe to resume from:
 //
-//    0. `ServerAccountStore` records the account as pending
-//       (`recordConfirmedDeletion`) the moment it sees 200/202, *before* it
-//       deletes the session. Recording after would leave a window where the
-//       account is gone, the session is gone, and nothing on disk says whose
-//       data to remove. Nothing is recorded before the answer: an unknown
-//       outcome must never delete anything;
-//    1. `run` records it again (idempotent), so a crash or a failed save is
-//       retried at the next launch instead of forgotten;
-//    2. every fetch and delete in a dedicated context, then exactly one save —
-//       a failure discards that context and commits nothing, without
-//       touching unsaved work in the app's main context;
-//    3. only after that save, the main context's own copies of the account's
+//    0. `ServerAccountStore` saves a `PendingAccountLocalCleanup` row the
+//       moment it sees 200/202, and deletes the session only once that save
+//       has returned. A SwiftData save is a real commit boundary, which a
+//       UserDefaults write is not (it reaches disk asynchronously). Nothing is
+//       recorded before the answer, so an unknown outcome never deletes
+//       anything; a failed save keeps the session and claims nothing;
+//    1. every fetch and delete of the account's rows in a dedicated context,
+//       then one save — a failure discards that context and commits nothing,
+//       without touching unsaved work in the app's main context. The marker
+//       is *not* part of this save;
+//    2. only after that save, the main context's own copies of the account's
 //       rows are deleted there too, unsaved inserts included — otherwise its
 //       next save would write them back. Nobody else's unsaved work is
 //       touched;
-//    4. then the UserDefaults slots — they cannot join the SwiftData
+//    3. then the UserDefaults slots — they cannot join the SwiftData
 //       transaction, so they follow a commit rather than precede a possible
 //       failure;
-//    5. the pending record is removed last.
+//    4. the marker is deleted and saved last: the acknowledgement that every
+//       step before it finished. Steps 1–3 are idempotent, so a crash anywhere
+//       before this save simply runs them again at the next launch.
 //
 
 import Foundation
 import SwiftData
 
+/// A server-confirmed account deletion whose local cleanup has not finished.
+///
+/// The durable receipt of "the server deleted this account": saved before the
+/// session is removed, deleted only after everything the account owned is
+/// gone. Added in schema V9.
+@Model
+final class PendingAccountLocalCleanup {
+    @Attribute(.unique) var accountID: UUID
+    var confirmedAt: Date
+
+    init(accountID: UUID, confirmedAt: Date = Date()) {
+        self.accountID = accountID
+        self.confirmedAt = confirmedAt
+    }
+}
+
 struct AccountLocalDataCleanup {
 
-    /// Server UUIDs whose local cleanup has not finished.
-    static let pendingKey = "account.pendingLocalCleanupIDs"
+    /// The saves the cleanup makes, so tests can fail exactly one of them.
+    enum Commit {
+        case recordMarker, deleteRows, removeMarker
+    }
 
     private let container: ModelContainer
     private let defaults: UserDefaults
@@ -60,13 +80,13 @@ struct AccountLocalDataCleanup {
     /// not outlive the cleanup. Nil at launch, before anything is unsaved.
     private let mainContext: ModelContext?
     /// Production saves; tests substitute a commit that inspects or fails.
-    private let commit: (ModelContext) throws -> Void
+    private let commit: (ModelContext, Commit) throws -> Void
 
     init(
         container: ModelContainer,
         defaults: UserDefaults = .standard,
         mainContext: ModelContext? = nil,
-        commit: @escaping (ModelContext) throws -> Void = { try $0.save() }
+        commit: @escaping (ModelContext, Commit) throws -> Void = { context, _ in try context.save() }
     ) {
         self.container = container
         self.defaults = defaults
@@ -74,31 +94,38 @@ struct AccountLocalDataCleanup {
         self.commit = commit
     }
 
-    /// Removes everything `accountID` owns on this device, or — if the save
-    /// fails — nothing, leaving it pending for `resumePending()`.
+    /// Removes everything `accountID` owns on this device. Throws, leaving the
+    /// marker in place for `resumePending()`, if any save fails.
     func run(for accountID: UUID) throws {
-        Self.markPending(accountID, in: defaults)
+        try recordMarker(for: accountID)
         let deleted = try deleteRows(of: accountID)
         if let mainContext {
             discardMainContextRows(of: accountID, persisted: deleted, in: mainContext)
         }
         deleteDefaults(of: accountID)
-        unmarkPending(accountID)
+        try removeMarker(for: accountID)
     }
 
-    /// Records a server-confirmed deletion of `serverUserID` as pending
-    /// cleanup. Called by `ServerAccountStore` before it deletes the session,
-    /// so every crash after the server's answer leaves a retryable record. An
-    /// id that is not a UUID owns no local rows and is not recorded.
-    static func recordConfirmedDeletion(of serverUserID: String, in defaults: UserDefaults = .standard) {
+    /// Durably records a server-confirmed deletion of `serverUserID`. Called by
+    /// `ServerAccountStore` before it deletes the session; when this throws,
+    /// nothing is recorded and the session must stay. An id that is not a UUID
+    /// owns no local rows and is not recorded.
+    func recordConfirmedDeletion(of serverUserID: String) throws {
         guard let id = UUID(uuidString: serverUserID) else { return }
-        markPending(id, in: defaults)
+        try recordMarker(for: id)
     }
 
     /// Retries cleanups a previous launch did not finish. A failure stays
     /// pending for the next launch.
     func resumePending() {
-        for id in pendingIDs() {
+        let ids: [UUID]
+        do {
+            ids = try pendingIDs()
+        } catch {
+            print("AccountLocalDataCleanup: could not read pending cleanups: \(error)")
+            return
+        }
+        for id in ids {
             do {
                 try run(for: id)
             } catch {
@@ -108,8 +135,37 @@ struct AccountLocalDataCleanup {
         }
     }
 
-    func pendingIDs() -> [UUID] {
-        Self.ids(defaults.string(forKey: Self.pendingKey) ?? "").sorted { $0.uuidString < $1.uuidString }
+    /// Accounts with a saved marker, read from the store itself.
+    func pendingIDs() throws -> [UUID] {
+        try ModelContext(container).fetch(FetchDescriptor<PendingAccountLocalCleanup>())
+            .map(\.accountID)
+            .sorted { $0.uuidString < $1.uuidString }
+    }
+
+    // MARK: - Marker
+
+    /// Upsert: a marker already there (a retry) is left as it is.
+    private func recordMarker(for accountID: UUID) throws {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let existing = try context.fetch(FetchDescriptor<PendingAccountLocalCleanup>(
+            predicate: #Predicate { $0.accountID == accountID }
+        ))
+        guard existing.isEmpty else { return }
+        context.insert(PendingAccountLocalCleanup(accountID: accountID))
+        try commit(context, .recordMarker)
+    }
+
+    private func removeMarker(for accountID: UUID) throws {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let markers = try context.fetch(FetchDescriptor<PendingAccountLocalCleanup>(
+            predicate: #Predicate { $0.accountID == accountID }
+        ))
+        for marker in markers where marker.accountID == accountID {
+            context.delete(marker)
+        }
+        try commit(context, .removeMarker)
     }
 
     // MARK: - SwiftData
@@ -135,7 +191,7 @@ struct AccountLocalDataCleanup {
         let owned = rows.filter { Self.owner(of: $0) == accountID }
         for row in owned { context.delete(row) }
 
-        try commit(context)
+        try commit(context, .deleteRows)
         return Set(owned.map(\.persistentModelID))
     }
 
@@ -196,27 +252,5 @@ struct AccountLocalDataCleanup {
         if defaults.string(forKey: lastKey).flatMap(UUID.init(uuidString:)) == accountID {
             defaults.removeObject(forKey: lastKey)
         }
-    }
-
-    // MARK: - Pending record
-
-    private static func markPending(_ id: UUID, in defaults: UserDefaults) {
-        var ids = ids(defaults.string(forKey: pendingKey) ?? "")
-        ids.insert(id)
-        defaults.set(raw(ids), forKey: pendingKey)
-    }
-
-    private func unmarkPending(_ id: UUID) {
-        var ids = Self.ids(defaults.string(forKey: Self.pendingKey) ?? "")
-        ids.remove(id)
-        defaults.set(Self.raw(ids), forKey: Self.pendingKey)
-    }
-
-    private static func ids(_ raw: String) -> Set<UUID> {
-        Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
-    }
-
-    private static func raw(_ ids: Set<UUID>) -> String {
-        ids.map(\.uuidString).sorted().joined(separator: ",")
     }
 }
