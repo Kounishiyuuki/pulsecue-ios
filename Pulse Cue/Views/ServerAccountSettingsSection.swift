@@ -19,9 +19,10 @@
 //      this device, not that an account exists on the server. Only a
 //      server-confirmed profile drives the signed-in wording.
 //
-//  And one distinction it must keep visible: deleting the PulseCue account is
-//  not deleting this device's training data. A user who confuses the two
-//  loses everything.
+//  And one distinction it must keep visible: deleting the PulseCue account
+//  removes *that account's* records from this device too, and nothing else —
+//  guest records stay. A user who thinks guest data goes with it, or that the
+//  account's data stays, is misled either way.
 //
 
 import SwiftUI
@@ -36,6 +37,10 @@ struct ServerAccountSettingsSection: View {
     /// The local provider link, cleared when the account is confirmed deleted.
     /// Optional so previews and focused tests can leave it out.
     var authSession: AuthSessionStore?
+
+    /// Removes the deleted account's records from this device. Optional so
+    /// previews and focused tests can leave it out.
+    var localDataCleanup: AccountLocalDataCleanup?
 
     private var googleSession: GoogleSDKSessionOwnership {
         googleSDKSession ?? .shared
@@ -80,7 +85,7 @@ struct ServerAccountSettingsSection: View {
             Text(
                 """
                 PulseCueアカウントとサーバー上のデータを削除します。この操作は取り消せません。
-                この端末に保存されたトレーニング記録は削除されません。
+                このアカウントの記録はこの端末からも削除されます。ゲストの記録は残ります。
                 """
             )
         }
@@ -107,7 +112,7 @@ struct ServerAccountSettingsSection: View {
                 """
                 削除処理は取り消せません。この端末からはサインアウトされました。
                 サーバー側の処理が完了するまで少し時間がかかる場合があります。
-                この端末に保存されたトレーニング記録は削除されていません。
+                このアカウントの記録はこの端末からも削除されます。ゲストの記録は残ります。
                 """
             )
         }
@@ -273,9 +278,29 @@ struct ServerAccountSettingsSection: View {
         authSession?.unlinkAccount()
     }
 
+    /// Removes the account's records from this device once its deletion is
+    /// irreversible (`200` or `202`). A failure leaves the cleanup pending and
+    /// retried at the next launch; the account's rows are already out of
+    /// scope, so nothing of it is shown meanwhile.
+    private func cleanUpLocalData(of accountID: UUID?) {
+        guard let accountID, let localDataCleanup else { return }
+        do {
+            try localDataCleanup.run(for: accountID)
+        } catch {
+            print("ServerAccountSettingsSection: local cleanup for \(accountID) failed and stays pending: \(error)")
+        }
+    }
+
     func deleteAccount() async {
         isWorking = true
         defer { isWorking = false }
+        // Taken before the request: a confirmed deletion moves the state to
+        // Guest, after which nothing says whose account it was. An id that is
+        // not a UUID owns no local rows, so there is nothing to clean up.
+        var deletedAccountID: UUID?
+        if case let .authenticated(profile) = store.state {
+            deletedAccountID = UUID(uuidString: profile.user.id)
+        }
         switch await store.deleteAccount() {
         case .deleted:
             // The only outcome that means the account is actually gone.
@@ -287,6 +312,7 @@ struct ServerAccountSettingsSection: View {
             // SDK session is very much still there.
             googleSession.signOutCurrentSession()
             clearLocalProviderLink()
+            cleanUpLocalData(of: deletedAccountID)
             deletionFailed = false
             deletionPending = false
         case .pending:
@@ -294,6 +320,7 @@ struct ServerAccountSettingsSection: View {
             // local Google session is ended on the same reasoning as `.deleted`.
             googleSession.signOutCurrentSession()
             clearLocalProviderLink()
+            cleanUpLocalData(of: deletedAccountID)
             // Accepted and irreversible, but the server has not finished
             // revoking at the provider. Saying "削除しました" here would claim
             // something the server has not confirmed.

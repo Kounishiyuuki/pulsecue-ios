@@ -35,6 +35,8 @@ import Combine
 @MainActor
 final class HealthTargetStore: ObservableObject {
 
+    nonisolated static let defaultStorageKey = "health.targetSettings.v1"
+
     @Published private var loaded: HealthScopedValue<HealthTargetSettings>
 
     private let defaults: UserDefaults
@@ -43,7 +45,7 @@ final class HealthTargetStore: ObservableObject {
 
     init(
         defaults: UserDefaults = .standard,
-        storageKey: String = "health.targetSettings.v1",
+        storageKey: String = HealthTargetStore.defaultStorageKey,
         scope: HealthDataScope = .undetermined,
     ) {
         self.defaults = defaults

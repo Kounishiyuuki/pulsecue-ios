@@ -79,6 +79,9 @@ struct Pulse_CueApp: App {
         )
         _serverAccount = StateObject(wrappedValue: account)
         _dataScope = StateObject(wrappedValue: WorkoutDataScopeResolver(account: account))
+        // A deleted account's cleanup that a crash or failed save interrupted.
+        // Its rows are already out of every scope; this finishes removing them.
+        AccountLocalDataCleanup(container: sharedModelContainer).resumePending()
     }
 
     var body: some Scene {
