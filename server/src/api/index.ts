@@ -14,6 +14,11 @@ import { appleClientSecretConfigFromEnv } from "./auth/appleClientSecret";
 import { createGoogleJwksProvider } from "./auth/google";
 import { tokenCipherFromEnv } from "./crypto/tokenCipher";
 import { newId } from "./db/ids";
+import {
+	AUTH_BODY_LIMIT_BYTES,
+	SYNC_UPLOAD_BODY_LIMIT_BYTES,
+	limitBody,
+} from "./middleware/bodyLimit";
 import { type AuthedEnv, requireSession } from "./middleware/requireSession";
 import { makeAppleAuthHandler } from "./routes/authApple";
 import { makeGoogleAuthHandler } from "./routes/authGoogle";
@@ -38,7 +43,9 @@ const googleJwks = createGoogleJwksProvider();
 
 app.get("/health", (c) => c.json({ status: "ok", service: "pulsecue-api" }));
 
-app.post("/v1/auth/apple", (c) =>
+// Body limits come first on every route that parses a body, so an oversized
+// request is refused before any D1 query, provider fetch, or JSON parse.
+app.post("/v1/auth/apple", limitBody(AUTH_BODY_LIMIT_BYTES), (c) =>
 	makeAppleAuthHandler({
 		jwks: appleJwks,
 		// Empty when unconfigured; verification rejects that rather than
@@ -54,7 +61,7 @@ app.post("/v1/auth/apple", (c) =>
 	})(c),
 );
 
-app.post("/v1/auth/google", (c) =>
+app.post("/v1/auth/google", limitBody(AUTH_BODY_LIMIT_BYTES), (c) =>
 	makeGoogleAuthHandler({
 		jwks: googleJwks,
 		// Same fail-closed rule as Apple: unset means no one signs in.
@@ -74,7 +81,12 @@ app.get("/v1/me", requireSession(), handleGetMe);
 app.post("/v1/auth/logout", requireSession(), handleLogout);
 app.post("/v1/auth/logout-all", requireSession(), handleLogoutAll);
 // The first sync slice. Not full multi-device sync — see the README.
-app.post("/v1/sync/workouts", requireSession(), makeUploadWorkoutsHandler());
+app.post(
+	"/v1/sync/workouts",
+	limitBody(SYNC_UPLOAD_BODY_LIMIT_BYTES),
+	requireSession(),
+	makeUploadWorkoutsHandler(),
+);
 app.get("/v1/sync/workouts", requireSession(), handlePullWorkouts);
 
 app.delete("/v1/me", requireSession(), (c) =>
