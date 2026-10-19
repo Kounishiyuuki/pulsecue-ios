@@ -15,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../src/api/index";
 import { findOrCreateAccountForIdentity, findUserById } from "../../src/api/db/accounts";
 import { createSession, findActiveSessionByToken } from "../../src/api/db/sessions";
-import { MISSING_IP_KEY } from "../../src/api/middleware/rateLimit";
 import type { ApiEnv } from "../../src/api/types";
 import {
 	type FakeRateLimiters,
@@ -186,16 +185,47 @@ describe("API IP limiter", () => {
 		expect(new Set(limiters.calls.map((c) => c.key))).toEqual(new Set([IP, "198.51.100.9"]));
 	});
 
-	it("puts every request without CF-Connecting-IP in one shared bucket", async () => {
-		for (let i = 0; i < LIMIT.API_IP_RATE_LIMITER; i++) {
-			const res = await send("GET", "/v1/me", {
-				ip: null,
-				headers: { "x-forwarded-for": `192.0.2.${i % 250}` },
-			});
-			expect(res.status).toBe(401);
-		}
-		await expectRateLimited(await send("GET", "/v1/me", { ip: null }));
-		expect(new Set(limiters.calls.map((c) => c.key))).toEqual(new Set([MISSING_IP_KEY]));
+	describe("without CF-Connecting-IP", () => {
+		it.each([
+			["no IP header at all", {}],
+			["only X-Forwarded-For", { "x-forwarded-for": "192.0.2.1" }],
+			["only X-Real-IP / True-Client-IP", { "x-real-ip": "192.0.2.2", "true-client-ip": "192.0.2.3" }],
+			["an empty CF-Connecting-IP", { "cf-connecting-ip": "  " }],
+		])("fails closed with 503 and calls no limiter: %s", async (_label, headers) => {
+			const a = await signIn(`missing-ip-${_label.length}`);
+			db.resetRecording();
+			const requests: Array<[string, string, string | undefined]> = [
+				["GET", "/v1/me", undefined],
+				["POST", "/v1/auth/apple", JSON.stringify({ idToken: "x", authorizationCode: "y" })],
+				["POST", "/v1/auth/google", JSON.stringify({ idToken: "x" })],
+				["POST", "/v1/sync/workouts", syncBody()],
+				["POST", "/v1/auth/logout-all", undefined],
+				["DELETE", "/v1/me", undefined],
+				["GET", "/v1/nope", undefined],
+			];
+			for (const [method, path, body] of requests) {
+				const res = await send(method, path, { ip: null, token: a.token, body, headers });
+				expect(res.status).toBe(503);
+				const json = (await res.json()) as { error: Record<string, unknown> };
+				expect(Object.keys(json.error).sort()).toEqual(["code", "correlationId", "message"]);
+				expect(json.error.code).toBe("service_unavailable");
+			}
+			expect(limiters.calls).toHaveLength(0);
+			expect(fetchSpy).not.toHaveBeenCalled();
+			expect(db.recorded()).toHaveLength(0);
+			expect(parseSpy).not.toHaveBeenCalled();
+			// No handler ran: the session still works and the account is active.
+			const now = Math.floor(Date.now() / 1000);
+			expect(await findActiveSessionByToken(db, a.token, now)).not.toBeNull();
+			expect((await findUserById(db, a.userId))?.state).toBe("active");
+			const all = logs.join("\n");
+			for (const secret of ["192.0.2.", a.token, a.userId]) expect(all).not.toContain(secret);
+		});
+
+		it("still limits by CF-Connecting-IP when it is present", async () => {
+			expect((await send("GET", "/v1/me", { headers: { "x-forwarded-for": "192.0.2.1" } })).status).toBe(401);
+			expect(limiters.calls).toEqual([{ binding: "API_IP_RATE_LIMITER", key: IP }]);
+		});
 	});
 
 	it("runs once per request, covers unknown /v1 paths, and skips /health", async () => {

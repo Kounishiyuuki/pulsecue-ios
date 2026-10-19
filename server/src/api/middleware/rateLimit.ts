@@ -38,24 +38,20 @@ export type RateLimitBinding =
 	| "SYNC_USER_RATE_LIMITER"
 	| "ACCOUNT_USER_RATE_LIMITER";
 
-/**
- * The key every request without `CF-Connecting-IP` shares.
- *
- * Cloudflare sets the header on traffic it serves, so its absence means a
- * deployment change (e.g. the "Remove visitor IP headers" transform) or an
- * internal caller. Skipping the limiter then would turn that change into a
- * silent bypass; one shared bucket keeps the coarse ceiling in force — for
- * all such callers together, which is the conservative direction.
- */
-export const MISSING_IP_KEY = "missing-cf-connecting-ip";
-
 export function limitByIp(
 	binding: "API_IP_RATE_LIMITER" | "AUTH_IP_RATE_LIMITER",
 	routeClass: string,
 ): MiddlewareHandler<AuthedEnv> {
 	return async (c, next) => {
+		// Cloudflare's edge sets this on every request it serves, so its
+		// absence is an infrastructure or config anomaly (e.g. the "Remove
+		// visitor IP headers" transform), not a client state. Refuse rather
+		// than skip the limiter (a bypass) or pool such requests into one
+		// shared bucket (one actor could then 429 everyone). No other header
+		// stands in for it: those are client-written.
 		const ip = c.req.header("cf-connecting-ip")?.trim();
-		const outcome = await consume(c.env, binding, ip || MISSING_IP_KEY);
+		if (!ip) return refuse(c, "limiter_failed", routeClass);
+		const outcome = await consume(c.env, binding, ip);
 		if (outcome !== "allowed") return refuse(c, outcome, routeClass);
 		await next();
 		return undefined;

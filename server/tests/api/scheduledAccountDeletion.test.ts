@@ -240,7 +240,10 @@ describe("the exported Worker's scheduled handler", () => {
 		expect(await health.json()).toEqual({ status: "ok", service: "pulsecue-api" });
 
 		const unauthenticated = await worker.fetch(
-			new Request("https://api.test/v1/me", { method: "DELETE" }),
+			new Request("https://api.test/v1/me", {
+				method: "DELETE",
+				headers: { "cf-connecting-ip": "203.0.113.1" },
+			}),
 			env,
 			ctx,
 		);

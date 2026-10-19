@@ -76,6 +76,8 @@ function send(path: string, init: RequestInit & { duplex?: "half" }) {
 			headers: {
 				authorization: `Bearer ${token}`,
 				"content-type": "application/json",
+				// Set by Cloudflare's edge; without it the limiter refuses.
+				"cf-connecting-ip": "203.0.113.1",
 				...(init.headers as Record<string, string> | undefined),
 			},
 		}),
@@ -191,7 +193,10 @@ describe("routes that do not read a body", () => {
 		const res = await worker.fetch(
 			new Request(`https://api.test${path}`, {
 				method,
-				headers: { "content-length": String(64 * 1024 * 1024) },
+				headers: {
+					"content-length": String(64 * 1024 * 1024),
+					"cf-connecting-ip": "203.0.113.1",
+				},
 			}),
 			env(),
 			{} as ExecutionContext,
