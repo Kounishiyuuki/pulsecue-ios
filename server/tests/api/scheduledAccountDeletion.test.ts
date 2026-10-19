@@ -31,6 +31,7 @@ import {
 	fakeAppleEndpoint,
 	testEncryptionKey,
 } from "./support/appleProduction";
+import { fakeRateLimiters } from "./support/rateLimiters";
 import { type TestDatabase, createTestDatabase } from "./support/sqliteD1";
 
 const NOW = 1_800_000_100;
@@ -48,6 +49,7 @@ async function setup() {
 	const key = await createTestAppleSigningKey();
 	const env = {
 		DB: db,
+		...fakeRateLimiters().bindings,
 		APPLE_CLIENT_ID: key.config.clientId,
 		APPLE_TEAM_ID: key.config.teamId,
 		APPLE_KEY_ID: key.config.keyId,

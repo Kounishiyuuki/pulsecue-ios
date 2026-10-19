@@ -19,6 +19,13 @@
  * (`scheduled` in src/api/index.ts). Every 15 minutes matches the 15-minute
  * retry backoff (DELETION_RETRY_BACKOFF_SECONDS): more often would mostly
  * find nothing due.
+ *
+ * Rate limiters (src/api/middleware/rateLimit.ts). A `namespace_id` is
+ * account-wide: any Worker on the same Cloudflare account that reuses one
+ * shares its counters. 3195001–3195004 are reserved for PulseCue's API and
+ * must not be reused by another Worker or binding. Counters are local to each
+ * Cloudflare location and eventually consistent — abuse mitigation, not a
+ * quota. `period` may only be 10 or 60.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -44,6 +51,33 @@
 			"database_name": "pulsecue-api",
 			"database_id": "REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT",
 			"migrations_dir": "migrations"
+		}
+	],
+	"ratelimits": [
+		{
+			// Coarse shield for all of /v1, per IP. Generous because one IP
+			// is often many users (carrier NAT, offices).
+			"name": "API_IP_RATE_LIMITER",
+			"namespace_id": "3195001",
+			"simple": { "limit": 300, "period": 60 }
+		},
+		{
+			// Apple + Google sign-in combined, per IP.
+			"name": "AUTH_IP_RATE_LIMITER",
+			"namespace_id": "3195002",
+			"simple": { "limit": 60, "period": 60 }
+		},
+		{
+			// POST /v1/sync/workouts, per internal user UUID.
+			"name": "SYNC_USER_RATE_LIMITER",
+			"namespace_id": "3195003",
+			"simple": { "limit": 30, "period": 60 }
+		},
+		{
+			// logout-all + DELETE /v1/me combined, per internal user UUID.
+			"name": "ACCOUNT_USER_RATE_LIMITER",
+			"namespace_id": "3195004",
+			"simple": { "limit": 10, "period": 60 }
 		}
 	]
 }
