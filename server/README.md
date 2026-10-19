@@ -734,6 +734,16 @@ written, the run fails. Due rows are taken in `next_attempt_at` order, so rows
 that keep failing rotate behind newer deletions instead of starving them.
 Only aggregate counts (`completed` / `stillPending` / `failed`) are logged.
 
+The same run then sweeps stale auth state: `purgeReplayableNonces` (nonces
+past `expires_at + APPLE_CLOCK_SKEW_SECONDS`) and `purgeExpiredSessions`
+(sessions past `expires_at + 7 days`, revoked or not — `revoked_at` is not a
+predicate). Each sweep is one bounded `DELETE … WHERE rowid IN (SELECT … LIMIT
+500)`, so a backlog carries over to the next run. The three steps are
+independent: a failure in one never skips the others, and the run is marked
+failed with a fixed error only after all have run. Every log line carries the
+step's `category`, a per-run `runId` and counts — no ids, hashes or error text.
+`provider_credentials` is not swept; it goes only with the user's cascade.
+
 #### When a credential cannot be decrypted
 
 A lost key, a wrong key version, a corrupt row or an AAD mismatch means the
@@ -1139,17 +1149,15 @@ scheduling. Nothing here is optional for public availability.
 2. **`DELETE /v1/me`, wired to the revocation service.** The service exists;
    nothing calls it yet.
 
-3. **Nonce cleanup, actually running.** `purgeReplayableNonces` now exists and
-   applies the correct boundary, but nothing invokes it in production, so
-   `auth_nonces` still grows without bound.
+3. ~~Nonce cleanup, actually running.~~ **Done.** The `scheduled` handler
+   runs `purgeReplayableNonces` every 15 minutes, at most 500 rows per run.
 
-   The boundary is the subtle part and is now enforced in code and covered by
+   The boundary is the subtle part and is enforced in code and covered by
    tests: the sweep deletes at `expires_at + APPLE_CLOCK_SKEW_SECONDS`, not at
    `expires_at`. Sweeping at `expires_at` would open a 60-second window in
    which a token is still accepted but its nonce row is gone — a replay hole
-   manufactured by the cleanup itself. `purgeExpiredNonces` takes a raw cutoff
-   and does no such reasoning, which is why a scheduler must call
-   `purgeReplayableNonces` instead.
+   manufactured by the cleanup itself. The skew-less `purgeExpiredNonces`
+   has been removed so it cannot be scheduled by mistake.
 
 ### Not deployed
 

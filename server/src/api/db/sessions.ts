@@ -19,6 +19,7 @@ import type {
 	UserRow,
 } from "../types";
 import { AccountUnavailableError, UserNotFoundError } from "./accounts";
+import { changedRows } from "./changes";
 import { newId, nowSeconds } from "./ids";
 
 /** Absolute lifetime. No sliding extension — see `shouldRotate`. */
@@ -251,6 +252,48 @@ export async function revokeAllSessionsForUser(
 		)
 		.bind(now, userId)
 		.run();
+}
+
+/**
+ * How long a session row outlives its absolute expiry before the scheduled
+ * sweep removes it — a window for investigating a recent sign-in problem.
+ */
+export const SESSION_PURGE_GRACE_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+/** Rows a single scheduled sweep may remove; any backlog waits for the next run. */
+export const SESSION_PURGE_BATCH_LIMIT = 500;
+
+/**
+ * Drops session rows that expired more than `graceSeconds` ago.
+ *
+ * `expires_at` is the only predicate, on purpose. Revoked sessions are kept
+ * until the same boundary rather than swept on `revoked_at`: authentication
+ * already refuses them (`findActiveSessionByToken`), and the absolute expiry
+ * caps how long they linger. An unexpired session — revoked or not — is
+ * never touched.
+ *
+ * Bounded like `purgeReplayableNonces`: one statement, oldest first, no row
+ * read into the Worker. Returns the rows actually deleted.
+ */
+export async function purgeExpiredSessions(
+	db: SqlDatabase,
+	now: EpochSeconds = nowSeconds(),
+	graceSeconds: EpochSeconds = SESSION_PURGE_GRACE_SECONDS,
+	limit: number = SESSION_PURGE_BATCH_LIMIT,
+): Promise<number> {
+	const result = await db
+		.prepare(
+			`DELETE FROM sessions
+			  WHERE rowid IN (
+			    SELECT rowid FROM sessions
+			     WHERE expires_at <= ?
+			     ORDER BY expires_at ASC
+			     LIMIT ?
+			  )`,
+		)
+		.bind(now - graceSeconds, limit)
+		.run();
+	return changedRows(result);
 }
 
 /**

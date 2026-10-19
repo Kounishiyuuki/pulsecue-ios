@@ -14,6 +14,8 @@ import { appleClientSecretConfigFromEnv } from "./auth/appleClientSecret";
 import { createGoogleJwksProvider } from "./auth/google";
 import { tokenCipherFromEnv } from "./crypto/tokenCipher";
 import { newId } from "./db/ids";
+import { purgeReplayableNonces } from "./db/nonces";
+import { purgeExpiredSessions } from "./db/sessions";
 import {
 	AUTH_BODY_LIMIT_BYTES,
 	SYNC_UPLOAD_BODY_LIMIT_BYTES,
@@ -183,43 +185,79 @@ app.onError((_err, c) => {
 });
 
 /**
- * Cron-triggered retry of account deletions a provider blocked.
+ * One step of a scheduled run, isolated from the others.
  *
- * Without a caller, an account whose Apple revocation failed once would stay
- * `deleting` forever. The dependencies are built exactly as the DELETE route
- * builds them, and the account deletion service stays the only business
- * logic.
+ * Returns whether it succeeded instead of throwing, so a failing step can
+ * never skip the steps after it. Only the fixed `category` and the run id
+ * are logged on failure — never the original error, whose message may quote
+ * ids or SQL.
+ */
+async function runScheduledStep(
+	category: string,
+	runId: string,
+	step: () => Promise<Record<string, number>>,
+): Promise<boolean> {
+	let counts: Record<string, number>;
+	try {
+		counts = await step();
+	} catch {
+		console.error(
+			JSON.stringify({
+				event: `${category}_run_failed`,
+				category,
+				runId,
+				code: "internal_error",
+			}),
+		);
+		return false;
+	}
+	console.log(JSON.stringify({ event: `${category}_run`, category, runId, ...counts }));
+	return true;
+}
+
+/**
+ * Cron-triggered maintenance: retries account deletions a provider blocked,
+ * then sweeps auth state no request can use any more.
  *
- * Only aggregate counts are logged. On an unexpected failure a fixed error is
- * rethrown — not the original, whose message may quote ids or SQL — so the
- * Cron run is marked failed without publishing anything about a user. This
- * runs as its own invocation and cannot affect `fetch`.
+ * Without the retry, an account whose Apple revocation failed once would
+ * stay `deleting` forever. Its dependencies are built exactly as the DELETE
+ * route builds them, and the account deletion service stays the only
+ * business logic.
+ *
+ * The three steps are independent: each runs even if an earlier one failed,
+ * because a D1 hiccup in a sweep must not strand a deletion, nor the reverse.
+ * Each sweep is bounded, so a backlog carries over to the next run. If any
+ * step failed, a fixed error is thrown after all have run, so the Cron run is
+ * marked failed without publishing anything about a user. This runs as its
+ * own invocation and cannot affect `fetch`.
  */
 async function scheduled(
 	controller: ScheduledController,
 	env: ApiEnv,
 	_ctx: ExecutionContext,
 ): Promise<void> {
-	let result: Awaited<ReturnType<typeof processDueAccountDeletions>>;
-	try {
-		result = await processDueAccountDeletions(
-			{
-				db: env.DB,
-				appleConfig: appleClientSecretConfigFromEnv(env),
-				cipher: tokenCipherFromEnv(env),
-			},
-			Math.floor(controller.scheduledTime / 1000),
-		);
-	} catch {
-		console.error(
-			JSON.stringify({
-				event: "account_deletion_retry_run_failed",
-				code: "internal_error",
-			}),
-		);
-		throw new Error("account deletion retry run failed");
-	}
-	console.log(JSON.stringify({ event: "account_deletion_retry_run", ...result }));
+	const now = Math.floor(controller.scheduledTime / 1000);
+	const runId = newId();
+
+	const results = [
+		await runScheduledStep("account_deletion_retry", runId, () =>
+			processDueAccountDeletions(
+				{
+					db: env.DB,
+					appleConfig: appleClientSecretConfigFromEnv(env),
+					cipher: tokenCipherFromEnv(env),
+				},
+				now,
+			),
+		),
+		await runScheduledStep("auth_nonce_cleanup", runId, async () => ({
+			deleted: await purgeReplayableNonces(env.DB, now),
+		})),
+		await runScheduledStep("auth_session_cleanup", runId, async () => ({
+			deleted: await purgeExpiredSessions(env.DB, now),
+		})),
+	];
+	if (results.includes(false)) throw new Error("scheduled run failed");
 }
 
 export default {

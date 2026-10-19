@@ -120,7 +120,12 @@ export async function createTestDatabase(): Promise<TestDatabase> {
 		}),
 		run: async () => {
 			record(sql, bound);
-			return db.prepare(sql).run(...bound);
+			// D1's result shape, so code reading `meta.changes` is exercised
+			// as it runs in production.
+			const { changes } = db.prepare(sql).run(...bound) as {
+				changes: number | bigint;
+			};
+			return { success: true, meta: { changes: Number(changes) } };
 		},
 		__execute: () => {
 			record(sql, bound);
