@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	NonceAlreadyUsedError,
 	NonceStoreUnavailableError,
+	NONCE_PURGE_BATCH_LIMIT,
 	consumeNonce,
-	purgeExpiredNonces,
 	purgeReplayableNonces,
 } from "../../src/api/db/nonces";
 import { APPLE_CLOCK_SKEW_SECONDS } from "../../src/api/auth/apple";
@@ -109,27 +109,6 @@ describe("single-use nonces", () => {
 			}),
 		).rejects.toBeInstanceOf(NonceAlreadyUsedError);
 	});
-
-	it("sweeps only nonces whose token has already expired", async () => {
-		const db = await createTestDatabase();
-		await consumeNonce(db, {
-			nonceHash: "e".repeat(64),
-			provider: "apple",
-			expiresAt: 1500,
-			now: 1000,
-		});
-		await consumeNonce(db, {
-			nonceHash: "f".repeat(64),
-			provider: "apple",
-			expiresAt: 5000,
-			now: 1000,
-		});
-
-		await purgeExpiredNonces(db, 2000);
-
-		expect(await db.count("auth_nonces")).toBe(1);
-		db.close();
-	});
 });
 
 describe("the sweep a scheduler should run", () => {
@@ -204,6 +183,73 @@ describe("the sweep a scheduler should run", () => {
 		const db = await createTestDatabase();
 		expect(await purgeReplayableNonces(db, 10_000)).toBe(0);
 		db.close();
+	});
+
+	it("draws the boundary at expires_at <= now - skew", async () => {
+		const db = await createTestDatabase();
+		const now = 10_000;
+		const cutoff = now - APPLE_CLOCK_SKEW_SECONDS;
+		for (const [hash, expiresAt] of [
+			["6".repeat(64), cutoff - 1],
+			["7".repeat(64), cutoff],
+			["8".repeat(64), cutoff + 1],
+		] as const) {
+			await consumeNonce(db, { nonceHash: hash, provider: "apple", expiresAt, now: 1 });
+		}
+
+		expect(await purgeReplayableNonces(db, now)).toBe(2);
+		const left = await db
+			.prepare(`SELECT nonce_sha256 FROM auth_nonces`)
+			.all<{ nonce_sha256: string }>();
+		expect(left.results.map((row) => row.nonce_sha256)).toEqual(["8".repeat(64)]);
+		db.close();
+	});
+
+	it("removes at most the batch limit per call, oldest first, and carries the rest over", async () => {
+		const db = await createTestDatabase();
+		for (let i = 0; i < NONCE_PURGE_BATCH_LIMIT + 1; i += 1) {
+			await consumeNonce(db, {
+				nonceHash: i.toString(16).padStart(64, "0"),
+				provider: "apple",
+				// The newest stale row is the one carried over.
+				expiresAt: 1_000 + i,
+				now: 1,
+			});
+		}
+
+		expect(await purgeReplayableNonces(db, 10_000)).toBe(NONCE_PURGE_BATCH_LIMIT);
+		const left = await db
+			.prepare(`SELECT expires_at FROM auth_nonces`)
+			.all<{ expires_at: number }>();
+		expect(left.results).toEqual([{ expires_at: 1_000 + NONCE_PURGE_BATCH_LIMIT }]);
+		expect(await purgeReplayableNonces(db, 10_000)).toBe(1);
+		expect(await purgeReplayableNonces(db, 10_000)).toBe(0);
+		db.close();
+	});
+
+	it("never reads nonce hashes into the Worker", async () => {
+		const db = await createTestDatabase();
+		await consumeNonce(db, { nonceHash: "9".repeat(64), provider: "apple", expiresAt: 1, now: 1 });
+		db.resetRecording();
+
+		await purgeReplayableNonces(db, 10_000);
+
+		const issued = db.recorded();
+		expect(issued).toHaveLength(1);
+		expect(issued[0]?.sql).toMatch(/^\s*DELETE FROM auth_nonces/);
+		db.close();
+	});
+
+	it("only the skew-aware sweep is exported", async () => {
+		// A cleanup with no skew would delete replay protection for tokens the
+		// verifier still accepts; it must not come back as a convenience.
+		const exported = await import("../../src/api/db/nonces");
+		const purgeFunctions = Object.entries(exported)
+			.filter(([name, value]) => typeof value === "function" && /purge/i.test(name))
+			.map(([name]) => name);
+		expect(purgeFunctions).toEqual([
+			"purgeReplayableNonces",
+		]);
 	});
 });
 

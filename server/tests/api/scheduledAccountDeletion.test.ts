@@ -210,6 +210,8 @@ describe("the exported Worker's scheduled handler", () => {
 		expect(written).not.toContain("apple-a");
 		expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
 			event: "account_deletion_retry_run",
+			category: "account_deletion_retry",
+			runId: expect.any(String),
 			completed: 0,
 			stillPending: 1,
 			failed: 0,
@@ -222,11 +224,11 @@ describe("the exported Worker's scheduled handler", () => {
 		db.close(); // every query now throws
 		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		await expect(runCron(env, NOW)).rejects.toThrow(
-			"account deletion retry run failed",
-		);
+		await expect(runCron(env, NOW)).rejects.toThrow("scheduled run failed");
 		expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toEqual({
 			event: "account_deletion_retry_run_failed",
+			category: "account_deletion_retry",
+			runId: expect.any(String),
 			code: "internal_error",
 		});
 	});
@@ -380,7 +382,7 @@ describe("processDueAccountDeletions isolates a throwing account", () => {
 		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 		await expect(
 			runCron({ ...env, DB: faulty } as unknown as ApiEnv, NOW),
-		).rejects.toThrow("account deletion retry run failed");
+		).rejects.toThrow("scheduled run failed");
 		expect(JSON.stringify(error.mock.calls)).not.toContain(broken);
 		expect((await findUserById(db, broken))?.state).toBe("deleting");
 		db.close();
