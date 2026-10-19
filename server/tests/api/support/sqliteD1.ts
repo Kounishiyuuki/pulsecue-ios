@@ -31,6 +31,7 @@ const MIGRATION_FILES = [
 	"0003_provider_credentials.sql",
 	"0004_account_deletions.sql",
 	"0005_workout_sync.sql",
+	"0006_sync_storage_quota.sql",
 ];
 
 // `.href`, not the URL object: this package pulls in both the Workers and

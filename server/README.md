@@ -490,6 +490,25 @@ that wrote an oversized sequence would produce data the pull path cannot
 deliver — permanent loss for that user — so the rule sits where every caller
 must pass it.
 
+#### Storage quota
+
+Separately from the rate limit, a user may store at most **10,000 sessions
+and 100,000 step results**. Tombstones count: they are stored rows, and
+excluding them would let create→delete cycles grow D1 without bound. Freeing
+quota waits for a tombstone purge.
+
+Only a genuinely new `(user_id, id)` consumes quota. Updates and retries of the
+same payload cost nothing, so a full account can still edit what it has. An
+upload containing even one new row past the limit is refused whole with **409
+`storage_quota_exceeded`** and `resource: "sessions" | "step_results"` — no
+counts, ids or SQL.
+
+The quota is enforced by the database, not by a count read beforehand:
+`user_storage_usage` (migration 0006) is moved by triggers inside the upload's
+own transaction and capped by named CHECK constraints, so two concurrent
+uploads cannot both take the last slot, and a refusal rolls back every row
+and the sequence bump with it.
+
 #### Conflict policy, v1: a tombstone is terminal
 
 Once a record is deleted on the server, that id is finished. An upload
