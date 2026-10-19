@@ -34,6 +34,7 @@ import {
 import type { AppleClientSecretConfig } from "../auth/appleClientSecret";
 import {
 	AppleExchangeError,
+	type AppleExchangeIndeterminate,
 	exchangeAppleAuthorizationCode,
 	revokeAppleRefreshToken,
 } from "../auth/appleTokenExchange";
@@ -272,6 +273,11 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 						error.compensation?.status ?? "unknown",
 					);
 				}
+				// A different condition: Apple may have issued a token that
+				// never reached us, so there was nothing to revoke at all.
+				if (error.indeterminate) {
+					logExchangeIndeterminate(correlationId, error.indeterminate);
+				}
 
 				// A spent, expired or forged code is the caller's problem; an
 				// Apple outage or a broken client secret is ours. Reporting the
@@ -319,6 +325,25 @@ function logCompensationFailure(correlationId: string, outcome: string): void {
 		JSON.stringify({
 			event: "apple_auth_compensation_revoke_failed",
 			outcome,
+			correlationId,
+		}),
+	);
+}
+
+/**
+ * Apple may hold a live refresh token for this sign-in that PulseCue never
+ * received and so cannot revoke. Fixed codes only: the code, the subject
+ * and Apple's body are never logged.
+ */
+function logExchangeIndeterminate(
+	correlationId: string,
+	indeterminate: AppleExchangeIndeterminate,
+): void {
+	console.error(
+		JSON.stringify({
+			event: "apple_auth_exchange_indeterminate",
+			phase: indeterminate.phase,
+			reason: indeterminate.reason,
 			correlationId,
 		}),
 	);

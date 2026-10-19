@@ -33,6 +33,15 @@
  *     own doomed fetch.
  */
 
+import { discardBody, fetchWithDeadline } from "./fetchWithDeadline";
+
+/**
+ * Total budget for one key fetch, response and body together. Without it a
+ * provider that never answers holds `inFlight` forever, and every sign-in
+ * behind it waits on the same promise.
+ */
+const JWKS_FETCH_TIMEOUT_MS = 4000;
+
 export interface JwksProvider {
 	/** The key with this `kid`, or `null` when the set does not have it. */
 	keyForId(kid: string): Promise<JsonWebKey | null>;
@@ -219,19 +228,31 @@ export class RemoteJwksProvider implements JwksProvider {
 	}
 
 	private async fetchAndParse(): Promise<JwkWithId[]> {
-		let response: Response;
+		let fetched: { status: number; text: string | null };
 		try {
-			response = await this.fetchImpl(this.options.url);
+			fetched = await fetchWithDeadline(
+				this.fetchImpl,
+				this.options.url,
+				{},
+				JWKS_FETCH_TIMEOUT_MS,
+				async (response) => {
+					if (!response.ok) {
+						discardBody(response);
+						return { status: response.status, text: null };
+					}
+					return { status: response.status, text: await response.text() };
+				},
+			);
 		} catch {
 			throw new JwksFetchError("request failed");
 		}
-		if (!response.ok) {
-			throw new JwksFetchError(`status ${response.status}`);
+		if (fetched.text === null) {
+			throw new JwksFetchError(`status ${fetched.status}`);
 		}
 
 		let document: unknown;
 		try {
-			document = await response.json();
+			document = JSON.parse(fetched.text);
 		} catch {
 			throw new JwksFetchError("response was not JSON");
 		}

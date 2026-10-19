@@ -32,10 +32,27 @@ import {
 	createAppleClientSecret,
 } from "./appleClientSecret";
 import { AppleTokenInvalidError, verifyAppleIdentityClaims } from "./apple";
+import {
+	discardBody,
+	fetchWithDeadline,
+	ProviderRequestError,
+} from "./fetchWithDeadline";
 import { type JwksProvider } from "./jwks";
 
 const APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token";
 const APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke";
+
+/**
+ * Total budgets, response and needed body together. The exchange reads the
+ * body, so its deadline covers it; revocation decides on the status line,
+ * so its deadline ends there.
+ *
+ * Revocation is the binding constraint: the Cron retry revokes up to 50
+ * accounts one after another, and 50 × 8 s = 400 s stays well inside a
+ * Scheduled Worker's 15-minute wall time.
+ */
+const APPLE_EXCHANGE_TIMEOUT_MS = 8000;
+const APPLE_REVOKE_TIMEOUT_MS = 8000;
 
 /**
  * Why an exchange failed, in terms the HTTP layer can map without knowing
@@ -54,6 +71,25 @@ export type AppleExchangeFailure =
 	| "malformedResponse"
 	| "subjectMismatch";
 
+/**
+ * Where an exchange stopped when Apple may already have issued a refresh
+ * token that this service never received.
+ *
+ * Apple does not document a way to tell "the code was never redeemed" from
+ * "it was redeemed and the answer was lost", and an `invalid_grant` on a
+ * retry would not prove the first one failed. So every outcome below is a
+ * possible live grant that nothing here can revoke — the operator has to be
+ * able to see it.
+ */
+export interface AppleExchangeIndeterminate {
+	phase: "before_headers" | "body_read" | "success_body";
+	reason:
+		| "timeout"
+		| "transport_error"
+		| "body_read_failed"
+		| "malformed_success_response";
+}
+
 export class AppleExchangeError extends Error {
 	constructor(
 		readonly failure: AppleExchangeFailure,
@@ -66,6 +102,12 @@ export class AppleExchangeError extends Error {
 		 * compensate — not that compensation was skipped.
 		 */
 		readonly compensation?: AppleRevocationOutcome,
+		/**
+		 * Set when Apple may have issued a token whose value never reached
+		 * us. Distinct from `compensation`: there, the token was in hand and
+		 * the revoke did not confirm; here there was never a token to revoke.
+		 */
+		readonly indeterminate?: AppleExchangeIndeterminate,
 	) {
 		// The failure kind only. Never Apple's body, never the code or secret.
 		super(`apple token exchange failed: ${failure}`);
@@ -115,11 +157,41 @@ export async function exchangeAppleAuthorizationCode(
 		grant_type: "authorization_code",
 	});
 
-	const response = await postForm(
-		APPLE_TOKEN_URL,
-		body,
-		input.fetchImpl ?? fetch,
-	);
+	// Captured as soon as headers arrive, so a body that fails *after* a
+	// non-2xx status is still read as that status's verdict, not as a
+	// possibly-issued token.
+	let status: number | null = null;
+	let response: RawResponse;
+	try {
+		response = await fetchWithDeadline(
+			input.fetchImpl ?? fetch,
+			APPLE_TOKEN_URL,
+			formRequest(body),
+			APPLE_EXCHANGE_TIMEOUT_MS,
+			async (received) => {
+				status = received.status;
+				return {
+					ok: received.ok,
+					status: received.status,
+					body: await received.text(),
+				};
+			},
+		);
+	} catch (error) {
+		if (!(error instanceof ProviderRequestError)) throw error;
+		if (status !== null && !isSuccessStatus(status)) {
+			// Apple answered with an error; nothing was issued.
+			throw new AppleExchangeError("providerUnavailable");
+		}
+		// Either no answer at all, or a 2xx whose body never arrived. In
+		// both, Apple may have redeemed the code. A failed body read is not
+		// an empty body — collapsing it to one would drop a live grant
+		// without a trace.
+		throw new AppleExchangeError("providerUnavailable", undefined, {
+			phase: error.phase,
+			reason: error.reason,
+		});
+	}
 
 	if (!response.ok) {
 		// Only here — on the token endpoint — is an OAuth error code read, and
@@ -128,15 +200,28 @@ export async function exchangeAppleAuthorizationCode(
 		throw new AppleExchangeError(classifyExchangeError(response));
 	}
 
-	const payload = parseJsonObject(response.body);
+	// Apple said 2xx, so it may have issued a token even if what arrived
+	// cannot be read as one. There is no value to revoke, which is exactly
+	// why it has to be visible rather than reported as a plain bad response.
+	const malformedSuccess = () =>
+		new AppleExchangeError("malformedResponse", undefined, {
+			phase: "success_body",
+			reason: "malformed_success_response",
+		});
+
+	let payload: Record<string, unknown>;
+	try {
+		payload = parseJsonObject(response.body);
+	} catch {
+		throw malformedSuccess();
+	}
 
 	const refreshToken = payload.refresh_token;
 	if (typeof refreshToken !== "string" || refreshToken.length === 0) {
-		// Nothing was issued, so there is nothing to compensate. Without a
-		// refresh token there is also nothing to revoke at deletion, which is
-		// the only reason this exchange happens — so the sign-in cannot be
-		// accepted either.
-		throw new AppleExchangeError("malformedResponse");
+		// Without a refresh token there is nothing to revoke at deletion,
+		// which is the only reason this exchange happens — so the sign-in
+		// cannot be accepted either.
+		throw malformedSuccess();
 	}
 
 	// ─────────────────────────────────────────────────────────────────────
@@ -260,14 +345,23 @@ export async function revokeAppleRefreshToken(
 		token_type_hint: "refresh_token",
 	});
 
-	let response: RawResponse;
+	// The deadline ends at the status line. The body is never consulted, so
+	// waiting for it would only be a way for a stalled stream to hang the
+	// deletion retry; it is released unread.
+	let response: { ok: boolean; status: number };
 	try {
-		response = await postForm(
-			APPLE_REVOKE_URL,
-			body,
+		response = await fetchWithDeadline(
 			input.fetchImpl ?? fetch,
+			APPLE_REVOKE_URL,
+			formRequest(body),
+			APPLE_REVOKE_TIMEOUT_MS,
+			async (received) => {
+				discardBody(received);
+				return { ok: received.ok, status: received.status };
+			},
 		);
 	} catch {
+		// A timeout says nothing about whether Apple acted. Never revoked.
 		return { status: "retryable" };
 	}
 
@@ -286,24 +380,16 @@ interface RawResponse {
 	body: string;
 }
 
-async function postForm(
-	url: string,
-	body: URLSearchParams,
-	fetchImpl: typeof fetch,
-): Promise<RawResponse> {
-	let response: Response;
-	try {
-		response = await fetchImpl(url, {
-			method: "POST",
-			headers: { "content-type": "application/x-www-form-urlencoded" },
-			body: body.toString(),
-		});
-	} catch {
-		throw new AppleExchangeError("providerUnavailable");
-	}
+function formRequest(body: URLSearchParams): RequestInit {
+	return {
+		method: "POST",
+		headers: { "content-type": "application/x-www-form-urlencoded" },
+		body: body.toString(),
+	};
+}
 
-	const text = await response.text().catch(() => "");
-	return { ok: response.ok, status: response.status, body: text };
+function isSuccessStatus(status: number): boolean {
+	return status >= 200 && status < 300;
 }
 
 /**

@@ -949,6 +949,31 @@ same request body. Recovery is a fresh Apple authorization flow, which is
 safe: the same `sub` resolves to the same PulseCue user, and the new refresh
 token replaces the old one.
 
+#### Every Apple request has a deadline
+
+`/auth/token` and `/auth/revoke` each get **8 s in total**, enforced by
+`fetchWithDeadline` (`src/api/auth/fetchWithDeadline.ts`). On expiry the real
+request is aborted through its `AbortSignal`, not merely abandoned.
+
+- **Exchange** — the deadline covers the response *and* its body. A timeout
+  or transport failure is a `503`, never `invalid_grant`.
+- **Revoke** — the deadline ends at the status line. The body is never read
+  (it is cancelled, best effort), so a stalled stream cannot hang deletion.
+  A timeout is `retryable`: the credential is kept and the next Cron run
+  tries again.
+
+When Apple *may* have issued a refresh token whose value never reached us,
+there is nothing to revoke, and that is logged as a fixed
+`apple_auth_exchange_indeterminate` event (`phase`, `reason`,
+`correlationId` only). It covers: no response (`before_headers`), a 2xx whose
+body could not be read (`body_read`), and a 2xx body with no usable
+`refresh_token` (`success_body`). Apple does not document a way to prove the
+code was not redeemed, so these cannot be ruled out. Nothing is written to
+the database and the client gets a `503`.
+
+This is distinct from `apple_auth_compensation_revoke_failed`, where the
+token *was* in hand and the compensating revoke did not confirm.
+
 #### The client secret
 
 Apple's token endpoints take a short-lived ES256 JWT signed with the `.p8`
@@ -1121,6 +1146,10 @@ outbound bandwidth for anyone who can put a random `kid` in a token header:
 `invalidate()` clears both, so an operator can still force a rotation
 immediately. No KV binding is needed to be correct.
 
+Each fetch has a **4 s total deadline**, response and body together. A
+timeout is a `JwksFetchError` (→ 503) like any other failure: the in-flight
+promise is cleared, nothing is cached, and the failure backoff applies.
+
 ### Apple production gates
 
 The token lifecycle is now **built**; what remains is external setup and
@@ -1158,6 +1187,14 @@ scheduling. Nothing here is optional for public availability.
    which a token is still accepted but its nonce row is gone — a replay hole
    manufactured by the cleanup itself. The skew-less `purgeExpiredNonces`
    has been removed so it cannot be scheduled by mistake.
+
+4. **Workers Paid is required before production deploy.** The Cron run
+   retries up to 50 account deletions one after another, each bounded by the
+   8 s revoke deadline: 50 × 8 s = 400 s in the worst case. That fits a
+   Scheduled Worker's 15-minute wall time, but it relies on Paid limits
+   (30 s CPU for a sub-hourly Cron; 10,000 subrequests per invocation). The
+   Free plan's 10 ms CPU and 50 subrequests per invocation do not fit this
+   batch, and the batch size is not tuned for Free.
 
 ### Not deployed
 
