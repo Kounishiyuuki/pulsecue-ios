@@ -66,6 +66,20 @@ export interface ApiEnv {
 	/** Optional decrypt-only predecessor, for a rotation in progress. */
 	APPLE_TOKEN_ENCRYPTION_KEY_PREVIOUS?: string;
 	APPLE_TOKEN_ENCRYPTION_KEY_PREVIOUS_VERSION?: string;
+
+	// --- Rate limiting (`ratelimits` in wrangler.api.jsonc) ---
+	//
+	// Optional in the type because a misconfigured deployment can lack them;
+	// `middleware/rateLimit.ts` answers 503 rather than skipping the check.
+
+	/** Every `/v1/*` route, keyed by `CF-Connecting-IP`. */
+	API_IP_RATE_LIMITER?: RateLimit;
+	/** Apple and Google sign-in together, keyed by `CF-Connecting-IP`. */
+	AUTH_IP_RATE_LIMITER?: RateLimit;
+	/** Sync uploads, keyed by the internal user UUID. */
+	SYNC_USER_RATE_LIMITER?: RateLimit;
+	/** `logout-all` and `DELETE /v1/me` together, keyed by the user UUID. */
+	ACCOUNT_USER_RATE_LIMITER?: RateLimit;
 }
 
 /**

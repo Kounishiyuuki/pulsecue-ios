@@ -16,6 +16,7 @@ import {
 	SYNC_UPLOAD_BODY_LIMIT_BYTES,
 } from "../../src/api/middleware/bodyLimit";
 import type { ApiEnv } from "../../src/api/types";
+import { type FakeRateLimiters, fakeRateLimiters } from "./support/rateLimiters";
 import { type TestDatabase, createTestDatabase } from "./support/sqliteD1";
 
 const ROUTES = [
@@ -54,12 +55,14 @@ let db: TestDatabase;
 let fetchSpy: ReturnType<typeof vi.fn>;
 let parseSpy: ReturnType<typeof vi.spyOn>;
 let token: string;
+let limiters: FakeRateLimiters;
 
 function env(): ApiEnv {
 	// Configured audiences, so a request that got past the limiter would go
 	// on to verify a token — the path whose provider fetch must not happen.
 	return {
 		DB: db as unknown as D1Database,
+		...limiters.bindings,
 		APPLE_AUDIENCE: "com.example.pulsecue",
 		GOOGLE_AUDIENCE: "server-client-id.apps.googleusercontent.com",
 	};
@@ -73,6 +76,8 @@ function send(path: string, init: RequestInit & { duplex?: "half" }) {
 			headers: {
 				authorization: `Bearer ${token}`,
 				"content-type": "application/json",
+				// Set by Cloudflare's edge; without it the limiter refuses.
+				"cf-connecting-ip": "203.0.113.1",
 				...(init.headers as Record<string, string> | undefined),
 			},
 		}),
@@ -90,6 +95,7 @@ beforeEach(async () => {
 	);
 	token = (await createSession(db, account.user.id)).token;
 	db.resetRecording();
+	limiters = fakeRateLimiters();
 	fetchSpy = vi.fn(async () => new Response("unexpected", { status: 500 }));
 	vi.stubGlobal("fetch", fetchSpy);
 	// Hono's `c.req.json()` is `raw.text()` then `JSON.parse`, so a read
@@ -117,6 +123,8 @@ async function expectRefused(res: Response) {
 	expect(parseSpy).not.toHaveBeenCalled();
 	expect(db.recorded()).toHaveLength(0);
 	expect(fetchSpy).not.toHaveBeenCalled();
+	// Refused before any rate limiter spent a token.
+	expect(limiters.calls).toHaveLength(0);
 }
 
 describe.each(ROUTES)("$path body limit", ({ path, limit }) => {
@@ -185,7 +193,10 @@ describe("routes that do not read a body", () => {
 		const res = await worker.fetch(
 			new Request(`https://api.test${path}`, {
 				method,
-				headers: { "content-length": String(64 * 1024 * 1024) },
+				headers: {
+					"content-length": String(64 * 1024 * 1024),
+					"cf-connecting-ip": "203.0.113.1",
+				},
 			}),
 			env(),
 			{} as ExecutionContext,

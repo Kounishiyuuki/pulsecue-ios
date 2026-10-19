@@ -31,6 +31,7 @@ import {
 	fakeAppleEndpoint,
 	testEncryptionKey,
 } from "./support/appleProduction";
+import { fakeRateLimiters } from "./support/rateLimiters";
 import { type TestDatabase, createTestDatabase } from "./support/sqliteD1";
 
 const NOW = 1_800_000_100;
@@ -48,6 +49,7 @@ async function setup() {
 	const key = await createTestAppleSigningKey();
 	const env = {
 		DB: db,
+		...fakeRateLimiters().bindings,
 		APPLE_CLIENT_ID: key.config.clientId,
 		APPLE_TEAM_ID: key.config.teamId,
 		APPLE_KEY_ID: key.config.keyId,
@@ -238,7 +240,10 @@ describe("the exported Worker's scheduled handler", () => {
 		expect(await health.json()).toEqual({ status: "ok", service: "pulsecue-api" });
 
 		const unauthenticated = await worker.fetch(
-			new Request("https://api.test/v1/me", { method: "DELETE" }),
+			new Request("https://api.test/v1/me", {
+				method: "DELETE",
+				headers: { "cf-connecting-ip": "203.0.113.1" },
+			}),
 			env,
 			ctx,
 		);
