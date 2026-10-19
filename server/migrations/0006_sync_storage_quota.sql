@@ -97,6 +97,30 @@ BEGIN
    WHERE user_id = OLD.user_id;
 END;
 
+-- A sync row's owner never changes.
+--
+-- The counters above move on INSERT and DELETE only. An UPDATE that moved a
+-- row from one user to another would leave both counters wrong, silently.
+-- Rather than teach the counters about transfers, a transfer is refused: no
+-- feature needs one, and the upserts never set `user_id`, so ordinary updates
+-- and retries never reach these triggers' condition.
+
+CREATE TRIGGER trg_workout_sessions_owner_is_immutable
+BEFORE UPDATE OF user_id ON workout_sessions
+FOR EACH ROW
+WHEN OLD.user_id <> NEW.user_id
+BEGIN
+  SELECT RAISE(ABORT, 'sync_owner_is_immutable');
+END;
+
+CREATE TRIGGER trg_step_results_owner_is_immutable
+BEFORE UPDATE OF user_id ON step_results
+FOR EACH ROW
+WHEN OLD.user_id <> NEW.user_id
+BEGIN
+  SELECT RAISE(ABORT, 'sync_owner_is_immutable');
+END;
+
 -- Backfill every existing user, including those with no sync rows.
 --
 -- Runs after the triggers exist, so a row written mid-migration either fails

@@ -547,6 +547,88 @@ describe("migration 0006 on existing data", () => {
 	});
 });
 
+describe("sync row ownership is immutable", () => {
+	async function twoUsersWithRows(db: TestDatabase) {
+		const upload = makeApp(db);
+		const a = await signedIn(db, "a");
+		const b = await signedIn(db, "b");
+		await upload(a.token, { sessions: [session("s1")], stepResults: [step("r1", "s1")] });
+		await upload(b.token, { sessions: [session("t1")] });
+		return { upload, a, b };
+	}
+
+	async function snapshot(db: TestDatabase, a: string, b: string) {
+		return {
+			aUsage: await usage(db, a),
+			bUsage: await usage(db, b),
+			aSessions: await rowCount(db, "workout_sessions", a),
+			bSessions: await rowCount(db, "workout_sessions", b),
+			aSteps: await rowCount(db, "step_results", a),
+			bSteps: await rowCount(db, "step_results", b),
+		};
+	}
+
+	it("refuses moving a session to another user, leaving rows and counters alone", async () => {
+		const db = await createTestDatabase();
+		const { a, b } = await twoUsersWithRows(db);
+		const before = await snapshot(db, a.userId, b.userId);
+
+		// The step result's foreign key would also refuse this move. Remove it
+		// first so the trigger is the only thing that can stop the transfer.
+		await db.prepare(`DELETE FROM step_results WHERE user_id = ?`).bind(a.userId).run();
+		const mid = await snapshot(db, a.userId, b.userId);
+		await expect(
+			db
+				.prepare(`UPDATE workout_sessions SET user_id = ? WHERE user_id = ? AND id = 's1'`)
+				.bind(b.userId, a.userId)
+				.run(),
+		).rejects.toThrow(/sync_owner_is_immutable/);
+
+		expect(await snapshot(db, a.userId, b.userId)).toEqual(mid);
+		expect(mid.aSessions).toBe(before.aSessions);
+		db.close();
+	});
+
+	it("refuses moving a step result to another user, leaving rows and counters alone", async () => {
+		const db = await createTestDatabase();
+		const { a, b } = await twoUsersWithRows(db);
+		const before = await snapshot(db, a.userId, b.userId);
+
+		await expect(
+			db
+				.prepare(
+					`UPDATE step_results SET user_id = ?, session_id = 't1' WHERE user_id = ? AND id = 'r1'`,
+				)
+				.bind(b.userId, a.userId)
+				.run(),
+		).rejects.toThrow(/sync_owner_is_immutable/);
+
+		expect(await snapshot(db, a.userId, b.userId)).toEqual(before);
+		db.close();
+	});
+
+	it("does not touch same-owner updates and retries", async () => {
+		const db = await createTestDatabase();
+		const { upload, a, b } = await twoUsersWithRows(db);
+		const before = await snapshot(db, a.userId, b.userId);
+
+		const edit = {
+			sessions: [session("s1", { title: "edited" })],
+			stepResults: [step("r1", "s1", { reps: 8 })],
+		};
+		expect((await upload(a.token, edit)).status).toBe(200);
+		expect((await upload(a.token, edit)).status).toBe(200);
+		// Setting user_id to its own value is not a transfer.
+		await db
+			.prepare(`UPDATE workout_sessions SET user_id = user_id WHERE user_id = ?`)
+			.bind(a.userId)
+			.run();
+
+		expect(await snapshot(db, a.userId, b.userId)).toEqual(before);
+		db.close();
+	});
+});
+
 describe("usage table constraints", () => {
 	it("refuses a negative count under its own name, not as a quota", async () => {
 		const db = await createTestDatabase();
