@@ -20,6 +20,25 @@ import simd
 
 enum MannequinSkeleton {
 
+    /// Centralized body proportions. Motion profiles continue to rotate the
+    /// same pivots; these values only make the shared rest rig explicit and
+    /// keep the procedural visual model internally coherent.
+    enum Proportions {
+        static let pelvisHeight: Float = 0.95
+        static let waistLength: Float = 0.12
+        static let torsoLength: Float = 0.18
+        static let neckLength: Float = 0.16
+        static let headOffset: Float = 0.12
+        static let shoulderHalfWidth: Float = 0.17
+        static let shoulderCapOffset: Float = 0.05
+        static let upperArmLength: Float = 0.28
+        static let forearmLength: Float = 0.25
+        static let hipHalfWidth: Float = 0.10
+        static let hipDrop: Float = 0.02
+        static let thighLength: Float = 0.45
+        static let shinLength: Float = 0.42
+    }
+
     /// Local rest offset of a joint from its parent (meters). `root` has no
     /// parent (nil).
     struct Bone {
@@ -32,33 +51,33 @@ enum MannequinSkeleton {
     /// human proportions for a ~1.7 m figure.
     static let bones: [Bone] = [
         Bone(joint: .root,  parent: nil,      restOffset: SIMD3(0, 0, 0)),
-        Bone(joint: .pelvis, parent: .root,   restOffset: SIMD3(0, 0.95, 0)),
-        Bone(joint: .torso,  parent: .pelvis, restOffset: SIMD3(0, 0.12, 0)),
-        Bone(joint: .chest,  parent: .torso,  restOffset: SIMD3(0, 0.18, 0)),
-        Bone(joint: .neck,   parent: .chest,  restOffset: SIMD3(0, 0.16, 0)),
-        Bone(joint: .head,   parent: .neck,   restOffset: SIMD3(0, 0.12, 0)),
+        Bone(joint: .pelvis, parent: .root,   restOffset: SIMD3(0, Proportions.pelvisHeight, 0)),
+        Bone(joint: .torso,  parent: .pelvis, restOffset: SIMD3(0, Proportions.waistLength, 0)),
+        Bone(joint: .chest,  parent: .torso,  restOffset: SIMD3(0, Proportions.torsoLength, 0)),
+        Bone(joint: .neck,   parent: .chest,  restOffset: SIMD3(0, Proportions.neckLength, 0)),
+        Bone(joint: .head,   parent: .neck,   restOffset: SIMD3(0, Proportions.headOffset, 0)),
 
         // Character right side (-X)
-        Bone(joint: .rightShoulder, parent: .chest,         restOffset: SIMD3(-0.17, 0.10, 0)),
-        Bone(joint: .rightUpperArm, parent: .rightShoulder, restOffset: SIMD3(-0.05, 0, 0)),
-        Bone(joint: .rightForearm,  parent: .rightUpperArm, restOffset: SIMD3(0, -0.28, 0)),
-        Bone(joint: .rightHand,     parent: .rightForearm,  restOffset: SIMD3(0, -0.25, 0)),
+        Bone(joint: .rightShoulder, parent: .chest,         restOffset: SIMD3(-Proportions.shoulderHalfWidth, 0.10, 0)),
+        Bone(joint: .rightUpperArm, parent: .rightShoulder, restOffset: SIMD3(-Proportions.shoulderCapOffset, 0, 0)),
+        Bone(joint: .rightForearm,  parent: .rightUpperArm, restOffset: SIMD3(0, -Proportions.upperArmLength, 0)),
+        Bone(joint: .rightHand,     parent: .rightForearm,  restOffset: SIMD3(0, -Proportions.forearmLength, 0)),
 
         // Character left side (+X)
-        Bone(joint: .leftShoulder, parent: .chest,        restOffset: SIMD3(0.17, 0.10, 0)),
-        Bone(joint: .leftUpperArm, parent: .leftShoulder, restOffset: SIMD3(0.05, 0, 0)),
-        Bone(joint: .leftForearm,  parent: .leftUpperArm, restOffset: SIMD3(0, -0.28, 0)),
-        Bone(joint: .leftHand,     parent: .leftForearm,  restOffset: SIMD3(0, -0.25, 0)),
+        Bone(joint: .leftShoulder, parent: .chest,        restOffset: SIMD3(Proportions.shoulderHalfWidth, 0.10, 0)),
+        Bone(joint: .leftUpperArm, parent: .leftShoulder, restOffset: SIMD3(Proportions.shoulderCapOffset, 0, 0)),
+        Bone(joint: .leftForearm,  parent: .leftUpperArm, restOffset: SIMD3(0, -Proportions.upperArmLength, 0)),
+        Bone(joint: .leftHand,     parent: .leftForearm,  restOffset: SIMD3(0, -Proportions.forearmLength, 0)),
 
-        Bone(joint: .rightHip,   parent: .pelvis,     restOffset: SIMD3(-0.10, 0, 0)),
-        Bone(joint: .rightThigh, parent: .rightHip,   restOffset: SIMD3(0, -0.02, 0)),
-        Bone(joint: .rightShin,  parent: .rightThigh, restOffset: SIMD3(0, -0.45, 0)),
-        Bone(joint: .rightFoot,  parent: .rightShin,  restOffset: SIMD3(0, -0.42, 0)),
+        Bone(joint: .rightHip,   parent: .pelvis,     restOffset: SIMD3(-Proportions.hipHalfWidth, 0, 0)),
+        Bone(joint: .rightThigh, parent: .rightHip,   restOffset: SIMD3(0, -Proportions.hipDrop, 0)),
+        Bone(joint: .rightShin,  parent: .rightThigh, restOffset: SIMD3(0, -Proportions.thighLength, 0)),
+        Bone(joint: .rightFoot,  parent: .rightShin,  restOffset: SIMD3(0, -Proportions.shinLength, 0)),
 
-        Bone(joint: .leftHip,   parent: .pelvis,    restOffset: SIMD3(0.10, 0, 0)),
-        Bone(joint: .leftThigh, parent: .leftHip,   restOffset: SIMD3(0, -0.02, 0)),
-        Bone(joint: .leftShin,  parent: .leftThigh, restOffset: SIMD3(0, -0.45, 0)),
-        Bone(joint: .leftFoot,  parent: .leftShin,  restOffset: SIMD3(0, -0.42, 0)),
+        Bone(joint: .leftHip,   parent: .pelvis,    restOffset: SIMD3(Proportions.hipHalfWidth, 0, 0)),
+        Bone(joint: .leftThigh, parent: .leftHip,   restOffset: SIMD3(0, -Proportions.hipDrop, 0)),
+        Bone(joint: .leftShin,  parent: .leftThigh, restOffset: SIMD3(0, -Proportions.thighLength, 0)),
+        Bone(joint: .leftFoot,  parent: .leftShin,  restOffset: SIMD3(0, -Proportions.shinLength, 0)),
     ]
 
     static let boneByJoint: [ExerciseJoint: Bone] = {
