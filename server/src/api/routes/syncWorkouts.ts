@@ -26,7 +26,9 @@ import {
 	SyncDuplicateIdError,
 	SyncOwnershipError,
 	SyncPayloadTooLargeError,
+	SyncStorageQuotaExceededError,
 	SyncTombstonedError,
+	type StorageQuotaResource,
 	pullWorkoutData,
 	uploadWorkoutData,
 } from "../db/workoutSync";
@@ -118,6 +120,9 @@ export function makeUploadWorkoutsHandler(deps: { now?: () => number } = {}) {
 				// never be accepted.
 				return conflict(c, correlationId);
 			}
+			if (error instanceof SyncStorageQuotaExceededError) {
+				return quotaExceeded(c, correlationId, error.resource);
+			}
 			if (error instanceof SyncAccountNotActiveError) {
 				return accountGone(c, correlationId);
 			}
@@ -194,6 +199,43 @@ function conflict(c: Context<AuthedEnv>, correlationId: string) {
 				code: "record_deleted",
 				message:
 					"A record in this request was already deleted. Deleted records cannot be restored; create a new record instead.",
+				correlationId,
+			},
+		},
+		409,
+	);
+}
+
+/**
+ * The upload would exceed a per-user storage quota.
+ *
+ * 409, not 429 or 413: this is not a rate (waiting does not help) and not
+ * the size of this body (a smaller upload of new records fails the same way).
+ * It is the stored state refusing the request. Updates to existing records
+ * still succeed, so a client is not locked out of what it already has.
+ *
+ * Only the resource is named. No counts — they would tell a client exactly
+ * how much room is left to probe — and no ids, user or SQL.
+ */
+function quotaExceeded(
+	c: Context<AuthedEnv>,
+	correlationId: string,
+	resource: StorageQuotaResource,
+) {
+	console.warn(
+		JSON.stringify({
+			event: "sync_rejected",
+			reason: "storage_quota_exceeded",
+			resource,
+			correlationId,
+		}),
+	);
+	return c.json(
+		{
+			error: {
+				code: "storage_quota_exceeded",
+				message: "This account has reached its storage limit for new records.",
+				resource,
 				correlationId,
 			},
 		},

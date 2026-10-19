@@ -18,6 +18,7 @@ describe("account schema", () => {
 			"step_results",
 			"user_change_seq",
 			"user_profiles",
+			"user_storage_usage",
 			"users",
 			"workout_sessions",
 		]);

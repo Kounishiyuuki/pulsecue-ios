@@ -139,6 +139,25 @@ export class SyncTombstonedError extends Error {
 	}
 }
 
+/** Which per-user storage quota an upload would have exceeded. */
+export type StorageQuotaResource = "sessions" | "step_results";
+
+/**
+ * The upload would take this user past a storage quota.
+ *
+ * Raised only from the database's own refusal — the CHECK on
+ * `user_storage_usage` (migration 0006). There is deliberately no preflight
+ * count: a count read before the batch is a guess that a concurrent upload can
+ * invalidate, while the CHECK runs on the write itself. The batch has rolled
+ * back by the time this is thrown, so nothing in the upload was stored.
+ */
+export class SyncStorageQuotaExceededError extends Error {
+	constructor(readonly resource: StorageQuotaResource) {
+		super(`sync rejected: storage quota exceeded for ${resource}`);
+		this.name = "SyncStorageQuotaExceededError";
+	}
+}
+
 /**
  * The account stopped being active. Raised when the database refuses a write,
  * or when a read finds the account already on its way out.
@@ -305,6 +324,14 @@ function translateWriteAbort(error: unknown): Error {
 	}
 	if (message.includes("sync_tombstone_is_terminal")) {
 		return new SyncTombstonedError();
+	}
+	// Named CHECK constraints from migration 0006. Neither name contains the
+	// other, so the order of these two checks does not matter.
+	if (message.includes("storage_quota_sessions")) {
+		return new SyncStorageQuotaExceededError("sessions");
+	}
+	if (message.includes("storage_quota_step_results")) {
+		return new SyncStorageQuotaExceededError("step_results");
 	}
 	return error instanceof Error ? error : new Error(message);
 }
