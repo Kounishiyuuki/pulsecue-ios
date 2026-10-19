@@ -26,7 +26,11 @@ import {
 	consumeNonce,
 } from "../db/nonces";
 import { saveCredentialAndIssueSession } from "../db/providerCredentials";
-import { AppleTokenInvalidError, verifyAppleIdentityToken } from "../auth/apple";
+import {
+	AppleTokenInvalidError,
+	isAppleIdentityTokenExpired,
+	verifyAppleIdentityToken,
+} from "../auth/apple";
 import type { AppleClientSecretConfig } from "../auth/appleClientSecret";
 import {
 	AppleExchangeError,
@@ -67,13 +71,17 @@ export interface AppleAuthDependencies {
 	cipher: TokenCipher | null;
 	/** Injectable so the exchange is testable without reaching Apple. */
 	fetchImpl?: typeof fetch;
+	/**
+	 * A clock, read afresh at each security boundary — never once per
+	 * request. Injectable so tests can move time between those reads.
+	 */
 	now?: () => number;
 }
 
 export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 	return async (c: Context<AuthedEnv>) => {
 		const correlationId = newId();
-		const now = deps.now?.() ?? Math.floor(Date.now() / 1000);
+		const clock = deps.now ?? (() => Math.floor(Date.now() / 1000));
 
 		const parsed = requestSchema.safeParse(await readJson(c));
 		if (!parsed.success) {
@@ -95,7 +103,9 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				rawNonce: parsed.data.rawNonce,
 				audience: deps.audience,
 				jwks: deps.jwks,
-				now,
+				// Read after the body, not before: a slow upload must not let
+				// verification run on a time that has already passed.
+				now: clock(),
 			});
 		} catch (error) {
 			if (error instanceof JwksFetchError) {
@@ -112,6 +122,15 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 			throw error;
 		}
 
+		// The nonce sweep deletes a row once its token is expired by this same
+		// boundary. Verification ran at an earlier instant, so a token that
+		// has crossed it since is refused here rather than claimed: there is
+		// no reason to recreate the row of a token nobody may use.
+		const claimNow = clock();
+		if (isAppleIdentityTokenExpired(verified.expiresAt, claimNow)) {
+			return reject(c, correlationId, "token_expired_before_claim", 401);
+		}
+
 		try {
 			// Claimed before the account is touched: a replay must not even
 			// refresh `last_seen_at`.
@@ -119,8 +138,22 @@ export function makeAppleAuthHandler(deps: AppleAuthDependencies) {
 				nonceHash: verified.nonceHash,
 				provider: "apple",
 				expiresAt: verified.expiresAt,
-				now,
+				now: claimNow,
 			});
+
+			// The check that actually closes the race. A request can pass the
+			// check above, stall, and have the sweep delete the original
+			// nonce row before its INSERT runs — so the INSERT succeeds for a
+			// replayed nonce. Re-reading the clock *after* the claim catches
+			// that: the sweep only deletes rows whose token is already expired
+			// by this boundary, so any claim that raced a deletion fails here,
+			// before the exchange. The re-inserted row is left alone; the next
+			// sweep removes it, and deleting it now could race another
+			// in-flight request.
+			const now = clock();
+			if (isAppleIdentityTokenExpired(verified.expiresAt, now)) {
+				return reject(c, correlationId, "token_expired_after_claim", 401);
+			}
 
 			// The exchange comes FIRST, and nothing about the account is
 			// written until it has fully succeeded.

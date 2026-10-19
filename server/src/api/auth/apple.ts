@@ -58,6 +58,17 @@ export function createAppleJwksProvider(): JwksProvider {
 /** Tolerance for clock drift between Apple, the edge, and the device. */
 export const APPLE_CLOCK_SKEW_SECONDS = 60;
 
+/**
+ * Whether an identity token expiring at `expiresAt` is past the instant the
+ * verifier stops accepting it. The single definition of that boundary: the
+ * verifier, the sign-in route's re-checks around the nonce claim, and the
+ * nonce sweep's retention must all agree, or a cleanup can delete the nonce
+ * of a token something still accepts.
+ */
+export function isAppleIdentityTokenExpired(expiresAt: number, now: number): boolean {
+	return now >= expiresAt + APPLE_CLOCK_SKEW_SECONDS;
+}
+
 export interface AppleVerificationInput {
 	identityToken: string;
 	/** The un-hashed nonce the app generated for this sign-in. */
@@ -203,7 +214,7 @@ function assertAudience(claims: JwtClaims, audience: string): void {
 function assertWindow(claims: JwtClaims, now: number): void {
 	const { exp, iat } = claims;
 	if (typeof exp !== "number") throw new AppleTokenInvalidError("missing exp");
-	if (now >= exp + APPLE_CLOCK_SKEW_SECONDS) {
+	if (isAppleIdentityTokenExpired(exp, now)) {
 		throw new AppleTokenInvalidError("expired");
 	}
 	// Required, not merely checked-if-present. Apple always sends `iat`, and
