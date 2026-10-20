@@ -20,9 +20,6 @@ const execArgv = sqliteExecArgv();
 
 export default defineConfig({
 	test: {
-		poolOptions: {
-			forks: { execArgv },
-			threads: { execArgv },
-		},
+		execArgv,
 	},
 });
