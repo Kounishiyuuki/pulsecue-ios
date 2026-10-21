@@ -2,68 +2,57 @@
 
 PulseCue v1.0 の App Store Connect「App のプライバシー」質問への回答ドラフト。**リポジトリ実測**を基にするが、リポジトリ調査は全ランタイム/組織的挙動の証明ではない。法的コンプライアンスの主張はしない。
 
-- 作成日: 2026-07-29 / 対象: `main`
-- `PrivacyInfo.xcprivacy` と整合（本書のために manifest は変更していない）。
+- 再監査日: 2026-10-22 / 対象: `main`（PR #202 merge 後）
+- 前提: v1.0 は **PulseCue アカウント（server-backed）込み**で出す。`PulseCueAPIBaseURL` / `GIDServerClientID` を本番値にした build を提出する。
+- `PrivacyInfo.xcprivacy` の `NSPrivacyCollectedDataTypes` に Email Address / User ID を宣言済み（本書と整合）。
 
-判定: **RV**=リポジトリ検証済み / **手動**=App Store Connect で人手回答 / **要確認**=ユーザー確認要 / **不収集**=意図的に収集しない / **ローカル**=端末内のみ / **将来**=現在は非稼働。
+判定: **RV**=リポジトリ検証済み / **手動**=App Store Connect で人手回答 / **要確認**=ユーザー確認要 / **不収集**=意図的に収集しない / **ローカル**=端末内のみ。
+
+> 旧版（2026-07-29）の「収集なし（Data Not Collected）」「サーバアカウントなし」は**現在は誤り**。アカウント API が設定された build ではサーバにアカウントを作る。
 
 ---
 
 ## 1. サマリー（現状の実挙動）
 
 - トラッキング: **なし**（`NSPrivacyTracking = false`・IDFA/ATT なし）。**RV**
-- 解析 / 広告 SDK: **なし**。**RV**
-- サーバ送信のユーザーデータ: **なし**（バックエンド・同期なし）。**RV**（※実行時のネットワーク全経路は下記2の例外を除き手動確認推奨）
-- 主要データ（ワークアウト/身体/食事ログ）: **端末内 SwiftData のみ**。**RV / ローカル**
-- 第三者 SDK: Google Sign-In 系（現在**無効**・Release UI 非表示）。**RV**
+- 解析 / 広告 / クラッシュ収集 SDK: **なし**。第三者 SDK は GoogleSignIn 7.1.0（+ AppAuth / GTMAppAuth / GTMSessionFetcher）のみ。**RV**（`Package.resolved`）
+- PulseCue API へ送るもの（サインイン時のみ）: Apple identity token / authorization code / nonce、または Google ID token、端末名（`UIDevice.current.name`）。サーバはここからプロバイダ subject・メールアドレス（取得できる場合）・PulseCue user ID・セッションを保存する。**RV**（`Pulse Cue/Auth/PulseCueAccountAPI.swift`, `server/migrations/0001_user_auth_foundation.sql`）
+- ワークアウト / 身体 / 食事 / 睡眠ログ: **端末内 SwiftData のみ**。iOS client は `/v1/sync/*` を呼ばない（server 側に workout sync API はあるが v1.0 の app からは未使用）。**RV**（app が呼ぶ path は `v1/auth/apple`, `v1/auth/google`, `v1/me`, `v1/auth/logout` のみ）
+- HealthKit: 体重・睡眠の**読み取りのみ**（入力補助）。端末外へ送らない。**RV**（`HealthKitClient.swift`）
 
-## 2. 端末外へ出るデータ（重要・手動確認対象）
+## 2. 端末外へ出るデータ
 
 | 通信 | 内容 | 個人紐付け | 目的 |
 |---|---|---|---|
-| OpenFoodFacts 照会 | スキャンした食品バーコード | なし | 食品情報の参照（公開API・キー不要） |
-| 位置情報 | 端末内で近くのジム検索に使用 | — | サーバへ送るのは検索実装依存。**要確認** |
-| Sign in with Apple | Apple 提供の name/email（サニタイズ済み・トークン/コード/識別子は読まない・保存しない） | 端末内表示のみ | 表示名の保持 |
-
-> 上記以外にアプリ所有のサーバ送信はない（実API/バックエンド未実装）。近くのジム検索の外部通信有無は実装に応じて**手動確認**。
+| PulseCue API（サインイン/`/v1/me`/ログアウト/削除） | プロバイダ token（サーバで検証）、端末名、セッショントークン | あり（PulseCue user ID） | アカウント・認証 |
+| Sign in with Apple / Google | 各社の認証フロー | 各社 | 認証 |
+| OpenFoodFacts 照会 | スキャンした食品バーコード値のみ（+ User-Agent） | なし | 食品情報の参照（公開API・キー不要） |
+| 近くのジム検索 | MapKit（Apple）経由。PulseCue サーバへは送らない | なし | ジム候補検索 |
 
 ## 3. App Privacy 質問への回答ドラフト
 
-| 質問領域 | ドラフト回答 | 分類 |
-|---|---|---|
-| データ収集の有無 | ほぼ「収集なし」。下記の限定項目のみ検討 | 手動 |
-| トラッキング | いいえ | RV |
-| 広告・第三者広告 | なし | RV |
-| 解析 | なし | RV |
-| 識別子（IDFA等） | なし | RV/不収集 |
-| アカウント情報 | サーバアカウントなし。Apple サインインの表示名/メールは端末内のみ | RV/ローカル |
-| ユーザーコンテンツ（ワークアウト/メモ） | 端末内のみ・収集なし | RV/ローカル |
-| フィットネス/ワークアウトデータ | 端末内のみ・収集なし | RV/ローカル |
-| 健康データ（HealthKit） | 未統合・アクセスなし | RV/不収集 |
-| 位置情報 | 近くのジム検索に利用時のみ使用。端末外送信は要確認 | 要確認 |
-| カメラ/バーコード入力 | バーコード読取に使用。画像は保存/送信しない（バーコード値のみ OpenFoodFacts 照会） | RV/要確認 |
-| 診断/クラッシュ | 独自の診断収集なし（Apple 標準を除く） | 手動 |
-| データの ID 紐付け | なし（サーバアカウントなし） | RV |
-| トラッキング目的の利用 | なし | RV |
+**「データを収集しますか？」→ はい。**
 
-## 4. Sign in with Apple のデータ取扱い
+| データタイプ | 収集 | ユーザーに紐付け | トラッキング | 目的 |
+|---|---|---|---|---|
+| 連絡先情報 > メールアドレス | はい（Apple/Google が提供した場合。Apple の非公開リレーも含む） | はい | いいえ | App の機能 |
+| 識別子 > ユーザ ID | はい（PulseCue user ID、プロバイダ subject） | はい | いいえ | App の機能 |
+| 名前 | いいえ（iOS は表示名をサーバへ送らない） | — | — | — |
+| フィットネス / 健康 | いいえ（端末内のみ・同期なし） | — | — | — |
+| 位置情報 | いいえ（MapKit 検索のみ・PulseCue へ送らない）※ | — | — | — |
+| ユーザーコンテンツ | いいえ（端末内のみ） | — | — | — |
+| 購入 / 金融 / 連絡先 / 閲覧履歴 / 検索履歴 | いいえ | — | — | — |
+| 使用状況データ / 診断 | いいえ（独自の解析・クラッシュ収集なし） | — | — | — |
 
-- 取得: サニタイズした表示名/メールのみ。`identityToken` / `authorizationCode` / Apple `user` 識別子は**読まない・保存しない・ログしない**。**RV**（`LoginView.handleAppleCompletion`）
-- 保存: 端末内の表示用のみ。Keychain・トークン永続化なし。**RV**
-- キャンセル/失敗: 状態不変・ゲスト利用継続可。**RV**
+※ 位置情報と OpenFoodFacts のバーコードは開発者・第三者パートナーが保存/利用しないため「収集なし」と判断（**前提**。Apple の定義解釈は提出者が最終確認）。
 
-## 5. Google Sign-In（現在非稼働）
+## 4. アカウント削除（Guideline 5.1.1(v)）
 
-- Info.plist は**プレースホルダ**（`YOUR_IOS_CLIENT_ID`）。`isConfigured = false`。**RV**
-- Release UI では Google コントロールを**表示しない**（本PR）。データ取得・送信なし。**将来**
+- アプリ内で削除可能: 設定 → アカウント → 「アカウントを削除」→ `DELETE /v1/me`。**RV**（`ServerAccountSettingsSection.swift`）
+- サーバ側: ユーザー行・identity・セッションを cascade 削除。Apple のトークン revoke は Cron で再試行（`202` = 削除受付済み・revoke 待ち）。**RV**（`server/src/api/auth/accountDeletionService.ts`）
+- 削除後は端末内のアカウント関連ローカルデータを cleanup（`AccountLocalDataCleanup.swift`）。
 
-## 6. アカウント削除要件（#16 と整合）
+## 5. 未検証・注意
 
-- 現在**永続的なアプリアカウントを作成しない**（サーバアカウント/トークン/バックエンドユーザーレコードなし）。Apple サインインは端末内の表示状態のみ、ゲストはローカル状態のみ。**RV**
-- 従って現時点で「アプリ内アカウント削除」機能の要件は**トリガーされないと解釈**。ただし最終判断は App Store の現行方針とプロダクト判断に依存 → **手動/要法務確認**。詳細は `app-review-notes-draft.md`。
-
-## 7. 未検証・注意
-
-- 実行時ネットワーク全経路の網羅確認（特に位置検索の外部送信有無）は**手動**。
-- 本書はリポジトリ静的調査に基づき、組織的データ運用の証明ではない。
-- `PrivacyInfo.xcprivacy`（UserDefaults `CA92.1`・トラッキング false・収集空）と矛盾なし。**RV**
+- 本番 API に対するサインイン/削除の実機確認は**手動**（`testflight-checklist.md` の MANUAL GATE）。
+- 本書はリポジトリ静的調査に基づき、組織的データ運用の証明ではない。プライバシーポリシー URL（本番）は提出前に用意すること（**手動**）。

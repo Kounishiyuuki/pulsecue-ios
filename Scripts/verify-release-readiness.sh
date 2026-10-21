@@ -60,6 +60,17 @@ for f in "$APP_SRC/Info.plist" "$APP_SRC/PrivacyInfo.xcprivacy" "$APP_SRC/Pulse_
   fi
 done
 
+# main intentionally carries placeholders, so this only warns. A build that
+# is uploaded to TestFlight/App Store must have real values here, or sign-in
+# is visible but always refused (see Docs/testflight-checklist.md).
+for key in PulseCueAPIBaseURL GIDServerClientID; do
+  val=$(/usr/libexec/PlistBuddy -c "Print :$key" "$APP_SRC/Info.plist" 2>/dev/null || true)
+  case "$val" in
+    ""|*YOUR_*) warn "$key is a placeholder — set the production value before uploading" ;;
+    *) pass "$key is set" ;;
+  esac
+done
+
 hdr "3. App icon present"
 ICON_DIR=$(find "$APP_SRC" -type d -name "AppIcon.appiconset" | head -1)
 if [ -n "$ICON_DIR" ] && ls "$ICON_DIR"/*.png >/dev/null 2>&1; then
