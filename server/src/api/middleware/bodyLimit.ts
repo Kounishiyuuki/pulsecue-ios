@@ -37,7 +37,7 @@ export function limitBody(maxSize: number): MiddlewareHandler<AuthedEnv> {
 				JSON.stringify({
 					event: "request_body_too_large",
 					correlationId,
-					path: new URL(c.req.url).pathname,
+					path: c.req.routePath,
 					// Deliberately absent: any part of the body.
 				}),
 			);

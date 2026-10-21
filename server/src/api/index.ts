@@ -168,7 +168,8 @@ app.onError((_err, c) => {
 			event: "unhandled_error",
 			code: "internal_error",
 			correlationId,
-			path: new URL(c.req.url).pathname,
+			// The registered pattern is safe even for an unknown URL carrying PII.
+			path: c.req.routePath,
 			method: c.req.method,
 		}),
 	);
