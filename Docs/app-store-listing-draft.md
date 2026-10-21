@@ -88,13 +88,13 @@ PulseCue の最初のリリースです。
 | ジム/マシン選択 | `MyGymHomeView` / `MachineCatalog` / `ManualMachineSelectionView` | ✅ | |
 | 端末内ローカル保存 | SwiftData V9・同期なし | ✅ | |
 | 認証（任意・Apple） | `LoginView` / applesignin entitlement | ✅ | 任意・ゲスト可 |
-| Google ログイン | プレースホルダ・**Release非表示** | ❌ | 提供していない。掲載しない |
+| 認証（任意・Google） | `LoginView`（`GIDClientID` 設定時に Release でも表示）/ `POST /v1/auth/google`（server-backed） | ✅ | 任意・ゲスト可。本番 `GIDServerClientID` / `PulseCueAPIBaseURL` 設定と server deploy が release gate |
 | おすすめ/レコメンド（サーバ） | なし | ❌ | |
 | AI が自動生成 | 実AIなし（ルールベース/mockのみ） | ❌ | |
 | クラウド同期 / バックアップ | なし | ❌ | |
 | マルチデバイス連携 | なし | ❌ | |
 | カメラ姿勢認識 / リアルタイムフォーム矯正 | なし（カメラはバーコードのみ） | ❌ | |
-| 健康分析 / HealthKit連携 | 未統合（Noopのみ） | ❌ | |
+| HealthKit 読み取り（体重・睡眠の入力補助） | `HealthKitClient`（`toShare: []`＝書き込みなし）。値は端末内 DayLog 入力にのみ使い、サーバへ送らない | ✅（控えめに） | 「健康分析」「診断」とは書かない |
 | サブスク / ソーシャル / ウェアラブル | なし | ❌ | |
 | カメラ（バーコード→食品参照） | `BarcodeScannerView` / OpenFoodFacts | ✅（機能説明として） | 「AIが解析」とは書かない |
 | 位置情報（近くのジム検索） | 位置利用（利用時のみ） | ✅（機能説明として） | |

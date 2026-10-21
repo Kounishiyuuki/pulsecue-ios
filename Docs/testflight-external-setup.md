@@ -5,6 +5,10 @@ TestFlight 提出前に、リポジトリ外（Apple Developer Portal / Google C
 
 > このドキュメントは手順のみを記載する。**secret / token / API key / バックエンド資格情報は
 > 一切ここに書かない・アプリにも追加しない。** アプリはローカルファースト維持。
+>
+> **2026-10-22 注記**: §3 の「2 値のみ」「プレースホルダのまま提出可」は server-backed アカウント導入前（PR #110 前後）の記述だった。
+> 現在の v1.0 提出 build では §3 の表の 4 値すべてが本番値である必要がある（`GIDClientID` と URL scheme は main で実値設定済み）。
+> 提出前に `PULSECUE_RELEASE_STRICT=1 ./Scripts/verify-release-readiness.sh` を実行して placeholder が残っていないことを確認する。
 
 ---
 
@@ -89,19 +93,19 @@ Archive 検証で判明した確定的な制約。**アプリコードのブロ�
 
 ## 3. Info.plist プレースホルダの置換
 
-`Pulse Cue/Info.plist` の以下 **2 値のみ**を、§2 で取得した実値に置換する。
+`Pulse Cue/Info.plist` の以下の値を本番値にする（v1.0 提出 build ではすべて必須）。
 
 | キー | 現在のプレースホルダ | 置換後 |
 |---|---|---|
 | `GIDClientID` | `YOUR_IOS_CLIENT_ID.apps.googleusercontent.com` | `<実 iOS クライアント ID>.apps.googleusercontent.com` |
 | `CFBundleURLTypes` → `CFBundleURLSchemes` | `com.googleusercontent.apps.YOUR_IOS_CLIENT_ID` | `com.googleusercontent.apps.<実 reversed client ID>` |
+| `GIDServerClientID` | `YOUR_WEB_SERVER_CLIENT_ID.apps.googleusercontent.com` | `<Web application OAuth client ID>`（server `GOOGLE_AUDIENCE` と一致） |
+| `PulseCueAPIBaseURL` | `https://YOUR_PULSECUE_API_HOST` | `https://<本番 pulsecue-api host>`（HTTPS 必須） |
 
-- **置換が必要なのはこの 2 値のみ。** 他の Info.plist 値は変更不要。
-- **コード変更は不要。** 正しい値を入れれば `GoogleSignInConfig.isConfigured` が `true` になり、
-  Google ログインが自動的に有効化される。
-- **正しい値が入るまで** は Google Sign-In は無効のまま（ボタンは disabled、
-  「設定準備中」相当のメッセージを表示）。プレースホルダ状態では
-  **偽のサインイン済み状態（fake signed-in state）を作らない。**
+- **コード変更は不要。** `GIDClientID` が実値なら `GoogleSignInConfig.isConfigured` が `true` になり、
+  Release でも Google ボタンが表示される（main は実値設定済み）。
+- `GIDServerClientID` / `PulseCueAPIBaseURL` が placeholder のままだと、サインインはサーバ交換の段階で
+  「利用できません」となり失敗する（偽のサインイン済み状態は作らない）。**提出 build では placeholder 不可。**
 
 ---
 
@@ -109,9 +113,8 @@ Archive 検証で判明した確定的な制約。**アプリコードのブロ�
 
 ### 4.1 外部設定
 - [ ] Apple Developer Portal で App ID の `Sign in with Apple` Capability を有効化（§1）
-- [ ] Google OAuth 値は次のいずれか:
-  - [ ] プレースホルダのまま（Google ログインは無効＝意図どおり）、または
-  - [ ] 実値に置換済み（§2・§3）かつ実機で手動テスト済み
+- [ ] §3 の 4 値がすべて本番値（§2・§3）かつ実機で手動テスト済み
+- [ ] `PULSECUE_RELEASE_STRICT=1 ./Scripts/verify-release-readiness.sh` が PASS
 
 ### 4.2 ビルド / テスト
 - [ ] Debug build 成功

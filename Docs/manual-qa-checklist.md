@@ -459,6 +459,7 @@ xcrun simctl get_app_container <UDID> com.kounishiyuuki.pulsecue data   # → Li
 ## 認証準備フェーズ（オンボーディング / ログイン / アカウント / プロフィール・ジム設定）
 
 > 対象: Pre-API TestFlight + Auth Readiness（PR #111–#116）。
+> **履歴記録（2026-10-22 注記）**: 下記の前提（トークン永続化なし・Keychain なし・サーバー同期なし・Google 無効）は PR #111–#116 時点のもの。現在は server-backed アカウント（session token は Keychain）・Google は `GIDClientID` 設定済みで表示される。現行の認証 QA は `Docs/testflight-checklist.md` の MANUAL GATE を正とする。
 > 前提: 認証はローカルファースト。トークン永続化なし・Keychain なし・サーバー同期なし。
 > ログインは一切必須ではなく、ゲストのまま全機能を利用できることが最重要。
 > Apple は実サインイン、Google は Info.plist が実 OAuth 値に置換されるまで無効（設定準備中）。

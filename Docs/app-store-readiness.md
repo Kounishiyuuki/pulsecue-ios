@@ -35,7 +35,7 @@ PulseCue v1.0（ローカルファースト＋任意の PulseCue アカウント
 
 `Pulse Cue/PrivacyInfo.xcprivacy`:
 - `NSPrivacyTracking = false`、`NSPrivacyTrackingDomains = []`
-- `NSPrivacyCollectedDataTypes`: **Email Address / User ID**（linked・tracking なし・App Functionality）。2026-10-22 に追加（アカウント作成でサーバに保存されるため）。詳細は `app-store-privacy-answers.md`
+- `NSPrivacyCollectedDataTypes`: **Email Address / User ID / Other Data Types（端末名 → `sessions.device_name`）**（いずれも linked・tracking なし・App Functionality）。2026-10-22 に追加（アカウント作成・セッション作成でサーバに保存されるため）。OpenFoodFacts 照会の申告要否は未確定（`app-store-privacy-answers.md` §6 MANUAL GATE）。詳細は `app-store-privacy-answers.md`
 - Required Reason API: **UserDefaults `CA92.1`**（`SettingsStore` / `RunnerPersistence` が UserDefaults を使用 → 宣言と実装が一致）
 
 未使用機能の権限は**宣言しない**方針。追加の Required Reason API（file timestamp / system boot time / disk space / active keyboard）はアプリコードで使用が確認できないため未宣言（**検証済み: 該当なし**）。第三者SDK（Google/AppAuth/GTM）は各自の PrivacyInfo を同梱する。
@@ -70,7 +70,7 @@ PulseCue v1.0（ローカルファースト＋任意の PulseCue アカウント
 - ハードコードされた APIキー / 秘密鍵 / bearer トークン / `*.workers.dev` / 本番エンドポイントは**検出なし**。
 - ローカル loopback `http://127.0.0.1:8787/` と mock 用 fake token は `#if DEBUG` 限定（Release バイナリに不在を確認）。
 - `Authorization: Bearer \(token)` はヘッダ構築コード（`token` は変数、ハードコード値なし）。session token は Keychain（`ServerSessionTokenStore`）。API の base URL は Info.plist から読み、HTTPS 以外・placeholder・資格情報入り URL は拒否する（`PulseCueAPIConfiguration`）。
-- OpenFoodFacts への外向き通信（バーコード→食品照会・公開API・キー不要・個人情報送信なし）は存在。App Privacy 回答では「アプリ機能のためのデータ（トラッキングなし）」として整理する（**手動要**）。
+- OpenFoodFacts への外向き通信（バーコード値・固定 User-Agent・通信上の IP。アカウント情報は送らない）は存在。OpenFoodFacts は visitor の IP/ログを 3 年保持と公表しており、Apple 定義上の申告要否・カテゴリは**未確定**（`app-store-privacy-answers.md` §6 MANUAL GATE。提出前に決定必須）。
 
 ## 8. 依存パッケージ（検証済み）
 
@@ -81,7 +81,7 @@ PulseCue v1.0（ローカルファースト＋任意の PulseCue アカウント
 **App Store ブロッカー（提出前に必須・大半が手動）**
 - App Store Connect: アプリ名 / 説明 / キーワード / サポートURL / プライバシーポリシーURL（**手動要**）
 - スクリーンショット（必須サイズ）（**手動要**）
-- App Privacy 質問票の回答（**データ収集あり**: メールアドレス・ユーザ ID。`app-store-privacy-answers.md`）（**手動要**）
+- App Privacy 質問票の回答（**データ収集あり**: メールアドレス・ユーザ ID・その他のデータタイプ（端末名）。OpenFoodFacts は §6 MANUAL GATE で決定。`app-store-privacy-answers.md`）（**手動要**）
 - `PulseCueAPIBaseURL` / `GIDServerClientID` の本番値設定と `pulsecue-api` deploy（**P0・手動/外部**）
 - プライバシーポリシーにアカウント情報の扱いと削除方法を記載（**手動要**）
 - 年齢レーティング設定（**手動要**）

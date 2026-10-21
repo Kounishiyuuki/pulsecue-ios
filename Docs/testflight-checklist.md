@@ -15,12 +15,14 @@ PulseCue の最初の TestFlight ビルド提出手順。**リポジトリで検
 - [x] Sign in with Apple entitlement 有効 / HealthKit entitlement 有効
 - [ ] **`PulseCueAPIBaseURL` が本番 HTTPS URL**（現 `main` は placeholder `https://YOUR_PULSECUE_API_HOST`）(手動・P0)
 - [ ] **`GIDServerClientID` が本番 Web client ID**（現 `main` は placeholder）、server の `GOOGLE_AUDIENCE` と一致 (手動・P0)
-- [x] `PrivacyInfo.xcprivacy` に Email Address / User ID（linked・tracking なし・App 機能）を宣言
+- [x] `PrivacyInfo.xcprivacy` に Email Address / User ID / Other Data Types（端末名）（linked・tracking なし・App 機能）を宣言
+- [ ] **OpenFoodFacts 照会の App Privacy 申告要否を決定**し、ASC 回答と `PrivacyInfo.xcprivacy` を揃える（`app-store-privacy-answers.md` §6 MANUAL GATE）(手動・P0)
 - [x] DEBUG QA ルート/引数が Release バイナリに不在（`strings` 実測）
 - [x] シークレット/`workers.dev` ハードコードなし（本番 URL は Info.plist で設定、secret は持たない）
 - [x] Debug / Release ビルド成功（`CODE_SIGNING_ALLOWED=NO`）
 - [x] 全 unit / UI テスト green（新規 skip なし）
 - [x] `./Scripts/verify-release-readiness.sh` が pass
+- [ ] **RC / Archive / upload 前に `PULSECUE_RELEASE_STRICT=1 ./Scripts/verify-release-readiness.sh --full` が pass**（placeholder 残存で FAIL する）(手動・P0)
 - [ ] **build 番号のインクリメント**（TestFlight は build 番号の一意性が必須。2回目以降は `CURRENT_PROJECT_VERSION` を上げる）(手動/都度)
 
 ## B. アーカイブ・署名・アップロード（手動・実機/Xcode）

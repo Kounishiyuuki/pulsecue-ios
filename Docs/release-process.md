@@ -16,6 +16,11 @@ PulseCue のビルド番号運用・アーカイブ・アップロード・ロ�
 ./Scripts/verify-release-readiness.sh --full   # + Debug/Release ビルド
 ```
 
+**RC 作成 / Archive / TestFlight upload の前は strict 実行が必須**（`PulseCueAPIBaseURL` / `GIDServerClientID` が placeholder なら FAIL。通常実行では WARN のみ）:
+```
+PULSECUE_RELEASE_STRICT=1 ./Scripts/verify-release-readiness.sh --full
+```
+
 さらに手動で:
 ```
 xcodebuild test -project "Pulse Cue.xcodeproj" -scheme "Pulse Cue" \
