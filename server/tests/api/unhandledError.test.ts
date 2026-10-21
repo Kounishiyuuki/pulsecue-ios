@@ -48,6 +48,34 @@ afterEach(() => {
 });
 
 describe("unexpected exception on GET /v1/me", () => {
+	it("never logs a client-controlled unknown pathname", async () => {
+		const env: ApiEnv = {
+			DB: failingDb(),
+			...fakeRateLimiters().bindings,
+		};
+		// An infrastructure error before the limiter can answer reaches onError.
+		Object.defineProperty(env, "API_IP_RATE_LIMITER", {
+			get() {
+				throw new Error(DB_ERROR);
+			},
+		});
+		const response = await worker.fetch(
+			new Request(
+				"https://api.test/v1/private-user/private-token?email=private-email",
+				{ headers: { "cf-connecting-ip": "203.0.113.90" } },
+			),
+			env,
+			{} as ExecutionContext,
+		);
+		expect(response.status).toBe(500);
+		const log = JSON.parse(errorSpy.mock.calls[0]?.[0] as string);
+		expect(log.path).toBe("/v1/*");
+		expect(JSON.stringify(log)).not.toContain(DB_ERROR);
+		for (const value of [...SECRETS, "private-email"]) {
+			expect(JSON.stringify(log)).not.toContain(value);
+		}
+	});
+
 	it("answers a sanitized 500 and logs only the correlation id", async () => {
 		const env: ApiEnv = {
 			DB: failingDb(),
