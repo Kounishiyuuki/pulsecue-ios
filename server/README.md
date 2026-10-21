@@ -1,5 +1,11 @@
 # PulseCue Server
 
+For the v1.0 accounts/sync production release, start with the
+[production readiness audit and runbook](production-readiness.md).
+The default config targets the separate gym/mock Worker, which is not cleared
+for public production exposure. Always name `--config wrangler.api.jsonc`
+for accounts operations.
+
 Cloudflare Workers + Hono backend for PulseCue. This package currently
 ships a single feature: a best-effort **gym machine import** endpoint
 that scrapes the readable text from a gym's official page and reports
@@ -1175,8 +1181,8 @@ scheduling. Nothing here is optional for public availability.
    deletion". That was wrong, and is corrected: deletion-with-revocation is a
    condition of offering Apple sign-in at all.
 
-2. **`DELETE /v1/me`, wired to the revocation service.** The service exists;
-   nothing calls it yet.
+2. **`DELETE /v1/me` is wired to the revocation service.** Failed provider
+   revocations leave the account deleting for the scheduled retry.
 
 3. ~~Nonce cleanup, actually running.~~ **Done.** The `scheduled` handler
    runs `purgeReplayableNonces` every 15 minutes, at most 500 rows per run.
@@ -1213,7 +1219,7 @@ npx wrangler d1 create pulsecue-api --config wrangler.api.jsonc
 
 # 3. Apply migrations to the LOCAL database only.
 npx wrangler d1 migrations apply pulsecue-api --local --config wrangler.api.jsonc
-# applies 0001_user_auth_foundation.sql and 0002_auth_nonces.sql
+# applies all six migrations, 0001 through 0006, in order
 
 # 4. Run locally.
 npx wrangler dev --config wrangler.api.jsonc
@@ -1227,9 +1233,9 @@ an explicit, separately approved step.
 
 - Timestamps are unix epoch seconds (INTEGER, UTC). D1 has no date type,
   and integers compare without format or locale risk.
-- **No provider tokens are stored.** A test asserts the DDL contains no
-  `access_token` / `refresh_token` / `id_token` / `authorization_code`
-  column.
+- **Only encrypted Apple refresh tokens are retained** for revocation during
+  deletion. No plaintext refresh tokens, access tokens, ID tokens or
+  authorization codes are stored.
 - Sessions store **only the SHA-256** of the opaque token, so a database
   disclosure yields no usable session. Sessions are stored (rather than
   self-contained) precisely so unlink and account deletion can revoke
