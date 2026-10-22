@@ -1,6 +1,6 @@
 # リリース手順 / ロールバック
 
-PulseCue のビルド番号運用・アーカイブ・アップロード・ロールバックの手順。実装フェーズは「ローカルファースト・実API/実認証なし」。
+PulseCue のビルド番号運用・アーカイブ・アップロード・ロールバックの手順。構成は「ローカルファースト＋任意の server-backed PulseCue アカウント（Apple/Google サインイン・アプリ内削除）」。workout sync は v1.0 の iOS client からは未使用。
 
 ## 1. バージョン / ビルド番号
 
@@ -14,6 +14,11 @@ PulseCue のビルド番号運用・アーカイブ・アップロード・ロ�
 ```
 ./Scripts/verify-release-readiness.sh          # 高速チェック
 ./Scripts/verify-release-readiness.sh --full   # + Debug/Release ビルド
+```
+
+**RC 作成 / Archive / TestFlight upload の前は strict 実行が必須**（`PulseCueAPIBaseURL` / `GIDServerClientID` が placeholder なら FAIL。通常実行では WARN のみ）:
+```
+PULSECUE_RELEASE_STRICT=1 ./Scripts/verify-release-readiness.sh --full
 ```
 
 さらに手動で:
@@ -49,12 +54,12 @@ xcodebuild test -project "Pulse Cue.xcodeproj" -scheme "Pulse Cue" \
 
 ## 6. ロールバック
 
-サーバ/リモート構成・機能フラグを持たないため、ロールバックは配布の差し替えで完結:
+アプリのロールバックは配布の差し替えで行う。アカウント API（`pulsecue-api`）は app と独立して deploy されるため、server 側の変更は server 側で戻す（古い app build が使う `v1/auth/*` `v1/me` の互換を壊さないこと）:
 
 - **TestFlight**: 問題ビルドの配布を停止し、直前の安定 build を内部テスターへ再割当。
 - **App Store（審査前/却下）**: ビルドを外し、修正 build を上げ直す。
 - **App Store（公開後）**: 前バージョンの再公開は不可のため、修正版を新 build として速やかに提出（Expedited Review 検討）。「フェーズ公開」を使っている場合は公開を一時停止。
-- データ: SwiftData はローカルのみ・破壊的移行は行わない方針。ロールバックでユーザーデータ損失が起きない設計を維持（スキーマ後方互換を崩す変更は別途レビュー）。
+- データ: ワークアウト等の SwiftData はローカルのみ・破壊的移行は行わない方針（現行 Schema V9）。ロールバックでユーザーデータ損失が起きない設計を維持（スキーマ後方互換を崩す変更は別途レビュー）。
 
 ## 7. 変更してはいけない境界（リリース作業時）
 

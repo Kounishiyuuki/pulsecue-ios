@@ -1,5 +1,7 @@
 # TestFlight Readiness Baseline (PR #110)
 
+> **履歴資料（2026-10-22 注記）**: 本書は PR #110 時点の記録。その後 server-backed アカウント・HealthKit 読み取り等が入り、本書の「サーバなし」「データ収集なし」等の記述は現在の実装と一致しない。現況は `app-store-readiness.md`、App Privacy 回答は `app-store-privacy-answers.md` を正とする。
+
 PulseCue を TestFlight / App Store 提出可能な状態にするためのベースライン整備記録と、
 App Store Connect の App Privacy 回答に必要な情報をまとめる。
 

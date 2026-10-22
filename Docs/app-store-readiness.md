@@ -1,9 +1,9 @@
 # App Store / TestFlight リリース準備状況
 
-PulseCue v1.0（Pre-API・ローカルファースト MVP）の提出準備監査。**リポジトリを唯一の正**として実測した結果をまとめる。過去レポート（`testflight-readiness-baseline.md` PR #110）を土台に、現時点の実測で更新した差分レポート。
+PulseCue v1.0（ローカルファースト＋任意の PulseCue アカウント）の提出準備監査。**リポジトリを唯一の正**として実測した結果をまとめる。過去レポート（`testflight-readiness-baseline.md` PR #110）を土台に、現時点の実測で更新した差分レポート。
 
-- 監査日: 2026-07-29
-- 監査対象 HEAD: `origin/main`（worktree `chore/app-store-release-readiness`）
+- 監査日: 2026-07-29 / **再監査: 2026-10-22**（PR #202 merge 後の `origin/main` `ee65c51`）
+- 再監査で、旧版の「実API/実認証なし」「Collected Data = []」「HealthKit 未統合」は**現在の実装と矛盾**していたため修正した。
 - 本レポートは**虚偽のコンプライアンス主張をしない**。各項目は下記バケツで分類する。
 
 判定バケツ: **検証済み**（リポジトリで実測）/ **未検証**（本環境で確認不可）/ **手動要**（App Store Connect等の人手作業）/ **外部ブロッカー**（Apple Developer Program / 外部設定）/ **意図的に保留**（このフェーズでは実装しない）/ **App Storeブロッカー** / **非ブロッキング follow-up**。
@@ -12,9 +12,9 @@ PulseCue v1.0（Pre-API・ローカルファースト MVP）の提出準備監�
 
 ## 1. 総評
 
-TestFlight 配信・App Store 提出に対する**コード/設定側の技術的ブロッカーは検出されなかった**。残るのは主に **App Store Connect 上の手動作業**（メタデータ、スクリーンショット、App Privacy 回答、テスター設定）と **アーカイブ/署名/アップロードの実機作業**。
+**P0 が残っている**: `Pulse Cue/Info.plist` の `PulseCueAPIBaseURL`（`https://YOUR_PULSECUE_API_HOST`）と `GIDServerClientID`（`YOUR_WEB_SERVER_CLIENT_ID...`）が placeholder のままで、`pulsecue-api` も未 deploy（`server/wrangler.api.jsonc` の D1 `database_id` が placeholder）。この状態の Release build では Apple / Google のサインインボタンは表示されるが、タップすると「この端末ではアカウント機能をまだ利用できません」で終わる（App Review 2.1 リスク）。本番 API の deploy と 2 つの値の設定が提出の前提。
 
-このリリースは意図的に「ローカルファースト・実API/実認証なし」。Sign in with Apple のみ有効、Google Sign-In はプレースホルダで**無効**。**Release UI では Google コントロールを表示しない**（未提供機能を出さない・「設定準備中」も非表示）。Debug では明示的な unavailable 状態を開発用に残す。
+現在の構成: 記録・ルーティン・履歴などは端末内 SwiftData（ローカルファースト・ゲストで全機能利用可）。任意で Apple / Google サインインにより **server-backed の PulseCue アカウント**（session・logout・アプリ内アカウント削除）を作成できる。server には workout sync API・storage quota・rate limit・削除 revoke 再試行の Cron があるが、**v1.0 の iOS client は workout sync を呼ばない**（app が呼ぶのは `v1/auth/apple` `v1/auth/google` `v1/me` `v1/auth/logout` `DELETE v1/me` のみ）。Google コントロールは iOS client ID が設定済みのため Release でも表示される。
 
 ## 2. アプリ識別情報（検証済み）
 
@@ -34,7 +34,8 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 ## 3. プライバシーマニフェスト（検証済み）
 
 `Pulse Cue/PrivacyInfo.xcprivacy`:
-- `NSPrivacyTracking = false`、`NSPrivacyTrackingDomains = []`、`NSPrivacyCollectedDataTypes = []`
+- `NSPrivacyTracking = false`、`NSPrivacyTrackingDomains = []`
+- `NSPrivacyCollectedDataTypes`: **Email Address / User ID / Other Data Types（端末名 → `sessions.device_name`）**（いずれも linked・tracking なし・App Functionality）。2026-10-22 に追加（アカウント作成・セッション作成でサーバに保存されるため）。OpenFoodFacts 照会の申告要否は未確定（`app-store-privacy-answers.md` §6 MANUAL GATE）。詳細は `app-store-privacy-answers.md`
 - Required Reason API: **UserDefaults `CA92.1`**（`SettingsStore` / `RunnerPersistence` が UserDefaults を使用 → 宣言と実装が一致）
 
 未使用機能の権限は**宣言しない**方針。追加の Required Reason API（file timestamp / system boot time / disk space / active keyboard）はアプリコードで使用が確認できないため未宣言（**検証済み: 該当なし**）。第三者SDK（Google/AppAuth/GTM）は各自の PrivacyInfo を同梱する。
@@ -45,17 +46,17 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 |---|---|---|
 | `NSCameraUsageDescription` | 食品バーコード読取 | ✅ `BarcodeScannerView` |
 | `NSLocationWhenInUseUsageDescription` | 近くのジム検索 | ✅ ジム登録フロー |
+| `NSHealthShareUsageDescription` | 体重・睡眠の入力補助（読み取りのみ） | ✅ `HealthKitClient`（`requestAuthorization(toShare: [], read:)`） |
 
-- マイク / 写真 / 連絡先 / モーション / HealthKit の権限文字列は**無し**（いずれも未使用のため正しい）。
-- HealthKit は**未統合**（`HealthKitImporter` は Noop プレースホルダのみ、`import HealthKit`/`HKHealthStore` 実使用なし）。DayLog 等の「健康データ」は端末内 SwiftData のローカル入力のみ。
+- マイク / 写真 / 連絡先 / モーション / HealthKit 書き込みの権限文字列は**無し**（いずれも未使用のため正しい）。
 
 ## 5. Entitlements / Capabilities（検証済み）
 
 `Pulse Cue/Pulse_Cue.entitlements`:
-- **有効**: Sign in with Apple（`com.apple.developer.applesignin = [Default]`）→ `LoginView` の `SignInWithAppleButton` と一致。
+- **有効**: Sign in with Apple（`com.apple.developer.applesignin = [Default]`）→ `LoginView` / `AppleSignInButton` と一致。
+- **有効**: HealthKit（`com.apple.developer.healthkit = true`）→ `HealthKitClient` と一致。
 - **意図的に不在**: Push / iCloud・CloudKit / App Groups / Keychain sharing / Associated Domains / Background Modes（空だった `UIBackgroundModes` は削除済み）。
-- **後で必要**: 実API/認証フェーズで Associated Domains 等が必要になる可能性（現フェーズ対象外）。
-- **外部ブロッカー**: Sign in with Apple の App ID capability 有効化は Apple Developer で設定要（署名時に自動処理される想定・**手動要**）。
+- **手動要（MANUAL GATE）**: App ID の Sign in with Apple / HealthKit capability と Distribution provisioning が entitlements と一致していること（Apple Developer Portal で確認）。
 
 ## 6. DEBUG / Release 分離（検証済み）
 
@@ -68,28 +69,29 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 
 - ハードコードされた APIキー / 秘密鍵 / bearer トークン / `*.workers.dev` / 本番エンドポイントは**検出なし**。
 - ローカル loopback `http://127.0.0.1:8787/` と mock 用 fake token は `#if DEBUG` 限定（Release バイナリに不在を確認）。
-- `Authorization: Bearer \(token)` はヘッダ構築コード（`token` は変数、ハードコード値なし）。実API未接続。
-- OpenFoodFacts への外向き通信（バーコード→食品照会・公開API・キー不要・個人情報送信なし）は存在。App Privacy 回答では「アプリ機能のためのデータ（トラッキングなし）」として整理する（**手動要**）。
+- `Authorization: Bearer \(token)` はヘッダ構築コード（`token` は変数、ハードコード値なし）。session token は Keychain（`ServerSessionTokenStore`）。API の base URL は Info.plist から読み、HTTPS 以外・placeholder・資格情報入り URL は拒否する（`PulseCueAPIConfiguration`）。
+- OpenFoodFacts への外向き通信（バーコード値・固定 User-Agent・通信上の IP。アカウント情報は送らない）は存在。OpenFoodFacts は visitor の IP/ログを 3 年保持と公表しており、Apple 定義上の申告要否・カテゴリは**未確定**（`app-store-privacy-answers.md` §6 MANUAL GATE。提出前に決定必須）。
 
 ## 8. 依存パッケージ（検証済み）
 
-`Package.resolved`: `googlesignin-ios` / `appauth-ios` / `gtm-session-fetcher` / `gtmappauth`（すべて Google Sign-In 用）。現フェーズでは Google Sign-In は**プレースホルダで無効**（`GIDClientID = YOUR_IOS_CLIENT_ID...` のためボタン非活性）。解析・トラッキングSDKは**なし**。
+`Package.resolved`: `googlesignin-ios` 7.1.0 / `appauth-ios` 1.7.6 / `gtm-session-fetcher` 3.5.0 / `gtmappauth` 4.1.1（すべて Google Sign-In 用）。`GIDClientID` は実値、`GIDServerClientID` は placeholder（P0）。解析・トラッキングSDKは**なし**。
 
 ## 9. 現時点のブロッカー整理
 
 **App Store ブロッカー（提出前に必須・大半が手動）**
 - App Store Connect: アプリ名 / 説明 / キーワード / サポートURL / プライバシーポリシーURL（**手動要**）
 - スクリーンショット（必須サイズ）（**手動要**）
-- App Privacy 質問票の回答（カメラ・位置・OpenFoodFacts 通信を反映）（**手動要**）
+- App Privacy 質問票の回答（**データ収集あり**: メールアドレス・ユーザ ID・その他のデータタイプ（端末名）。OpenFoodFacts は §6 MANUAL GATE で決定。`app-store-privacy-answers.md`）（**手動要**）
+- `PulseCueAPIBaseURL` / `GIDServerClientID` の本番値設定と `pulsecue-api` deploy（**P0・手動/外部**）
+- プライバシーポリシーにアカウント情報の扱いと削除方法を記載（**手動要**）
 - 年齢レーティング設定（**手動要**）
 - 実機アーカイブ・署名・アップロード（**未検証**：本環境では実施不可）
 
 **外部ブロッカー**
-- Apple Developer Program 有効・証明書/プロファイル（**外部**）
-- Sign in with Apple の App ID capability（**外部/手動**）
+- 証明書/Distribution プロファイル・App ID capability（Sign in with Apple / HealthKit）の整合（**外部/手動**）
+- Google Cloud の Web application OAuth client 作成（`GIDServerClientID` / server `GOOGLE_AUDIENCE`）（**外部**）
 
 **非ブロッキング follow-up**
-- Google Sign-In の実クライアントID設定（プレースホルダのまま提出可・ボタンは無効表示）
 - レガシー `PulseCue/`（スペース無し）ディレクトリはビルドターゲット外の旧 scaffold（トラッキングされているが未コンパイル）。別PRでの削除を推奨。
 - （対応済み）空だった `UIBackgroundModes` は削除。
 
@@ -110,4 +112,5 @@ TestFlight 配信・App Store 提出に対する**コード/設定側の技術�
 - 実機でのアーカイブ・署名・App Store Connect アップロード・processing（本環境で実行不可）。
 - 実機QA（`device-qa-matrix.md` の各行）— シミュレータ確認のみ、**実機は未実施**。
 - 実VoiceOver操作・メモリ圧迫・回転制限の実機挙動。
+- 本番 API に対する Apple / Google サインイン・再起動後の session 復元・logout・アカウント削除（server 未 deploy のため未実施）。
 - App Review の合否（外部）。

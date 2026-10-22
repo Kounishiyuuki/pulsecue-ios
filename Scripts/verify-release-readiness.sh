@@ -7,6 +7,8 @@
 #
 #   ./Scripts/verify-release-readiness.sh          # fast checks only
 #   ./Scripts/verify-release-readiness.sh --full    # + Debug/Release builds
+#   PULSECUE_RELEASE_STRICT=1 ./Scripts/verify-release-readiness.sh [--full]
+#       # RC / Archive / TestFlight upload: placeholder Info.plist values FAIL
 #
 # It is intentionally small: it verifies release-safety invariants, not a CI
 # system. Manual TestFlight/App Store steps live in Docs/testflight-checklist.md
@@ -58,6 +60,23 @@ for f in "$APP_SRC/Info.plist" "$APP_SRC/PrivacyInfo.xcprivacy" "$APP_SRC/Pulse_
   else
     bad "$(basename "$f") missing or invalid"
   fi
+done
+
+# main intentionally carries placeholders, so this only warns by default. A
+# build that is uploaded to TestFlight/App Store must have real values here, or
+# sign-in is visible but always refused (see Docs/testflight-checklist.md), so
+# PULSECUE_RELEASE_STRICT=1 turns the warning into a failure.
+for key in PulseCueAPIBaseURL GIDServerClientID; do
+  val=$(/usr/libexec/PlistBuddy -c "Print :$key" "$APP_SRC/Info.plist" 2>/dev/null || true)
+  case "$val" in
+    ""|*YOUR_*)
+      if [ "${PULSECUE_RELEASE_STRICT:-0}" = "1" ]; then
+        bad "$key is a placeholder (PULSECUE_RELEASE_STRICT=1: not uploadable)"
+      else
+        warn "$key is a placeholder — set the production value before uploading"
+      fi ;;
+    *) pass "$key is set" ;;
+  esac
 done
 
 hdr "3. App icon present"

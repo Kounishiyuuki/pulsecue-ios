@@ -36,7 +36,7 @@ PulseCue の本番画面を DEBUG 限定ルートで決定的に撮影し、デ�
 | form-guide | Form Guide 3D | 折り畳み | 動きを3D+テキスト | machine_chest_press | light | 標準 | ✅ | なし | 10-form-guide/form-guide.png | **main現状capsule**（PR#140非依存） |
 | form-guide-instructions-expanded | Form Guide 3D | テキスト展開 | 手順テキスト | 同上 | light | 標準 | ✅ | なし | 10-form-guide/form-guide-instructions-expanded.png | 同上 |
 
-※ login は Release では Google コントロール非表示（PR#142）。本 inventory は DEBUG 撮影のため Google 不可視状態が写る。
+※ login は撮影時点（PR#142）では Release で Google コントロール非表示だった。**現在は `GIDClientID` 実値設定済みのため Release でも表示される**（履歴記録）。本 inventory は DEBUG 撮影のため Google 不可視状態が写る。
 
 ## 検出した UI 懸念（カテゴリ別・本PRでは修正しない）
 
@@ -228,7 +228,7 @@ narrow（5・iPhone SE 375pt・幅レイアウトが最も影響する画面）:
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | 01-onboarding/onboarding.png | onboarding | 初回・ゲスト導線 | Light | 17 Pro | 静的 | ログイン不要で開始 | 完全 | PASS | 下部余白多 |
 | 2 | 01-onboarding/onboarding-narrow.png | onboarding | 同上 | Light | SE | 静的 | 幅監査 | 完全 | PASS | iOS18でフラット(caveat) |
-| 3 | 02-auth/login.png | login | 続ける方法選択 | Light | 17 Pro | AuthSessionStore(空) | 任意ログイン | 完全 | PASS | DEBUGでGoogle「準備中」可視(Release非表示) |
+| 3 | 02-auth/login.png | login | 続ける方法選択 | Light | 17 Pro | AuthSessionStore(空) | 任意ログイン | 完全 | PASS | DEBUGでGoogle「準備中」可視(撮影時点はRelease非表示・現在は表示) |
 | 4 | 03-home/home.png | home | 0/4・ジム準備済 | Light | 17 Pro | 渋谷11台 | 今日を始める | 完全 | PASS | ✨装飾(AI非主張) |
 | 5 | 03-home/home-dark.png | home | 同上 | Dark | 17 Pro | 渋谷11台 | dark表現 | 完全 | PASS | 良好 |
 | 6 | 03-home/home-narrow.png | home | 同上 | Light | SE | 渋谷11台 | 幅監査 | 完全 | PASS | 良好 |
@@ -288,7 +288,7 @@ narrow（5・iPhone SE 375pt・幅レイアウトが最も影響する画面）:
   5. 管理: `08-my-gym/machine-selection.png`（マシン選択・チェック/カウント）
   6. 履歴/読み取り: `07-history/history-detail.png`（実施記録）
 - **視覚参照にしない画面**: `10-form-guide/*`（**現状は簡易capsule 3D**。PR #140 の rigged model 未マージのため、フォームガイドの3D品質を Stitch のデザイン基準にしない）。narrow 画像（iOS18でGlass非適用のため外観参照に不適・幅監査専用）。
-- **現在のプロダクト能力境界**: ローカルのみ（同期/バックアップ未実装・「今後対応予定」）/ プラン生成はルールベース（AI/サーバー/クラウド非該当）/ Google ログインは未設定（Release非表示）/ Form Guide は限定10種目・簡易3D。
+- **現在のプロダクト能力境界**: ローカルのみ（同期/バックアップ未実装・「今後対応予定」）/ プラン生成はルールベース（AI/サーバー/クラウド非該当）/ Google ログインは未設定（Release非表示）〔撮影時点の記録。現在は server-backed アカウント・Google 提供〕/ Form Guide は限定10種目・簡易3D。
 - **グループ構成**: `01-onboarding` `02-auth` `03-home` `05-planner` `06-runner` `07-history` `08-my-gym` `09-library` `10-form-guide` の9グループ。各 `_contact.html` に外観/端末ラベル付き。
 
 ### 直接目視の記録（Slice 5・最終）
