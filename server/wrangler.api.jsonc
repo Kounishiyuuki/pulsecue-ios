@@ -49,7 +49,7 @@
 		{
 			"binding": "DB",
 			"database_name": "pulsecue-api",
-			"database_id": "REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT",
+			"database_id": "3ec31ca0-664a-4ec2-aa52-1f8d4125d4a2",
 			"migrations_dir": "migrations"
 		}
 	],
