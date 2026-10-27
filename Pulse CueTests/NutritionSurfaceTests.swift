@@ -281,3 +281,20 @@ struct NutritionSurfaceTests {
         #expect(meals! < trend!)
     }
 }
+
+/// Release must not offer the mock AI / photo estimators as real features.
+struct NutritionEstimationPresentationTests {
+
+    @Test func releaseOffersNoMockEstimation() {
+        #expect(NutritionEstimationPresentation.offersMockEstimation(isDebugBuild: false) == false)
+        #expect(NutritionEstimationPresentation.dialogMessage(offersMockEstimation: false)
+            == "AI・写真による自動推定は今後対応予定です。")
+    }
+
+    @Test func debugKeepsMockEstimationLabelledAsDevelopmentOnly() {
+        #expect(NutritionEstimationPresentation.offersMockEstimation(isDebugBuild: true))
+        #expect(NutritionEstimationPresentation.aiMockLabel.hasPrefix("開発用"))
+        #expect(NutritionEstimationPresentation.photoMockLabel.hasPrefix("開発用"))
+        #expect(NutritionEstimationPresentation.dialogMessage(offersMockEstimation: true).contains("実AIではありません"))
+    }
+}

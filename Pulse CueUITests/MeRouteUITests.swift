@@ -120,6 +120,60 @@ final class MeRouteUITests: XCTestCase {
         )
     }
 
+    // MARK: - Login sheet can be closed explicitly
+
+    func testLoginSheetHasACloseButtonThatDismisses() {
+        let app = appShowing("アカウント")
+        openLoginSheet(in: app)
+
+        let close = app.buttons["閉じる"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the login sheet has no close button")
+        XCTAssertTrue(app.buttons["ゲストで続ける"].exists, "the guest route is gone")
+        XCTAssertGreaterThanOrEqual(close.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(close.frame.height, 44)
+
+        close.tap()
+        XCTAssertTrue(
+            app.staticTexts["PulseCueにログイン"].waitForNonExistence(timeout: 10),
+            "閉じる did not dismiss the login sheet"
+        )
+    }
+
+    func testLoginCloseButtonDoesNotOverlapTitleAtAccessibilitySize() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-ui-test-quick-plan-flow",
+                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        let tab = app.tabBars.buttons["マイページ"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20), "Me tab not found")
+        tab.tap()
+        let row = app.buttons["アカウント"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "アカウント not found on Me")
+        if !row.isHittable { app.swipeUp() }
+        row.tap()
+        openLoginSheet(in: app)
+
+        let close = app.buttons["閉じる"]
+        let title = app.staticTexts["PulseCueにログイン"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the login sheet has no close button")
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "login title missing")
+        XCTAssertFalse(close.frame.intersects(title.frame), "閉じる overlaps the title at AX size")
+    }
+
+    private func openLoginSheet(in app: XCUIApplication) {
+        // The row's label is its title and caption joined, so match the title.
+        let entry = app.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "ログイン・アカウント設定"))
+            .firstMatch
+        for _ in 0..<4 where !(entry.exists && entry.isHittable) { app.swipeUp() }
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "login entry not found")
+        entry.tap()
+        XCTAssertTrue(
+            app.staticTexts["PulseCueにログイン"].waitForExistence(timeout: 10),
+            "the login sheet did not open"
+        )
+    }
+
     // MARK: - Account deletion
     //
     //  The destructive control renders only for an authenticated account, and
