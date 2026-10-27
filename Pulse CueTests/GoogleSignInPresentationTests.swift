@@ -61,22 +61,22 @@ struct GoogleSignInPresentationTests {
         #expect(schemes.contains(expected), "missing \(expected) in \(schemes)")
     }
 
-    /// No **real** server client id may be committed.
+    /// The production Web/server client id is configured.
     ///
-    /// This used to require `GIDServerClientID` to be absent entirely, on the
-    /// grounds that no backend existed. A backend exists now and the key is
-    /// present as a documented placeholder, so the assertion moves to what it
-    /// was actually protecting: a real Google credential must never land in
-    /// the repository. That is the same guard `GIDClientID` already has, and
-    /// it is stricter than "the key is missing" — which would have gone quiet
-    /// the moment anyone added the key at all.
-    @Test func noRealServerClientIDIsCommitted() {
+    /// This used to assert the opposite — that no real server client id was
+    /// committed — because the backend did not exist yet. Production now ships
+    /// the real Web client id on purpose, so the guard moves to what matters
+    /// for a release: the key is present, has the Google client shape, and is
+    /// not the documented placeholder. The literal is not repeated here; the
+    /// Info.plist stays the single source of truth.
+    @Test func productionServerClientIDIsConfigured() {
         let raw = Bundle.main.object(forInfoDictionaryKey: "GIDServerClientID") as? String
         let config = GoogleServerSignInConfig(serverClientID: raw)
-        #expect(
-            !config.isConfigured,
-            "a real Web/server client id must not be committed: \(raw ?? "nil")"
-        )
+        #expect(config.isConfigured, "GIDServerClientID must be a real Web/server client id: \(raw ?? "nil")")
+        let serverClientID = try! #require(config.serverClientID)
+        #expect(serverClientID.hasSuffix(".apps.googleusercontent.com"))
+        #expect(serverClientID != GoogleServerSignInConfig.placeholderServerClientID)
+        #expect(!serverClientID.contains("YOUR_WEB_SERVER_CLIENT_ID"))
     }
 
     /// The server client id is a *different* client from the iOS one.
@@ -106,12 +106,22 @@ struct GoogleSignInPresentationTests {
         #expect(!schemes.contains(reversed))
     }
 
-    /// The API base URL must be a placeholder, never a real production host.
-    @Test func noRealAPIBaseURLIsCommitted() {
+    /// The production API base URL is configured and safe to send tokens to.
+    ///
+    /// Previously this required a placeholder. Production now points at the
+    /// real Worker, so the test checks the properties the account layer relies
+    /// on — HTTPS, a real host, no credentials, not the placeholder — without
+    /// hardcoding the host itself.
+    @Test func productionAPIBaseURLIsConfigured() {
         let raw = Bundle.main.object(forInfoDictionaryKey: "PulseCueAPIBaseURL") as? String
-        #expect(
-            !PulseCueAPIConfiguration(rawValue: raw).isConfigured,
-            "a real API base URL must not be committed: \(raw ?? "nil")"
-        )
+        let config = PulseCueAPIConfiguration(rawValue: raw)
+        #expect(config.isConfigured, "PulseCueAPIBaseURL must be a valid production endpoint: \(raw ?? "nil")")
+        let baseURL = try! #require(config.baseURL)
+        #expect(baseURL.scheme == "https")
+        let host = try! #require(baseURL.host)
+        #expect(!host.isEmpty)
+        #expect(host != "localhost" && host != "127.0.0.1")
+        #expect(baseURL.user == nil && baseURL.password == nil)
+        #expect(!(raw ?? "").contains("YOUR_PULSECUE_API_HOST"))
     }
 }
