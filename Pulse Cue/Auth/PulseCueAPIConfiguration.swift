@@ -5,9 +5,9 @@
 //  Where the PulseCue account API lives — read from Info.plist, never
 //  compiled in.
 //
-//  No production URL exists yet, and none is hardcoded here. Until one is
-//  configured the account layer is simply unavailable, and that has a precise
-//  meaning:
+//  The production Worker URL is set in Info.plist; none is hardcoded here.
+//  If it is missing, blank, the placeholder, or fails validation, the account
+//  layer is simply unavailable, and that has a precise meaning:
 //
 //    * it does NOT connect to some other endpoint
 //    * it does NOT quietly fall back to localhost
