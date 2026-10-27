@@ -51,6 +51,12 @@ struct LoginView: View {
     /// unconfigured, sign-in still links the provider locally and simply does
     /// not claim a server account was created.
     var serverAccount: ServerAccountStore?
+    /// Whether to draw an explicit 閉じる control.
+    ///
+    /// Opt-in because this view is also embedded where there is nothing to
+    /// close (Visual QA, previews). Callers that present it as a sheet pass
+    /// `true`; swipe-to-dismiss and the post-sign-in dismiss are unaffected.
+    var showsCloseButton = false
     @Environment(\.dismiss) private var dismiss
 
     /// Disables both provider buttons while an attempt is on screen.
@@ -115,15 +121,25 @@ struct LoginView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.m) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.accentFilled)
-                    .frame(width: 56, height: 56)
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
+            // The close control shares the icon's row, never the title's, so
+            // a title that wraps at accessibility sizes cannot run under it.
+            HStack(alignment: .top) {
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.accentFilled)
+                        .frame(width: 56, height: 56)
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .accessibilityHidden(true)
+
+                Spacer(minLength: AppTheme.Spacing.m)
+
+                if showsCloseButton {
+                    closeButton
+                }
             }
-            .accessibilityHidden(true)
 
             Text("PulseCueにログイン")
                 .font(.title.weight(.bold))
@@ -135,6 +151,23 @@ struct LoginView: View {
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var closeButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(AppTheme.textPrimary)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(AppTheme.separator, lineWidth: 0.7))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("閉じる")
+        .accessibilityIdentifier("login.close")
     }
 
     // MARK: - Actions

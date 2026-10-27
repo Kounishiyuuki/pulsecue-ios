@@ -22,9 +22,9 @@
 //    DayLog intake field is derived from confirmed meals and nothing else may
 //    maintain it.
 //
-//  No external AI API is called. AI candidates are locally synthesized when
-//  the user taps 「AI で記録」 and edits the form; a pending estimate counts
-//  towards nothing until confirmed.
+//  No external AI API is called. AI candidates are locally synthesized, and
+//  only DEBUG offers that entry (see `NutritionEstimationPresentation`); a
+//  pending estimate counts towards nothing until confirmed.
 //
 
 import SwiftUI
@@ -57,6 +57,14 @@ struct NutritionView: View {
     @State private var showBarcodeScanner = false
     @State private var showNutritionLabelOCR = false
     @State private var showPhotoFoodCapture = false
+
+    private var offersMockEstimation: Bool {
+        #if DEBUG
+        NutritionEstimationPresentation.offersMockEstimation(isDebugBuild: true)
+        #else
+        NutritionEstimationPresentation.offersMockEstimation(isDebugBuild: false)
+        #endif
+    }
     /// Carbs and fat, one tap behind the figures people act on.
     @State private var showsMacroDetail = false
 
@@ -185,9 +193,12 @@ struct NutritionView: View {
                     sheetMode = .add(source: .manual, slot: slot)
                 }
             }
-            Button("AI で記録（推定）") {
-                if let slot = pendingSlotForChoice {
-                    sheetMode = .add(source: .ai, slot: slot)
+            // Mock-only entries: see `NutritionEstimationPresentation`.
+            if offersMockEstimation {
+                Button(NutritionEstimationPresentation.aiMockLabel) {
+                    if let slot = pendingSlotForChoice {
+                        sheetMode = .add(source: .ai, slot: slot)
+                    }
                 }
             }
             // The scanners moved here from a row of chips at the top of the
@@ -196,10 +207,12 @@ struct NutritionView: View {
             // anything.
             Button("栄養表示を読み取る") { showNutritionLabelOCR = true }
             Button("バーコードを読み取る") { showBarcodeScanner = true }
-            Button("写真から記録") { showPhotoFoodCapture = true }
+            if offersMockEstimation {
+                Button(NutritionEstimationPresentation.photoMockLabel) { showPhotoFoodCapture = true }
+            }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("AI で記録すると「確認待ち」状態で保存されます。確定するまでカロリーには加算されません。")
+            Text(NutritionEstimationPresentation.dialogMessage(offersMockEstimation: offersMockEstimation))
         }
         .alert("この AI 推定を破棄しますか？", isPresented: discardAlertBinding) {
             Button("破棄", role: .destructive) {
@@ -606,3 +619,24 @@ struct ProgressBar: View {
     }
 }
 
+/// Whether the add-meal dialog offers the AI and photo estimators.
+///
+/// Both are mocks today — `AI で記録` synthesizes a candidate locally and
+/// `PhotoFoodCaptureView` runs `MockPhotoFoodEstimator` — so Release must not
+/// offer them as if they were real. DEBUG keeps them for development, labelled
+/// 開発用 so nobody mistakes the mock for the feature. Pure so both branches
+/// are unit-testable without `#if` in the test, like `GoogleSignInPresentation`.
+enum NutritionEstimationPresentation {
+    static let aiMockLabel = "開発用：AIモック推定"
+    static let photoMockLabel = "開発用：写真モック推定"
+
+    static func offersMockEstimation(isDebugBuild: Bool) -> Bool {
+        isDebugBuild
+    }
+
+    static func dialogMessage(offersMockEstimation: Bool) -> String {
+        offersMockEstimation
+            ? "開発用のモック推定は実AIではありません。「確認待ち」で保存され、確定するまでカロリーには加算されません。"
+            : "AI・写真による自動推定は今後対応予定です。"
+    }
+}

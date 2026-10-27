@@ -118,7 +118,7 @@ struct AccountSettingsSection: View {
             }
         }
         .sheet(isPresented: $showLoginSheet) {
-            LoginView(authSession: authSession, serverAccount: serverAccount)
+            LoginView(authSession: authSession, serverAccount: serverAccount, showsCloseButton: true)
         }
     }
 

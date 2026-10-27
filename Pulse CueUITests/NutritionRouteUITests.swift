@@ -120,17 +120,22 @@ final class NutritionRouteUITests: XCTestCase {
 
         // Before the tap, no input method is on offer: the point of the
         // redesign is that intent comes first and method second.
-        XCTAssertFalse(app.buttons["AI で記録（推定）"].exists, "AI entry offered before asking")
+        XCTAssertFalse(app.buttons["開発用：AIモック推定"].exists, "AI entry offered before asking")
         XCTAssertFalse(app.buttons["バーコードを読み取る"].exists, "barcode offered before asking")
 
         addMeal.tap()
 
-        for method in ["手動で記録", "AI で記録（推定）", "栄養表示を読み取る",
-                       "バーコードを読み取る", "写真から記録"] {
+        // UI tests run the DEBUG build, so the mocks appear — but only under
+        // their 開発用 names. The old names would read as real features.
+        for method in ["手動で記録", "栄養表示を読み取る", "バーコードを読み取る",
+                       "開発用：AIモック推定", "開発用：写真モック推定"] {
             XCTAssertTrue(
                 app.buttons[method].waitForExistence(timeout: 10),
                 "\(method) is missing from the add dialog"
             )
+        }
+        for retired in ["AI で記録（推定）", "写真から記録"] {
+            XCTAssertFalse(app.buttons[retired].exists, "\(retired) is still offered as a real feature")
         }
     }
 
