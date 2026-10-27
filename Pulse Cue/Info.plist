@@ -28,7 +28,7 @@
 	  a PulseCue account.
 	-->
 	<key>GIDServerClientID</key>
-	<string>YOUR_WEB_SERVER_CLIENT_ID.apps.googleusercontent.com</string>
+	<string>213383813796-ile64opt8rs3l92e2nsn71gcfpj94ckb.apps.googleusercontent.com</string>
 	<!--
 	  Base URL of the PulseCue account API. HTTPS only.
 
@@ -37,7 +37,7 @@
 	  back to localhost, and does not affect Guest or any local feature.
 	-->
 	<key>PulseCueAPIBaseURL</key>
-	<string>https://YOUR_PULSECUE_API_HOST</string>
+	<string>https://pulsecue-api.happywestyuki.workers.dev</string>
 	<key>NSCameraUsageDescription</key>
 	<string>食品バーコードを読み取るためにカメラを使用します。</string>
 	<key>NSHealthShareUsageDescription</key>
