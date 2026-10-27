@@ -248,7 +248,14 @@ struct ServerAccountSettingsSection: View {
         // delete surfaces as `.localCleanupFailed` rather than as Guest, and
         // the section's own copy explains it. Local training data is untouched
         // either way.
-        _ = await store.logout()
+        let logoutResult = await store.logout()
+
+        // Only forget the local provider link once the PulseCue session token
+        // is definitely gone. Otherwise the next launch may still restore the
+        // server session, so showing the provider as unlinked would be false.
+        if logoutResult == .signedOut {
+            clearLocalProviderLink()
+        }
 
         // The user asked to sign out, so the provider session goes too.
         //
