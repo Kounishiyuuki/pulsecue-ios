@@ -1252,6 +1252,7 @@ final class GoogleSDKCrossLaunchCleanupTests: XCTestCase {
         XCTAssertEqual(rig.signOut.signOutCount, 1)
         XCTAssertNil(rig.signOut.owner)
         XCTAssertEqual(rig.store.state, .guest)
+        XCTAssertNil(rig.links.linkedAccount, "successful sign-out drops the local provider link")
     }
 
     func testAFailedKeychainDeleteStillReportsLocalCleanupFailed() async {
@@ -1267,6 +1268,10 @@ final class GoogleSDKCrossLaunchCleanupTests: XCTestCase {
         XCTAssertEqual(
             rig.store.state, .localCleanupFailed,
             "but PulseCue is not signed out while its token may remain"
+        )
+        XCTAssertNotNil(
+            rig.links.linkedAccount,
+            "the provider link must remain while the PulseCue session token may still exist"
         )
     }
 

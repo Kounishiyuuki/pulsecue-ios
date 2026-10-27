@@ -9,12 +9,12 @@
 			<string>com.kounishiyuuki.pulsecue.googlesignin</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.376943003827-oai1mlkosmm8pv1ie94eelvcop3p6clu</string>
+				<string>com.googleusercontent.apps.213383813796-oc6rm0rnmkluofjgj57k72ulkks0veo7</string>
 			</array>
 		</dict>
 	</array>
 	<key>GIDClientID</key>
-	<string>376943003827-oai1mlkosmm8pv1ie94eelvcop3p6clu.apps.googleusercontent.com</string>
+	<string>213383813796-oc6rm0rnmkluofjgj57k72ulkks0veo7.apps.googleusercontent.com</string>
 	<!--
 	  The *second* Google client: the Web application ("server") OAuth client
 	  id. Setting this makes Google mint the ID token with `aud` set to it,
