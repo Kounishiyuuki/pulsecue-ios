@@ -77,4 +77,42 @@ struct DayLogQuickInputConversionTests {
         let c = DayLogQuickInputSheet.weightComponents(fromKg: stored)
         #expect(DayLogQuickInputSheet.weightValue(whole: c.whole, decimal: c.decimal) == stored)
     }
+
+    // MARK: - Continuous entry order
+
+    @Test
+    func sequenceStartsAtFirstMissingFieldInOrder() {
+        #expect(DailyRecordSequence.nextField(filled: [], nutritionAcceptsManualEntry: true) == .nutrition)
+        #expect(DailyRecordSequence.nextField(filled: [.nutrition], nutritionAcceptsManualEntry: true) == .workout)
+        #expect(DailyRecordSequence.nextField(filled: [.nutrition, .workout, .sleep], nutritionAcceptsManualEntry: true) == .weight)
+        #expect(DailyRecordSequence.nextField(filled: Set(DayLogField.allCases), nutritionAcceptsManualEntry: true) == nil)
+    }
+
+    @Test
+    func sequenceSkipsMealOwnedNutrition() {
+        // Meals own the day: the quick input would be overwritten by NutritionLedger.
+        #expect(DailyRecordSequence.nextField(filled: [], nutritionAcceptsManualEntry: false) == .workout)
+        #expect(DailyRecordSequence.nextField(filled: [.workout, .sleep, .weight], nutritionAcceptsManualEntry: false) == nil)
+    }
+
+    @Test
+    func sequenceNeverReopensAVisitedField() {
+        // Sleep saved as 0h stays missing; it must not reopen in a loop.
+        #expect(DailyRecordSequence.nextField(
+            filled: [.nutrition, .workout], nutritionAcceptsManualEntry: true, visited: [.sleep]
+        ) == .weight)
+        #expect(DailyRecordSequence.nextField(
+            filled: [.nutrition, .workout, .weight], nutritionAcceptsManualEntry: true, visited: [.sleep]
+        ) == nil)
+    }
+
+    @Test
+    func filledFieldsCountsEachRecordedValue() {
+        #expect(DailyRecordSequence.filledFields(
+            intakeCalories: nil, exerciseCalories: nil, sleepMinutes: nil, weightKg: nil
+        ).isEmpty)
+        #expect(DailyRecordSequence.filledFields(
+            intakeCalories: 1800, exerciseCalories: nil, sleepMinutes: 420, weightKg: nil
+        ) == [.nutrition, .sleep])
+    }
 }

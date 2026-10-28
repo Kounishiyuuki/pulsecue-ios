@@ -37,19 +37,44 @@ struct CompactPersonalStatus: View {
     /// tap target labelled 今日の記録 that opened weight entry — a promise the
     /// label did not make, and one a VoiceOver user had no way to predict.
     let onTapWeight: () -> Void
+    /// Starts continuous entry at the first missing field. `nil` hides the
+    /// button — when everything is recorded, or nothing left can be entered
+    /// here.
+    var onContinueRecording: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("今日の記録")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Text("\(recordedCount) / \(totalCount) 入力済み")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("今日の記録")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("\(recordedCount) / \(totalCount) 入力済み")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(recordAccessibilityLabel)
+
+                if let onContinueRecording {
+                    Button(action: onContinueRecording) {
+                        HStack(spacing: 4) {
+                            Text("続きを入力")
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .accessibilityHidden(true)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("続きを入力")
+                    .accessibilityHint("未入力の記録を順番に入力")
+                    .accessibilityIdentifier("today.record.continue")
+                }
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(recordAccessibilityLabel)
 
             Spacer(minLength: 0)
 
