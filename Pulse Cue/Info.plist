@@ -42,6 +42,8 @@
 	<string>食品バーコードを読み取るためにカメラを使用します。</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>体重と睡眠時間の入力を補助するために、ヘルスケアのデータを読み取ります。読み取った値は画面に表示されるだけで、保存するかどうかはご自身で選べます。</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Pulse Cueはヘルスケア連携機能のためにHealthKitを使用します。現在、ヘルスケアへのデータ書き込みは行いません。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>ジム登録の際、近くのジムを検索するために位置情報を使います。現在地は近くのジム検索にのみ使用します。</string>
 </dict>
