@@ -6,6 +6,7 @@ import SwiftUI
 enum GlassUIVisualQARoute: String, CaseIterable {
     case home
     case progress
+    case nutrition
     case myGymActive = "mygym-active"
     case myGymEmpty = "mygym-empty"
     case myGymMultiple = "mygym-multiple"
@@ -80,6 +81,7 @@ struct GlassUIVisualQARoot: View {
             guard gyms.isEmpty else { return }
             do {
                 try GlassUIVisualQAFixture.seed(into: modelContext)
+                try GlassUIVisualQAFixture.seedNutrition(into: modelContext)
             } catch {
                 seedingFailed = true
             }
@@ -94,6 +96,8 @@ struct GlassUIVisualQARoot: View {
                 ScreenshotHomeHost(modelContext: modelContext)
             case .progress:
                 NavigationStack { WorkoutProgressView() }
+            case .nutrition:
+                ScreenshotNutritionHost()
             case .myGymActive:
                 MyGymHomeView()
             case .myGymEmpty:
@@ -455,6 +459,17 @@ private struct ScreenshotHomeHost: View {
     }
 }
 
+/// DEBUG-only host for the Nutrition tab over the seeded meals. Settings come
+/// from the throwaway screenshot suite, never `.standard`.
+private struct ScreenshotNutritionHost: View {
+    @StateObject private var settings = makeScreenshotSettings()
+
+    var body: some View {
+        NavigationStack { NutritionView() }
+            .environmentObject(settings)
+    }
+}
+
 /// DEBUG-only host for the My Gym / machine / Custom Machine inventory states.
 /// Builds its OWN isolated in-memory container per mode and renders the real
 /// production views — no production store write, no `UserDefaults.standard`.
@@ -546,6 +561,8 @@ enum GlassUIVisualQAFixture {
         "arm_curl_machine",
         "leg_press",
         "leg_curl",
+        "leg_extension",
+        "calf_raise",
         "abdominal_machine",
         "treadmill",
     ]
@@ -561,8 +578,13 @@ enum GlassUIVisualQAFixture {
         preferredSplit: .upperLower
     )
 
+    /// Generated from the fixture gym's own machines (not the whole catalog),
+    /// matching what a user at this gym would be offered.
     static let weeklyCandidate = RuleBasedWeeklyPlanGenerator.generate(
-        request: weeklyRequest
+        request: weeklyRequest,
+        equipment: machineIDs
+            .compactMap(MachineCatalog.entry(for:))
+            .map { AvailableEquipment(entry: $0) }
     )
 
     @MainActor
@@ -637,35 +659,23 @@ enum GlassUIVisualQAFixture {
         ]
         steps.forEach(context.insert)
 
-        let sessions = [
-            Session(
-                id: sessionIDs[0],
+        // Relative to launch so Progress's calendar-week summary and History
+        // never show a stale date. Days 0/2/4 all fall in the current week
+        // from Wednesday on (weeks start Sunday in ja_JP); earlier in the week
+        // fewer of them count as "今週".
+        let sessions = [(0, 3_180), (2, 2_940), (4, 2_760)].enumerated().map { index, spec in
+            let (daysAgo, seconds) = spec
+            let start = sessionStart(daysAgo: daysAgo)
+            return Session(
+                id: sessionIDs[index],
                 routineId: routineID,
-                dayDate: timestamp,
-                startedAt: timestamp.addingTimeInterval(18 * 3_600),
-                endedAt: timestamp.addingTimeInterval(18 * 3_600 + 3_180),
+                dayDate: DateUtils.startOfDay(start),
+                startedAt: start,
+                endedAt: start.addingTimeInterval(TimeInterval(seconds)),
                 status: .completed,
-                totalSeconds: 3_180
-            ),
-            Session(
-                id: sessionIDs[1],
-                routineId: routineID,
-                dayDate: timestamp.addingTimeInterval(-3 * 86_400),
-                startedAt: timestamp.addingTimeInterval(-3 * 86_400 + 18 * 3_600),
-                endedAt: timestamp.addingTimeInterval(-3 * 86_400 + 18 * 3_600 + 2_940),
-                status: .completed,
-                totalSeconds: 2_940
-            ),
-            Session(
-                id: sessionIDs[2],
-                routineId: routineID,
-                dayDate: timestamp.addingTimeInterval(-7 * 86_400),
-                startedAt: timestamp.addingTimeInterval(-7 * 86_400 + 18 * 3_600),
-                endedAt: timestamp.addingTimeInterval(-7 * 86_400 + 18 * 3_600 + 2_760),
-                status: .completed,
-                totalSeconds: 2_760
-            ),
-        ]
+                totalSeconds: seconds
+            )
+        }
         sessions.forEach(context.insert)
 
         for (sessionIndex, session) in sessions.enumerated() {
@@ -687,6 +697,71 @@ enum GlassUIVisualQAFixture {
                     )
                 }
             }
+        }
+        try context.save()
+    }
+
+    /// Today's session is a 07:00 workout (or two hours ago, if capturing
+    /// earlier, so it is never in the future); earlier ones are 19:00 workouts.
+    static func sessionStart(daysAgo: Int, now: Date = Date()) -> Date {
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: -daysAgo, to: calendar.startOfDay(for: now))!
+        guard daysAgo == 0 else { return day.addingTimeInterval(19 * 3_600) }
+        return min(day.addingTimeInterval(7 * 3_600), now.addingTimeInterval(-2 * 3_600))
+    }
+
+    // MARK: - Nutrition
+
+    static let profileID = UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB57001")!
+    static let mealIDs = [
+        UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB57101")!,
+        UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB57102")!,
+        UUID(uuidString: "B134D9F0-25D8-4AA7-A5B9-1FE6DAB57103")!,
+    ]
+
+    /// Today's meals (1,650 kcal / 110 g protein), a guest profile and today's
+    /// weight, so the intake target comes from the real profile calculation.
+    /// Kept out of `seed` because these models differ from the V6 schema the
+    /// older route tests build their containers from.
+    @MainActor
+    static func seedNutrition(into context: ModelContext, now: Date = Date()) throws {
+        let today = DateUtils.startOfDay(now)
+        context.insert(
+            UserProfile(
+                id: profileID,
+                heightCm: 172,
+                ageYears: 32,
+                biologicalSex: .male,
+                activityFactor: .moderate,
+                goalWeightKg: 70.0,
+                weeklyChangeKg: -0.25,
+                updatedAt: timestamp
+            )
+        )
+        context.insert(DayLog(date: today, sleepMinutes: 420, weightKg: 72.4))
+
+        let meals: [(MealSlot, String, Int, Int, Int, Int, Int)] = [
+            (.breakfast, "オートミールとゆで卵", 520, 30, 62, 18, 7 * 60 + 30),
+            (.lunch, "鶏むね肉の定食", 780, 50, 95, 20, 12 * 60 + 30),
+            (.snack, "プロテインとバナナ", 350, 30, 50, 4, 15 * 60 + 30),
+        ]
+        for (index, meal) in meals.enumerated() {
+            let (slot, name, kcal, protein, carbs, fat, minute) = meal
+            context.insert(
+                MealEntry(
+                    id: mealIDs[index],
+                    dayDate: today,
+                    slot: slot,
+                    name: name,
+                    kcal: kcal,
+                    proteinGrams: protein,
+                    carbGrams: carbs,
+                    fatGrams: fat,
+                    status: .confirmed,
+                    source: .manual,
+                    createdAt: today.addingTimeInterval(TimeInterval(minute * 60))
+                )
+            )
         }
         try context.save()
     }

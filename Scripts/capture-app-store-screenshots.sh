@@ -2,7 +2,8 @@
 #
 # capture-app-store-screenshots.sh
 #
-# Deterministically captures the seven App Store source screenshots from the
+# Deterministically captures the App Store source screenshots (six primary +
+# two spare) from the
 # DEBUG-only visual-QA routes (see Docs/app-store-screenshot-plan.md). It only
 # drives launch arguments that are compiled `#if DEBUG`; nothing here ships in
 # Release. Generated PNGs are local artifacts (not committed).
@@ -22,7 +23,6 @@ SCREENSHOT_DEFAULTS_DOMAIN="com.pulsecue.screenshot-visualqa"
 DEVICE=""
 OUTPUT="build/app-store-screenshots"
 FORCE=0
-FORMGUIDE_DELAY="${PULSECUE_FORMGUIDE_DELAY:-3}"  # extra settle only for RealityKit
 SETTLE="${PULSECUE_SETTLE:-4}"
 
 while [ $# -gt 0 ]; do
@@ -68,8 +68,10 @@ APP=$(ls -dt ~/Library/Developer/Xcode/DerivedData/Pulse_Cue-*/Build/Products/De
 [ -n "$APP" ] || fail "built app not found"
 xcrun simctl install "$DEVICE" "$APP" || fail "install failed"
 
-# 4. Deterministic presentation: light appearance + clean status bar.
-xcrun simctl ui "$DEVICE" appearance light >/dev/null 2>&1 || true
+# 4. Deterministic presentation: dark appearance + clean status bar.
+# The shipping app forces dark (ContentView), but the QA root does not, so a
+# light simulator renders dark-on-dark text that users never see.
+xcrun simctl ui "$DEVICE" appearance dark >/dev/null 2>&1 || true
 xcrun simctl ui "$DEVICE" content_size medium >/dev/null 2>&1 || true
 xcrun simctl status_bar "$DEVICE" override \
   --time "9:41" --batteryState charged --batteryLevel 100 \
@@ -77,7 +79,6 @@ xcrun simctl status_bar "$DEVICE" override \
 
 mkdir -p "$OUTPUT"
 
-# route mapping: filename | launch args (route or custom-machine-flow for home)
 capture() {
   local file="$1"; shift
   local path="$OUTPUT/$file"
@@ -86,22 +87,21 @@ capture() {
   fi
   xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" >/dev/null 2>&1 || true
   xcrun simctl launch "$DEVICE" "$BUNDLE_ID" "$@" >/dev/null 2>&1 || fail "launch failed for $file"
-  # Readiness: bounded settle. Form Guide gets extra time for RealityKit.
-  local wait="$SETTLE"
-  case "$file" in *form-guide*) wait=$((SETTLE + FORMGUIDE_DELAY));; esac
-  sleep "$wait"
+  sleep "$SETTLE"
   xcrun simctl io "$DEVICE" screenshot "$path" >/dev/null 2>&1 || fail "screenshot failed for $file"
   printf '  captured %s\n' "$file"
 }
 
 info "Capturing…"
-capture "01-home.png"           "$ROUTE_ARG" "home"
-capture "02-weekly-plan.png"    "$ROUTE_ARG" "preview-weekly"
-capture "03-runner-active.png"  "$ROUTE_ARG" "runner-active"
-capture "04-runner-rest.png"    "$ROUTE_ARG" "runner-rest"
-capture "05-history-detail.png" "$ROUTE_ARG" "history-detail"
-capture "06-my-gym.png"         "$ROUTE_ARG" "mygym-active"
-capture "07-form-guide.png"     "$ROUTE_ARG" "form-guide"
+capture "01-home.png"               "$ROUTE_ARG" "home"
+capture "02-weekly-plan.png"        "$ROUTE_ARG" "preview-weekly"
+capture "03-runner-active.png"      "$ROUTE_ARG" "runner-active"
+capture "04-nutrition.png"          "$ROUTE_ARG" "nutrition"
+capture "05-progress.png"           "$ROUTE_ARG" "progress"
+capture "06-my-gym.png"             "$ROUTE_ARG" "mygym-active"
+# Spares
+capture "07-workout-completion.png" "$ROUTE_ARG" "workout-completion"
+capture "08-history-detail.png"     "$ROUTE_ARG" "history-detail"
 
 # Status-bar/pref cleanup happens in the EXIT trap (success or failure).
 info "Done. Output: $OUTPUT"
