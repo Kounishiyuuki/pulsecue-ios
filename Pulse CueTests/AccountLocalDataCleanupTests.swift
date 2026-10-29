@@ -53,7 +53,7 @@ struct AccountLocalDataCleanupTests {
 
     /// A fresh container on `url` each call — a real reopen.
     private static func container(_ url: URL) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: PulseCueSchemaV9.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
         return try ModelContainer(
             for: schema,
             migrationPlan: PulseCueMigrationPlan.self,
@@ -1275,6 +1275,5 @@ struct AccountLocalDataCleanupTests {
         let v9 = Set(PulseCueSchemaV9.models.map { ObjectIdentifier($0) })
         #expect(v9.subtracting(v8) == [ObjectIdentifier(PendingAccountLocalCleanup.self)])
         #expect(v8.isSubset(of: v9))
-        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV9.self)
     }
 }

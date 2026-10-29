@@ -30,6 +30,19 @@ final class UserProfile {
     /// not the schema's, so multiple rows remain representable by design.
     private(set) var ownerAccountID: UUID?
 
+    // Schema V10. All optional: a migrated row has never been asked, which is
+    // different from any answer. Enums are raw strings so an unknown value
+    // from a newer build reads as "not set" instead of failing the fetch.
+    var trainingGoalRaw: String? = nil
+    var experienceLevelRaw: String? = nil
+    var trainingDaysPerWeek: Int? = nil
+    var preferredSessionMinutes: Int? = nil
+    /// When this owner finished the post-sign-in profile onboarding. Lives on
+    /// the account's own profile, so it follows the account UUID: signing out
+    /// keeps it, deleting the account deletes it, and another account on the
+    /// same device has its own.
+    var profileOnboardingCompletedAt: Date? = nil
+
     init(
         id: UUID = UUID(),
         heightCm: Int = 170,
@@ -64,6 +77,22 @@ final class UserProfile {
         get { ActivityFactor(rawValue: activityFactorRaw) ?? .moderate }
         set {
             activityFactorRaw = newValue.rawValue
+            updatedAt = Date()
+        }
+    }
+
+    var trainingGoal: ProfileTrainingGoal? {
+        get { trainingGoalRaw.flatMap(ProfileTrainingGoal.init(rawValue:)) }
+        set {
+            trainingGoalRaw = newValue?.rawValue
+            updatedAt = Date()
+        }
+    }
+
+    var experienceLevel: ExperienceLevel? {
+        get { experienceLevelRaw.flatMap(ExperienceLevel.init(rawValue:)) }
+        set {
+            experienceLevelRaw = newValue?.rawValue
             updatedAt = Date()
         }
     }
@@ -131,5 +160,41 @@ extension UserProfile {
     func undoAdoption(_ adoption: HealthOwnerAdoption) {
         guard ownerAccountID == adoption.accountID else { return }
         ownerAccountID = nil
+    }
+}
+
+/// What the person trains for, as the profile stores it.
+///
+/// Not the plan generator's `TrainingGoal`: that one has no `health`, and
+/// widening it would change the generator and its picker. `planGoal` is the
+/// bridge for when Quick Plan starts reading the profile.
+enum ProfileTrainingGoal: String, CaseIterable, Identifiable, Codable {
+    case hypertrophy
+    case strength
+    case fatLoss
+    case health
+    case consistency
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .hypertrophy: return "筋肥大"
+        case .strength: return "筋力アップ"
+        case .fatLoss: return "減量"
+        case .health: return "健康維持"
+        case .consistency: return "習慣づくり"
+        }
+    }
+
+    /// The generator goal closest to this one. Health has no exact match;
+    /// a light, repeatable plan is what it asks for.
+    var planGoal: TrainingGoal {
+        switch self {
+        case .hypertrophy: return .hypertrophy
+        case .strength: return .strength
+        case .fatLoss: return .fatLoss
+        case .health, .consistency: return .consistency
+        }
     }
 }

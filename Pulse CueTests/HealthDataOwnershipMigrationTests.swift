@@ -47,10 +47,10 @@ struct HealthDataOwnershipMigrationTests {
         try context.save()
     }
 
-    /// Opens the same store the way the app does: V8 + the migration plan,
-    /// then the scoped-key backfill.
+    /// Opens the same store the way the app does: the current schema + the
+    /// migration plan, then the scoped-key backfill.
     private static func openV8Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV8.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
         let container = try ModelContainer(
             for: schema,
             migrationPlan: PulseCueMigrationPlan.self,
@@ -319,7 +319,7 @@ struct HealthDataOwnershipMigrationTests {
 
     // MARK: - Historical schema preservation
 
-    @Test("V1–V7 keep the pinned owner-less health models; only V8 uses the current ones")
+    @Test("V1–V7 keep the pinned owner-less health models; V8+ carry owners, V10 the current profile")
     func historicalSchemasStayPinned() {
         let current: Set<ObjectIdentifier> = [
             ObjectIdentifier(DayLog.self),
@@ -351,9 +351,15 @@ struct HealthDataOwnershipMigrationTests {
             #expect(!dayLogNames.contains("scopedDayKey"), "\(version).DayLog gained a scoped key")
         }
 
+        // V8 introduced the owner columns; V10 later pinned V8's profile shape
+        // so its training fields could not leak back into V8 and V9.
         let v8 = Set(PulseCueSchemaV8.models.map { ObjectIdentifier($0) })
-        #expect(current.isSubset(of: v8))
         #expect(v8.isDisjoint(with: pinned))
+        #expect(v8.contains(ObjectIdentifier(DayLog.self)))
+        #expect(v8.contains(ObjectIdentifier(MealEntry.self)))
+        #expect(v8.contains(ObjectIdentifier(PulseCueSchemaV8.UserProfile.self)))
+        let v10 = Set(PulseCueSchemaV10.models.map { ObjectIdentifier($0) })
+        #expect(current.isSubset(of: v10))
     }
 
     @Test(

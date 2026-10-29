@@ -78,6 +78,7 @@ struct BodyGoalsSettingsSection: View {
                 tdeeCard
             }
             goalCard(profile: $profile)
+            trainingCard(profile: $profile)
             saveButton
         }
         .task { refreshCurrentWeight() }
@@ -218,6 +219,47 @@ struct BodyGoalsSettingsSection: View {
                     valueStyle: todayGoalGapStyle
                 )
                 healthTargetLink
+            }
+        }
+    }
+
+    // MARK: - Training
+
+    /// The answers the post-sign-in onboarding asks, editable here afterwards.
+    /// Same profile fields, so the two can never disagree.
+    private func trainingCard(profile: Bindable<UserProfile>) -> some View {
+        SettingsChrome.glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsChrome.sectionHeader(icon: "dumbbell.fill", title: "トレーニング")
+
+                Picker("目的", selection: profile.trainingGoal) {
+                    Text("未設定").tag(ProfileTrainingGoal?.none)
+                    ForEach(ProfileTrainingGoal.allCases) { Text($0.label).tag(Optional($0)) }
+                }
+                .accessibilityIdentifier("training-goal-picker")
+                Picker("経験レベル", selection: profile.experienceLevel) {
+                    Text("未設定").tag(ExperienceLevel?.none)
+                    ForEach(ExperienceLevel.allCases, id: \.self) { Text($0.displayName).tag(Optional($0)) }
+                }
+                Stepper(
+                    value: Binding(
+                        get: { profile.wrappedValue.trainingDaysPerWeek ?? 3 },
+                        set: { profile.wrappedValue.trainingDaysPerWeek = $0 }
+                    ),
+                    in: ProfileOnboardingDraft.daysRange
+                ) {
+                    LabeledContent("週あたり", value: profile.wrappedValue.trainingDaysPerWeek.map { "\($0) 回" } ?? "未設定")
+                }
+                Stepper(
+                    value: Binding(
+                        get: { profile.wrappedValue.preferredSessionMinutes ?? 45 },
+                        set: { profile.wrappedValue.preferredSessionMinutes = $0 }
+                    ),
+                    in: ProfileOnboardingDraft.minutesRange,
+                    step: 5
+                ) {
+                    LabeledContent("1回あたり", value: profile.wrappedValue.preferredSessionMinutes.map { "\($0) 分" } ?? "未設定")
+                }
             }
         }
     }
