@@ -60,7 +60,9 @@ final class GeneratedPlanViewModel: ObservableObject {
     }
 
     func regenerate() {
-        guard let repository else { return }
+        // `.task` re-runs `configure` when the view reappears; a saved plan
+        // must stay exactly what was persisted.
+        guard !isSaved, let repository else { return }
         // Standard selections + the gym's custom machines, already
         // narrowed to what is marked available. Pure read; nothing is
         // written and no Routine/Step is created until the user saves.
@@ -173,7 +175,7 @@ final class GeneratedPlanViewModel: ObservableObject {
     /// untouched. Any already-materialized routine is discarded so a later
     /// 保存 / 開始 rebuilds from the updated plan.
     func replaceExercise(at index: Int, with candidate: GeneratedExercise) {
-        guard let plan, plan.exercises.indices.contains(index) else { return }
+        guard !isSaved, let plan, plan.exercises.indices.contains(index) else { return }
         let original = plan.exercises[index]
         let replacement = GeneratedExercise(
             machineId: candidate.machineId,
@@ -215,8 +217,9 @@ final class GeneratedPlanViewModel: ObservableObject {
     /// Rewrites sets / reps / rest of the exercise at `index` (clamped to the
     /// editable ranges); `nil` keeps the current value. Like replacement, any
     /// materialized routine is discarded so 保存 / 開始 persist the edited
-    /// values rather than the generated ones. Ignored once saved, because the
-    /// saved routine would no longer match what the preview shows.
+    /// values rather than the generated ones. Ignored once saved (as are
+    /// replacement and regeneration), because the saved routine would no
+    /// longer match what the preview shows.
     func updatePrescription(at index: Int, sets: Int? = nil, reps: Int? = nil, restSeconds: Int? = nil) {
         guard !isSaved, let plan, plan.exercises.indices.contains(index) else { return }
         let original = plan.exercises[index]
@@ -241,6 +244,17 @@ final class GeneratedPlanViewModel: ObservableObject {
             warnings: plan.warnings
         )
         materialized = nil
+    }
+
+    /// Everything the preview warns about: the plan's generation-condition
+    /// warnings plus time warnings judged from the current exercises. The two
+    /// sets never overlap, so nothing is shown twice.
+    var warnings: [String] {
+        guard let plan else { return [] }
+        let timing = request.map {
+            WorkoutPlanGenerator.durationWarnings(for: plan.exercises, request: $0)
+        } ?? []
+        return plan.warnings + timing
     }
 
     var isSaved: Bool {

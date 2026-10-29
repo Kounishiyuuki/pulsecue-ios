@@ -66,6 +66,11 @@ final class QuickPlanFlowUITests: XCTestCase {
         // On success the preview swaps its CTA for a 完了 button.
         let done = app.buttons["完了"]
         XCTAssertTrue(done.waitForExistence(timeout: 8), "Save did not reach the saved state")
+
+        // A saved plan can no longer be swapped or edited.
+        let change = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "を別の種目に変更"))
+        XCTAssertEqual(change.count, 0, "種目を変更 still offered after save")
+        XCTAssertEqual(app.steppers.count, 0, "prescription still editable after save")
     }
 
     @MainActor

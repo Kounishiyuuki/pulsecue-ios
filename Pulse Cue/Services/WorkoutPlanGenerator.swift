@@ -208,13 +208,11 @@ enum WorkoutPlanGenerator {
             let names = parts.map(\.displayName).joined(separator: "・")
             warnings.append("\(names)を鍛えられるマシンが見つかりませんでした。別のマシンを追加するか、別の部位を選んでください。")
         } else if let fixedCount = request.exerciseCount.fixedCount {
+            // Only the generation condition is stored on the plan. Whether the
+            // plan fits the time depends on the current prescription, which the
+            // preview can edit, so that is judged live by `durationWarnings`.
             if adjusted.count < fixedCount {
                 warnings.append("使えるマシンが\(adjusted.count)台のため、\(fixedCount)種目ではなく\(adjusted.count)種目で作成しました。同じマシンの重複は避けています。")
-            }
-            if minutes > request.duration.upperBoundMinutes {
-                warnings.append("\(adjusted.count)種目では\(request.duration.displayName)に収まりません（推定\(minutes)分）。種目数を減らすか時間を延ばしてください。")
-            } else if minutes < request.duration.lowerBoundMinutes {
-                warnings.append("\(adjusted.count)種目では\(request.duration.displayName)に届きません（推定\(minutes)分）。種目数を増やすとより近づきます。")
             }
         } else if adjusted.count == candidates.count,
                   minutes < request.duration.lowerBoundMinutes {
@@ -264,6 +262,27 @@ enum WorkoutPlanGenerator {
             if minutes <= upperBound { best = count }
         }
         return best
+    }
+
+    /// Time warnings for a fixed-count plan, judged from the exercises as they
+    /// are *now* (generated or edited) via `WorkoutDurationEstimator`, so the
+    /// minutes quoted always match the preview's estimate. `おまかせ` sizing
+    /// fits the time by construction and keeps its own generation warning,
+    /// so it gets none here.
+    static func durationWarnings(
+        for exercises: [GeneratedExercise],
+        request: QuickPlanRequest
+    ) -> [String] {
+        guard request.exerciseCount.fixedCount != nil, !exercises.isEmpty else { return [] }
+        let minutes = WorkoutDurationEstimator.minutes(forPlan: exercises)
+        let duration = request.duration
+        if minutes > duration.upperBoundMinutes {
+            return ["\(exercises.count)種目では\(duration.displayName)に収まりません（推定\(minutes)分）。種目数を減らすか時間を延ばしてください。"]
+        }
+        if minutes < duration.lowerBoundMinutes {
+            return ["\(exercises.count)種目では\(duration.displayName)に届きません（推定\(minutes)分）。種目数を増やすとより近づきます。"]
+        }
+        return []
     }
 
     /// Set count bounds used when a fixed exercise count is reconciled with

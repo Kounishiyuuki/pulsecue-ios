@@ -288,6 +288,106 @@ struct GeneratedPlanEditingTests {
     }
 
     @Test
+    func replacementIsIgnoredOnceSavedAndStepsStayPut() throws {
+        let (vm, context) = try Self.viewModel()
+        vm.saveAsRoutine()
+        let before = try #require(vm.plan)
+        let stepsBefore = try context.fetch(FetchDescriptor<Step>()).map { [$0.title, "\($0.sets)", "\($0.repsTarget)", "\($0.restSeconds)"] }
+
+        vm.replaceExercise(at: 0, with: GeneratedExercise(
+            machineId: "cable_machine", exerciseName: "ケーブルクロスオーバー",
+            sets: 3, reps: 12, restSeconds: 60, cue: "", exerciseId: "cable_crossover"
+        ))
+        vm.regenerate()
+
+        #expect(vm.plan == before)
+        #expect(vm.isSaved)
+        let stepsAfter = try context.fetch(FetchDescriptor<Step>()).map { [$0.title, "\($0.sets)", "\($0.repsTarget)", "\($0.restSeconds)"] }
+        #expect(stepsAfter == stepsBefore)
+        #expect(try context.fetch(FetchDescriptor<Routine>()).count == 1)
+    }
+
+    // MARK: - Live time warnings
+
+    /// 4 chest machines, 90 minutes, 4 exercises: even at the fitted set cap
+    /// the plan is short, so it starts with a "届きません" warning.
+    private static func shortFixedCountViewModel() throws -> GeneratedPlanViewModel {
+        let schema = Schema([Routine.self, Step.self, Gym.self, GymMachine.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+        let repo = GymRepository(modelContext: context)
+        let gym = repo.createGym(name: "Test", makeActive: true)
+        repo.setMachines(["bench_press", "chest_press", "pec_deck", "incline_chest_press"], for: gym)
+        let vm = GeneratedPlanViewModel(
+            gym: gym,
+            request: QuickPlanRequest(bodyParts: [.chest], duration: .extended, intensity: .standard, exerciseCount: .fixed(4))
+        )
+        vm.configure(modelContext: context)
+        return vm
+    }
+
+    private static func timeWarnings(_ vm: GeneratedPlanViewModel) -> [String] {
+        vm.warnings.filter { $0.contains("収まりません") || $0.contains("届きません") }
+    }
+
+    @Test
+    func shortfallWarningClearsOnceEditsReachTheRange() throws {
+        let vm = try Self.shortFixedCountViewModel()
+        let duration = QuickPlanDuration.extended
+        try #require(vm.estimatedMinutes < duration.lowerBoundMinutes)
+        let initial = Self.timeWarnings(vm)
+        #expect(initial.count == 1)
+        // The quoted minutes are the preview's own estimate.
+        #expect(initial.first?.contains("届きません（推定\(vm.estimatedMinutes)分）") == true)
+
+        for index in try #require(vm.plan).exercises.indices {
+            vm.updatePrescription(at: index, sets: 10)
+        }
+        try #require((duration.lowerBoundMinutes...duration.upperBoundMinutes).contains(vm.estimatedMinutes))
+        #expect(Self.timeWarnings(vm).isEmpty)
+    }
+
+    @Test
+    func overshootAfterEditingQuotesTheCurrentEstimate() throws {
+        let vm = try Self.shortFixedCountViewModel()
+        for index in try #require(vm.plan).exercises.indices {
+            vm.updatePrescription(at: index, sets: 10, restSeconds: 300)
+        }
+        try #require(vm.estimatedMinutes > QuickPlanDuration.extended.upperBoundMinutes)
+        let timing = Self.timeWarnings(vm)
+        #expect(timing == ["4種目では90分に収まりません（推定\(vm.estimatedMinutes)分）。種目数を減らすか時間を延ばしてください。"])
+    }
+
+    @Test
+    func machineShortageWarningSurvivesEdits() throws {
+        let schema = Schema([Routine.self, Step.self, Gym.self, GymMachine.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+        let repo = GymRepository(modelContext: context)
+        let gym = repo.createGym(name: "Test", makeActive: true)
+        repo.setMachines(["bench_press", "chest_press", "pec_deck"], for: gym)
+        let vm = GeneratedPlanViewModel(
+            gym: gym,
+            request: QuickPlanRequest(bodyParts: [.chest], duration: .standardPlus, intensity: .standard, exerciseCount: .fixed(6))
+        )
+        vm.configure(modelContext: context)
+        let shortage = { vm.warnings.filter { $0.contains("6種目ではなく3種目") } }
+        #expect(shortage().count == 1)
+        vm.updatePrescription(at: 0, sets: 8)
+        #expect(shortage().count == 1)
+        // Never shown twice.
+        #expect(Set(vm.warnings).count == vm.warnings.count)
+    }
+
+    @Test
+    func automaticCountGetsNoLiveTimeWarnings() throws {
+        let (vm, _) = try Self.viewModel()
+        vm.updatePrescription(at: 0, sets: 10, restSeconds: 300)
+        #expect(Self.timeWarnings(vm).isEmpty)
+        #expect(vm.warnings == (vm.plan?.warnings ?? []))
+    }
+
+    @Test
     func editsAreIgnoredOnceSaved() throws {
         let (vm, _) = try Self.viewModel()
         vm.saveAsRoutine()

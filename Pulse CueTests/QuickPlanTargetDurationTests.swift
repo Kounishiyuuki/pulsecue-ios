@@ -337,6 +337,10 @@ struct QuickPlanTargetDurationTests {
         #expect(plan.exercises.count == 8)
         #expect(actual >= duration.lowerBoundMinutes && actual <= duration.upperBoundMinutes, "8 exercises / 90分 produced \(actual)")
         #expect(plan.warnings.isEmpty)
+        #expect(WorkoutPlanGenerator.durationWarnings(
+            for: plan.exercises,
+            request: QuickPlanRequest(bodyParts: Self.allParts, duration: duration, intensity: .standard, exerciseCount: .fixed(8))
+        ).isEmpty)
         #expect(plan.exercises.allSatisfy { (WorkoutPlanGenerator.fitMinSets...WorkoutPlanGenerator.fitMaxSets).contains($0.sets) })
     }
 
@@ -367,7 +371,14 @@ struct QuickPlanTargetDurationTests {
             gym: gym, availableEquipment: Self.fullyEquipped(on: gym)
         )
         #expect(plan.exercises.count == 10)
-        #expect(plan.warnings.contains { $0.contains("収まりません") })
+        let request = QuickPlanRequest(
+            bodyParts: Self.allParts, duration: .compact,
+            intensity: .standard, exerciseCount: .fixed(10)
+        )
+        let timing = WorkoutPlanGenerator.durationWarnings(for: plan.exercises, request: request)
+        #expect(timing.contains { $0.contains("収まりません") })
+        // Time is judged live, never frozen onto the plan.
+        #expect(!plan.warnings.contains { $0.contains("収まりません") })
     }
 
     @Test

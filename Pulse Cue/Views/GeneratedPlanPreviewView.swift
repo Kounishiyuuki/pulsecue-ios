@@ -57,8 +57,8 @@ struct GeneratedPlanPreviewView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     if let plan = viewModel.plan {
                         heroSummary(plan)
-                        if !plan.warnings.isEmpty {
-                            warningBanner(plan.warnings)
+                        if !viewModel.warnings.isEmpty {
+                            warningBanner(viewModel.warnings)
                         }
                         if !plan.isEmpty {
                             exercisesSection(plan: plan)
@@ -259,8 +259,11 @@ struct GeneratedPlanPreviewView: View {
                         .padding(.top, 2)
                 }
 
-                changeExerciseButton(exercise, index: index)
-                    .padding(.top, 2)
+                // Hidden once saved: the persisted routine cannot follow a swap.
+                if !isSaved {
+                    changeExerciseButton(exercise, index: index)
+                        .padding(.top, 2)
+                }
             }
         }
         .padding(16)
