@@ -43,18 +43,19 @@ struct Pulse_CueApp: App {
             || ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.completionFlowArgument)
             || PulseCueUITestSupport.requestedTrainingRoutineCount() != nil
             || PulseCueUITestSupport.isFormGuideDebugRoute()
-            || PulseCueUITestSupport.requestedGlassUIRoute() != nil {
+            || PulseCueUITestSupport.requestedGlassUIRoute() != nil
+            || PulseCueUITestSupport.isProfileOnboardingFixture() {
             inMemory = true
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV9.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV10.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             let container = try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV9.self),
+                for: Schema(versionedSchema: PulseCueSchemaV10.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -111,6 +112,8 @@ struct Pulse_CueApp: App {
         #if DEBUG
         if let route = PulseCueUITestSupport.requestedGlassUIRoute() {
             GlassUIVisualQARoot(route: route)
+        } else if PulseCueUITestSupport.isProfileOnboardingFixture() {
+            ProfileOnboardingFixtureRoot()
         } else if let exerciseId = PulseCueUITestSupport.requestedFormGuideExerciseId() {
             // Isolated debug root: no ContentView, no SampleDataSeeder, no
             // onboarding, in-memory store only.
@@ -158,6 +161,21 @@ enum PulseCueUITestSupport {
     /// end (start → Complete/種目をスキップ → completion → 履歴) in a few taps
     /// without waiting on a rest timer. DEBUG-only; compiled out of Release.
     static let completionFlowArgument = "-pulsecue-ui-test-completion-flow"
+
+    /// Shows the profile onboarding alone, for a fixed fake account, over its
+    /// own on-disk store so a relaunch can resume it. No server, no gate —
+    /// the screen itself is what is under test. `…-reset` starts the store
+    /// empty. DEBUG-only; compiled out of Release.
+    static let profileOnboardingArgument = "-pulsecue-ui-test-profile-onboarding"
+    static let profileOnboardingResetArgument = "-pulsecue-ui-test-profile-onboarding-reset"
+
+    static func isProfileOnboardingFixture(_ args: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG
+        return args.contains(profileOnboardingArgument)
+        #else
+        return false
+        #endif
+    }
 
     /// Seeds an exact number of user-saved routines into an in-memory store
     /// and skips onboarding: `-pulsecue-ui-test-training-routines <n>`.
@@ -724,6 +742,44 @@ enum PulseCueSchemaV8: VersionedSchema {
         }
         try context.save()
     }
+    /// The V8/V9 profile, pinned when V10 added the training fields to the
+    /// shared `UserProfile` — the same reason V1 pins its models: V8 and V9
+    /// must keep the hash they shipped with.
+    @Model
+    final class UserProfile {
+        @Attribute(.unique) var id: UUID
+        var heightCm: Int
+        var ageYears: Int
+        var biologicalSexRaw: String
+        var activityFactorRaw: String
+        var goalWeightKg: Double
+        var weeklyChangeKg: Double
+        var updatedAt: Date
+        var ownerAccountID: UUID?
+
+        init(
+            id: UUID = UUID(),
+            heightCm: Int,
+            ageYears: Int,
+            biologicalSexRaw: String,
+            activityFactorRaw: String,
+            goalWeightKg: Double,
+            weeklyChangeKg: Double,
+            updatedAt: Date,
+            ownerAccountID: UUID?
+        ) {
+            self.id = id
+            self.heightCm = heightCm
+            self.ageYears = ageYears
+            self.biologicalSexRaw = biologicalSexRaw
+            self.activityFactorRaw = activityFactorRaw
+            self.goalWeightKg = goalWeightKg
+            self.weeklyChangeKg = weeklyChangeKg
+            self.updatedAt = updatedAt
+            self.ownerAccountID = ownerAccountID
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
             Routine.self,
@@ -732,7 +788,7 @@ enum PulseCueSchemaV8: VersionedSchema {
             StepResult.self,
             DayLog.self,
             MealEntry.self,
-            UserProfile.self,
+            PulseCueSchemaV8.UserProfile.self,
             Gym.self,
             GymMachine.self,
             CustomMachine.self,
@@ -756,6 +812,18 @@ enum PulseCueSchemaV9: VersionedSchema {
     }
 }
 
+/// Adds the training profile and the onboarding marker to `UserProfile`:
+/// five optional attributes, no default that means anything, so the stage is
+/// lightweight and a migrated profile reads as "never onboarded".
+enum PulseCueSchemaV10: VersionedSchema {
+    static var versionIdentifier = Schema.Version(10, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PulseCueSchemaV9.models.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV8.UserProfile.self) ? UserProfile.self : $0
+        }
+    }
+}
+
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -767,7 +835,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV6.self,
             PulseCueSchemaV7.self,
             PulseCueSchemaV8.self,
-            PulseCueSchemaV9.self
+            PulseCueSchemaV9.self,
+            PulseCueSchemaV10.self
         ]
     }
 
@@ -804,6 +873,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV8.self,
                 toVersion: PulseCueSchemaV9.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV9.self,
+                toVersion: PulseCueSchemaV10.self
             )
         ]
     }

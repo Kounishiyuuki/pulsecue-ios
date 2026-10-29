@@ -30,6 +30,23 @@ final class UserProfile {
     /// not the schema's, so multiple rows remain representable by design.
     private(set) var ownerAccountID: UUID?
 
+    // Schema V10. All optional: a migrated row has never been asked, which is
+    // different from any answer. Enums are raw strings so an unknown value
+    // from a newer build reads as "not set" instead of failing the fetch.
+    var trainingGoalRaw: String? = nil
+    var experienceLevelRaw: String? = nil
+    var trainingDaysPerWeek: Int? = nil
+    var preferredSessionMinutes: Int? = nil
+    /// When this owner finished the post-sign-in profile onboarding. Lives on
+    /// the account's own profile, so it follows the account UUID: signing out
+    /// keeps it, deleting the account deletes it, and another account on the
+    /// same device has its own.
+    var profileOnboardingCompletedAt: Date? = nil
+    /// The onboarding step to resume at — the first one not yet saved. Nil
+    /// before the first step is saved and again once onboarding completes;
+    /// an unknown value resumes at the start rather than skipping anything.
+    var profileOnboardingStepRaw: String? = nil
+
     init(
         id: UUID = UUID(),
         heightCm: Int = 170,
@@ -66,6 +83,27 @@ final class UserProfile {
             activityFactorRaw = newValue.rawValue
             updatedAt = Date()
         }
+    }
+
+    var trainingGoal: ProfileTrainingGoal? {
+        get { trainingGoalRaw.flatMap(ProfileTrainingGoal.init(rawValue:)) }
+        set {
+            trainingGoalRaw = newValue?.rawValue
+            updatedAt = Date()
+        }
+    }
+
+    var experienceLevel: ExperienceLevel? {
+        get { experienceLevelRaw.flatMap(ExperienceLevel.init(rawValue:)) }
+        set {
+            experienceLevelRaw = newValue?.rawValue
+            updatedAt = Date()
+        }
+    }
+
+    var profileOnboardingStep: ProfileOnboardingStep {
+        get { profileOnboardingStepRaw.flatMap(ProfileOnboardingStep.init(rawValue:)) ?? .basics }
+        set { profileOnboardingStepRaw = newValue == .basics ? nil : newValue.rawValue }
     }
 
     // MARK: - Derived metrics
@@ -131,5 +169,90 @@ extension UserProfile {
     func undoAdoption(_ adoption: HealthOwnerAdoption) {
         guard ownerAccountID == adoption.accountID else { return }
         ownerAccountID = nil
+    }
+}
+
+/// The bounds every editor of a profile field offers — Settings and the
+/// onboarding — so neither can store a value the other cannot show.
+enum ProfileFieldRanges {
+    static let ageYears = 10...100
+    static let heightCm = 120...220
+    static let bodyWeightKg = 30.0...250.0
+    static let goalWeightKg = 30.0...150.0
+    static let goalWeightStepKg = 0.5
+    static let weeklyChangeKg = -1.5...1.5
+    static let weeklyChangeStepKg = 0.1
+    static let trainingDaysPerWeek = 1...7
+    /// Quick Plan's own grid, so a preferred length is always one Quick Plan
+    /// can offer.
+    static let sessionMinutes = QuickPlanDuration.minMinutes...QuickPlanDuration.maxMinutes
+    static let sessionMinutesStep = QuickPlanDuration.stepMinutes
+    static let defaultSessionMinutes = QuickPlanDuration.standard.minutes
+
+    static func isValidSessionMinutes(_ minutes: Int) -> Bool {
+        sessionMinutes.contains(minutes) && QuickPlanDuration(minutes: minutes).minutes == minutes
+    }
+}
+
+/// The post-sign-in onboarding's pages, in order.
+enum ProfileOnboardingStep: String, CaseIterable {
+    case basics, goal, habits, done
+
+    var next: ProfileOnboardingStep? {
+        let all = Self.allCases
+        guard let index = all.firstIndex(of: self), index + 1 < all.count else { return nil }
+        return all[index + 1]
+    }
+
+    var previous: ProfileOnboardingStep? {
+        let all = Self.allCases
+        guard let index = all.firstIndex(of: self), index > 0 else { return nil }
+        return all[index - 1]
+    }
+}
+
+/// What the person trains for, as the profile stores it.
+///
+/// Not the plan generator's `TrainingGoal`: that one has no `health`, and
+/// widening it would change the generator and its picker. `planGoal` is the
+/// bridge for when Quick Plan starts reading the profile.
+enum ProfileTrainingGoal: String, CaseIterable, Identifiable, Codable {
+    case hypertrophy
+    case strength
+    case fatLoss
+    case health
+    case consistency
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .hypertrophy: return "筋肥大"
+        case .strength: return "筋力アップ"
+        case .fatLoss: return "減量"
+        case .health: return "健康維持"
+        case .consistency: return "習慣づくり"
+        }
+    }
+
+    /// Where the weekly-change control starts when this goal is picked: only
+    /// fat loss implies losing weight. The person can still change it.
+    var suggestedWeeklyChangeKg: Double {
+        switch self {
+        case .fatLoss: return -0.5
+        case .hypertrophy: return 0.2
+        case .strength, .health, .consistency: return 0
+        }
+    }
+
+    /// The generator goal closest to this one. Health has no exact match;
+    /// a light, repeatable plan is what it asks for.
+    var planGoal: TrainingGoal {
+        switch self {
+        case .hypertrophy: return .hypertrophy
+        case .strength: return .strength
+        case .fatLoss: return .fatLoss
+        case .health, .consistency: return .consistency
+        }
     }
 }

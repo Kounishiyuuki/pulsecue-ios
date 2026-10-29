@@ -26,7 +26,7 @@ struct HealthDataScopingTests {
     // MARK: - Fixture
 
     private static func makeContext() throws -> ModelContext {
-        let schema = Schema(versionedSchema: PulseCueSchemaV8.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -44,7 +44,7 @@ struct HealthDataScopingTests {
 
     /// A fresh container on `url` each call — a real reopen.
     private static func open(_ url: URL, _ work: (ModelContext) throws -> Void) throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV8.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
         let container = try ModelContainer(
             for: schema,
             migrationPlan: PulseCueMigrationPlan.self,

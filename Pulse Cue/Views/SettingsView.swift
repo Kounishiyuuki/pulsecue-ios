@@ -145,7 +145,7 @@ struct SettingsView: View {
 
     /// Every field the body-and-goals controls write.
     private static func editSignature(_ profile: UserProfile) -> String {
-        "\(profile.heightCm)|\(profile.ageYears)|\(profile.biologicalSexRaw)|\(profile.activityFactorRaw)|\(profile.goalWeightKg)|\(profile.weeklyChangeKg)"
+        "\(profile.heightCm)|\(profile.ageYears)|\(profile.biologicalSexRaw)|\(profile.activityFactorRaw)|\(profile.goalWeightKg)|\(profile.weeklyChangeKg)|\(profile.trainingGoalRaw ?? "")|\(profile.experienceLevelRaw ?? "")|\(profile.trainingDaysPerWeek ?? 0)|\(profile.preferredSessionMinutes ?? 0)"
     }
 
     private func confirmSave() {

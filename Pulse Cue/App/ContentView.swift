@@ -115,6 +115,8 @@ struct ContentView: View {
             runnerViewModel.applyScope(scope)
             runnerPresenter.syncPresentation(shouldPresent: runnerViewModel.shouldPresentRunner)
         }
+        // After the first-launch onboarding, and never over a workout.
+        .profileOnboarding(isBlocked: !settings.hasCompletedOnboarding || runnerPresenter.isRunnerCovered)
         .fullScreenCover(isPresented: onboardingPresented) {
             OnboardingView {
                 settings.completeOnboarding()

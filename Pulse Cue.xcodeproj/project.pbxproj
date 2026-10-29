@@ -34,6 +34,7 @@
 		C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */; };
 		C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */; };
 		C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */; };
+		PC0B0A0D0000000000000006 /* ProfileOnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC0B0A0D0000000000000005 /* ProfileOnboardingUITests.swift */; };
 		C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */; };
 		C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */; };
 		C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */; };
@@ -46,10 +47,12 @@
 		C0FFEE00000000000E0008 /* AccountLocalDataAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E0007 /* AccountLocalDataAdoption.swift */; };
 		C0FFEE00000000000E000E /* AccountLocalDataCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E000D /* AccountLocalDataCleanup.swift */; };
 		C0FFEE00000000000E0002 /* HealthDataScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E0001 /* HealthDataScope.swift */; };
+		PC0B0A0D0000000000000002 /* ProfileOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC0B0A0D0000000000000001 /* ProfileOnboardingView.swift */; };
 		C0FFEE0000000000000D0004 /* GuestWorkoutAdoptionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0003 /* GuestWorkoutAdoptionPrompt.swift */; };
 		C0FFEE0000000000000D0006 /* WorkoutDataScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */; };
 		C0FFEE00000000000E0006 /* HealthDataScopingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E0005 /* HealthDataScopingTests.swift */; };
 		C0FFEE00000000000E000C /* HealthScopedDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E000B /* HealthScopedDefaultsTests.swift */; };
+		PC0B0A0D0000000000000004 /* ProfileOnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC0B0A0D0000000000000003 /* ProfileOnboardingTests.swift */; };
 		C0FFEE00000000000E000A /* AccountLocalDataAdoptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E0009 /* AccountLocalDataAdoptionTests.swift */; };
 		C0FFEE00000000000E0010 /* AccountLocalDataCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE00000000000E000F /* AccountLocalDataCleanupTests.swift */; };
 		C0FFEE0000000000000D0008 /* AccountDataPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */; };
@@ -408,6 +411,7 @@
 		C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGymQuickPlanUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimatorTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimator.swift; sourceTree = "<group>"; };
+		PC0B0A0D0000000000000005 /* ProfileOnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileOnboardingUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionView.swift; sourceTree = "<group>"; };
@@ -546,10 +550,12 @@
 		C0FFEE00000000000E0007 /* AccountLocalDataAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLocalDataAdoption.swift; sourceTree = "<group>"; };
 		C0FFEE00000000000E000D /* AccountLocalDataCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLocalDataCleanup.swift; sourceTree = "<group>"; };
 		C0FFEE00000000000E0001 /* HealthDataScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataScope.swift; sourceTree = "<group>"; };
+		PC0B0A0D0000000000000001 /* ProfileOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileOnboardingView.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000D0003 /* GuestWorkoutAdoptionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestWorkoutAdoptionPrompt.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDataScopeTests.swift; sourceTree = "<group>"; };
 		C0FFEE00000000000E0005 /* HealthDataScopingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataScopingTests.swift; sourceTree = "<group>"; };
 		C0FFEE00000000000E000B /* HealthScopedDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthScopedDefaultsTests.swift; sourceTree = "<group>"; };
+		PC0B0A0D0000000000000003 /* ProfileOnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileOnboardingTests.swift; sourceTree = "<group>"; };
 		C0FFEE00000000000E0009 /* AccountLocalDataAdoptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLocalDataAdoptionTests.swift; sourceTree = "<group>"; };
 		C0FFEE00000000000E000F /* AccountLocalDataCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountLocalDataCleanupTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDataPolicyTests.swift; sourceTree = "<group>"; };
@@ -776,6 +782,7 @@
 				9A3FD23ABBE745EDAF2A8C58 /* DayLogQuickInputSheet.swift */,
 				D17104DB1A8E4001B0DA1706 /* HealthSummaryView.swift */,
 				2FD02E7540234858B9B7F496 /* HistoryView.swift */,
+				PC0B0A0D0000000000000001 /* ProfileOnboardingView.swift */,
 				C0FFEE0000000000000D0003 /* GuestWorkoutAdoptionPrompt.swift */,
 				AAB10C000000000000003001 /* MeView.swift */,
 				C0DE13700000000000000002 /* ExerciseLibraryView.swift */,
@@ -1194,6 +1201,7 @@
 				C0FFEE0000000000000D0005 /* WorkoutDataScopeTests.swift */,
 				C0FFEE00000000000E0005 /* HealthDataScopingTests.swift */,
 				C0FFEE00000000000E000B /* HealthScopedDefaultsTests.swift */,
+				PC0B0A0D0000000000000003 /* ProfileOnboardingTests.swift */,
 				C0FFEE00000000000E0009 /* AccountLocalDataAdoptionTests.swift */,
 				C0FFEE00000000000E000F /* AccountLocalDataCleanupTests.swift */,
 				C0FFEE0000000000000D0007 /* AccountDataPolicyTests.swift */,
@@ -1208,6 +1216,7 @@
 			isa = PBXGroup;
 			children = (
 				C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */,
+				PC0B0A0D0000000000000005 /* ProfileOnboardingUITests.swift */,
 				C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */,
 				38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */,
 				D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */,
@@ -1430,6 +1439,7 @@
 				C0FFEE00000000000E0008 /* AccountLocalDataAdoption.swift in Sources */,
 				C0FFEE00000000000E000E /* AccountLocalDataCleanup.swift in Sources */,
 				C0FFEE00000000000E0002 /* HealthDataScope.swift in Sources */,
+				PC0B0A0D0000000000000002 /* ProfileOnboardingView.swift in Sources */,
 				C0FFEE0000000000000D0004 /* GuestWorkoutAdoptionPrompt.swift in Sources */,
 				3468F1E5463D451698CE3737 /* Step.swift in Sources */,
 				0030153F89E046C493437F05 /* StepResult.swift in Sources */,
@@ -1632,6 +1642,7 @@
 				C0FFEE0000000000000D0006 /* WorkoutDataScopeTests.swift in Sources */,
 				C0FFEE00000000000E0006 /* HealthDataScopingTests.swift in Sources */,
 				C0FFEE00000000000E000C /* HealthScopedDefaultsTests.swift in Sources */,
+				PC0B0A0D0000000000000004 /* ProfileOnboardingTests.swift in Sources */,
 				C0FFEE00000000000E000A /* AccountLocalDataAdoptionTests.swift in Sources */,
 				C0FFEE00000000000E0010 /* AccountLocalDataCleanupTests.swift in Sources */,
 				C0FFEE0000000000000D0008 /* AccountDataPolicyTests.swift in Sources */,
@@ -1747,6 +1758,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */,
+				PC0B0A0D0000000000000006 /* ProfileOnboardingUITests.swift in Sources */,
 				C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */,
 				D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */,

@@ -78,6 +78,7 @@ struct BodyGoalsSettingsSection: View {
                 tdeeCard
             }
             goalCard(profile: $profile)
+            trainingCard(profile: $profile)
             saveButton
         }
         .task { refreshCurrentWeight() }
@@ -133,7 +134,7 @@ struct BodyGoalsSettingsSection: View {
                 SettingsChrome.inlineNumberCell(
                     label: "身長",
                     value: profile.wrappedValue.heightCm,
-                    range: 120...220,
+                    range: ProfileFieldRanges.heightCm,
                     step: 1,
                     unit: "cm",
                     binding: profile.heightCm,
@@ -142,7 +143,7 @@ struct BodyGoalsSettingsSection: View {
                 SettingsChrome.inlineNumberCell(
                     label: "年齢",
                     value: profile.wrappedValue.ageYears,
-                    range: 10...100,
+                    range: ProfileFieldRanges.ageYears,
                     step: 1,
                     unit: "歳",
                     binding: profile.ageYears
@@ -191,8 +192,8 @@ struct BodyGoalsSettingsSection: View {
                         .map { "現在の体重: \(NumberFormat.weight($0)) kg" }
                         ?? "現在の体重: 未入力",
                     value: profile.wrappedValue.goalWeightKg,
-                    range: 30...150,
-                    step: 0.5,
+                    range: ProfileFieldRanges.goalWeightKg,
+                    step: ProfileFieldRanges.goalWeightStepKg,
                     unit: "kg",
                     binding: profile.goalWeightKg
                 )
@@ -201,8 +202,8 @@ struct BodyGoalsSettingsSection: View {
                     label: "週あたりの変化量",
                     helper: "推奨: -0.5 〜 +0.5 kg/週",
                     value: profile.wrappedValue.weeklyChangeKg,
-                    range: -1.5...1.5,
-                    step: 0.1,
+                    range: ProfileFieldRanges.weeklyChangeKg,
+                    step: ProfileFieldRanges.weeklyChangeStepKg,
                     unit: "kg",
                     binding: profile.weeklyChangeKg
                 )
@@ -218,6 +219,47 @@ struct BodyGoalsSettingsSection: View {
                     valueStyle: todayGoalGapStyle
                 )
                 healthTargetLink
+            }
+        }
+    }
+
+    // MARK: - Training
+
+    /// The answers the post-sign-in onboarding asks, editable here afterwards.
+    /// Same profile fields, so the two can never disagree.
+    private func trainingCard(profile: Bindable<UserProfile>) -> some View {
+        SettingsChrome.glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsChrome.sectionHeader(icon: "dumbbell.fill", title: "トレーニング")
+
+                Picker("目的", selection: profile.trainingGoal) {
+                    Text("未設定").tag(ProfileTrainingGoal?.none)
+                    ForEach(ProfileTrainingGoal.allCases) { Text($0.label).tag(Optional($0)) }
+                }
+                .accessibilityIdentifier("training-goal-picker")
+                Picker("経験レベル", selection: profile.experienceLevel) {
+                    Text("未設定").tag(ExperienceLevel?.none)
+                    ForEach(ExperienceLevel.allCases, id: \.self) { Text($0.displayName).tag(Optional($0)) }
+                }
+                Stepper(
+                    value: Binding(
+                        get: { profile.wrappedValue.trainingDaysPerWeek ?? 3 },
+                        set: { profile.wrappedValue.trainingDaysPerWeek = $0 }
+                    ),
+                    in: ProfileFieldRanges.trainingDaysPerWeek
+                ) {
+                    LabeledContent("週あたり", value: profile.wrappedValue.trainingDaysPerWeek.map { "\($0) 回" } ?? "未設定")
+                }
+                Stepper(
+                    value: Binding(
+                        get: { profile.wrappedValue.preferredSessionMinutes ?? ProfileFieldRanges.defaultSessionMinutes },
+                        set: { profile.wrappedValue.preferredSessionMinutes = $0 }
+                    ),
+                    in: ProfileFieldRanges.sessionMinutes,
+                    step: ProfileFieldRanges.sessionMinutesStep
+                ) {
+                    LabeledContent("1回あたり", value: profile.wrappedValue.preferredSessionMinutes.map { "\($0) 分" } ?? "未設定")
+                }
             }
         }
     }
