@@ -54,8 +54,10 @@ struct ProfileOnboardingTests {
         draft.heightCm = 178
         draft.currentWeightText = "72.5"
         draft.biologicalSex = .male
+        draft.activityFactor = .active
         draft.trainingGoal = .strength
         draft.goalWeightText = "70"
+        draft.weeklyChangeKg = 0.2
         draft.trainingDaysPerWeek = 4
         draft.preferredSessionMinutes = 60
         draft.experienceLevel = .intermediate
@@ -64,9 +66,10 @@ struct ProfileOnboardingTests {
 
     /// Finishes onboarding for `id` the way the screen does.
     private static func finish(_ id: UUID, _ context: ModelContext) throws {
-        #expect(validDraft().apply(to: .account(id), modelContext: context, now: now) != nil)
-        #expect(ProfileOnboardingDraft.markCompleted(scope: .account(id), modelContext: context, now: now))
-        try context.save()
+        for step in ProfileOnboardingStep.allCases {
+            #expect(validDraft().save(step, to: .account(id), modelContext: context, now: now) != nil)
+            try context.save()
+        }
     }
 
     // MARK: - When it is asked
@@ -196,12 +199,15 @@ struct ProfileOnboardingTests {
         #expect(profile.ageYears == 34)
         #expect(profile.heightCm == 178)
         #expect(profile.biologicalSex == .male)
+        #expect(profile.activityFactor == .active)
         #expect(profile.goalWeightKg == 70)
+        #expect(profile.weeklyChangeKg == 0.2)
         #expect(profile.trainingGoal == .strength)
         #expect(profile.experienceLevel == .intermediate)
         #expect(profile.trainingDaysPerWeek == 4)
         #expect(profile.preferredSessionMinutes == 60)
         #expect(profile.profileOnboardingCompletedAt == Self.now)
+        #expect(profile.profileOnboardingStepRaw == nil)
 
         // The weight Settings and Home calculate from.
         #expect(LatestBodyWeightResolver.latestWeightKg(scope: scope, modelContext: context) == 72.5)
@@ -222,15 +228,119 @@ struct ProfileOnboardingTests {
         heavy.currentWeightText = "400"
         var garbage = Self.validDraft()
         garbage.goalWeightText = "abc"
-        for draft in [noGoal, noLevel, heavy, garbage] {
-            #expect(draft.apply(to: .account(Self.accountA), modelContext: context) == nil)
+        var offGrid = Self.validDraft()
+        offGrid.preferredSessionMinutes = 35
+        var tooShort = Self.validDraft()
+        tooShort.preferredSessionMinutes = 15
+        let cases: [(ProfileOnboardingDraft, ProfileOnboardingStep)] = [
+            (noGoal, .goal), (noLevel, .habits), (heavy, .basics), (garbage, .goal),
+            (offGrid, .habits), (tooShort, .habits),
+        ]
+        for (draft, step) in cases {
+            #expect(!draft.isValid(step))
+            #expect(draft.save(step, to: .account(Self.accountA), modelContext: context) == nil)
         }
-        #expect(Self.validDraft().apply(to: .undetermined, modelContext: context) == nil)
+        #expect(Self.validDraft().save(.basics, to: .undetermined, modelContext: context) == nil)
         #expect(try context.fetchCount(FetchDescriptor<UserProfile>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<DayLog>()) == 0)
 
-        #expect(ProfileOnboardingDraft.parse("65,5", in: ProfileOnboardingDraft.currentWeightRange) == 65.5)
-        #expect(ProfileOnboardingDraft.parse("", in: ProfileOnboardingDraft.currentWeightRange) == nil)
+        #expect(ProfileOnboardingDraft.parse("65,5", in: ProfileFieldRanges.bodyWeightKg) == 65.5)
+        #expect(ProfileOnboardingDraft.parse("", in: ProfileFieldRanges.bodyWeightKg) == nil)
+    }
+
+    // MARK: - Resuming
+
+    @Test("Each step's answers and the resume point are stored on 次へ")
+    func resumesAtTheFirstUnsavedStep() throws {
+        let container = try Self.makeContainer()
+        let scope = HealthDataScope.account(Self.accountA)
+        let expected: [ProfileOnboardingStep: ProfileOnboardingStep] = [.basics: .goal, .goal: .habits, .habits: .done]
+        for step in [ProfileOnboardingStep.basics, .goal, .habits] {
+            let context = ModelContext(container)
+            #expect(Self.validDraft().save(step, to: scope, modelContext: context, now: Self.now) != nil)
+            try context.save()
+
+            // A relaunch: a fresh context reads only what was committed.
+            let fresh = ModelContext(container)
+            let profile = try #require(UserProfileStore.profile(for: scope, modelContext: fresh))
+            #expect(profile.profileOnboardingStep == expected[step])
+            #expect(profile.profileOnboardingCompletedAt == nil)
+            #expect(Self.gate(Self.authenticated(Self.accountA, provider: "apple"), .account(Self.accountA), fresh) == Self.accountA)
+            let resumed = ProfileOnboardingDraft(
+                profile: profile,
+                latestWeightKg: LatestBodyWeightResolver.latestWeightKg(scope: scope, modelContext: fresh)
+            )
+            #expect(resumed.heightCm == 178)
+            #expect(resumed.currentWeightKg == 72.5)
+            #expect(resumed.activityFactor == .active)
+        }
+        let context = ModelContext(container)
+        let profile = try #require(UserProfileStore.profile(for: scope, modelContext: context))
+        let resumed = ProfileOnboardingDraft(profile: profile, latestWeightKg: nil)
+        #expect(resumed.trainingGoal == .strength)
+        #expect(resumed.weeklyChangeKg == 0.2)
+        #expect(resumed.preferredSessionMinutes == 60)
+        #expect(resumed.experienceLevel == .intermediate)
+    }
+
+    @Test("Progress is per account: A's resume point is not B's, and survives B signing in")
+    func progressIsAccountScoped() throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        #expect(Self.validDraft().save(.basics, to: .account(Self.accountA), modelContext: context) != nil)
+        #expect(Self.validDraft().save(.basics, to: .account(Self.accountB), modelContext: context) != nil)
+        #expect(Self.validDraft().save(.goal, to: .account(Self.accountB), modelContext: context) != nil)
+        try context.save()
+
+        let fresh = ModelContext(container)
+        #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: fresh)?.profileOnboardingStep == .goal)
+        #expect(UserProfileStore.profile(for: .account(Self.accountB), modelContext: fresh)?.profileOnboardingStep == .habits)
+        #expect(UserProfileStore.profile(for: .guest, modelContext: fresh) == nil)
+    }
+
+    @Test("Deleting the account deletes its half-finished progress")
+    func accountDeletionForgetsProgress() throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        #expect(Self.validDraft().save(.basics, to: .account(Self.accountA), modelContext: context) != nil)
+        try context.save()
+        let defaults = try #require(UserDefaults(suiteName: "profile-onboarding-\(UUID().uuidString)"))
+        try AccountLocalDataCleanup(container: container, defaults: defaults).run(for: Self.accountA)
+
+        let fresh = ModelContext(container)
+        #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: fresh) == nil)
+        #expect(ProfileOnboardingDraft(profile: nil, latestWeightKg: nil).goalWeightText.isEmpty)
+    }
+
+    @Test("A profile from before V10 (no marker, no progress) starts at basics")
+    func legacyProfileStartsAtBasics() {
+        let profile = UserProfile(ownerAccountID: Self.accountA)
+        #expect(profile.profileOnboardingStepRaw == nil)
+        #expect(profile.profileOnboardingStep == .basics)
+        profile.profileOnboardingStepRaw = "someFutureStep"
+        #expect(profile.profileOnboardingStep == .basics)
+    }
+
+    @Test("Session minutes use Quick Plan's grid; weekly change starts from the goal")
+    func sharedRangesAndGoalSuggestion() {
+        #expect(ProfileFieldRanges.sessionMinutes == QuickPlanDuration.minMinutes...QuickPlanDuration.maxMinutes)
+        #expect(ProfileFieldRanges.sessionMinutesStep == QuickPlanDuration.stepMinutes)
+        let offered = Array(stride(
+            from: ProfileFieldRanges.sessionMinutes.lowerBound,
+            through: ProfileFieldRanges.sessionMinutes.upperBound,
+            by: ProfileFieldRanges.sessionMinutesStep
+        ))
+        #expect(offered == QuickPlanDuration.allCases.map(\.minutes))
+        #expect(offered.allSatisfy(ProfileFieldRanges.isValidSessionMinutes))
+        #expect(ProfileFieldRanges.isValidSessionMinutes(ProfileFieldRanges.defaultSessionMinutes))
+
+        // A new draft does not inherit the profile's weight-loss default.
+        #expect(ProfileOnboardingDraft(profile: nil, latestWeightKg: nil).weeklyChangeKg == 0)
+        #expect(ProfileTrainingGoal.fatLoss.suggestedWeeklyChangeKg < 0)
+        for goal in [ProfileTrainingGoal.hypertrophy, .strength, .health, .consistency] {
+            #expect(goal.suggestedWeeklyChangeKg >= 0)
+            #expect(ProfileFieldRanges.weeklyChangeKg.contains(goal.suggestedWeeklyChangeKg))
+        }
     }
 
     @Test("An unknown raw value from a newer build reads as not set")
@@ -308,6 +418,7 @@ struct ProfileOnboardingTests {
         #expect(account.trainingDaysPerWeek == nil)
         #expect(account.preferredSessionMinutes == nil)
         #expect(account.profileOnboardingCompletedAt == nil)
+        #expect(account.profileOnboardingStep == .basics)
         #expect(UserProfileStore.profile(for: .guest, modelContext: context)?.heightCm == 180)
 
         // Migrated, never onboarded: the account is asked once.

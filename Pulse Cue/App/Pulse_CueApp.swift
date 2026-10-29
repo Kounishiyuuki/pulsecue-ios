@@ -43,7 +43,8 @@ struct Pulse_CueApp: App {
             || ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.completionFlowArgument)
             || PulseCueUITestSupport.requestedTrainingRoutineCount() != nil
             || PulseCueUITestSupport.isFormGuideDebugRoute()
-            || PulseCueUITestSupport.requestedGlassUIRoute() != nil {
+            || PulseCueUITestSupport.requestedGlassUIRoute() != nil
+            || PulseCueUITestSupport.isProfileOnboardingFixture() {
             inMemory = true
         }
         #endif
@@ -111,6 +112,8 @@ struct Pulse_CueApp: App {
         #if DEBUG
         if let route = PulseCueUITestSupport.requestedGlassUIRoute() {
             GlassUIVisualQARoot(route: route)
+        } else if PulseCueUITestSupport.isProfileOnboardingFixture() {
+            ProfileOnboardingFixtureRoot()
         } else if let exerciseId = PulseCueUITestSupport.requestedFormGuideExerciseId() {
             // Isolated debug root: no ContentView, no SampleDataSeeder, no
             // onboarding, in-memory store only.
@@ -158,6 +161,21 @@ enum PulseCueUITestSupport {
     /// end (start → Complete/種目をスキップ → completion → 履歴) in a few taps
     /// without waiting on a rest timer. DEBUG-only; compiled out of Release.
     static let completionFlowArgument = "-pulsecue-ui-test-completion-flow"
+
+    /// Shows the profile onboarding alone, for a fixed fake account, over its
+    /// own on-disk store so a relaunch can resume it. No server, no gate —
+    /// the screen itself is what is under test. `…-reset` starts the store
+    /// empty. DEBUG-only; compiled out of Release.
+    static let profileOnboardingArgument = "-pulsecue-ui-test-profile-onboarding"
+    static let profileOnboardingResetArgument = "-pulsecue-ui-test-profile-onboarding-reset"
+
+    static func isProfileOnboardingFixture(_ args: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG
+        return args.contains(profileOnboardingArgument)
+        #else
+        return false
+        #endif
+    }
 
     /// Seeds an exact number of user-saved routines into an in-memory store
     /// and skips onboarding: `-pulsecue-ui-test-training-routines <n>`.

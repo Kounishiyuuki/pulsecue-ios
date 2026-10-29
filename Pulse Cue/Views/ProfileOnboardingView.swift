@@ -122,50 +122,60 @@ enum ProfileOnboardingGate {
     }
 }
 
-/// The answers being edited, before anything is stored.
+/// The answers being edited. Each step's answers are stored when that step
+/// is left with "次へ", together with the step to resume at, so quitting
+/// mid-way loses at most the page on screen.
 struct ProfileOnboardingDraft: Equatable {
     var ageYears: Int
     var heightCm: Int
     var currentWeightText: String
     var biologicalSex: BiologicalSex
+    var activityFactor: ActivityFactor
     var trainingGoal: ProfileTrainingGoal?
     var goalWeightText: String
+    var weeklyChangeKg: Double
     var trainingDaysPerWeek: Int
     var preferredSessionMinutes: Int
     var experienceLevel: ExperienceLevel?
 
-    // The same bounds Settings offers, so nothing entered here is a value
-    // Settings could not show.
-    static let ageRange = 10...100
-    static let heightRange = 120...220
-    static let currentWeightRange = 30.0...250.0
-    static let goalWeightRange = 30.0...150.0
-    static let daysRange = 1...7
-    static let minutesRange = 10...180
-
     init(profile: UserProfile?, latestWeightKg: Double?) {
-        ageYears = profile?.ageYears ?? 30
-        heightCm = profile?.heightCm ?? 170
+        // A new profile's defaults, so a fresh draft starts where Settings
+        // would. Only a profile that saved the goal step is trusted for the
+        // weekly change: the -0.5 default assumes weight loss.
+        let base = profile ?? UserProfile()
+        ageYears = base.ageYears
+        heightCm = base.heightCm
         currentWeightText = latestWeightKg.map { NumberFormat.weight($0) } ?? ""
-        biologicalSex = profile?.biologicalSex ?? .unspecified
-        trainingGoal = profile?.trainingGoal
+        biologicalSex = base.biologicalSex
+        activityFactor = base.activityFactor
+        trainingGoal = base.trainingGoal
         goalWeightText = profile.map { NumberFormat.weight($0.goalWeightKg) } ?? ""
-        trainingDaysPerWeek = profile?.trainingDaysPerWeek ?? 3
-        preferredSessionMinutes = profile?.preferredSessionMinutes ?? 45
-        experienceLevel = profile?.experienceLevel
+        weeklyChangeKg = base.trainingGoal.map { _ in base.weeklyChangeKg } ?? 0
+        trainingDaysPerWeek = base.trainingDaysPerWeek ?? 3
+        preferredSessionMinutes = base.preferredSessionMinutes
+            .map { QuickPlanDuration(minutes: $0).minutes } ?? ProfileFieldRanges.defaultSessionMinutes
+        experienceLevel = base.experienceLevel
     }
 
-    var currentWeightKg: Double? { Self.parse(currentWeightText, in: Self.currentWeightRange) }
-    var goalWeightKg: Double? { Self.parse(goalWeightText, in: Self.goalWeightRange) }
+    var currentWeightKg: Double? { Self.parse(currentWeightText, in: ProfileFieldRanges.bodyWeightKg) }
+    var goalWeightKg: Double? { Self.parse(goalWeightText, in: ProfileFieldRanges.goalWeightKg) }
 
-    var isBasicsValid: Bool {
-        Self.ageRange.contains(ageYears) && Self.heightRange.contains(heightCm) && currentWeightKg != nil
-    }
-    var isGoalValid: Bool { trainingGoal != nil && goalWeightKg != nil }
-    var isHabitsValid: Bool {
-        Self.daysRange.contains(trainingDaysPerWeek)
-            && Self.minutesRange.contains(preferredSessionMinutes)
-            && experienceLevel != nil
+    func isValid(_ step: ProfileOnboardingStep) -> Bool {
+        switch step {
+        case .basics:
+            return ProfileFieldRanges.ageYears.contains(ageYears)
+                && ProfileFieldRanges.heightCm.contains(heightCm)
+                && currentWeightKg != nil
+        case .goal:
+            return trainingGoal != nil && goalWeightKg != nil
+                && ProfileFieldRanges.weeklyChangeKg.contains(weeklyChangeKg)
+        case .habits:
+            return ProfileFieldRanges.trainingDaysPerWeek.contains(trainingDaysPerWeek)
+                && ProfileFieldRanges.isValidSessionMinutes(preferredSessionMinutes)
+                && experienceLevel != nil
+        case .done:
+            return true
+        }
     }
 
     /// Accepts "65.5" and "65,5": a decimal pad in a comma locale types the
@@ -176,41 +186,54 @@ struct ProfileOnboardingDraft: Equatable {
         return value
     }
 
-    /// Writes the answers into `scope`'s profile — the existing one, or a new
-    /// one if the scope has none — and today's weight into today's day log,
-    /// Nil, with nothing written, if the draft is incomplete or the scope
-    /// cannot hold health data. Does not mark completion: that is
-    /// `markCompleted`, because the marker is what dismisses the screen.
+    /// Stores `step`'s answers in `scope`'s profile — the existing one, or a
+    /// new one — and moves the resume point past it. `.done` marks the
+    /// profile onboarded and clears the resume point. Nil, with nothing
+    /// written, if the step is invalid or the scope cannot hold health data.
+    ///
+    /// The caller saves; the gate has already waited for guest adoption, so
+    /// creating the account profile here cannot pre-empt it.
     @MainActor
     @discardableResult
-    func apply(to scope: HealthDataScope, modelContext: ModelContext, now: Date = Date()) -> UserProfile? {
-        guard isBasicsValid, isGoalValid, isHabitsValid,
-              let currentWeightKg, let goalWeightKg,
+    func save(
+        _ step: ProfileOnboardingStep,
+        to scope: HealthDataScope,
+        modelContext: ModelContext,
+        now: Date = Date()
+    ) -> UserProfile? {
+        guard isValid(step),
               let draft = UserProfileStore.draftProfile(for: scope),
-              let profile = UserProfileStore.persistDraft(draft, for: scope, modelContext: modelContext),
-              let log = DayLogStore.fetchOrCreateToday(scope: scope, modelContext: modelContext, now: now)
+              let profile = UserProfileStore.persistDraft(draft, for: scope, modelContext: modelContext)
         else { return nil }
-        profile.ageYears = ageYears
-        profile.heightCm = heightCm
-        profile.biologicalSex = biologicalSex
-        profile.goalWeightKg = goalWeightKg
-        profile.trainingGoal = trainingGoal
-        profile.experienceLevel = experienceLevel
-        profile.trainingDaysPerWeek = trainingDaysPerWeek
-        profile.preferredSessionMinutes = preferredSessionMinutes
+        switch step {
+        case .basics:
+            guard let currentWeightKg,
+                  let log = DayLogStore.fetchOrCreateToday(scope: scope, modelContext: modelContext, now: now)
+            else { return nil }
+            profile.ageYears = ageYears
+            profile.heightCm = heightCm
+            profile.biologicalSex = biologicalSex
+            profile.activityFactor = activityFactor
+            log.weightKg = currentWeightKg
+        case .goal:
+            guard let goalWeightKg else { return nil }
+            profile.trainingGoal = trainingGoal
+            profile.goalWeightKg = goalWeightKg
+            profile.weeklyChangeKg = weeklyChangeKg
+        case .habits:
+            profile.trainingDaysPerWeek = trainingDaysPerWeek
+            profile.preferredSessionMinutes = preferredSessionMinutes
+            profile.experienceLevel = experienceLevel
+        case .done:
+            profile.profileOnboardingCompletedAt = now
+        }
+        if let next = step.next {
+            profile.profileOnboardingStep = next
+        } else {
+            profile.profileOnboardingStepRaw = nil
+        }
         profile.updatedAt = now
-        log.weightKg = currentWeightKg
         return profile
-    }
-
-    /// Records that `scope`'s profile finished onboarding. False if the scope
-    /// has no stored profile — `apply` comes first.
-    @MainActor
-    @discardableResult
-    static func markCompleted(scope: HealthDataScope, modelContext: ModelContext, now: Date = Date()) -> Bool {
-        guard let profile = UserProfileStore.profile(for: scope, modelContext: modelContext) else { return false }
-        profile.profileOnboardingCompletedAt = now
-        return true
     }
 }
 
@@ -219,20 +242,7 @@ struct ProfileOnboardingView: View {
 
     @Environment(\.modelContext) private var modelContext
 
-    private enum Step: Int, CaseIterable {
-        case basics, goal, habits, done
-
-        var title: String {
-            switch self {
-            case .basics: return "基本情報"
-            case .goal: return "目標"
-            case .habits: return "トレーニング習慣"
-            case .done: return "準備完了"
-            }
-        }
-    }
-
-    @State private var step: Step = .basics
+    @State private var step: ProfileOnboardingStep = .basics
     @State private var draft: ProfileOnboardingDraft?
     @State private var saveFailed = false
 
@@ -251,12 +261,12 @@ struct ProfileOnboardingView: View {
                     ProgressView()
                 }
             }
-            .navigationTitle(step.title)
+            .navigationTitle(Self.title(step))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if step != .basics && step != .done {
+                if let previous = step.previous, step != .done {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("戻る") { move(by: -1) }
+                        Button("戻る") { step = previous }
                             .accessibilityIdentifier("profile-onboarding-back")
                     }
                 }
@@ -265,10 +275,15 @@ struct ProfileOnboardingView: View {
         .preferredColorScheme(.dark)
         .task {
             guard draft == nil else { return }
+            let profile = UserProfileStore.profile(for: scope, modelContext: modelContext)
             draft = ProfileOnboardingDraft(
-                profile: UserProfileStore.profile(for: scope, modelContext: modelContext),
+                profile: profile,
                 latestWeightKg: LatestBodyWeightResolver.latestWeightKg(scope: scope, modelContext: modelContext)
             )
+            // A profile without the marker resumes where it stopped; one that
+            // never saved a step (or an existing profile from before V10)
+            // starts at the beginning.
+            step = profile?.profileOnboardingStep ?? .basics
         }
         .alert("保存できませんでした", isPresented: $saveFailed) {
             Button("OK", role: .cancel) {}
@@ -277,14 +292,24 @@ struct ProfileOnboardingView: View {
         }
     }
 
+    private static func title(_ step: ProfileOnboardingStep) -> String {
+        switch step {
+        case .basics: return "基本情報"
+        case .goal: return "目標"
+        case .habits: return "トレーニング習慣"
+        case .done: return "準備完了"
+        }
+    }
+
     // MARK: - Progress
 
     private var progress: some View {
-        let total = Step.allCases.count
+        let all = ProfileOnboardingStep.allCases
+        let index = (all.firstIndex(of: step) ?? 0) + 1
         return VStack(alignment: .leading, spacing: 6) {
-            ProgressView(value: Double(step.rawValue + 1), total: Double(total))
+            ProgressView(value: Double(index), total: Double(all.count))
                 .tint(AppTheme.accent)
-            Text("ステップ \(step.rawValue + 1) / \(total)")
+            Text("ステップ \(index) / \(all.count)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -301,11 +326,11 @@ struct ProfileOnboardingView: View {
         switch step {
         case .basics:
             Section {
-                Stepper(value: draft.ageYears, in: ProfileOnboardingDraft.ageRange) {
+                Stepper(value: draft.ageYears, in: ProfileFieldRanges.ageYears) {
                     LabeledContent("年齢", value: "\(draft.wrappedValue.ageYears) 歳")
                 }
                 .accessibilityIdentifier("profile-onboarding-age")
-                Stepper(value: draft.heightCm, in: ProfileOnboardingDraft.heightRange) {
+                Stepper(value: draft.heightCm, in: ProfileFieldRanges.heightCm) {
                     LabeledContent("身長", value: "\(draft.wrappedValue.heightCm) cm")
                 }
                 .accessibilityIdentifier("profile-onboarding-height")
@@ -313,6 +338,10 @@ struct ProfileOnboardingView: View {
                 Picker("性別（任意）", selection: draft.biologicalSex) {
                     ForEach(BiologicalSex.allCases) { Text($0.label).tag($0) }
                 }
+                Picker("活動量", selection: draft.activityFactor) {
+                    ForEach(ActivityFactor.allCases) { Text($0.label).tag($0) }
+                }
+                .accessibilityIdentifier("profile-onboarding-activity")
             } footer: {
                 validation(
                     draft.wrappedValue.currentWeightText.isEmpty || draft.wrappedValue.currentWeightKg != nil,
@@ -326,22 +355,38 @@ struct ProfileOnboardingView: View {
                     ForEach(ProfileTrainingGoal.allCases) { Text($0.label).tag(Optional($0)) }
                 }
                 .accessibilityIdentifier("profile-onboarding-goal")
+                .onChange(of: draft.wrappedValue.trainingGoal) { _, goal in
+                    if let goal { draft.wrappedValue.weeklyChangeKg = goal.suggestedWeeklyChangeKg }
+                }
             }
             Section {
                 weightField("目標体重", text: draft.goalWeightText, identifier: "profile-onboarding-goal-weight")
+                Stepper(
+                    value: draft.weeklyChangeKg,
+                    in: ProfileFieldRanges.weeklyChangeKg,
+                    step: ProfileFieldRanges.weeklyChangeStepKg
+                ) {
+                    LabeledContent("週あたりの変化量", value: Self.weeklyChangeText(draft.wrappedValue.weeklyChangeKg))
+                }
+                .accessibilityIdentifier("profile-onboarding-weekly-change")
             } footer: {
-                validation(
-                    draft.wrappedValue.goalWeightText.isEmpty || draft.wrappedValue.goalWeightKg != nil,
-                    "目標体重は 30〜150 kg で入力してください。"
-                )
+                if draft.wrappedValue.goalWeightText.isEmpty || draft.wrappedValue.goalWeightKg != nil {
+                    Text("推奨: -0.5 〜 +0.5 kg/週。目標摂取カロリーの計算に使います。")
+                } else {
+                    Text("目標体重は 30〜150 kg で入力してください。").foregroundStyle(.orange)
+                }
             }
         case .habits:
             Section {
-                Stepper(value: draft.trainingDaysPerWeek, in: ProfileOnboardingDraft.daysRange) {
+                Stepper(value: draft.trainingDaysPerWeek, in: ProfileFieldRanges.trainingDaysPerWeek) {
                     LabeledContent("週あたり", value: "\(draft.wrappedValue.trainingDaysPerWeek) 回")
                 }
                 .accessibilityIdentifier("profile-onboarding-days")
-                Stepper(value: draft.preferredSessionMinutes, in: ProfileOnboardingDraft.minutesRange, step: 5) {
+                Stepper(
+                    value: draft.preferredSessionMinutes,
+                    in: ProfileFieldRanges.sessionMinutes,
+                    step: ProfileFieldRanges.sessionMinutesStep
+                ) {
                     LabeledContent("1回あたり", value: "\(draft.wrappedValue.preferredSessionMinutes) 分")
                 }
                 .accessibilityIdentifier("profile-onboarding-minutes")
@@ -359,6 +404,10 @@ struct ProfileOnboardingView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private static func weeklyChangeText(_ kg: Double) -> String {
+        String(format: "%+.1f kg", kg)
     }
 
     private func weightField(_ label: String, text: Binding<String>, identifier: String) -> some View {
@@ -386,60 +435,79 @@ struct ProfileOnboardingView: View {
         Button {
             advance(draft)
         } label: {
-            Text(step == .habits ? "保存する" : step == .done ? "はじめる" : "次へ")
+            Text(step == .done ? "はじめる" : "次へ")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
         }
         .buttonStyle(.borderedProminent)
         .tint(AppTheme.accentFilled)
-        .disabled(!canAdvance(draft))
+        .disabled(!draft.isValid(step))
         .padding(16)
         .accessibilityIdentifier("profile-onboarding-next")
     }
 
-    private func canAdvance(_ draft: ProfileOnboardingDraft) -> Bool {
-        switch step {
-        case .basics: return draft.isBasicsValid
-        case .goal: return draft.isGoalValid
-        case .habits: return draft.isHabitsValid
-        case .done: return true
-        }
-    }
-
+    /// Saves the page on screen and its resume point in one commit. On
+    /// `.done` that commit is the completion marker, which dismisses the
+    /// cover. A failed save stays on the page; not `rollback()`, which would
+    /// discard unrelated unsaved work in the shared context.
     private func advance(_ draft: ProfileOnboardingDraft) {
-        switch step {
-        case .basics, .goal:
-            move(by: 1)
-        case .habits:
-            // The answers are stored here; the marker waits for "はじめる",
-            // since setting it dismisses the cover before the last page shows.
-            guard draft.apply(to: scope, modelContext: modelContext) != nil else {
-                saveFailed = true
-                return
-            }
-            do {
-                try modelContext.save()
-                move(by: 1)
-            } catch {
-                saveFailed = true
-            }
-        case .done:
-            guard ProfileOnboardingDraft.markCompleted(scope: scope, modelContext: modelContext) else {
-                saveFailed = true
-                return
-            }
-            do {
-                try modelContext.save()
-            } catch {
-                UserProfileStore.profile(for: scope, modelContext: modelContext)?.profileOnboardingCompletedAt = nil
-                saveFailed = true
-            }
+        guard draft.save(step, to: scope, modelContext: modelContext) != nil else {
+            saveFailed = true
+            return
         }
-    }
-
-    private func move(by offset: Int) {
-        guard let next = Step(rawValue: step.rawValue + offset) else { return }
-        step = next
+        do {
+            try modelContext.save()
+        } catch {
+            saveFailed = true
+            return
+        }
+        if let next = step.next { step = next }
     }
 }
+
+#if DEBUG
+/// The `-pulsecue-ui-test-profile-onboarding` root: the real onboarding
+/// screen for one fake account, then a stand-in Home once it completes.
+struct ProfileOnboardingFixtureRoot: View {
+    static let accountID = UUID(uuidString: "0B0A0D00-0000-0000-0000-0000000000F1")!
+
+    @State private var container = Self.makeContainer()
+
+    var body: some View {
+        Content().modelContainer(container)
+    }
+
+    private struct Content: View {
+        @Query private var everyProfile: [UserProfile]
+
+        var body: some View {
+            let profile = UserProfileStore.select(from: everyProfile, scope: .account(ProfileOnboardingFixtureRoot.accountID))
+            if profile?.profileOnboardingCompletedAt != nil {
+                Text("ホーム")
+                    .accessibilityIdentifier("profile-onboarding-fixture-home")
+            } else {
+                ProfileOnboardingView(accountID: ProfileOnboardingFixtureRoot.accountID)
+            }
+        }
+    }
+
+    /// A store of its own in Caches, never the app's: the fixture must be
+    /// able to survive a relaunch without touching real data.
+    private static func makeContainer() -> ModelContainer {
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("uitest-profile-onboarding.sqlite")
+        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.profileOnboardingResetArgument) {
+            for suffix in ["", "-shm", "-wal"] {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
+            }
+        }
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
+        do {
+            return try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+        } catch {
+            fatalError("Could not open the profile onboarding fixture store at \(url.path): \(error)")
+        }
+    }
+}
+#endif

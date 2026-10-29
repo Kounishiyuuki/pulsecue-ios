@@ -42,6 +42,10 @@ final class UserProfile {
     /// keeps it, deleting the account deletes it, and another account on the
     /// same device has its own.
     var profileOnboardingCompletedAt: Date? = nil
+    /// The onboarding step to resume at — the first one not yet saved. Nil
+    /// before the first step is saved and again once onboarding completes;
+    /// an unknown value resumes at the start rather than skipping anything.
+    var profileOnboardingStepRaw: String? = nil
 
     init(
         id: UUID = UUID(),
@@ -95,6 +99,11 @@ final class UserProfile {
             experienceLevelRaw = newValue?.rawValue
             updatedAt = Date()
         }
+    }
+
+    var profileOnboardingStep: ProfileOnboardingStep {
+        get { profileOnboardingStepRaw.flatMap(ProfileOnboardingStep.init(rawValue:)) ?? .basics }
+        set { profileOnboardingStepRaw = newValue == .basics ? nil : newValue.rawValue }
     }
 
     // MARK: - Derived metrics
@@ -163,6 +172,45 @@ extension UserProfile {
     }
 }
 
+/// The bounds every editor of a profile field offers — Settings and the
+/// onboarding — so neither can store a value the other cannot show.
+enum ProfileFieldRanges {
+    static let ageYears = 10...100
+    static let heightCm = 120...220
+    static let bodyWeightKg = 30.0...250.0
+    static let goalWeightKg = 30.0...150.0
+    static let goalWeightStepKg = 0.5
+    static let weeklyChangeKg = -1.5...1.5
+    static let weeklyChangeStepKg = 0.1
+    static let trainingDaysPerWeek = 1...7
+    /// Quick Plan's own grid, so a preferred length is always one Quick Plan
+    /// can offer.
+    static let sessionMinutes = QuickPlanDuration.minMinutes...QuickPlanDuration.maxMinutes
+    static let sessionMinutesStep = QuickPlanDuration.stepMinutes
+    static let defaultSessionMinutes = QuickPlanDuration.standard.minutes
+
+    static func isValidSessionMinutes(_ minutes: Int) -> Bool {
+        sessionMinutes.contains(minutes) && QuickPlanDuration(minutes: minutes).minutes == minutes
+    }
+}
+
+/// The post-sign-in onboarding's pages, in order.
+enum ProfileOnboardingStep: String, CaseIterable {
+    case basics, goal, habits, done
+
+    var next: ProfileOnboardingStep? {
+        let all = Self.allCases
+        guard let index = all.firstIndex(of: self), index + 1 < all.count else { return nil }
+        return all[index + 1]
+    }
+
+    var previous: ProfileOnboardingStep? {
+        let all = Self.allCases
+        guard let index = all.firstIndex(of: self), index > 0 else { return nil }
+        return all[index - 1]
+    }
+}
+
 /// What the person trains for, as the profile stores it.
 ///
 /// Not the plan generator's `TrainingGoal`: that one has no `health`, and
@@ -184,6 +232,16 @@ enum ProfileTrainingGoal: String, CaseIterable, Identifiable, Codable {
         case .fatLoss: return "減量"
         case .health: return "健康維持"
         case .consistency: return "習慣づくり"
+        }
+    }
+
+    /// Where the weekly-change control starts when this goal is picked: only
+    /// fat loss implies losing weight. The person can still change it.
+    var suggestedWeeklyChangeKg: Double {
+        switch self {
+        case .fatLoss: return -0.5
+        case .hypertrophy: return 0.2
+        case .strength, .health, .consistency: return 0
         }
     }
 
