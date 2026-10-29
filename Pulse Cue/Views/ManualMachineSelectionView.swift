@@ -45,6 +45,9 @@ struct ManualMachineSelectionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     headerBlock
+                    if viewModel.isShowingSuggestedSelection {
+                        suggestedSelectionNote
+                    }
                     filterChips
 
                     if viewModel.hiddenSelectedCount > 0 {
@@ -207,6 +210,23 @@ struct ManualMachineSelectionView: View {
             isOn ? AnyShapeStyle(AppTheme.accentFilled)
                  : AnyShapeStyle(Color.primary.opacity(0.06))
         )
+    }
+
+    /// Shown while the common-machine suggestion is staged, so the user
+    /// does not read the pre-checked rows as facts about this gym.
+    private var suggestedSelectionNote: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("一般的な設備を仮選択しています", systemImage: "checklist")
+                .font(.subheadline.weight(.semibold))
+            Text("多くのジムで見かけるマシンの例です。実際に利用できるものを確認し、ないものは外して、あるものを追加してから保存してください。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .myGymCard(padding: 14)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("machineSelection.suggestedSelectionNote")
     }
 
     private var hiddenSelectedNote: some View {
