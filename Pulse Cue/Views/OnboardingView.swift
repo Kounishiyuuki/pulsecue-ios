@@ -168,15 +168,16 @@ struct OnboardingView: View {
 }
 
 /// The whole first-launch cover: the three choices, then — after a
-/// server-confirmed Apple / Google sign-in — the account's existing
-/// `ProfileOnboardingView`, in place. Home is reached only by `onFinish`, so a
-/// new account never sees Home before its profile is complete, and the swap
-/// happens inside one cover rather than dismissing to Home and presenting
-/// again.
+/// server-confirmed Apple / Google sign-in, or after "ゲストで始める" — the
+/// same `ProfileOnboardingView`, in place, for that account or for the guest.
+/// Home is reached only by `onFinish`, so nobody sees Home before their
+/// profile is complete, and the swap happens inside one cover rather than
+/// dismissing to Home and presenting again.
 ///
 /// Which account to onboard is still decided by `ProfileOnboardingGate`; the
 /// app-level presenter stays blocked until `onFinish` and then finds nothing
-/// left to ask.
+/// left to ask. The guest's onboarding is owned here alone: the presenter
+/// only ever asks for accounts.
 struct FirstLaunchView: View {
     let onFinish: () -> Void
 
@@ -190,6 +191,9 @@ struct FirstLaunchView: View {
     @AppStorage(GuestAdoptionConsent.healthAnsweredKey) private var healthAnsweredRaw = ""
 
     @State private var step: FirstLaunchSignIn.Step = .choose
+    /// Set by the guest button only. A guest scope by itself is what every
+    /// fresh install starts in, so it must not skip the three choices.
+    @State private var guestChosen = false
 
     var body: some View {
         Group {
@@ -202,15 +206,18 @@ struct FirstLaunchView: View {
                         // The state change this causes re-evaluates `step`.
                         onSignedIn: evaluate
                     ),
-                    onPrimary: onFinish
+                    onPrimary: {
+                        guestChosen = true
+                        evaluate()
+                    }
                 )
             case .awaitingGuestAdoption, .finished:
                 // No choices and no way to Home: while adoption is open its
                 // alert is the only control, and `.finished` leaves at once.
                 FirstLaunchWaitingView()
-            case let .profile(id):
-                ProfileOnboardingView(accountID: id)
-                    .id(id)
+            case let .profile(scope):
+                ProfileOnboardingView(scope: scope)
+                    .id(scope)
             }
         }
         // The adoption question is asked here, over this cover, so answering
@@ -236,6 +243,7 @@ struct FirstLaunchView: View {
             state: serverAccount.state,
             scope: dataScope.scope,
             answers: .init(workoutRaw: workoutAnsweredRaw, healthRaw: healthAnsweredRaw),
+            guestChosen: guestChosen,
             in: modelContext
         )
         if step == .finished {
@@ -265,35 +273,46 @@ enum FirstLaunchSignIn {
         /// A confirmed account that must first answer the guest-adoption
         /// question; the profile it onboards depends on that answer.
         case awaitingGuestAdoption(UUID)
-        /// A confirmed account whose profile onboarding is not complete.
-        case profile(UUID)
-        /// A confirmed account with nothing left to ask here: go Home.
+        /// A confirmed account (`.account`) or the guest (`.guest`) whose
+        /// profile onboarding is not complete. Never `.undetermined`.
+        case profile(HealthDataScope)
+        /// Nothing left to ask here: go Home.
         case finished
     }
 
     /// Where the first-launch cover is, from the same inputs the profile gate
     /// reads. The gate also returns nil while the guest-adoption question is
     /// open, so that case is told apart here and never counts as finished.
+    ///
+    /// Without a confirmed account, the guest is onboarded only once chosen
+    /// (`guestChosen`) or when its profile already holds a resume point from
+    /// an earlier launch; a guest profile already marked complete finishes.
     @MainActor
     static func step(
         state: ServerAccountState,
         scope: WorkoutDataScope,
         answers: GuestAdoptionConsent.Answers,
+        guestChosen: Bool = false,
         in context: ModelContext
     ) -> Step {
         if let id = ProfileOnboardingGate.accountNeedingOnboarding(
             state: state, scope: scope, answers: answers, in: context
         ) {
-            return .profile(id)
+            return .profile(.account(id))
         }
-        guard case let .authenticated(profile) = state,
-              let confirmed = UUID(uuidString: profile.user.id),
-              scope == .account(confirmed)
-        else { return .choose }
-        if GuestAdoptionConsent.question(for: confirmed, answers: answers, in: context) != nil {
-            return .awaitingGuestAdoption(confirmed)
+        if case let .authenticated(profile) = state,
+           let confirmed = UUID(uuidString: profile.user.id),
+           scope == .account(confirmed) {
+            if GuestAdoptionConsent.question(for: confirmed, answers: answers, in: context) != nil {
+                return .awaitingGuestAdoption(confirmed)
+            }
+            return .finished
         }
-        return .finished
+        guard scope == .guest else { return .choose }
+        let guestProfile = UserProfileStore.profile(for: .guest, modelContext: context)
+        if guestProfile?.profileOnboardingCompletedAt != nil { return .finished }
+        if guestChosen || guestProfile?.profileOnboardingStepRaw != nil { return .profile(.guest) }
+        return .choose
     }
 
     /// Returns the message to show when the user stays, nil otherwise.

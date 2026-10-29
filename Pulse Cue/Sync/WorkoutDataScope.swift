@@ -42,7 +42,7 @@ import Combine
 import SwiftData
 
 /// Whose workout data is in scope right now.
-enum WorkoutDataScope: Equatable {
+enum WorkoutDataScope: Hashable {
     case guest
     case account(UUID)
     /// The scope is not knowable yet. Shows nothing, resumes nothing.

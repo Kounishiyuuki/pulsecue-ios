@@ -451,12 +451,12 @@ extension ProfileOnboardingTests {
         let context = ModelContext(try Self.makeContainer())
         let state = Self.authenticated(Self.accountA, provider: provider)
 
-        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .profile(Self.accountA))
+        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .profile(.account(Self.accountA)))
 
         // Stopping part-way keeps it on the profile, at the saved step.
         #expect(Self.validDraft().save(.basics, to: .account(Self.accountA), modelContext: context, now: Self.now) != nil)
         try context.save()
-        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .profile(Self.accountA))
+        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .profile(.account(Self.accountA)))
 
         try Self.finish(Self.accountA, context)
         #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .finished)
@@ -484,7 +484,7 @@ extension ProfileOnboardingTests {
         try GuestAdoptionConsent.accept(question, answers: &answers, in: context)
         #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: context)?.heightCm == 158)
         #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
-            == .profile(Self.accountA))
+            == .profile(.account(Self.accountA)))
 
         try Self.finish(Self.accountA, context)
         #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
@@ -499,11 +499,109 @@ extension ProfileOnboardingTests {
         #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: context) == nil)
         #expect(try HealthDataAdoptionStore().hasGuestHealthData(in: context))
         #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
-            == .profile(Self.accountA))
+            == .profile(.account(Self.accountA)))
 
         try Self.finish(Self.accountA, context)
         #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
             == .finished)
+    }
+
+    // MARK: - Guest first launch
+
+    private static func finishGuest(_ context: ModelContext) throws {
+        for step in ProfileOnboardingStep.allCases {
+            #expect(validDraft().save(step, to: .guest, modelContext: context, now: now) != nil)
+            try context.save()
+        }
+    }
+
+    @Test("A fresh install shows the choices even in guest scope; choosing guest leads to the profile")
+    func guestFirstLaunchNeedsTheChoice() throws {
+        let context = ModelContext(try Self.makeContainer())
+        for state in [ServerAccountState.guest, .notConfigured, .unreachable] {
+            #expect(FirstLaunchSignIn.step(state: state, scope: .guest, answers: Self.noAnswers, in: context) == .choose)
+            #expect(FirstLaunchSignIn.step(state: state, scope: .guest, answers: Self.noAnswers, guestChosen: true, in: context)
+                == .profile(.guest))
+        }
+        // Never an undetermined profile, chosen or not.
+        #expect(FirstLaunchSignIn.step(state: .guest, scope: .undetermined, answers: Self.noAnswers, guestChosen: true, in: context)
+            == .choose)
+        // A legacy guest profile with no resume point is not a reason to skip the choice.
+        context.insert(UserProfile(heightCm: 158, ageYears: 25, goalWeightKg: 50))
+        try context.save()
+        #expect(FirstLaunchSignIn.step(state: .guest, scope: .guest, answers: Self.noAnswers, in: context) == .choose)
+    }
+
+    @Test("Guest answers land in the guest profile and a guest day log")
+    func guestOnboardingStoresGuestOwnedRows() throws {
+        let context = ModelContext(try Self.makeContainer())
+        try Self.finishGuest(context)
+
+        let profiles = try context.fetch(FetchDescriptor<UserProfile>())
+        #expect(profiles.count == 1)
+        #expect(profiles.first?.ownerAccountID == nil)
+        #expect(profiles.first?.ageYears == 34)
+        #expect(profiles.first?.profileOnboardingCompletedAt == Self.now)
+        #expect(profiles.first?.profileOnboardingStepRaw == nil)
+        let logs = try context.fetch(FetchDescriptor<DayLog>())
+        #expect(logs.count == 1)
+        #expect(logs.first?.ownerAccountID == nil)
+        #expect(logs.first?.weightKg == 72.5)
+    }
+
+    @Test("A guest who stopped after basics resumes at the goal step without choosing again")
+    func guestResumesAtTheSavedStep() throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        #expect(Self.validDraft().save(.basics, to: .guest, modelContext: context, now: Self.now) != nil)
+        try context.save()
+
+        // A relaunch: new state, guestChosen is gone.
+        let fresh = ModelContext(container)
+        #expect(FirstLaunchSignIn.step(state: .guest, scope: .guest, answers: Self.noAnswers, in: fresh) == .profile(.guest))
+        #expect(UserProfileStore.profile(for: .guest, modelContext: fresh)?.profileOnboardingStep == .goal)
+    }
+
+    @Test("A completed guest profile finishes first launch and is never asked again")
+    func completedGuestFinishes() throws {
+        let context = ModelContext(try Self.makeContainer())
+        try Self.finishGuest(context)
+        #expect(FirstLaunchSignIn.step(state: .guest, scope: .guest, answers: Self.noAnswers, in: context) == .finished)
+        #expect(FirstLaunchSignIn.step(state: .guest, scope: .guest, answers: Self.noAnswers, guestChosen: true, in: context) == .finished)
+        // The account presenter never asks the guest.
+        #expect(Self.gate(.guest, .guest, context) == nil)
+    }
+
+    @Test("An adopted, completed guest profile moves to the account with its marker; no second onboarding")
+    func adoptedGuestProfileKeepsCompletion() throws {
+        let context = ModelContext(try Self.makeContainer())
+        try Self.finishGuest(context)
+        let state = Self.authenticated(Self.accountA, provider: "apple")
+
+        let question = try #require(GuestAdoptionConsent.question(for: Self.accountA, answers: Self.noAnswers, in: context))
+        #expect(question.profile)
+        var answers = Self.noAnswers
+        try GuestAdoptionConsent.accept(question, answers: &answers, in: context)
+
+        let adopted = try #require(UserProfileStore.profile(for: .account(Self.accountA), modelContext: context))
+        #expect(adopted.ownerAccountID == Self.accountA)
+        #expect(adopted.profileOnboardingCompletedAt == Self.now)
+        #expect(UserProfileStore.profile(for: .guest, modelContext: context) == nil)
+        #expect(Self.gate(state, .account(Self.accountA), answers: answers, context) == nil)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context) == .finished)
+    }
+
+    @Test("Declining adoption of a completed guest profile still onboards the account")
+    func declinedCompletedGuestStillOnboardsAccount() throws {
+        let context = ModelContext(try Self.makeContainer())
+        try Self.finishGuest(context)
+        let state = Self.authenticated(Self.accountA, provider: "google")
+
+        let question = try #require(GuestAdoptionConsent.question(for: Self.accountA, answers: Self.noAnswers, in: context))
+        let answers = Self.noAnswers.marking(question)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
+            == .profile(.account(Self.accountA)))
+        #expect(UserProfileStore.profile(for: .guest, modelContext: context)?.profileOnboardingCompletedAt == Self.now)
     }
 
     // MARK: - Wheels
