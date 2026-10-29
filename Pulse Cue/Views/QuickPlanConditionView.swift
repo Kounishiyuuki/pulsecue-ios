@@ -19,11 +19,17 @@ struct QuickPlanConditionView: View {
     @State private var selectedParts: [BodyPart] = [.chest]
     @State private var duration: QuickPlanDuration = .standardPlus
     @State private var intensity: QuickPlanIntensity = .standard
+    @State private var exerciseCount: QuickPlanExerciseCount = .automatic
 
     private let columns = [GridItem(.adaptive(minimum: 132), spacing: 12)]
 
     private var request: QuickPlanRequest {
-        QuickPlanRequest(bodyParts: selectedParts, duration: duration, intensity: intensity)
+        QuickPlanRequest(
+            bodyParts: selectedParts,
+            duration: duration,
+            intensity: intensity,
+            exerciseCount: exerciseCount
+        )
     }
 
     var body: some View {
@@ -36,6 +42,7 @@ struct QuickPlanConditionView: View {
                     summaryCard
                     bodyPartCard
                     durationCard
+                    exerciseCountCard
                     intensityCard
                     if dynamicTypeSize.isAccessibilitySize {
                         ctaBar
@@ -130,17 +137,50 @@ struct QuickPlanConditionView: View {
 
     // MARK: - Duration
 
+    // 30…180 in 15-minute steps is eleven options — too many for a segmented
+    // control, so both counts use a standard menu picker.
     private var durationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             PulseSectionHeader("時間", icon: "clock")
-            Picker("時間", selection: $duration) {
-                ForEach(QuickPlanDuration.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
+            menuPicker("時間", selection: $duration, options: QuickPlanDuration.allCases, identifier: "quickPlanDurationPicker") { $0.displayName }
         }
         .pulseGlass(level: .functional, padding: 18)
+    }
+
+    // MARK: - Exercise count
+
+    private var exerciseCountCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PulseSectionHeader("種目数", icon: "list.number")
+            menuPicker("種目数", selection: $exerciseCount, options: QuickPlanExerciseCount.allCases, identifier: "quickPlanExerciseCountPicker") { $0.displayName }
+            Text("おまかせでは、時間に合わせて種目数を決めます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .pulseGlass(level: .functional, padding: 18)
+    }
+
+    private func menuPicker<Option: Hashable & Identifiable>(
+        _ title: String,
+        selection: Binding<Option>,
+        options: [Option],
+        identifier: String,
+        label: @escaping (Option) -> String
+    ) -> some View {
+        HStack {
+            Text(title)
+                .font(.headline)
+            Spacer(minLength: 8)
+            Picker(title, selection: selection) {
+                ForEach(options) { option in
+                    Text(label(option)).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(AppTheme.accent)
+            .accessibilityIdentifier(identifier)
+        }
+        .frame(minHeight: 44)
     }
 
     // MARK: - Intensity

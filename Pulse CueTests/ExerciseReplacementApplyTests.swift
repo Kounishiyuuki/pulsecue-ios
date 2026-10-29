@@ -189,3 +189,110 @@ struct ExerciseReplacementApplyTests {
         #expect(Self.stepResultCount(fx.context) == resultsAfterComplete) // unchanged
     }
 }
+
+/// Editing sets / reps / rest in the Preview: the estimate follows the edit
+/// through the same `WorkoutDurationEstimator`, and 保存 persists the edited
+/// values, never the generated ones.
+@MainActor
+struct GeneratedPlanEditingTests {
+
+    private static func viewModel() throws -> (GeneratedPlanViewModel, ModelContext) {
+        let schema = Schema([Routine.self, Step.self, Gym.self, GymMachine.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [config])
+        let context = ModelContext(container)
+        let repo = GymRepository(modelContext: context)
+        let gym = repo.createGym(name: "Test", makeActive: true)
+        repo.setMachines(["bench_press", "chest_press", "pec_deck", "incline_chest_press"], for: gym)
+        let vm = GeneratedPlanViewModel(
+            gym: gym,
+            request: QuickPlanRequest(bodyParts: [.chest], duration: .standardPlus, intensity: .standard)
+        )
+        vm.configure(modelContext: context)
+        return (vm, context)
+    }
+
+    @Test
+    func editingSetsRepsAndRestUpdatesTheEstimate() throws {
+        let (vm, _) = try Self.viewModel()
+        let plan = try #require(vm.plan)
+        try #require(!plan.exercises.isEmpty)
+        #expect(vm.estimatedMinutes == WorkoutDurationEstimator.minutes(forPlan: plan.exercises))
+
+        let original = plan.exercises[0]
+        var previous = vm.estimatedMinutes
+        vm.updatePrescription(at: 0, sets: original.sets + 3)
+        #expect(vm.estimatedMinutes > previous)
+
+        previous = vm.estimatedMinutes
+        vm.updatePrescription(at: 0, reps: original.reps + 10)
+        #expect(vm.estimatedMinutes > previous)
+
+        previous = vm.estimatedMinutes
+        vm.updatePrescription(at: 0, restSeconds: 0)
+        #expect(vm.estimatedMinutes < previous)
+
+        // Always the shared estimator on the current plan — no second formula.
+        #expect(vm.estimatedMinutes == WorkoutDurationEstimator.minutes(forPlan: try #require(vm.plan).exercises))
+    }
+
+    @Test
+    func replacingAnExerciseKeepsTheEstimateOnTheSameSource() throws {
+        let (vm, _) = try Self.viewModel()
+        // The 60-minute fixture uses every machine, so pass a candidate directly.
+        let candidate = GeneratedExercise(
+            machineId: "cable_machine", exerciseName: "ケーブルクロスオーバー",
+            sets: 3, reps: 12, restSeconds: 60, cue: "", exerciseId: "cable_crossover"
+        )
+        vm.replaceExercise(at: 0, with: candidate)
+        #expect(try #require(vm.plan).exercises[0].machineId == "cable_machine")
+        #expect(vm.estimatedMinutes == WorkoutDurationEstimator.minutes(forPlan: try #require(vm.plan).exercises))
+    }
+
+    @Test
+    func editsAreClampedToTheEditableRanges() throws {
+        let (vm, _) = try Self.viewModel()
+        vm.updatePrescription(at: 0, sets: 0, reps: 999, restSeconds: -5)
+        let edited = try #require(vm.plan).exercises[0]
+        #expect(edited.sets == GeneratedPlanViewModel.editableSets.lowerBound)
+        #expect(edited.reps == GeneratedPlanViewModel.editableReps.upperBound)
+        #expect(edited.restSeconds == GeneratedPlanViewModel.editableRestSeconds.lowerBound)
+    }
+
+    @Test
+    func savePersistsTheEditedValues() throws {
+        let (vm, context) = try Self.viewModel()
+        vm.updatePrescription(at: 0, sets: 6, reps: 5, restSeconds: 150)
+        vm.saveAsRoutine()
+
+        let steps = try context.fetch(FetchDescriptor<Step>()).sorted { $0.order < $1.order }
+        let first = try #require(steps.first)
+        #expect(first.sets == 6)
+        #expect(first.repsTarget == 5)
+        #expect(first.restSeconds == 150)
+        #expect(steps.count == vm.plan?.exercises.count)
+    }
+
+    @Test
+    func editAfterStartRebuildsTheRoutineFromTheEditedPlan() throws {
+        let (vm, context) = try Self.viewModel()
+        let runner = RunnerViewModel(settings: SettingsStore(defaults: UserDefaults(suiteName: "test.edit.\(UUID().uuidString)")!))
+        vm.startWorkout(restStore: RoutineRestPreferenceStore(), appDefaultRestSeconds: 90, runner: runner)
+        vm.updatePrescription(at: 0, sets: 7)
+        vm.saveAsRoutine()
+
+        let saved = try context.fetch(FetchDescriptor<Routine>()).filter { $0.origin == .userSaved }
+        let routine = try #require(saved.first)
+        let steps = try context.fetch(FetchDescriptor<Step>()).filter { $0.routineId == routine.id }
+        #expect(steps.first(where: { $0.order == 0 })?.sets == 7)
+    }
+
+    @Test
+    func editsAreIgnoredOnceSaved() throws {
+        let (vm, _) = try Self.viewModel()
+        vm.saveAsRoutine()
+        let before = try #require(vm.plan)
+        vm.updatePrescription(at: 0, sets: 9)
+        #expect(vm.plan == before)
+    }
+}

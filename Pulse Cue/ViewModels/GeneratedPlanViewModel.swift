@@ -198,6 +198,60 @@ final class GeneratedPlanViewModel: ObservableObject {
         materialized = nil
     }
 
+    // MARK: - Prescription editing
+
+    static let editableSets = 1...10
+    static let editableReps = 1...50
+    static let editableRestSeconds = 0...300
+    static let restStepSeconds = 15
+
+    /// Estimated minutes for the plan as it currently stands. The one number
+    /// the preview shows, computed by the same `WorkoutDurationEstimator` the
+    /// generator sizes against — so generation and editing never disagree.
+    var estimatedMinutes: Int {
+        WorkoutDurationEstimator.minutes(forPlan: plan?.exercises ?? [])
+    }
+
+    /// Rewrites sets / reps / rest of the exercise at `index` (clamped to the
+    /// editable ranges); `nil` keeps the current value. Like replacement, any
+    /// materialized routine is discarded so 保存 / 開始 persist the edited
+    /// values rather than the generated ones. Ignored once saved, because the
+    /// saved routine would no longer match what the preview shows.
+    func updatePrescription(at index: Int, sets: Int? = nil, reps: Int? = nil, restSeconds: Int? = nil) {
+        guard !isSaved, let plan, plan.exercises.indices.contains(index) else { return }
+        let original = plan.exercises[index]
+        let edited = GeneratedExercise(
+            machineId: original.machineId,
+            exerciseName: original.exerciseName,
+            sets: Self.clamp(sets ?? original.sets, to: Self.editableSets),
+            reps: Self.clamp(reps ?? original.reps, to: Self.editableReps),
+            restSeconds: Self.clamp(restSeconds ?? original.restSeconds, to: Self.editableRestSeconds),
+            cue: original.cue,
+            exerciseId: original.exerciseId
+        )
+        guard edited != original else { return }
+        var exercises = plan.exercises
+        exercises[index] = edited
+        self.plan = GeneratedPlan(
+            bodyPart: plan.bodyPart,
+            bodyParts: plan.bodyParts,
+            gymId: plan.gymId,
+            gymName: plan.gymName,
+            exercises: exercises,
+            warnings: plan.warnings
+        )
+        materialized = nil
+    }
+
+    var isSaved: Bool {
+        if case .saved = state { return true }
+        return false
+    }
+
+    private static func clamp(_ value: Int, to range: ClosedRange<Int>) -> Int {
+        Swift.min(Swift.max(value, range.lowerBound), range.upperBound)
+    }
+
     /// Body parts to search for alternatives: the machine's catalog parts,
     /// else its custom-equipment parts, else the plan's target parts.
     private func bodyParts(for exercise: GeneratedExercise, equipment: [AvailableEquipment]) -> Set<BodyPart> {

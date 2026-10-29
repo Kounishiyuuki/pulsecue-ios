@@ -148,7 +148,9 @@ enum WorkoutPlanGenerator {
     /// - Multiple body parts are covered round-robin (part1#1, part2#1,
     ///   part1#2, …) so a two-part request is balanced, then deduped by
     ///   machine so one machine never appears twice.
-    /// - `duration` caps how many exercises the plan contains.
+    /// - `duration` caps how many exercises the plan contains, unless
+    ///   `exerciseCount` fixes the count — then sets are fitted to the time
+    ///   (`fitSets`) and anything that cannot be reconciled is warned about.
     /// - `intensity` nudges each strength exercise's sets / rest by a small,
     ///   deterministic amount (cardio/warm-up entries with no rest are left
     ///   untouched). It never rewrites reps or invents a prescription.
@@ -187,16 +189,35 @@ enum WorkoutPlanGenerator {
         // changes sets and rest and therefore changes how long each exercise
         // takes. Sizing then runs on the real prescription.
         let candidates = merged.map { applyIntensity(request.intensity, to: $0) }
-        let adjusted = Array(candidates.prefix(exerciseCount(fitting: request.duration, from: candidates)))
 
         var warnings: [String] = []
+        let adjusted: [GeneratedExercise]
+        if let fixedCount = request.exerciseCount.fixedCount {
+            adjusted = fitSets(
+                Array(candidates.prefix(fixedCount)),
+                to: request.duration
+            )
+        } else {
+            adjusted = Array(candidates.prefix(exerciseCount(fitting: request.duration, from: candidates)))
+        }
+
+        let minutes = WorkoutDurationEstimator.minutes(forPlan: adjusted)
         if usable.isEmpty {
             warnings.append("選択中のマシンがありません。マイジムから利用できるマシンを選択してください。")
         } else if adjusted.isEmpty {
             let names = parts.map(\.displayName).joined(separator: "・")
             warnings.append("\(names)を鍛えられるマシンが見つかりませんでした。別のマシンを追加するか、別の部位を選んでください。")
+        } else if let fixedCount = request.exerciseCount.fixedCount {
+            if adjusted.count < fixedCount {
+                warnings.append("使えるマシンが\(adjusted.count)台のため、\(fixedCount)種目ではなく\(adjusted.count)種目で作成しました。同じマシンの重複は避けています。")
+            }
+            if minutes > request.duration.upperBoundMinutes {
+                warnings.append("\(adjusted.count)種目では\(request.duration.displayName)に収まりません（推定\(minutes)分）。種目数を減らすか時間を延ばしてください。")
+            } else if minutes < request.duration.lowerBoundMinutes {
+                warnings.append("\(adjusted.count)種目では\(request.duration.displayName)に届きません（推定\(minutes)分）。種目数を増やすとより近づきます。")
+            }
         } else if adjusted.count == candidates.count,
-                  WorkoutDurationEstimator.minutes(forPlan: adjusted) < request.duration.lowerBoundMinutes {
+                  minutes < request.duration.lowerBoundMinutes {
             // Every usable machine is already in the plan and it is still
             // short of the requested time: the gym is the limit, not sizing.
             warnings.append("選択中のマシンが少ないためメニューが短くなっています。マシンを追加するとより良い提案ができます。")
@@ -243,6 +264,67 @@ enum WorkoutPlanGenerator {
             if minutes <= upperBound { best = count }
         }
         return best
+    }
+
+    /// Set count bounds used when a fixed exercise count is reconciled with
+    /// the chosen time. Kept inside a normal prescription range so the plan
+    /// never turns into 1-set or 8-set exercises just to hit a number.
+    static let fitMinSets = 2
+    static let fitMaxSets = 6
+
+    /// With the exercise count fixed by the user, the only lever left for
+    /// time is the set count. Adds or removes one set at a time, round-robin
+    /// over strength exercises (cardio/warm-up entries with no rest are never
+    /// touched), until the estimate is inside the duration's bounds or no
+    /// exercise can move further. Each pass changes at least one set or stops,
+    /// so the loop always terminates. Reps and rest are never rewritten.
+    static func fitSets(
+        _ exercises: [GeneratedExercise],
+        to duration: QuickPlanDuration
+    ) -> [GeneratedExercise] {
+        var result = exercises
+        let adjustable = result.indices.filter { result[$0].restSeconds > 0 }
+        guard !adjustable.isEmpty else { return result }
+
+        func minutes() -> Int { WorkoutDurationEstimator.minutes(forPlan: result) }
+
+        while minutes() > duration.upperBoundMinutes {
+            var changed = false
+            for index in adjustable.reversed() where minutes() > duration.upperBoundMinutes {
+                guard result[index].sets > fitMinSets else { continue }
+                result[index] = withSets(result[index].sets - 1, result[index])
+                changed = true
+            }
+            if !changed { break }
+        }
+
+        while minutes() < duration.lowerBoundMinutes {
+            var changed = false
+            for index in adjustable where minutes() < duration.lowerBoundMinutes {
+                guard result[index].sets < fitMaxSets else { continue }
+                let candidate = withSets(result[index].sets + 1, result[index])
+                var trial = result
+                trial[index] = candidate
+                // Never push the plan past the ceiling while filling it.
+                guard WorkoutDurationEstimator.minutes(forPlan: trial) <= duration.upperBoundMinutes else { continue }
+                result = trial
+                changed = true
+            }
+            if !changed { break }
+        }
+        return result
+    }
+
+    private static func withSets(_ sets: Int, _ exercise: GeneratedExercise) -> GeneratedExercise {
+        GeneratedExercise(
+            machineId: exercise.machineId,
+            exerciseName: exercise.exerciseName,
+            sets: sets,
+            reps: exercise.reps,
+            restSeconds: exercise.restSeconds,
+            cue: exercise.cue,
+            exerciseId: exercise.exerciseId
+        )
     }
 
     // MARK: - Candidate selection (shared by single-part and Quick Plan)
