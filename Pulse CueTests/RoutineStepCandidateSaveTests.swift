@@ -56,6 +56,44 @@ struct RoutineStepCandidateSaveTests {
         #expect(candidate.resolvedRestSeconds == RoutineStepCandidate.fallbackRestSeconds)
     }
 
+    // MARK: - Review display
+
+    @Test
+    func displayTextUsesCatalogDefaultsWhenPresent() {
+        let candidate = RoutineStepCandidate(entry: entryWithDefaults())
+        #expect(candidate.displaySetsAndRepsText == "4セット × 8〜12回")
+        #expect(candidate.displayRestText == "セット間 1分30秒")
+    }
+
+    @Test
+    func displayTextShowsSaveFallbacksWhenDefaultsMissing() {
+        let bare = MachineCatalogEntry(id: "pec_deck", displayName: "ペックデック", bodyParts: [.chest])
+        let candidate = RoutineStepCandidate(entry: bare)
+        #expect(candidate.displaySetsAndRepsText == "3セット × 10回")
+        #expect(candidate.displayRestText == "セット間 1分")
+    }
+
+    @Test
+    func displayTextMatchesSavedStepWhenDefaultsMissing() {
+        let bare = MachineCatalogEntry(id: "pec_deck", displayName: "ペックデック", bodyParts: [.chest])
+        let candidate = RoutineStepCandidate(entry: bare)
+        let step = try! #require(RoutineFactory.makeRoutine(from: candidate, title: "胸").steps.first)
+        #expect(candidate.displaySetsAndRepsText == "\(step.sets)セット × \(step.repsTarget)回")
+        #expect(candidate.displayRestText
+            == "セット間 \(MachineExerciseTemplate.humanizedDuration(seconds: step.restSeconds))")
+    }
+
+    @Test
+    func displayTextFillsOnlyMissingFields() {
+        let partial = MachineCatalogEntry(
+            id: "leg_press", displayName: "レッグプレス", bodyParts: [.legs],
+            defaultSets: 4
+        )
+        let candidate = RoutineStepCandidate(entry: partial)
+        #expect(candidate.displaySetsAndRepsText == "4セット × 10回")
+        #expect(candidate.displayRestText == "セット間 1分")
+    }
+
     // MARK: - Factory mapping (pure)
 
     @Test

@@ -534,15 +534,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
     @ViewBuilder
     private func exerciseMetrics(_ ex: RoutineStepCandidate) -> some View {
-        if let setsReps = ex.setsAndRepsText {
-            metricChip(icon: "repeat", text: setsReps)
-        }
-        if let rest = ex.restText {
-            metricChip(icon: "timer", text: rest)
-        }
-        if !ex.hasMenuDefaults {
-            metricChip(icon: "questionmark.circle", text: "目安なし")
-        }
+        metricChip(icon: "repeat", text: ex.displaySetsAndRepsText)
+        metricChip(icon: "timer", text: ex.displayRestText)
     }
 
     // MARK: - Save (review → confirm → save)
