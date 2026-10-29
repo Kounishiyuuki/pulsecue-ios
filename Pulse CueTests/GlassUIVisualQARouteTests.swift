@@ -22,6 +22,7 @@ struct GlassUIVisualQARouteTests {
         #expect(Set(GlassUIVisualQARoute.allCases.map(\.rawValue)) == [
             "home",
             "progress",
+            "nutrition",
             "mygym-active",
             "mygym-empty",
             "mygym-multiple",
@@ -304,6 +305,69 @@ struct GlassUIVisualQARouteTests {
         #expect(vm.isRunning)
         // Advanced past the very first set (later set of same step, or next step).
         #expect(vm.currentSetIndex >= 1 || vm.currentStepIndex >= 1)
+    }
+
+    /// The App Store Progress shot must show a non-empty week. Days 0/2/4
+    /// share a calendar week whenever "now" is Wednesday or later.
+    @Test func sessionsFillTheCurrentWeekFromWednesday() throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV6.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seed(into: context)
+
+        let sessions = try context.fetch(FetchDescriptor<Session>())
+        let calendar = Calendar.current
+        #expect(sessions.allSatisfy { $0.startedAt <= Date() })
+        #expect(sessions.map { calendar.startOfDay(for: $0.startedAt) }.max() ?? .distantPast
+            >= calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date()))!)
+
+        var friday = Calendar(identifier: .gregorian)
+        friday.firstWeekday = 1
+        let now = try #require(friday.date(from: DateComponents(year: 2026, month: 10, day: 30, hour: 21)))
+        let shifted = [0, 2, 4].map { GlassUIVisualQAFixture.sessionStart(daysAgo: $0, now: now) }
+        let week = try #require(friday.dateInterval(of: .weekOfYear, for: now))
+        #expect(shifted.allSatisfy { week.contains($0) && $0 <= now })
+    }
+
+    /// Nutrition shot: three confirmed meals today (1,650 kcal / 110 g) under a
+    /// profile-calculated target that leaves a sensible remainder.
+    @Test func nutritionFixtureShowsARecordedDayUnderTarget() throws {
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        )
+        let context = container.mainContext
+        try GlassUIVisualQAFixture.seedNutrition(into: context)
+
+        let meals = try context.fetch(FetchDescriptor<MealEntry>())
+        let profile = try #require(context.fetch(FetchDescriptor<UserProfile>()).first)
+        let log = try #require(context.fetch(FetchDescriptor<DayLog>()).first)
+        #expect(meals.count == 3)
+        #expect(meals.allSatisfy { $0.status == .confirmed && Calendar.current.isDateInToday($0.dayDate) })
+        #expect(meals.allSatisfy { $0.ownerAccountID == nil })
+
+        let summary = DailyNutritionSummary.make(
+            dayLog: log,
+            mealsForDay: meals,
+            manualTargetKcal: nil,
+            profileTargetKcal: profile.targetIntake(currentWeightKg: log.weightKg)
+        )
+        #expect(summary.consumedKcal == 1_650)
+        #expect(summary.proteinGrams == 110)
+        let target = try #require(summary.targetKcal)
+        #expect((1_900...2_600).contains(target))
+    }
+
+    /// The weekly shot is generated from the fixture gym's machines only.
+    @Test func weeklyPreviewUsesOnlyTheFixtureGymMachines() {
+        let gymMachines = Set(GlassUIVisualQAFixture.machineIDs)
+        let exercises = GlassUIVisualQAFixture.weeklyCandidate.sessions.flatMap(\.exercises)
+        #expect(!exercises.isEmpty)
+        #expect(exercises.allSatisfy { gymMachines.contains($0.machineId) })
     }
 }
 #endif

@@ -115,42 +115,50 @@ Runner の実行中/休憩は決定的ルートが**無い**（実セッショ�
 
 ## 自動撮影（`Scripts/capture-app-store-screenshots.sh`）
 
-7画面を DEBUG ルートから決定的に一括取得する。生成 PNG はローカル成果物（`build/app-store-screenshots/`・`.gitignore` 済み、**リポジトリに commit しない**）。
+主素材6枚＋予備2枚を DEBUG ルートから決定的に一括取得する（2026-10-30 更新）。生成 PNG はローカル成果物で、**リポジトリに commit しない**（`--output` には repo 外のディレクトリを推奨）。
 
 ```
-./Scripts/capture-app-store-screenshots.sh --device <UDID> --output build/app-store-screenshots
-# 上書きは --force。UDID 省略時は booted simulator を使用。
+./Scripts/capture-app-store-screenshots.sh --device <UDID> --output <repo外dir> --force
+# 6.9": iPhone 17 Pro Max → 1320×2868 / 6.3": iPhone 17 Pro → 1206×2622（実測）
 ```
 
-スクリプトの動作: 前提確認 → Debug ビルド/install → light 外観・標準 Dynamic Type・クリーンステータスバー（9:41/満充電/電波）設定 → 各ルートを個別 launch → bounded settle（Form Guide のみ RealityKit 用に追加待機）→ 取得 → 決定的ファイル名保存 → 失敗時 nonzero 終了。既存ファイルは `--force` なしで上書きしない。
+スクリプトの動作: 前提確認 → Debug ビルド/install → **dark 外観**（本体 `ContentView` がダーク固定のため。ライトだと QA root では暗背景に暗文字になり実画面と異なる）・標準 Dynamic Type・クリーンステータスバー（9:41/満充電/電波）設定 → 各ルートを個別 launch → bounded settle → 取得 → 失敗時 nonzero 終了。既存ファイルは `--force` なしで上書きしない。
 
 ### ルート → ファイル対応
 
-| ファイル | 画面 | 起動引数 |
-|---|---|---|
-| `01-home.png` | Home/Today | `-pulsecue-debug-glass-ui-route home` |
-| `02-weekly-plan.png` | 週次プラン候補 | `-pulsecue-debug-glass-ui-route preview-weekly` |
-| `03-runner-active.png` | Runner 実行中 | `-pulsecue-debug-glass-ui-route runner-active` |
-| `04-runner-rest.png` | Runner 休憩 | `-pulsecue-debug-glass-ui-route runner-rest` |
-| `05-history-detail.png` | 履歴詳細 | `-pulsecue-debug-glass-ui-route history-detail` |
-| `06-my-gym.png` | My Gym | `-pulsecue-debug-glass-ui-route mygym-active` |
-| `07-form-guide.png` | フォームガイド | `-pulsecue-debug-glass-ui-route form-guide` |
+| ファイル | 画面 | route | 見出し |
+|---|---|---|---|
+| `01-home.png` | Home/Today（栄養記録済み） | `home` | 今日を、ひと目で |
+| `02-weekly-plan.png` | 週次プラン候補 | `preview-weekly` | 通うジムで、1週間のプラン |
+| `03-runner-active.png` | Runner 実行中 | `runner-active` | セットに集中できる |
+| `04-nutrition.png` | 栄養（今日の食事3件） | `nutrition` | 食事も、同じアプリで |
+| `05-progress.png` | 進捗（今週3回） | `progress` | 伸びが、見える |
+| `06-my-gym.png` | My Gym | `mygym-active` | あなたのジムに合わせる |
+| `07-workout-completion.png`（予備） | ワークアウト完了 | `workout-completion` | — |
+| `08-history-detail.png`（予備） | 履歴詳細 | `history-detail` | — |
 
-Home は DEBUG ルート `home`（`ScreenshotHomeHost` が本番 `TodayView` を fixture の**アクティブジム「Pulse Fitness 渋谷」＋11マシン**上で描画）。UIテスト用の `-pulsecue-ui-test-custom-machine-flow`（「UIテストジム」空状態）は **App Store 用には使用しない**。Runner active/rest は DEBUG ルート（`ScreenshotRunnerHost`・in-memory・fixture routine「上半身プッシュ」を既存 Runner 公開APIで駆動）。**Runner 状態機械は不変**。
+### fixture（`GlassUIVisualQAFixture`・DEBUG のみ）
+
+- 栄養: `seedNutrition` が今日の食事3件（朝 520 / 昼 780 / 間食 350 kcal、計 1,650 kcal・P 110 g、すべて確定済み・手入力）、ゲストのプロフィール（172 cm / 32歳 / 男性 / 普通 / 目標 70 kg・-0.25 kg/週）と今日の体重 72.4 kg を入れる。目標摂取は本番のプロフィール計算の結果（撮影時 2,273 kcal・残り 623 kcal）。Home の栄養カードも同じデータで埋まる。
+- セッション: 撮影時点から 0/2/4 日前（今日は 07:00、未明の撮影では 2 時間前。それ以前は 19:00）。**水〜土曜に撮れば「今週 3回」**。日〜火曜は今週に入る回数が減るので、撮影は水〜土曜に行う。
+- 週次プラン: カタログ全体ではなく fixture ジムの13マシン（レッグエクステンション・カーフレイズを追加）から本番のルールベース生成で作る。
+
+Home は DEBUG ルート `home`（`ScreenshotHomeHost` が本番 `TodayView` を fixture の**アクティブジム「Pulse Fitness 渋谷」＋13マシン**上で描画）。UIテスト用の `-pulsecue-ui-test-custom-machine-flow`（「UIテストジム」空状態）は **App Store 用には使用しない**。Runner active/rest は DEBUG ルート（`ScreenshotRunnerHost`・in-memory・fixture routine「上半身プッシュ」を既存 Runner 公開APIで駆動）。**Runner 状態機械は不変**。
 
 スクリーンショットホストの設定は固定名の使い捨て UserDefaults suite `com.pulsecue.screenshot-visualqa`（`.standard` 非使用・固定名のため orphan plist が無制限に増えない）。撮影スクリプトは EXIT trap で当ドメインを best-effort 削除する。
 
 ### 使用シミュレータ（今回の取得）
 
-- iPhone 17 Pro（UDID `A8C1142A-...`）/ iOS 26.5 / 1206×2622 px / @3x / Portrait
-- 外観 light / 言語ロケール（端末設定）/ 標準 Dynamic Type / クリーンステータスバー
+- iPhone 17 Pro Max（UDID `9FC2DBF3-...`）/ 1320×2868 px / Portrait
+- iPhone 17 Pro（UDID `A8C1142A-...`）/ 1206×2622 px / Portrait
+- 外観 dark / 言語ロケール（端末設定）/ 標準 Dynamic Type / クリーンステータスバー
 
 ### 既知の制限
 
 - **Runner 休憩の可視秒は「決定的ではない」**。決定的なのは **相（REST phase）とルート/状態** のみで、表示される残り時間は本番 rest timer による**ライブカウント**（`01:27` 等）。起動→撮影の間に減少し、連続撮影で PNG の秒（ピクセル）は変わり得る。どのフレームも妥当な休憩状態で真実。可視秒の固定には本番 RunnerView/状態機械への DEBUG フック追加が必要で、**本番 Runner 非改変を優先**し本PRでは見送った（bounded but timing-dependent）。
-- Form Guide の 3D は RealityKit のため取得直前に追加 settle（`PULSECUE_FORMGUIDE_DELAY`）。**main 現状の capsule モデル**であり PR #140 の改良は含まない。
-- weekly は一部種目が「目安なし」（カタログにセット/レップ既定が無い種目の**真実の製品表示**）。generator/カタログは非改変。より洗練させたい場合は、既定を持つマシン中心の対象部位で fixture request を組む（任意・別途）。
-- iOS 26 系 sim は外観トグルが反映されにくい場合あり（`appearance` は best-effort）。
+- Runner 休憩・Form Guide は一括撮影の対象外にした（個別撮影は `runner-rest` / `form-guide` route で可能）。
+- weekly は全種目が「目安なし」になる。2026-10-30 時点で `MachineCatalog` のどの項目にも `defaultSets/Reps/Rest` が無く、fixture のマシン選択では解消できない（**真実の製品表示**）。消すにはカタログへ既定値を入れる製品変更が必要（別 PR で判断）。
+- iOS 26 系 sim は外観トグルが反映されにくい場合あり（`appearance` は best-effort）。撮影後に暗背景・明文字になっているか目視する。
 - App Store Connect の必要デバイスセット/寸法は Apple 公式で**手動確認**（本書では確定しない）。
 
 ### 最終マーケティング合成（後工程）
