@@ -463,4 +463,48 @@ extension ProfileOnboardingTests {
         try Self.finish(Self.accountA, context)
         #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .finished)
     }
+
+    /// Guest health data and a guest profile on the device, and account A
+    /// confirmed by the server: the adoption question is open.
+    private static func guestDataAndSignedIn(_ provider: String) throws -> (ModelContext, ServerAccountState, GuestAdoptionConsent.Question) {
+        let context = ModelContext(try makeContainer())
+        context.insert(UserProfile(heightCm: 158, ageYears: 25, goalWeightKg: 50))
+        context.insert(DayLog(date: DateUtils.startOfDay(now), weightKg: 54))
+        try context.save()
+        let question = try #require(GuestAdoptionConsent.question(for: accountA, answers: noAnswers, in: context))
+        return (context, authenticated(accountA, provider: provider), question)
+    }
+
+    @Test("An open adoption question never finishes first launch; accepting leads to the profile", arguments: ["apple", "google"])
+    func firstLaunchWaitsForAdoptionThenAccept(provider: String) throws {
+        let (context, state, question) = try Self.guestDataAndSignedIn(provider)
+
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: Self.noAnswers, in: context)
+            == .awaitingGuestAdoption(Self.accountA))
+
+        var answers = Self.noAnswers
+        try GuestAdoptionConsent.accept(question, answers: &answers, in: context)
+        #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: context)?.heightCm == 158)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
+            == .profile(Self.accountA))
+
+        try Self.finish(Self.accountA, context)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
+            == .finished)
+    }
+
+    @Test("Declining adoption keeps the guest data and still leads to the profile before Home")
+    func firstLaunchWaitsForAdoptionThenDecline() throws {
+        let (context, state, question) = try Self.guestDataAndSignedIn("apple")
+
+        let answers = Self.noAnswers.marking(question)
+        #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: context) == nil)
+        #expect(try HealthDataAdoptionStore().hasGuestHealthData(in: context))
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
+            == .profile(Self.accountA))
+
+        try Self.finish(Self.accountA, context)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
+            == .finished)
+    }
 }

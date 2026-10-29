@@ -194,7 +194,7 @@ struct FirstLaunchView: View {
     var body: some View {
         Group {
             switch step {
-            case .choose, .finished:
+            case .choose, .awaitingGuestAdoption, .finished:
                 OnboardingView(
                     accountSignIn: .init(
                         authSession: authSession,
@@ -209,6 +209,9 @@ struct FirstLaunchView: View {
                     .id(id)
             }
         }
+        // The adoption question is asked here, over this cover, so answering
+        // it never exposes Home; the app-level prompt is blocked meanwhile.
+        .guestWorkoutAdoptionPrompt()
         .onAppear(perform: evaluate)
         .onChange(of: serverAccount.state) { _, _ in evaluate() }
         .onChange(of: dataScope.scope) { _, _ in evaluate() }
@@ -243,6 +246,9 @@ enum FirstLaunchSignIn {
     enum Step: Equatable {
         /// No server-confirmed account: show the three choices.
         case choose
+        /// A confirmed account that must first answer the guest-adoption
+        /// question; the profile it onboards depends on that answer.
+        case awaitingGuestAdoption(UUID)
         /// A confirmed account whose profile onboarding is not complete.
         case profile(UUID)
         /// A confirmed account with nothing left to ask here: go Home.
@@ -250,9 +256,8 @@ enum FirstLaunchSignIn {
     }
 
     /// Where the first-launch cover is, from the same inputs the profile gate
-    /// reads. A confirmed account that the gate does not want to onboard has
-    /// either completed its profile or is waiting on the guest-adoption
-    /// question, which the app-level prompt and presenter then handle.
+    /// reads. The gate also returns nil while the guest-adoption question is
+    /// open, so that case is told apart here and never counts as finished.
     @MainActor
     static func step(
         state: ServerAccountState,
@@ -269,6 +274,9 @@ enum FirstLaunchSignIn {
               let confirmed = UUID(uuidString: profile.user.id),
               scope == .account(confirmed)
         else { return .choose }
+        if GuestAdoptionConsent.question(for: confirmed, answers: answers, in: context) != nil {
+            return .awaitingGuestAdoption(confirmed)
+        }
         return .finished
     }
 
