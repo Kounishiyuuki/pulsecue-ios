@@ -27,4 +27,17 @@ final class FirstLaunchOnboardingUITests: XCTestCase {
         XCTAssertTrue(app.buttons["onboarding.google"].exists, "Google control not shown in DEBUG")
         XCTAssertTrue(app.staticTexts["ログインは任意です"].exists, "optional-login note not shown")
     }
+
+    @MainActor
+    func testWaitingForGuestAdoptionOffersNoWayOut() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-debug-glass-ui-route", "first-launch-waiting"]
+        app.launch()
+
+        XCTAssertTrue(app.activityIndicators["first-launch.waiting"].waitForExistence(timeout: 12), "waiting state not shown")
+        XCTAssertFalse(app.buttons["onboarding.guest"].exists, "guest start must not be reachable")
+        XCTAssertFalse(app.buttons["onboarding.apple"].exists, "Apple must not restart")
+        XCTAssertFalse(app.buttons["onboarding.google"].exists, "Google must not restart")
+        XCTAssertEqual(app.buttons.count, 0, "no action of any kind while waiting")
+    }
 }

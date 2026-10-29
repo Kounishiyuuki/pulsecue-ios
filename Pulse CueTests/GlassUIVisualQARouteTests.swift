@@ -56,6 +56,7 @@ struct GlassUIVisualQARouteTests {
             "form-guide",
             "form-guide-instructions-expanded",
             "onboarding",
+            "first-launch-waiting",
             "login",
         ])
         for route in GlassUIVisualQARoute.allCases {

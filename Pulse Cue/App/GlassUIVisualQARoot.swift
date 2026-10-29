@@ -42,6 +42,8 @@ enum GlassUIVisualQARoute: String, CaseIterable {
     case formGuide = "form-guide"
     case formGuideInstructionsExpanded = "form-guide-instructions-expanded"
     case onboarding
+    /// The first-launch cover while the guest-adoption question is open.
+    case firstLaunchWaiting = "first-launch-waiting"
     case login
 }
 
@@ -223,6 +225,8 @@ struct GlassUIVisualQARoot: View {
                     accountSignIn: .init(authSession: AuthSessionStore(), serverAccount: nil, onSignedIn: {}),
                     onPrimary: {}
                 )
+            case .firstLaunchWaiting:
+                FirstLaunchWaitingView()
             case .login:
                 LoginView(authSession: AuthSessionStore())
             }

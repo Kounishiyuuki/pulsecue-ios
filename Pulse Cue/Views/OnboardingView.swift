@@ -194,7 +194,7 @@ struct FirstLaunchView: View {
     var body: some View {
         Group {
             switch step {
-            case .choose, .awaitingGuestAdoption, .finished:
+            case .choose:
                 OnboardingView(
                     accountSignIn: .init(
                         authSession: authSession,
@@ -204,6 +204,10 @@ struct FirstLaunchView: View {
                     ),
                     onPrimary: onFinish
                 )
+            case .awaitingGuestAdoption, .finished:
+                // No choices and no way to Home: while adoption is open its
+                // alert is the only control, and `.finished` leaves at once.
+                FirstLaunchWaitingView()
             case let .profile(id):
                 ProfileOnboardingView(accountID: id)
                     .id(id)
@@ -236,6 +240,18 @@ struct FirstLaunchView: View {
         )
         if step == .finished {
             onFinish()
+        }
+    }
+}
+
+/// The first-launch background between steps. Deliberately has no actions.
+struct FirstLaunchWaitingView: View {
+    var body: some View {
+        ZStack {
+            PulseAtmosphericBackground()
+                .ignoresSafeArea()
+            ProgressView()
+                .accessibilityIdentifier("first-launch.waiting")
         }
     }
 }
