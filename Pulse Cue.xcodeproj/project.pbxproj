@@ -35,6 +35,7 @@
 		C0FFEE0000000000000B0012 /* WorkoutDurationEstimatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */; };
 		C0FFEE0000000000000B0011 /* WorkoutDurationEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */; };
 		PC0B0A0D0000000000000006 /* ProfileOnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC0B0A0D0000000000000005 /* ProfileOnboardingUITests.swift */; };
+		PC0B0A0E0000000000000006 /* FirstLaunchOnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC0B0A0E0000000000000005 /* FirstLaunchOnboardingUITests.swift */; };
 		C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */; };
 		C0FFEE0000000000000B0003 /* WorkoutCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */; };
 		C0FFEE0000000000000B0002 /* WorkoutCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */; };
@@ -412,6 +413,7 @@
 		C0FFEE0000000000000A0012 /* WorkoutDurationEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimatorTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0011 /* WorkoutDurationEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDurationEstimator.swift; sourceTree = "<group>"; };
 		PC0B0A0D0000000000000005 /* ProfileOnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileOnboardingUITests.swift; sourceTree = "<group>"; };
+		PC0B0A0E0000000000000005 /* FirstLaunchOnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunchOnboardingUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionUITests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0003 /* WorkoutCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionTests.swift; sourceTree = "<group>"; };
 		C0FFEE0000000000000A0002 /* WorkoutCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCompletionView.swift; sourceTree = "<group>"; };
@@ -1217,6 +1219,7 @@
 			children = (
 				C0FFEE0000000000000A0031 /* MyGymQuickPlanUITests.swift */,
 				PC0B0A0D0000000000000005 /* ProfileOnboardingUITests.swift */,
+				PC0B0A0E0000000000000005 /* FirstLaunchOnboardingUITests.swift */,
 				C0FFEE0000000000000A0004 /* WorkoutCompletionUITests.swift */,
 				38704E12512A47A3B7C96363 /* Pulse_CueUITests.swift */,
 				D17104DB1A8E4001B0DA7402 /* CustomMachineFlowUITests.swift */,
@@ -1759,6 +1762,7 @@
 			files = (
 				C0FFEE0000000000000B0031 /* MyGymQuickPlanUITests.swift in Sources */,
 				PC0B0A0D0000000000000006 /* ProfileOnboardingUITests.swift in Sources */,
+				PC0B0A0E0000000000000006 /* FirstLaunchOnboardingUITests.swift in Sources */,
 				C0FFEE0000000000000B0004 /* WorkoutCompletionUITests.swift in Sources */,
 				D95E29833A494753B05C27ED /* Pulse_CueUITests.swift in Sources */,
 				D17104DB1A8E4001B0DA7401 /* CustomMachineFlowUITests.swift in Sources */,

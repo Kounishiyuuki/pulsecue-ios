@@ -70,11 +70,6 @@ struct LoginView: View {
     /// Why the last attempt was refused before it reached a provider, if it was.
     @State private var refusalMessage: String?
 
-    /// The Web/server OAuth client. Google mints the ID token's `aud` from
-    /// this, and the backend verifies against it. Separate from
-    /// `googleConfig`, which is the *iOS* client.
-    private let googleServerConfig = GoogleServerSignInConfig.fromMainBundle()
-
     /// Google sign-in configuration read from Info.plist. While this holds the
     /// documented placeholder, `isConfigured` is false.
     private let googleConfig = GoogleSignInConfig.fromMainBundle()
@@ -230,28 +225,57 @@ struct LoginView: View {
         .pulseGlass(level: .functional, padding: 18)
     }
 
-    /// The only route to a provider SDK.
-    ///
-    /// Everything that decides whether a sign-in may start lives behind
-    /// `ProviderSignInCoordinator`, which takes a Keychain-backed permit
-    /// before Apple's or Google's sheet is opened. A disabled button is a
-    /// courtesy; this is the part that is enforced.
+    /// The only route to a provider SDK — see `ProviderSignInFlow`.
     @MainActor
     private func startSignIn(_ provider: AuthProviderKind) async {
-        guard let serverAccount else {
-            // No account layer in this build. Sign-in would have nothing to
-            // talk to, and creating a local-only link would claim a PulseCue
-            // account that does not exist.
-            refusalMessage = "この端末ではアカウント機能をまだ利用できません。"
-            return
-        }
         guard !isSigningIn else { return }
 
         isSigningIn = true
         defer { isSigningIn = false }
 
-        let coordinator = ProviderSignInCoordinator(
-            account: serverAccount,
+        switch await ProviderSignInFlow.live(authSession: authSession, serverAccount: serverAccount)
+            .start(provider) {
+        case .signedIn:
+            dismiss()
+        case let .stayed(message):
+            // nil is a cancel: nothing changed, and nothing to say.
+            refusalMessage = message
+        }
+    }
+}
+
+/// What a sign-in screen should do after one provider attempt.
+enum ProviderSignInResult: Equatable {
+    /// The server confirmed the session and the local link was recorded.
+    case signedIn
+    /// Nothing was signed in. `message` is nil when the user simply cancelled.
+    case stayed(message: String?)
+}
+
+/// One provider sign-in, shared by `LoginView` and the first-launch
+/// `OnboardingView` so neither re-derives the gate.
+///
+/// Everything that decides whether a sign-in may start lives behind
+/// `ProviderSignInCoordinator`, which takes a Keychain-backed permit before
+/// Apple's or Google's sheet is opened. A disabled button is a courtesy; this
+/// is the part that is enforced.
+@MainActor
+struct ProviderSignInFlow {
+    let authSession: AuthSessionStore
+    /// Absent in builds with no account layer; sign-in is then refused.
+    let serverAccount: ServerAccountStore?
+    let apple: any AppleAuthorizing
+    let google: any GoogleAuthorizing
+    let googleConfigurationIsUsable: () -> Bool
+
+    /// The real bridges and Info.plist configuration. Built per attempt, so
+    /// each authorization gets its own bridge (and Apple nonce).
+    static func live(authSession: AuthSessionStore, serverAccount: ServerAccountStore?) -> ProviderSignInFlow {
+        let googleServerConfig = GoogleServerSignInConfig.fromMainBundle()
+        let googleConfig = GoogleSignInConfig.fromMainBundle()
+        return ProviderSignInFlow(
+            authSession: authSession,
+            serverAccount: serverAccount,
             apple: AppleAuthorizationBridge(),
             google: GoogleAuthorizationBridge(),
             googleConfigurationIsUsable: {
@@ -261,7 +285,23 @@ struct LoginView: View {
                 googleServerConfig.isConfigured
                     && googleConfig.isConfigured
                     && googleServerConfig.isDistinct(from: googleConfig.clientID)
-            },
+            }
+        )
+    }
+
+    func start(_ provider: AuthProviderKind) async -> ProviderSignInResult {
+        guard let serverAccount else {
+            // No account layer in this build. Sign-in would have nothing to
+            // talk to, and creating a local-only link would claim a PulseCue
+            // account that does not exist.
+            return .stayed(message: Self.message(for: .notConfigured))
+        }
+        let authSession = authSession
+        let coordinator = ProviderSignInCoordinator(
+            account: serverAccount,
+            apple: apple,
+            google: google,
+            googleConfigurationIsUsable: googleConfigurationIsUsable,
             recordLink: { link in
                 // Reached only after the server confirmed and persisted the
                 // session, so a local link never outlives a failed sign-in.
@@ -287,21 +327,23 @@ struct LoginView: View {
         let outcome = provider == .apple
             ? await coordinator.signInWithApple()
             : await coordinator.signInWithGoogle()
+        return Self.result(for: outcome)
+    }
 
+    static func result(for outcome: ProviderSignInOutcome) -> ProviderSignInResult {
         switch outcome {
         case .signedIn:
-            dismiss()
+            return .signedIn
         case .cancelled:
-            // The user backed out. Nothing changed, and nothing to say.
-            break
+            return .stayed(message: nil)
         case .providerFailed:
-            refusalMessage = "サインインを完了できませんでした。もう一度お試しください。"
+            return .stayed(message: "サインインを完了できませんでした。もう一度お試しください。")
         case let .refused(reason):
-            refusalMessage = message(for: reason)
+            return .stayed(message: message(for: reason))
         }
     }
 
-    private func message(for refusal: ProviderSignInRefusal) -> String {
+    private static func message(for refusal: ProviderSignInRefusal) -> String {
         switch refusal {
         case .existingSession:
             return "すでにサインインしています。別のアカウントを使うには、先にサインアウトしてください。"

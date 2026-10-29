@@ -41,13 +41,17 @@ import SwiftData
 
 extension View {
     /// Asks, once per account, whether guest workouts on this device should be
-    /// carried into the account that just signed in.
-    func guestWorkoutAdoptionPrompt() -> some View {
-        modifier(GuestWorkoutAdoptionPrompt())
+    /// carried into the account that just signed in. `isBlocked` holds the
+    /// alert back while another prompt instance owns the screen (the
+    /// first-launch cover asks it there instead).
+    func guestWorkoutAdoptionPrompt(isBlocked: Bool = false) -> some View {
+        modifier(GuestWorkoutAdoptionPrompt(isBlocked: isBlocked))
     }
 }
 
 private struct GuestWorkoutAdoptionPrompt: ViewModifier {
+    let isBlocked: Bool
+
     @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
     @Environment(\.modelContext) private var modelContext
 
@@ -64,10 +68,13 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
         content
             .onAppear { evaluate(dataScope.scope) }
             .onChange(of: dataScope.scope) { _, scope in evaluate(scope) }
+            // Answered by another instance: drop the stale question.
+            .onChange(of: answeredRaw) { _, _ in evaluate(dataScope.scope) }
+            .onChange(of: healthAnsweredRaw) { _, _ in evaluate(dataScope.scope) }
             .alert(
                 "ゲストの記録を引き継ぎますか？",
                 isPresented: Binding(
-                    get: { pending != nil },
+                    get: { !isBlocked && pending != nil },
                     set: { if !$0 { pending = nil } }
                 )
             ) {
@@ -80,6 +87,11 @@ private struct GuestWorkoutAdoptionPrompt: ViewModifier {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("記録はゲストのまま残っています。もう一度お試しください。")
+            }
+            // Ask again once the failure is acknowledged: the first-launch
+            // cover cannot be left until the question is answered.
+            .onChange(of: failed) { _, failed in
+                if !failed { evaluate(dataScope.scope) }
             }
     }
 

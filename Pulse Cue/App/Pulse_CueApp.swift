@@ -133,7 +133,8 @@ struct Pulse_CueApp: App {
         ContentView()
             // Applied before the environment objects below, so the prompt's
             // own body is inside them rather than wrapped around them.
-            .guestWorkoutAdoptionPrompt()
+            // The first-launch cover asks it itself, over the cover.
+            .guestWorkoutAdoptionPrompt(isBlocked: !settings.hasCompletedOnboarding)
             .environmentObject(settings)
             .environmentObject(runnerViewModel)
             .environmentObject(authSession)
