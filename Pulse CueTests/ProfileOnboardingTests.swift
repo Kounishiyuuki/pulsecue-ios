@@ -443,7 +443,7 @@ extension ProfileOnboardingTests {
         #expect(Self.firstLaunch(.guest, .guest, context) == .choose)
         #expect(Self.firstLaunch(.unreachable, .account(Self.accountA), context) == .choose)
         // Confirmed, but the app is not yet showing that account.
-        #expect(Self.firstLaunch(Self.authenticated(Self.accountA, provider: "apple"), .undetermined, context) == .choose)
+        #expect(Self.firstLaunch(Self.authenticated(Self.accountA, provider: "apple"), .undetermined, context) == .waitingForScope)
     }
 
     @Test("A new Apple or Google account goes to profile onboarding, then Home", arguments: ["apple", "google"])
@@ -589,6 +589,44 @@ extension ProfileOnboardingTests {
         #expect(UserProfileStore.profile(for: .guest, modelContext: context) == nil)
         #expect(Self.gate(state, .account(Self.accountA), answers: answers, context) == nil)
         #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context) == .finished)
+    }
+
+    @Test("A confirmed account whose scope has not caught up waits; it never takes the guest path")
+    func authenticatedAccountWaitsForItsScope() throws {
+        let context = ModelContext(try Self.makeContainer())
+        try Self.finishGuest(context)
+        let state = Self.authenticated(Self.accountA, provider: "apple")
+
+        for scope in [WorkoutDataScope.guest, .undetermined, .account(Self.accountB)] {
+            #expect(FirstLaunchSignIn.step(state: state, scope: scope, answers: Self.noAnswers, in: context) == .waitingForScope)
+            #expect(FirstLaunchSignIn.step(state: state, scope: scope, answers: Self.noAnswers, guestChosen: true, in: context)
+                == .waitingForScope)
+        }
+        // An unreadable account id is not a guest either.
+        let unreadable = ServerAccountState.authenticated(ServerAccountProfile(
+            user: .init(id: "not-a-uuid", state: "active", displayName: nil, createdAt: 0),
+            linkedProviders: [.init(provider: "apple", linkedAt: 0)],
+            session: .init(expiresAt: 0)
+        ))
+        #expect(FirstLaunchSignIn.step(state: unreadable, scope: .guest, answers: Self.noAnswers, guestChosen: true, in: context)
+            == .waitingForScope)
+
+        // Once the scope follows, the usual account path resumes: adoption first.
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: Self.noAnswers, in: context)
+            == .awaitingGuestAdoption(Self.accountA))
+    }
+
+    @Test("Without guest data, a caught-up scope goes to the account profile, then finishes")
+    func caughtUpScopeOnboardsTheAccount() throws {
+        let context = ModelContext(try Self.makeContainer())
+        let state = Self.authenticated(Self.accountA, provider: "google")
+        #expect(FirstLaunchSignIn.step(state: state, scope: .guest, answers: Self.noAnswers, guestChosen: true, in: context)
+            == .waitingForScope)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: Self.noAnswers, in: context)
+            == .profile(.account(Self.accountA)))
+        try Self.finish(Self.accountA, context)
+        #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: Self.noAnswers, in: context)
+            == .finished)
     }
 
     @Test("Declining adoption of a completed guest profile still onboards the account")

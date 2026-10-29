@@ -211,7 +211,7 @@ struct FirstLaunchView: View {
                         evaluate()
                     }
                 )
-            case .awaitingGuestAdoption, .finished:
+            case .awaitingGuestAdoption, .waitingForScope, .finished:
                 // No choices and no way to Home: while adoption is open its
                 // alert is the only control, and `.finished` leaves at once.
                 FirstLaunchWaitingView()
@@ -273,6 +273,11 @@ enum FirstLaunchSignIn {
         /// A confirmed account that must first answer the guest-adoption
         /// question; the profile it onboards depends on that answer.
         case awaitingGuestAdoption(UUID)
+        /// The server confirmed an account the app is not showing yet: the
+        /// scope resolver follows the account state on its own schedule, and
+        /// until it does neither the guest's data nor another account's may
+        /// decide anything.
+        case waitingForScope
         /// A confirmed account (`.account`) or the guest (`.guest`) whose
         /// profile onboarding is not complete. Never `.undetermined`.
         case profile(HealthDataScope)
@@ -300,9 +305,12 @@ enum FirstLaunchSignIn {
         ) {
             return .profile(.account(id))
         }
-        if case let .authenticated(profile) = state,
-           let confirmed = UUID(uuidString: profile.user.id),
-           scope == .account(confirmed) {
+        if case let .authenticated(profile) = state {
+            // Fail closed: an unreadable id, or a scope still on the guest or
+            // another account, never falls through to the guest checks below.
+            guard let confirmed = UUID(uuidString: profile.user.id),
+                  scope == .account(confirmed)
+            else { return .waitingForScope }
             if GuestAdoptionConsent.question(for: confirmed, answers: answers, in: context) != nil {
                 return .awaitingGuestAdoption(confirmed)
             }
