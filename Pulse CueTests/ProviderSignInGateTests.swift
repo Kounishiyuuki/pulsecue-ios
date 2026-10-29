@@ -496,17 +496,21 @@ final class AppleAuthorizationAnchorTests: XCTestCase {
     }
 }
 
-// MARK: - I: first-launch sign-in completes onboarding only on a server session
+// MARK: - I: first-launch sign-in reports success only on a server session
 
 /// The shared flow behind both LoginView and the first-launch screen, driven
 /// through `FirstLaunchSignIn` exactly as OnboardingView drives it.
 @MainActor
 final class FirstLaunchSignInTests: XCTestCase {
 
+    private final class SignedInCounter {
+        var count = 0
+    }
+
     private struct Harness {
         let gate: Gate
         let flow: ProviderSignInFlow
-        let settings: SettingsStore
+        let signedIn = SignedInCounter()
     }
 
     private func makeHarness(
@@ -521,33 +525,32 @@ final class FirstLaunchSignInTests: XCTestCase {
             google: gate.google,
             googleConfigurationIsUsable: { googleConfigurationIsUsable }
         )
-        let defaults = UserDefaults(suiteName: "test.first-launch.\(UUID().uuidString)")!
-        return Harness(gate: gate, flow: flow, settings: SettingsStore(defaults: defaults))
+        return Harness(gate: gate, flow: flow)
     }
 
     private func run(_ provider: AuthProviderKind, _ harness: Harness) async -> String? {
         await FirstLaunchSignIn.run(harness.flow, provider) {
-            harness.settings.completeOnboarding()
+            harness.signedIn.count += 1
         }
     }
 
-    func testAppleSuccessCompletesOnboarding() async {
+    func testAppleSuccessReportsSignedIn() async {
         let harness = makeHarness()
 
         let message = await run(.apple, harness)
 
         XCTAssertNil(message)
-        XCTAssertTrue(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 1)
         XCTAssertTrue(harness.flow.authSession.isSignedIn)
     }
 
-    func testGoogleSuccessCompletesOnboarding() async {
+    func testGoogleSuccessReportsSignedIn() async {
         let harness = makeHarness()
 
         let message = await run(.google, harness)
 
         XCTAssertNil(message)
-        XCTAssertTrue(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 1)
         XCTAssertEqual(harness.flow.authSession.linkedAccount?.provider, .google)
     }
 
@@ -558,7 +561,7 @@ final class FirstLaunchSignInTests: XCTestCase {
         let message = await run(.apple, harness)
 
         XCTAssertNil(message, "a cancel is not an error to report")
-        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 0)
     }
 
     func testProviderFailureStaysOnTheFirstScreen() async {
@@ -568,7 +571,7 @@ final class FirstLaunchSignInTests: XCTestCase {
         let message = await run(.google, harness)
 
         XCTAssertNotNil(message)
-        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 0)
     }
 
     func testServerRefusalStaysOnTheFirstScreen() async {
@@ -578,7 +581,7 @@ final class FirstLaunchSignInTests: XCTestCase {
         let message = await run(.apple, harness)
 
         XCTAssertNotNil(message)
-        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 0)
         XCTAssertFalse(harness.flow.authSession.isSignedIn)
     }
 
@@ -589,7 +592,7 @@ final class FirstLaunchSignInTests: XCTestCase {
 
         XCTAssertNotNil(message)
         XCTAssertEqual(harness.gate.totalAuthorizations, 0)
-        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 0)
     }
 
     func testUnusableGoogleConfigurationNeverOpensTheSheet() async {
@@ -599,5 +602,5 @@ final class FirstLaunchSignInTests: XCTestCase {
 
         XCTAssertNotNil(message)
         XCTAssertEqual(harness.gate.google.invocations, 0)
-        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.signedIn.count, 0)
     }}

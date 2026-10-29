@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Calm first entry: understand local-first use, then start as a guest or,
 /// optionally, with an Apple / Google account.
@@ -166,9 +167,111 @@ struct OnboardingView: View {
     }
 }
 
+/// The whole first-launch cover: the three choices, then — after a
+/// server-confirmed Apple / Google sign-in — the account's existing
+/// `ProfileOnboardingView`, in place. Home is reached only by `onFinish`, so a
+/// new account never sees Home before its profile is complete, and the swap
+/// happens inside one cover rather than dismissing to Home and presenting
+/// again.
+///
+/// Which account to onboard is still decided by `ProfileOnboardingGate`; the
+/// app-level presenter stays blocked until `onFinish` and then finds nothing
+/// left to ask.
+struct FirstLaunchView: View {
+    let onFinish: () -> Void
+
+    @EnvironmentObject private var authSession: AuthSessionStore
+    @EnvironmentObject private var serverAccount: ServerAccountStore
+    @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
+    @Environment(\.modelContext) private var modelContext
+
+    @Query private var everyProfile: [UserProfile]
+    @AppStorage(GuestAdoptionConsent.workoutAnsweredKey) private var workoutAnsweredRaw = ""
+    @AppStorage(GuestAdoptionConsent.healthAnsweredKey) private var healthAnsweredRaw = ""
+
+    @State private var step: FirstLaunchSignIn.Step = .choose
+
+    var body: some View {
+        Group {
+            switch step {
+            case .choose, .finished:
+                OnboardingView(
+                    accountSignIn: .init(
+                        authSession: authSession,
+                        serverAccount: serverAccount,
+                        // The state change this causes re-evaluates `step`.
+                        onSignedIn: evaluate
+                    ),
+                    onPrimary: onFinish
+                )
+            case let .profile(id):
+                ProfileOnboardingView(accountID: id)
+                    .id(id)
+            }
+        }
+        .onAppear(perform: evaluate)
+        .onChange(of: serverAccount.state) { _, _ in evaluate() }
+        .onChange(of: dataScope.scope) { _, _ in evaluate() }
+        .onChange(of: workoutAnsweredRaw) { _, _ in evaluate() }
+        .onChange(of: healthAnsweredRaw) { _, _ in evaluate() }
+        .onChange(of: completionSignature) { _, _ in evaluate() }
+    }
+
+    private var completionSignature: String {
+        everyProfile
+            .map { "\($0.id)|\($0.ownerAccountID?.uuidString ?? "-")|\($0.profileOnboardingCompletedAt?.timeIntervalSince1970 ?? 0)" }
+            .sorted()
+            .joined(separator: ",")
+    }
+
+    private func evaluate() {
+        step = FirstLaunchSignIn.step(
+            state: serverAccount.state,
+            scope: dataScope.scope,
+            answers: .init(workoutRaw: workoutAnsweredRaw, healthRaw: healthAnsweredRaw),
+            in: modelContext
+        )
+        if step == .finished {
+            onFinish()
+        }
+    }
+}
+
 /// First-launch sign-in: onboarding completes only on a server-confirmed
 /// session. Cancel and every failure keep the user on the first screen.
 enum FirstLaunchSignIn {
+    enum Step: Equatable {
+        /// No server-confirmed account: show the three choices.
+        case choose
+        /// A confirmed account whose profile onboarding is not complete.
+        case profile(UUID)
+        /// A confirmed account with nothing left to ask here: go Home.
+        case finished
+    }
+
+    /// Where the first-launch cover is, from the same inputs the profile gate
+    /// reads. A confirmed account that the gate does not want to onboard has
+    /// either completed its profile or is waiting on the guest-adoption
+    /// question, which the app-level prompt and presenter then handle.
+    @MainActor
+    static func step(
+        state: ServerAccountState,
+        scope: WorkoutDataScope,
+        answers: GuestAdoptionConsent.Answers,
+        in context: ModelContext
+    ) -> Step {
+        if let id = ProfileOnboardingGate.accountNeedingOnboarding(
+            state: state, scope: scope, answers: answers, in: context
+        ) {
+            return .profile(id)
+        }
+        guard case let .authenticated(profile) = state,
+              let confirmed = UUID(uuidString: profile.user.id),
+              scope == .account(confirmed)
+        else { return .choose }
+        return .finished
+    }
+
     /// Returns the message to show when the user stays, nil otherwise.
     @MainActor
     static func run(

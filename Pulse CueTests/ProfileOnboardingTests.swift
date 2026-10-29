@@ -425,3 +425,42 @@ struct ProfileOnboardingTests {
         #expect(Self.gate(Self.authenticated(Self.accountA, provider: "apple"), .account(Self.accountA), context) == Self.accountA)
     }
 }
+
+// MARK: - First launch
+
+extension ProfileOnboardingTests {
+
+    private static func firstLaunch(
+        _ state: ServerAccountState,
+        _ scope: WorkoutDataScope,
+        _ context: ModelContext
+    ) -> FirstLaunchSignIn.Step {
+        FirstLaunchSignIn.step(state: state, scope: scope, answers: noAnswers, in: context)
+    }
+
+    @Test("First launch stays on the choices until the server confirms an account")
+    func firstLaunchWaitsForAConfirmedAccount() throws {
+        let context = ModelContext(try Self.makeContainer())
+
+        #expect(Self.firstLaunch(.guest, .guest, context) == .choose)
+        #expect(Self.firstLaunch(.unreachable, .account(Self.accountA), context) == .choose)
+        // Confirmed, but the app is not yet showing that account.
+        #expect(Self.firstLaunch(Self.authenticated(Self.accountA, provider: "apple"), .undetermined, context) == .choose)
+    }
+
+    @Test("A new Apple or Google account goes to profile onboarding, then Home", arguments: ["apple", "google"])
+    func firstLaunchOnboardsTheProfileBeforeHome(provider: String) throws {
+        let context = ModelContext(try Self.makeContainer())
+        let state = Self.authenticated(Self.accountA, provider: provider)
+
+        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .profile(Self.accountA))
+
+        // Stopping part-way keeps it on the profile, at the saved step.
+        #expect(Self.validDraft().save(.basics, to: .account(Self.accountA), modelContext: context, now: Self.now) != nil)
+        try context.save()
+        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .profile(Self.accountA))
+
+        try Self.finish(Self.accountA, context)
+        #expect(Self.firstLaunch(state, .account(Self.accountA), context) == .finished)
+    }
+}
