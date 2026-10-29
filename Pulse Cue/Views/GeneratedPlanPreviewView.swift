@@ -11,9 +11,9 @@
 //  `.preferredColorScheme(.dark)`; popping back returns the rest of
 //  the My Gym flow to the user's system scheme.
 //
-//  No logic changes: `WorkoutPlanGenerator` and `RoutineFactory` are
-//  untouched. The view-level `estimatedMinutes` helper is a pure
-//  derivation of fields already on `GeneratedPlan`.
+//  Sets / reps / rest are editable per exercise before saving; the
+//  estimated time shown at the top is `GeneratedPlanViewModel.estimatedMinutes`
+//  (i.e. `WorkoutDurationEstimator`), the same judge the generator uses.
 //
 
 import SwiftUI
@@ -57,8 +57,8 @@ struct GeneratedPlanPreviewView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     if let plan = viewModel.plan {
                         heroSummary(plan)
-                        if !plan.warnings.isEmpty {
-                            warningBanner(plan.warnings)
+                        if !viewModel.warnings.isEmpty {
+                            warningBanner(viewModel.warnings)
                         }
                         if !plan.isEmpty {
                             exercisesSection(plan: plan)
@@ -133,18 +133,28 @@ struct GeneratedPlanPreviewView: View {
             Text("\(plan.bodyParts.map(\.displayName).joined(separator: "・")) — \(viewModel.gym.name)")
                 .font(.title.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true)
-            ViewThatFits {
-                HStack(spacing: 16) {
-                    summaryItem("\(plan.exercises.count) 種目", icon: "list.number")
-                    summaryItem("\(estimatedMinutes(plan)) 分", icon: "clock")
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    summaryItem("\(plan.exercises.count) 種目", icon: "list.number")
-                    summaryItem("\(estimatedMinutes(plan)) 分", icon: "clock")
-                }
-            }
+            estimateLine
+            summaryItem("\(plan.exercises.count) 種目", icon: "list.number")
         }
         .pulseGlass(level: .hero, cornerRadius: AppTheme.heroRadius, padding: 20)
+    }
+
+    /// The single on-screen duration. Reads `viewModel.estimatedMinutes`,
+    /// so it updates as soon as sets / reps / rest or an exercise change.
+    private var estimateLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "clock")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
+            Text("推定 \(viewModel.estimatedMinutes)分")
+                .font(.largeTitle.weight(.bold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .contentTransition(.numericText())
+                .animation(.default, value: viewModel.estimatedMinutes)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("推定所要時間 \(viewModel.estimatedMinutes)分")
+        .accessibilityIdentifier("quickPlanEstimatedMinutes")
     }
 
     private func summaryItem(_ text: String, icon: String) -> some View {
@@ -232,20 +242,28 @@ struct GeneratedPlanPreviewView: View {
                         .italic()
                         .foregroundStyle(.secondary)
                 }
-                HStack(spacing: 8) {
-                    metricBlock(value: "\(exercise.sets)", label: "セット")
-                    metricBlock(value: "\(exercise.reps)", label: "レップ")
-                    metricBlock(value: "\(exercise.restSeconds)", label: "休憩(秒)")
+                if isSaved {
+                    HStack(spacing: 8) {
+                        metricBlock(value: "\(exercise.sets)", label: "セット")
+                        metricBlock(value: "\(exercise.reps)", label: "レップ")
+                        metricBlock(value: "\(exercise.restSeconds)", label: "休憩(秒)")
+                    }
+                    .padding(.top, 2)
+                } else {
+                    prescriptionEditor(exercise, index: index)
+                        .padding(.top, 2)
                 }
-                .padding(.top, 2)
 
                 if let guideId = exercise.exerciseId, FormGuideLibrary.hasGuide(for: guideId) {
                     formGuideButton(exerciseName: exercise.exerciseName, exerciseId: guideId)
                         .padding(.top, 2)
                 }
 
-                changeExerciseButton(exercise, index: index)
-                    .padding(.top, 2)
+                // Hidden once saved: the persisted routine cannot follow a swap.
+                if !isSaved {
+                    changeExerciseButton(exercise, index: index)
+                        .padding(.top, 2)
+                }
             }
         }
         .padding(16)
@@ -312,6 +330,57 @@ struct GeneratedPlanPreviewView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(exerciseName) のフォームを見る")
+    }
+
+    /// Standard Steppers for sets / reps / rest. Time-based movements (e.g. a
+    /// treadmill warm-up) take their length from the catalog, so only their
+    /// set count is offered; rest is hidden where the template has none.
+    private func prescriptionEditor(_ exercise: GeneratedExercise, index: Int) -> some View {
+        let isTimeBased = exercise.exerciseId
+            .flatMap { ExerciseLibrary.exercise(for: $0)?.workSecondsPerSet } != nil
+        return VStack(spacing: 4) {
+            Stepper(value: Binding(
+                get: { exercise.sets },
+                set: { viewModel.updatePrescription(at: index, sets: $0) }
+            ), in: GeneratedPlanViewModel.editableSets) {
+                stepperLabel("セット", value: "\(exercise.sets)")
+            }
+            .accessibilityLabel("\(exercise.exerciseName) セット数")
+            .accessibilityValue("\(exercise.sets)セット")
+
+            if !isTimeBased {
+                Stepper(value: Binding(
+                    get: { exercise.reps },
+                    set: { viewModel.updatePrescription(at: index, reps: $0) }
+                ), in: GeneratedPlanViewModel.editableReps) {
+                    stepperLabel("レップ", value: "\(exercise.reps)")
+                }
+                .accessibilityLabel("\(exercise.exerciseName) 回数")
+                .accessibilityValue("\(exercise.reps)回")
+            }
+
+            if exercise.restSeconds > 0 || !isTimeBased {
+                Stepper(value: Binding(
+                    get: { exercise.restSeconds },
+                    set: { viewModel.updatePrescription(at: index, restSeconds: $0) }
+                ), in: GeneratedPlanViewModel.editableRestSeconds, step: GeneratedPlanViewModel.restStepSeconds) {
+                    stepperLabel("休憩", value: "\(exercise.restSeconds)秒")
+                }
+                .accessibilityLabel("\(exercise.exerciseName) 休憩時間")
+                .accessibilityValue("\(exercise.restSeconds)秒")
+            }
+        }
+    }
+
+    private func stepperLabel(_ title: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline.weight(.bold).monospacedDigit())
+                .foregroundStyle(.primary)
+        }
     }
 
     private func metricBlock(value: String, label: String) -> some View {
@@ -508,16 +577,7 @@ struct GeneratedPlanPreviewView: View {
     /// Same gate as `canSave`: a non-empty, not-currently-saving plan.
     private var canStart: Bool { canSave }
 
-    private var isSaved: Bool {
-        if case .saved = viewModel.state { return true }
-        return false
-    }
-
-    /// Shared with the routine cards via `WorkoutDurationEstimator`, so the
-    /// same prescription never shows two different times.
-    private func estimatedMinutes(_ plan: GeneratedPlan) -> Int {
-        WorkoutDurationEstimator.minutes(forPlan: plan.exercises)
-    }
+    private var isSaved: Bool { viewModel.isSaved }
 
     /// Body-part list rendered under the exercise title. Uses the
     /// same `MachineCatalog` already exposed to the manual selection

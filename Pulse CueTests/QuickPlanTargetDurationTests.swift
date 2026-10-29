@@ -275,4 +275,123 @@ struct QuickPlanTargetDurationTests {
         #expect(!plan.exercises.isEmpty)
         #expect(Set(plan.exercises.map(\.machineId)).count == plan.exercises.count)
     }
+
+    // MARK: - Extended range (30…180, 15-minute steps)
+
+    @Test
+    func durationRangeIs30To180InFifteenMinuteSteps() {
+        let minutes = QuickPlanDuration.allCases.map(\.minutes)
+        #expect(minutes.first == 30)
+        #expect(minutes.last == 180)
+        #expect(minutes.count == 11)
+        #expect(zip(minutes, minutes.dropFirst()).allSatisfy { $1 - $0 == 15 })
+        // The original buckets keep their names and values.
+        #expect([QuickPlanDuration.compact, .standard, .standardPlus, .extended].map(\.minutes) == [30, 45, 60, 90])
+        // Out-of-range or off-grid input is clamped / snapped, never kept.
+        #expect(QuickPlanDuration(minutes: 10).minutes == 30)
+        #expect(QuickPlanDuration(minutes: 999).minutes == 180)
+        #expect(QuickPlanDuration(minutes: 68).minutes == 75)
+    }
+
+    @Test(arguments: [120, 150, 180])
+    func longTargetsLandInRangeWhenTheGymIsWellEquipped(minutes target: Int) throws {
+        let (gym, _) = try Self.makeGym()
+        let duration = QuickPlanDuration(minutes: target)
+        let plan = WorkoutPlanGenerator.generate(
+            request: Self.request(Self.allParts, duration),
+            gym: gym, availableEquipment: Self.fullyEquipped(on: gym)
+        )
+        let actual = Self.minutes(plan)
+        #expect(actual >= duration.lowerBoundMinutes && actual <= duration.upperBoundMinutes, "target \(target) produced \(actual)")
+        #expect(Set(plan.exercises.map(\.machineId)).count == plan.exercises.count)
+    }
+
+    // MARK: - Fixed exercise count
+
+    @Test(arguments: Array(QuickPlanExerciseCount.fixedRange))
+    func fixedCountIsHonouredWhenTheGymHasEnoughMachines(count: Int) throws {
+        let (gym, _) = try Self.makeGym()
+        let plan = WorkoutPlanGenerator.generate(
+            request: QuickPlanRequest(
+                bodyParts: Self.allParts, duration: .standardPlus,
+                intensity: .standard, exerciseCount: .fixed(count)
+            ),
+            gym: gym, availableEquipment: Self.fullyEquipped(on: gym)
+        )
+        #expect(plan.exercises.count == count)
+        #expect(Set(plan.exercises.map(\.machineId)).count == count, "duplicate machine")
+    }
+
+    @Test
+    func fixedCountIsFittedToTheChosenTime() throws {
+        let (gym, _) = try Self.makeGym()
+        let duration = QuickPlanDuration.extended
+        let plan = WorkoutPlanGenerator.generate(
+            request: QuickPlanRequest(
+                bodyParts: Self.allParts, duration: duration,
+                intensity: .standard, exerciseCount: .fixed(8)
+            ),
+            gym: gym, availableEquipment: Self.fullyEquipped(on: gym)
+        )
+        let actual = Self.minutes(plan)
+        #expect(plan.exercises.count == 8)
+        #expect(actual >= duration.lowerBoundMinutes && actual <= duration.upperBoundMinutes, "8 exercises / 90分 produced \(actual)")
+        #expect(plan.warnings.isEmpty)
+        #expect(WorkoutPlanGenerator.durationWarnings(
+            for: plan.exercises,
+            request: QuickPlanRequest(bodyParts: Self.allParts, duration: duration, intensity: .standard, exerciseCount: .fixed(8))
+        ).isEmpty)
+        #expect(plan.exercises.allSatisfy { (WorkoutPlanGenerator.fitMinSets...WorkoutPlanGenerator.fitMaxSets).contains($0.sets) })
+    }
+
+    @Test
+    func tooFewMachinesForTheCountWarnsWithoutDuplicating() throws {
+        let (gym, _) = try Self.makeGym()
+        let plan = WorkoutPlanGenerator.generate(
+            request: QuickPlanRequest(
+                bodyParts: [.chest], duration: .standardPlus,
+                intensity: .standard, exerciseCount: .fixed(6)
+            ),
+            gym: gym, availableEquipment: Self.equipment(["bench_press", "chest_press", "pec_deck"], on: gym)
+        )
+        #expect(plan.exercises.count == 3)
+        #expect(Set(plan.exercises.map(\.machineId)).count == 3)
+        #expect(plan.warnings.contains { $0.contains("6種目ではなく3種目") })
+    }
+
+    @Test
+    func countThatCannotFitTheTimeWarns() throws {
+        let (gym, _) = try Self.makeGym()
+        // 10 exercises at even the minimum set count cannot fit 30 minutes.
+        let plan = WorkoutPlanGenerator.generate(
+            request: QuickPlanRequest(
+                bodyParts: Self.allParts, duration: .compact,
+                intensity: .standard, exerciseCount: .fixed(10)
+            ),
+            gym: gym, availableEquipment: Self.fullyEquipped(on: gym)
+        )
+        #expect(plan.exercises.count == 10)
+        let request = QuickPlanRequest(
+            bodyParts: Self.allParts, duration: .compact,
+            intensity: .standard, exerciseCount: .fixed(10)
+        )
+        let timing = WorkoutPlanGenerator.durationWarnings(for: plan.exercises, request: request)
+        #expect(timing.contains { $0.contains("収まりません") })
+        // Time is judged live, never frozen onto the plan.
+        #expect(!plan.warnings.contains { $0.contains("収まりません") })
+    }
+
+    @Test
+    func automaticCountKeepsTheTimeDrivenBehaviour() throws {
+        let (gym, _) = try Self.makeGym()
+        let equipment = Self.fullyEquipped(on: gym)
+        let implicit = WorkoutPlanGenerator.generate(
+            request: Self.request(Self.allParts, .standardPlus), gym: gym, availableEquipment: equipment
+        )
+        let explicit = WorkoutPlanGenerator.generate(
+            request: QuickPlanRequest(bodyParts: Self.allParts, duration: .standardPlus, intensity: .standard, exerciseCount: .automatic),
+            gym: gym, availableEquipment: equipment
+        )
+        #expect(implicit == explicit)
+    }
 }

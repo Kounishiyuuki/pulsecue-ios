@@ -2,8 +2,8 @@
 //  QuickPlanRequest.swift
 //  Pulse Cue
 //
-//  The three minimal conditions a Quick Plan is built from — target body
-//  parts, a duration bucket, and an intensity. These are small, pure value
+//  The minimal conditions a Quick Plan is built from — target body
+//  parts, a duration, an intensity, and an optional exercise count. These are small, pure value
 //  types with no I/O; `WorkoutPlanGenerator.generate(request:…)` turns a
 //  request plus the active gym's available equipment into the existing
 //  `GeneratedPlan`, so Quick Plan reuses the whole generate → preview →
@@ -15,30 +15,39 @@ import Foundation
 /// How long today's session should be. This is a *time* goal: the generator
 /// sizes the plan so its estimated duration (`WorkoutDurationEstimator`) lands
 /// near the chosen value, rather than emitting a fixed number of exercises.
-enum QuickPlanDuration: Int, CaseIterable, Codable, Identifiable {
-    case compact = 30
-    case standard = 45
-    case standardPlus = 60
-    case extended = 90
+///
+/// A struct rather than an enum so the range (30…180 in 15-minute steps) is
+/// data, not eleven hand-named cases. The original four buckets stay
+/// reachable by name so existing call sites and tests are unchanged.
+struct QuickPlanDuration: Hashable, Codable, Identifiable {
+    static let minMinutes = 30
+    static let maxMinutes = 180
+    static let stepMinutes = 15
 
-    var id: Int { rawValue }
+    static let compact = QuickPlanDuration(minutes: 30)
+    static let standard = QuickPlanDuration(minutes: 45)
+    static let standardPlus = QuickPlanDuration(minutes: 60)
+    static let extended = QuickPlanDuration(minutes: 90)
 
-    var minutes: Int { rawValue }
+    static let allCases: [QuickPlanDuration] = stride(
+        from: minMinutes, through: maxMinutes, by: stepMinutes
+    ).map { QuickPlanDuration(minutes: $0) }
 
-    var displayName: String { "\(rawValue)分" }
+    let minutes: Int
 
-    /// A rough starting size for the plan, kept for documentation and for
-    /// callers that want an at-a-glance shape. It is **not** a cap — sizing
-    /// by a fixed count is exactly what made every bucket land at roughly
-    /// 60% of the chosen duration.
-    var targetExerciseCount: Int {
-        switch self {
-        case .compact: return 3
-        case .standard: return 4
-        case .standardPlus: return 5
-        case .extended: return 7
-        }
+    /// Clamps to the supported range and snaps to the 15-minute grid, so a
+    /// value can never fall outside what the picker offers.
+    init(minutes: Int) {
+        let clamped = Swift.min(Swift.max(minutes, Self.minMinutes), Self.maxMinutes)
+        let steps = Int((Double(clamped - Self.minMinutes) / Double(Self.stepMinutes)).rounded())
+        self.minutes = Self.minMinutes + steps * Self.stepMinutes
     }
+
+    var id: Int { minutes }
+
+    var rawValue: Int { minutes }
+
+    var displayName: String { "\(minutes)分" }
 
     /// How far past the chosen time a plan may run. The estimate is coarse
     /// and the user picked a ceiling, so a little overshoot is fine and a lot
@@ -49,6 +58,32 @@ enum QuickPlanDuration: Int, CaseIterable, Codable, Identifiable {
     /// Used only to decide whether to warn — the generator never pads a plan
     /// with equipment the gym does not have.
     var lowerBoundMinutes: Int { Int((Double(minutes) * 0.80).rounded(.up)) }
+}
+
+/// How many exercises the user wants. `automatic` (おまかせ) keeps the
+/// time-driven sizing; a fixed count is honoured as far as the gym's
+/// equipment allows, with sets adjusted toward the chosen time.
+enum QuickPlanExerciseCount: Hashable, Codable, Identifiable {
+    case automatic
+    case fixed(Int)
+
+    static let fixedRange = 3...10
+
+    static let allCases: [QuickPlanExerciseCount] = [.automatic] + fixedRange.map { .fixed($0) }
+
+    var id: Int { fixedCount ?? 0 }
+
+    var fixedCount: Int? {
+        if case .fixed(let count) = self { return count }
+        return nil
+    }
+
+    var displayName: String {
+        switch self {
+        case .automatic: return "おまかせ"
+        case .fixed(let count): return "\(count)種目"
+        }
+    }
 }
 
 /// How hard today's session should feel. Applied as a small, deterministic
@@ -98,6 +133,7 @@ struct QuickPlanRequest: Equatable {
     var bodyParts: [BodyPart]
     var duration: QuickPlanDuration
     var intensity: QuickPlanIntensity
+    var exerciseCount: QuickPlanExerciseCount = .automatic
 
     /// Body parts with duplicates removed, first-seen order preserved.
     var normalizedBodyParts: [BodyPart] {

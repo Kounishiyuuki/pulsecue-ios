@@ -49,8 +49,12 @@ final class QuickPlanReplacementUITests: XCTestCase {
         if !entry.isHittable { app.swipeUp() }
         entry.tap()
 
+        // Duration is a menu picker (30…180分); open it, then pick 30分.
+        let durationMenu = app.buttons["quickPlanDurationPicker"].firstMatch
+        XCTAssertTrue(durationMenu.waitForExistence(timeout: 8), "duration control missing")
+        durationMenu.tap()
         let shortest = app.buttons["30分"].firstMatch
-        XCTAssertTrue(shortest.waitForExistence(timeout: 8), "duration control missing")
+        XCTAssertTrue(shortest.waitForExistence(timeout: 5), "30分 option missing")
         shortest.tap()
 
         let seeMenu = app.buttons["メニューを見る"]
