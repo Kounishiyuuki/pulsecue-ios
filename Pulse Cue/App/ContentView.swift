@@ -118,7 +118,13 @@ struct ContentView: View {
         // After the first-launch onboarding, and never over a workout.
         .profileOnboarding(isBlocked: !settings.hasCompletedOnboarding || runnerPresenter.isRunnerCovered)
         .fullScreenCover(isPresented: onboardingPresented) {
-            OnboardingView {
+            OnboardingView(
+                accountSignIn: .init(
+                    authSession: authSession,
+                    serverAccount: serverAccount,
+                    onSignedIn: { settings.completeOnboarding() }
+                )
+            ) {
                 settings.completeOnboarding()
             }
         }
@@ -138,7 +144,8 @@ struct ContentView: View {
         }
     }
 
-    /// Presents the first-launch onboarding until the user starts as a guest.
+    /// Presents the first-launch onboarding until the user starts as a guest
+    /// or a provider sign-in is confirmed by the server.
     /// The setter is a no-op: dismissal is driven solely by
     /// `settings.completeOnboarding()` flipping `hasCompletedOnboarding`, so
     /// the cover cannot be swiped away without entering the app.

@@ -217,7 +217,12 @@ struct GlassUIVisualQARoot: View {
                     debugInstructionsExpanded: true
                 )
             case .onboarding:
-                OnboardingView(onPrimary: {})
+                // First-launch shape: Apple / Google / Guest. No server account,
+                // so a provider tap is refused rather than reaching the network.
+                OnboardingView(
+                    accountSignIn: .init(authSession: AuthSessionStore(), serverAccount: nil, onSignedIn: {}),
+                    onPrimary: {}
+                )
             case .login:
                 LoginView(authSession: AuthSessionStore())
             }

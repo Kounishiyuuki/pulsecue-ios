@@ -495,3 +495,109 @@ final class AppleAuthorizationAnchorTests: XCTestCase {
         )
     }
 }
+
+// MARK: - I: first-launch sign-in completes onboarding only on a server session
+
+/// The shared flow behind both LoginView and the first-launch screen, driven
+/// through `FirstLaunchSignIn` exactly as OnboardingView drives it.
+@MainActor
+final class FirstLaunchSignInTests: XCTestCase {
+
+    private struct Harness {
+        let gate: Gate
+        let flow: ProviderSignInFlow
+        let settings: SettingsStore
+    }
+
+    private func makeHarness(
+        serverAccount: Bool = true,
+        googleConfigurationIsUsable: Bool = true
+    ) -> Harness {
+        let gate = makeGate()
+        let flow = ProviderSignInFlow(
+            authSession: AuthSessionStore(linkedAccountStore: InMemoryLinkedAccountStore()),
+            serverAccount: serverAccount ? gate.account : nil,
+            apple: gate.apple,
+            google: gate.google,
+            googleConfigurationIsUsable: { googleConfigurationIsUsable }
+        )
+        let defaults = UserDefaults(suiteName: "test.first-launch.\(UUID().uuidString)")!
+        return Harness(gate: gate, flow: flow, settings: SettingsStore(defaults: defaults))
+    }
+
+    private func run(_ provider: AuthProviderKind, _ harness: Harness) async -> String? {
+        await FirstLaunchSignIn.run(harness.flow, provider) {
+            harness.settings.completeOnboarding()
+        }
+    }
+
+    func testAppleSuccessCompletesOnboarding() async {
+        let harness = makeHarness()
+
+        let message = await run(.apple, harness)
+
+        XCTAssertNil(message)
+        XCTAssertTrue(harness.settings.hasCompletedOnboarding)
+        XCTAssertTrue(harness.flow.authSession.isSignedIn)
+    }
+
+    func testGoogleSuccessCompletesOnboarding() async {
+        let harness = makeHarness()
+
+        let message = await run(.google, harness)
+
+        XCTAssertNil(message)
+        XCTAssertTrue(harness.settings.hasCompletedOnboarding)
+        XCTAssertEqual(harness.flow.authSession.linkedAccount?.provider, .google)
+    }
+
+    func testCancellingTheProviderSheetStaysOnTheFirstScreen() async {
+        let harness = makeHarness()
+        harness.gate.apple.outcome = .cancelled
+
+        let message = await run(.apple, harness)
+
+        XCTAssertNil(message, "a cancel is not an error to report")
+        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+    }
+
+    func testProviderFailureStaysOnTheFirstScreen() async {
+        let harness = makeHarness()
+        harness.gate.google.outcome = .failed
+
+        let message = await run(.google, harness)
+
+        XCTAssertNotNil(message)
+        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+    }
+
+    func testServerRefusalStaysOnTheFirstScreen() async {
+        let harness = makeHarness()
+        harness.gate.api.appleResult = .failure(AccountAPIError.invalidCredentials)
+
+        let message = await run(.apple, harness)
+
+        XCTAssertNotNil(message)
+        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+        XCTAssertFalse(harness.flow.authSession.isSignedIn)
+    }
+
+    func testNoAccountLayerRefusesWithoutOpeningASheet() async {
+        let harness = makeHarness(serverAccount: false)
+
+        let message = await run(.apple, harness)
+
+        XCTAssertNotNil(message)
+        XCTAssertEqual(harness.gate.totalAuthorizations, 0)
+        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+    }
+
+    func testUnusableGoogleConfigurationNeverOpensTheSheet() async {
+        let harness = makeHarness(googleConfigurationIsUsable: false)
+
+        let message = await run(.google, harness)
+
+        XCTAssertNotNil(message)
+        XCTAssertEqual(harness.gate.google.invocations, 0)
+        XCTAssertFalse(harness.settings.hasCompletedOnboarding)
+    }}

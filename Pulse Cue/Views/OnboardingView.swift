@@ -1,11 +1,35 @@
 import SwiftUI
 
-/// Calm first entry: understand local-first use, then start as a guest.
+/// Calm first entry: understand local-first use, then start as a guest or,
+/// optionally, with an Apple / Google account.
 struct OnboardingView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var primaryTitle: String = "ゲストで始める"
+    /// When set, Apple / Google sign-in is offered next to the guest start.
+    /// The Settings replay leaves it nil and stays guest-only.
+    var accountSignIn: AccountSignIn? = nil
     var onPrimary: () -> Void
+
+    /// The account stores and what to do once the server confirms a session.
+    struct AccountSignIn {
+        let authSession: AuthSessionStore
+        let serverAccount: ServerAccountStore?
+        let onSignedIn: () -> Void
+    }
+
+    @State private var isSigningIn = false
+    @State private var refusalMessage: String?
+
+    private var isDebugBuild: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    private let googleConfig = GoogleSignInConfig.fromMainBundle()
 
     var body: some View {
         ZStack {
@@ -64,9 +88,11 @@ struct OnboardingView: View {
                 .frame(width: 28)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
-                Text("ログインなしで始められます")
+                Text("ログインは任意です")
                     .font(.headline)
-                Text("現在のデータはこの端末内に保存されます。アカウント連携と同期は今後対応予定です。")
+                Text(accountSignIn == nil
+                     ? "現在のデータはこの端末内に保存されます。アカウント連携と同期は今後対応予定です。"
+                     : "ゲストでもすべての機能を使えます。現在のデータはこの端末内に保存され、同期とバックアップはまだ有効ではありません。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -78,11 +104,84 @@ struct OnboardingView: View {
 
     private var primaryAction: some View {
         VStack(spacing: 8) {
-            Button(primaryTitle, action: onPrimary)
-                .buttonStyle(PulsePrimaryButtonStyle())
+            if let accountSignIn {
+                accountActions(accountSignIn)
+            } else {
+                Button(primaryTitle, action: onPrimary)
+                    .buttonStyle(PulsePrimaryButtonStyle())
+            }
             Text("あとから設定を変更できます")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Three equal choices. Guest shares the providers' style on purpose: it
+    /// is a complete way to use PulseCue, not a fallback.
+    @ViewBuilder
+    private func accountActions(_ accountSignIn: AccountSignIn) -> some View {
+        AppleSignInButton {
+            await startSignIn(.apple, accountSignIn)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 50)
+        .disabled(isSigningIn)
+        .opacity(isSigningIn ? 0.5 : 1)
+        .accessibilityIdentifier("onboarding.apple")
+
+        // Same rule as LoginView: Release shows Google only when configured.
+        if GoogleSignInPresentation.showsControl(isConfigured: googleConfig.isConfigured, isDebugBuild: isDebugBuild) {
+            Button("Googleで続ける") {
+                Task { await startSignIn(.google, accountSignIn) }
+            }
+            .buttonStyle(PulseSecondaryButtonStyle())
+            .disabled(!googleConfig.isConfigured || isSigningIn)
+            .accessibilityIdentifier("onboarding.google")
+        }
+
+        Button(primaryTitle, action: onPrimary)
+            .buttonStyle(PulseSecondaryButtonStyle())
+            .disabled(isSigningIn)
+            .accessibilityIdentifier("onboarding.guest")
+
+        if let refusalMessage {
+            Label(refusalMessage, systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @MainActor
+    private func startSignIn(_ provider: AuthProviderKind, _ accountSignIn: AccountSignIn) async {
+        guard !isSigningIn else { return }
+        isSigningIn = true
+        defer { isSigningIn = false }
+
+        refusalMessage = await FirstLaunchSignIn.run(
+            ProviderSignInFlow.live(authSession: accountSignIn.authSession, serverAccount: accountSignIn.serverAccount),
+            provider,
+            onSignedIn: accountSignIn.onSignedIn
+        )
+    }
+}
+
+/// First-launch sign-in: onboarding completes only on a server-confirmed
+/// session. Cancel and every failure keep the user on the first screen.
+enum FirstLaunchSignIn {
+    /// Returns the message to show when the user stays, nil otherwise.
+    @MainActor
+    static func run(
+        _ flow: ProviderSignInFlow,
+        _ provider: AuthProviderKind,
+        onSignedIn: () -> Void
+    ) async -> String? {
+        switch await flow.start(provider) {
+        case .signedIn:
+            onSignedIn()
+            return nil
+        case let .stayed(message):
+            return message
         }
     }
 }
