@@ -620,10 +620,15 @@ extension ProfileOnboardingTests {
             #expect(scale.value(whole: whole, fraction: fraction) == value)
             #expect(scale.parts(of: value) == (whole, fraction))
         }
-        // 250 | .1 … 250 | .9 can be turned to but resolve to 250.0.
-        for fraction in 1..<10 {
-            #expect(scale.value(whole: 250, fraction: fraction) == 250.0)
-        }
+        // 249 offers every tenth; 250 offers .0 alone.
+        #expect(scale.fractions(forWhole: 249) == 0..<10)
+        #expect(scale.fractions(forWhole: 30) == 0..<10)
+        #expect(scale.fractions(forWhole: 250) == 0..<1)
+        // Turning the whole wheel from 249.9 to 250 lands on 250.0.
+        let from = scale.parts(of: 249.9)
+        let moved = scale.value(whole: 250, fraction: from.fraction)
+        #expect(moved == 250.0)
+        #expect(scale.parts(of: moved) == (250, 0))
         #expect(scale.parts(of: 250.9) == (250, 0))
     }
 
@@ -637,7 +642,12 @@ extension ProfileOnboardingTests {
             #expect(scale.value(whole: whole, fraction: fraction) == value)
             #expect(scale.parts(of: value) == (whole, fraction))
         }
-        #expect(scale.value(whole: 150, fraction: 1) == 150.0)
+        #expect(scale.value(whole: 149, fraction: 1) == 149.5)
+        #expect(scale.fractions(forWhole: 149) == 0..<2)
+        #expect(scale.fractions(forWhole: 150) == 0..<1)
+        let moved = scale.value(whole: 150, fraction: scale.parts(of: 149.5).fraction)
+        #expect(moved == 150.0)
+        #expect(scale.parts(of: moved) == (150, 0))
         // Off-grid snaps to the nearest half kilo.
         #expect(scale.parts(of: 70.7) == (70, 1))
         #expect(scale.parts(of: 70.8) == (71, 0))

@@ -170,6 +170,20 @@ final class ProfileOnboardingUITests: XCTestCase {
         XCTAssertEqual(rowValue("profile-onboarding-current-weight", app), "73.1 kg")
         next(app).tap()
 
+        // At the top whole number the fraction wheel shows .0 alone, and
+        // what it shows is what is saved.
+        assertStep(app, 2, "目標")
+        weightWheel("profile-onboarding-goal-weight", whole: "149", fraction: ".5", confirm: false, app)
+        app.buttons["profile-onboarding-goal-weight"].firstMatch.tap()
+        let whole = app.pickerWheels.element(boundBy: 0)
+        XCTAssertTrue(whole.waitForExistence(timeout: 5))
+        whole.adjust(toPickerWheelValue: "149")
+        app.pickerWheels.element(boundBy: 1).adjust(toPickerWheelValue: ".5")
+        whole.adjust(toPickerWheelValue: "150")
+        XCTAssertEqual(app.pickerWheels.element(boundBy: 1).value as? String, ".0")
+        app.buttons["profile-onboarding-goal-weight-done"].tap()
+        XCTAssertEqual(rowValue("profile-onboarding-goal-weight", app), "150.0 kg")
+
         completeGoal(app)
         assertStep(app, 3, "トレーニング習慣")
         wheel("profile-onboarding-minutes", to: "75 分", app)

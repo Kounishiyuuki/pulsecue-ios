@@ -70,16 +70,27 @@ struct NumericWheelScale: Equatable {
 /// Health picks a weight: "82 | .5 kg" instead of one 2201-row wheel.
 ///
 /// Only for scales whose bounds are whole and whose step divides 1. The
-/// fraction wheel offers every step of a unit; a combination past the
-/// scale's top (250 | .5 on a 250 kg scale) is clamped back onto it, so it
-/// can be turned to but never selected or saved.
+/// fraction wheel offers only the steps that exist for the chosen whole
+/// number, so at the scale's top (250 on a 250 kg scale) it holds .0 alone:
+/// 250.5 cannot be turned to, seen, or reached with VoiceOver.
 extension NumericWheelScale {
     var wholeNumbers: ClosedRange<Int> { Int(minValue.rounded(.down))...Int(maxValue.rounded(.down)) }
 
     var fractionCount: Int { max(1, Int((1 / step).rounded())) }
 
-    /// The value at `whole` and the `fraction`-th step of the unit, clamped
-    /// onto the scale.
+    /// The fraction steps that stay on the scale for `whole`.
+    func fractions(forWhole whole: Int) -> Range<Int> {
+        let valid = (0..<fractionCount).filter { fraction in
+            let raw = Double(whole) + Double(fraction) * step
+            return raw >= minValue - 1e-9 && raw <= maxValue + 1e-9
+        }
+        guard let first = valid.first, let last = valid.last else { return 0..<1 }
+        return first..<(last + 1)
+    }
+
+    /// The value at `whole` and the `fraction`-th step of the unit. A
+    /// fraction `whole` does not offer (moving 249.9 to 250) falls back onto
+    /// the scale, so the result is always a row the wheels can show.
     func value(whole: Int, fraction: Int) -> Double {
         snapped(Double(whole) + Double(fraction) * step)
     }
@@ -180,11 +191,15 @@ struct WeightWheelPicker: View {
                 get: { parts.fraction },
                 set: { value = scale.value(whole: scale.parts(of: value).whole, fraction: $0) }
             )) {
-                ForEach(0..<scale.fractionCount, id: \.self) { fraction in
+                ForEach(scale.fractions(forWhole: parts.whole), id: \.self) { fraction in
                     Text(scale.fractionText(fraction)).monospacedDigit().tag(fraction)
                 }
             }
             .pickerStyle(.wheel)
+            // A wheel whose rows change underneath it can keep showing a row
+            // that is gone; a new identity per row set redraws it on the
+            // selection.
+            .id(scale.fractions(forWhole: parts.whole))
             .accessibilityLabel("\(title) 小数部")
             .accessibilityIdentifier("\(identifier)-wheel-fraction")
 
