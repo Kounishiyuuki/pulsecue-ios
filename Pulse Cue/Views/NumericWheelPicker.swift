@@ -66,6 +66,47 @@ struct NumericWheelScale: Equatable {
     }
 }
 
+/// A scale split into a whole-number wheel and a fraction wheel, the way
+/// Health picks a weight: "82 | .5 kg" instead of one 2201-row wheel.
+///
+/// Only for scales whose bounds are whole and whose step divides 1. The
+/// fraction wheel offers every step of a unit; a combination past the
+/// scale's top (250 | .5 on a 250 kg scale) is clamped back onto it, so it
+/// can be turned to but never selected or saved.
+extension NumericWheelScale {
+    var wholeNumbers: ClosedRange<Int> { Int(minValue.rounded(.down))...Int(maxValue.rounded(.down)) }
+
+    var fractionCount: Int { max(1, Int((1 / step).rounded())) }
+
+    /// The value at `whole` and the `fraction`-th step of the unit, clamped
+    /// onto the scale.
+    func value(whole: Int, fraction: Int) -> Double {
+        snapped(Double(whole) + Double(fraction) * step)
+    }
+
+    /// The wheel positions showing `value` (snapped onto the scale first).
+    func parts(of value: Double) -> (whole: Int, fraction: Int) {
+        let onScale = snapped(value)
+        let whole = Int((onScale + 1e-9).rounded(.down))
+        let fraction = Int(((onScale - Double(whole)) / step).rounded())
+        return (whole, min(max(fraction, 0), fractionCount - 1))
+    }
+
+    /// ".5" for the `fraction`-th step.
+    func fractionText(_ fraction: Int) -> String {
+        let text = String(format: "%.\(fractionDigits)f", Double(fraction) * step)
+        return String(text.drop(while: { $0 == "0" }))
+    }
+}
+
+/// How `NumericWheelField` lays out its wheel.
+enum NumericWheelStyle {
+    /// One wheel, one row per value.
+    case single
+    /// Whole numbers and fractions on two wheels; see `wholeNumbers`.
+    case wholeAndFraction
+}
+
 /// The profile's wheels, each built from `ProfileFieldRanges`.
 extension NumericWheelScale {
     static let ageYears = NumericWheelScale(range: ProfileFieldRanges.ageYears)
@@ -111,6 +152,51 @@ struct NumericWheelPicker: View {
     }
 }
 
+/// A weight on two wheels, "82 | .5 kg". Each wheel is labelled with the
+/// field and its part, so VoiceOver says which half is being turned.
+struct WeightWheelPicker: View {
+    let title: String
+    let unit: String
+    let scale: NumericWheelScale
+    let identifier: String
+    @Binding var value: Double
+
+    var body: some View {
+        let parts = scale.parts(of: value)
+        HStack(spacing: 0) {
+            Picker("\(title) 整数部", selection: Binding(
+                get: { parts.whole },
+                set: { value = scale.value(whole: $0, fraction: scale.parts(of: value).fraction) }
+            )) {
+                ForEach(Array(scale.wholeNumbers), id: \.self) { whole in
+                    Text("\(whole)").monospacedDigit().tag(whole)
+                }
+            }
+            .pickerStyle(.wheel)
+            .accessibilityLabel("\(title) 整数部")
+            .accessibilityIdentifier("\(identifier)-wheel-whole")
+
+            Picker("\(title) 小数部", selection: Binding(
+                get: { parts.fraction },
+                set: { value = scale.value(whole: scale.parts(of: value).whole, fraction: $0) }
+            )) {
+                ForEach(0..<scale.fractionCount, id: \.self) { fraction in
+                    Text(scale.fractionText(fraction)).monospacedDigit().tag(fraction)
+                }
+            }
+            .pickerStyle(.wheel)
+            .accessibilityLabel("\(title) 小数部")
+            .accessibilityIdentifier("\(identifier)-wheel-fraction")
+
+            Text(unit)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .labelsHidden()
+    }
+}
+
 /// A tappable value that opens a `NumericWheelPicker` in a sheet. The sheet
 /// edits a copy and writes back only on 完了, so a dismissed sheet changes
 /// nothing.
@@ -122,6 +208,7 @@ struct NumericWheelField<Label: View>: View {
     let unit: String
     let scale: NumericWheelScale
     var signed = false
+    var style: NumericWheelStyle = .single
     @Binding var value: Double?
     let initial: Double
     let identifier: String
@@ -146,9 +233,8 @@ struct NumericWheelField<Label: View>: View {
         .accessibilityIdentifier(identifier)
         .sheet(isPresented: $isEditing) {
             NavigationStack {
-                NumericWheelPicker(title: title, unit: unit, scale: scale, signed: signed, value: $editing)
+                wheel
                     .padding(.horizontal, 16)
-                    .accessibilityIdentifier("\(identifier)-wheel")
                     .navigationTitle(title)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -168,6 +254,17 @@ struct NumericWheelField<Label: View>: View {
         }
     }
 
+    @ViewBuilder
+    private var wheel: some View {
+        switch style {
+        case .single:
+            NumericWheelPicker(title: title, unit: unit, scale: scale, signed: signed, value: $editing)
+                .accessibilityIdentifier("\(identifier)-wheel")
+        case .wholeAndFraction:
+            WeightWheelPicker(title: title, unit: unit, scale: scale, identifier: identifier, value: $editing)
+        }
+    }
+
     private var valueText: String {
         value.map { "\(scale.text($0, signed: signed)) \(unit)" } ?? "未設定"
     }
@@ -179,12 +276,13 @@ extension NumericWheelField where Label == LabeledContent<Text, Text> {
         unit: String,
         scale: NumericWheelScale,
         signed: Bool = false,
+        style: NumericWheelStyle = .single,
         value: Binding<Double?>,
         initial: Double,
         identifier: String
     ) {
         self.init(
-            title: title, unit: unit, scale: scale, signed: signed,
+            title: title, unit: unit, scale: scale, signed: signed, style: style,
             value: value, initial: initial, identifier: identifier
         ) { valueText in
             LabeledContent { Text(valueText) } label: { Text(title) }

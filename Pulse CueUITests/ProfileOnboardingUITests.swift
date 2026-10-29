@@ -48,6 +48,28 @@ final class ProfileOnboardingUITests: XCTestCase {
         XCTAssertFalse(picker.waitForExistence(timeout: 1) && picker.isHittable, "\(identifier) sheet stayed open")
     }
 
+    /// Opens the two-wheel weight sheet behind `identifier`, turns it to
+    /// `whole` | `fraction` (".5") and, unless `confirm` is false, taps 完了.
+    private func weightWheel(_ identifier: String, whole: String, fraction: String, confirm: Bool = true, _ app: XCUIApplication) {
+        let row = app.buttons[identifier].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "\(identifier) not found")
+        row.tap()
+        // By position: the sheet holds exactly these two wheels, whole first.
+        let wholePicker = app.pickerWheels.element(boundBy: 0)
+        XCTAssertTrue(wholePicker.waitForExistence(timeout: 5), "\(identifier) whole wheel not shown")
+        wholePicker.adjust(toPickerWheelValue: whole)
+        let fractionPicker = app.pickerWheels.element(boundBy: 1)
+        fractionPicker.adjust(toPickerWheelValue: fraction)
+        XCTAssertEqual(wholePicker.value as? String, whole)
+        XCTAssertEqual(fractionPicker.value as? String, fraction)
+        if confirm {
+            app.buttons["\(identifier)-done"].tap()
+        } else {
+            app.buttons["キャンセル"].tap()
+        }
+        XCTAssertFalse(fractionPicker.waitForExistence(timeout: 1) && fractionPicker.isHittable, "\(identifier) sheet stayed open")
+    }
+
     private func rowValue(_ identifier: String, _ app: XCUIApplication) -> String? {
         app.buttons[identifier].firstMatch.value as? String
     }
@@ -65,7 +87,7 @@ final class ProfileOnboardingUITests: XCTestCase {
     private func completeBasics(_ app: XCUIApplication) {
         assertStep(app, 1, "基本情報")
         XCTAssertFalse(next(app).isEnabled, "basics advanced without a weight")
-        wheel("profile-onboarding-current-weight", to: "72.5 kg", app)
+        weightWheel("profile-onboarding-current-weight", whole: "72", fraction: ".5", app)
         XCTAssertEqual(rowValue("profile-onboarding-current-weight", app), "72.5 kg")
         XCTAssertTrue(next(app).isEnabled)
         next(app).tap()
@@ -75,7 +97,8 @@ final class ProfileOnboardingUITests: XCTestCase {
         assertStep(app, 2, "目標")
         XCTAssertFalse(next(app).isEnabled, "goal advanced without a goal")
         pick("筋肥大", in: "profile-onboarding-goal", app)
-        wheel("profile-onboarding-goal-weight", to: "70.0 kg", app)
+        weightWheel("profile-onboarding-goal-weight", whole: "70", fraction: ".5", app)
+        XCTAssertEqual(rowValue("profile-onboarding-goal-weight", app), "70.5 kg")
         XCTAssertTrue(next(app).isEnabled)
         next(app).tap()
     }
@@ -126,6 +149,16 @@ final class ProfileOnboardingUITests: XCTestCase {
         XCTAssertEqual(rowValue("profile-onboarding-age", app), "34 歳")
 
         completeBasics(app)
+
+        // Weight: キャンセル keeps 72.5, 完了 stores the new value.
+        app.buttons["profile-onboarding-back"].tap()
+        assertStep(app, 1, "基本情報")
+        weightWheel("profile-onboarding-current-weight", whole: "75", fraction: ".9", confirm: false, app)
+        XCTAssertEqual(rowValue("profile-onboarding-current-weight", app), "72.5 kg")
+        weightWheel("profile-onboarding-current-weight", whole: "73", fraction: ".1", app)
+        XCTAssertEqual(rowValue("profile-onboarding-current-weight", app), "73.1 kg")
+        next(app).tap()
+        assertStep(app, 2, "目標")
         app.terminate()
 
         app = launch(reset: false)
@@ -134,7 +167,7 @@ final class ProfileOnboardingUITests: XCTestCase {
         assertStep(app, 1, "基本情報")
         XCTAssertEqual(rowValue("profile-onboarding-age", app), "34 歳")
         XCTAssertEqual(rowValue("profile-onboarding-height", app), "178 cm")
-        XCTAssertEqual(rowValue("profile-onboarding-current-weight", app), "72.5 kg")
+        XCTAssertEqual(rowValue("profile-onboarding-current-weight", app), "73.1 kg")
         next(app).tap()
 
         completeGoal(app)

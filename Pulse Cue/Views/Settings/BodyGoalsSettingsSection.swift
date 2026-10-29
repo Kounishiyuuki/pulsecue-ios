@@ -188,6 +188,7 @@ struct BodyGoalsSettingsSection: View {
                         .map { "現在の体重: \(NumberFormat.weight($0)) kg" }
                         ?? "現在の体重: 未入力",
                     scale: .goalWeightKg,
+                    style: .wholeAndFraction,
                     unit: "kg",
                     binding: profile.goalWeightKg.wheelValue
                 )

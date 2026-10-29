@@ -341,7 +341,7 @@ struct ProfileOnboardingView: View {
                     identifier: "profile-onboarding-height"
                 )
                 NumericWheelField(
-                    "現在の体重", unit: "kg", scale: .bodyWeightKg,
+                    "現在の体重", unit: "kg", scale: .bodyWeightKg, style: .wholeAndFraction,
                     value: draft.currentWeightKg,
                     initial: Self.initialWeightKg,
                     identifier: "profile-onboarding-current-weight"
@@ -371,7 +371,7 @@ struct ProfileOnboardingView: View {
             }
             Section {
                 NumericWheelField(
-                    "目標体重", unit: "kg", scale: .goalWeightKg,
+                    "目標体重", unit: "kg", scale: .goalWeightKg, style: .wholeAndFraction,
                     value: draft.goalWeightKg,
                     initial: NumericWheelScale.goalWeightKg.snapped(draft.wrappedValue.currentWeightKg ?? Self.initialWeightKg),
                     identifier: "profile-onboarding-goal-weight"

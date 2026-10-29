@@ -609,4 +609,37 @@ extension ProfileOnboardingTests {
         #expect(unset.goalWeightKg == nil)
         #expect(!unset.isValid(.basics))
     }
+
+    @Test("Current weight on two wheels: 30.0 to 250.0 in 0.1, never past 250.0")
+    func currentWeightSplitWheel() {
+        let scale = NumericWheelScale.bodyWeightKg
+        #expect(scale.wholeNumbers == 30...250)
+        #expect(scale.fractionCount == 10)
+        #expect((0..<10).map(scale.fractionText) == [".0", ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9"])
+        for (value, whole, fraction) in [(30.0, 30, 0), (82.5, 82, 5), (249.9, 249, 9), (250.0, 250, 0)] {
+            #expect(scale.value(whole: whole, fraction: fraction) == value)
+            #expect(scale.parts(of: value) == (whole, fraction))
+        }
+        // 250 | .1 … 250 | .9 can be turned to but resolve to 250.0.
+        for fraction in 1..<10 {
+            #expect(scale.value(whole: 250, fraction: fraction) == 250.0)
+        }
+        #expect(scale.parts(of: 250.9) == (250, 0))
+    }
+
+    @Test("Goal weight on two wheels: 30.0 to 150.0 in 0.5, never 150.5")
+    func goalWeightSplitWheel() {
+        let scale = NumericWheelScale.goalWeightKg
+        #expect(scale.wholeNumbers == 30...150)
+        #expect(scale.fractionCount == 2)
+        #expect((0..<2).map(scale.fractionText) == [".0", ".5"])
+        for (value, whole, fraction) in [(30.0, 30, 0), (70.5, 70, 1), (150.0, 150, 0)] {
+            #expect(scale.value(whole: whole, fraction: fraction) == value)
+            #expect(scale.parts(of: value) == (whole, fraction))
+        }
+        #expect(scale.value(whole: 150, fraction: 1) == 150.0)
+        // Off-grid snaps to the nearest half kilo.
+        #expect(scale.parts(of: 70.7) == (70, 1))
+        #expect(scale.parts(of: 70.8) == (71, 0))
+    }
 }

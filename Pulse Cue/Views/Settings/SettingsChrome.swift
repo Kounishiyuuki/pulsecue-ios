@@ -97,6 +97,7 @@ enum SettingsChrome {
         helper: String? = nil,
         scale: NumericWheelScale,
         signed: Bool = false,
+        style: NumericWheelStyle = .single,
         unit: String,
         binding: Binding<Double?>,
         identifier: String? = nil
@@ -106,6 +107,7 @@ enum SettingsChrome {
             unit: unit,
             scale: scale,
             signed: signed,
+            style: style,
             value: binding,
             initial: binding.wrappedValue ?? scale.minValue,
             identifier: identifier ?? label
