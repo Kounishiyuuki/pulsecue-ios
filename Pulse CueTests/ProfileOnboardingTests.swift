@@ -52,11 +52,11 @@ struct ProfileOnboardingTests {
         var draft = ProfileOnboardingDraft(profile: nil, latestWeightKg: nil)
         draft.ageYears = 34
         draft.heightCm = 178
-        draft.currentWeightText = "72.5"
+        draft.currentWeightKg = 72.5
         draft.biologicalSex = .male
         draft.activityFactor = .active
         draft.trainingGoal = .strength
-        draft.goalWeightText = "70"
+        draft.goalWeightKg = 70
         draft.weeklyChangeKg = 0.2
         draft.trainingDaysPerWeek = 4
         draft.preferredSessionMinutes = 60
@@ -225,9 +225,9 @@ struct ProfileOnboardingTests {
         var noLevel = Self.validDraft()
         noLevel.experienceLevel = nil
         var heavy = Self.validDraft()
-        heavy.currentWeightText = "400"
+        heavy.currentWeightKg = 400
         var garbage = Self.validDraft()
-        garbage.goalWeightText = "abc"
+        garbage.goalWeightKg = nil
         var offGrid = Self.validDraft()
         offGrid.preferredSessionMinutes = 35
         var tooShort = Self.validDraft()
@@ -244,8 +244,6 @@ struct ProfileOnboardingTests {
         #expect(try context.fetchCount(FetchDescriptor<UserProfile>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<DayLog>()) == 0)
 
-        #expect(ProfileOnboardingDraft.parse("65,5", in: ProfileFieldRanges.bodyWeightKg) == 65.5)
-        #expect(ProfileOnboardingDraft.parse("", in: ProfileFieldRanges.bodyWeightKg) == nil)
     }
 
     // MARK: - Resuming
@@ -309,7 +307,7 @@ struct ProfileOnboardingTests {
 
         let fresh = ModelContext(container)
         #expect(UserProfileStore.profile(for: .account(Self.accountA), modelContext: fresh) == nil)
-        #expect(ProfileOnboardingDraft(profile: nil, latestWeightKg: nil).goalWeightText.isEmpty)
+        #expect(ProfileOnboardingDraft(profile: nil, latestWeightKg: nil).goalWeightKg == nil)
     }
 
     @Test("A profile from before V10 (no marker, no progress) starts at basics")
@@ -506,5 +504,152 @@ extension ProfileOnboardingTests {
         try Self.finish(Self.accountA, context)
         #expect(FirstLaunchSignIn.step(state: state, scope: .account(Self.accountA), answers: answers, in: context)
             == .finished)
+    }
+
+    // MARK: - Wheels
+
+    @Test("A new draft's age starts at 20; an existing profile keeps its saved age")
+    func ageDefaults() {
+        #expect(ProfileOnboardingDraft(profile: nil, latestWeightKg: nil).ageYears == 20)
+        let existing = UserProfile(ageYears: 41, ownerAccountID: Self.accountA)
+        #expect(ProfileOnboardingDraft(profile: existing, latestWeightKg: nil).ageYears == 41)
+        // UserProfile's own default is unchanged; only onboarding starts at 20.
+        #expect(UserProfile().ageYears == 30)
+    }
+
+    @Test("Each wheel spans exactly its ProfileFieldRanges range in its step")
+    func wheelBounds() {
+        let cases: [(NumericWheelScale, Double, Double, Double, Int)] = [
+            (.ageYears, 10, 100, 1, 91),
+            (.heightCm, 120, 220, 1, 101),
+            (.bodyWeightKg, 30, 250, 0.1, 2201),
+            (.goalWeightKg, 30, 150, 0.5, 241),
+            (.weeklyChangeKg, -1.5, 1.5, 0.1, 31),
+            (.trainingDaysPerWeek, 1, 7, 1, 7),
+            (.sessionMinutes, 30, 180, 15, 11),
+        ]
+        for (scale, min, max, step, count) in cases {
+            #expect(scale.minValue == min)
+            #expect(scale.maxValue == max)
+            #expect(scale.step == step)
+            #expect(scale.count == count)
+        }
+        #expect(NumericWheelScale.ageYears.minValue == Double(ProfileFieldRanges.ageYears.lowerBound))
+        #expect(NumericWheelScale.sessionMinutes.maxValue == Double(QuickPlanDuration.maxMinutes))
+        // Every session wheel row is a length Quick Plan can offer.
+        for index in 0..<NumericWheelScale.sessionMinutes.count {
+            #expect(ProfileFieldRanges.isValidSessionMinutes(Int(NumericWheelScale.sessionMinutes.value(at: index))))
+        }
+    }
+
+    @Test("Wheel values are exact on their grid: 0.1 kg current, 0.5 kg goal, 0.1 kg weekly")
+    func wheelResolution() {
+        let current = NumericWheelScale.bodyWeightKg
+        #expect(current.value(at: current.index(nearest: 72.5)) == 72.5)
+        #expect(current.value(at: 3) == 30.3)
+        #expect(current.snapped(72.46) == 72.5)
+        #expect(current.snapped(400) == 250)
+        #expect(current.text(72) == "72.0")
+
+        let goal = NumericWheelScale.goalWeightKg
+        #expect(goal.value(at: 1) == 30.5)
+        #expect(goal.snapped(70.2) == 70)
+        #expect(goal.snapped(70.3) == 70.5)
+
+        let weekly = NumericWheelScale.weeklyChangeKg
+        #expect(weekly.value(at: 0) == -1.5)
+        #expect(weekly.value(at: 13) == -0.2)
+        #expect(weekly.snapped(-0.5) == -0.5)
+        #expect(weekly.text(0.2, signed: true) == "+0.2")
+
+        let minutes = NumericWheelScale.sessionMinutes
+        #expect(minutes.value(at: 1) == 45)
+        #expect(minutes.snapped(50) == 45)
+    }
+
+    @Test("Weights are saved at the wheels' precision and resumed onto the wheel")
+    func weightPrecisionRoundTrips() throws {
+        let container = try Self.makeContainer()
+        let scope = HealthDataScope.account(Self.accountA)
+        var draft = Self.validDraft()
+        draft.currentWeightKg = NumericWheelScale.bodyWeightKg.value(at: NumericWheelScale.bodyWeightKg.index(nearest: 68.3))
+        draft.goalWeightKg = 64.5
+        draft.weeklyChangeKg = NumericWheelScale.weeklyChangeKg.snapped(-0.3)
+        let context = ModelContext(container)
+        for step in [ProfileOnboardingStep.basics, .goal] {
+            #expect(draft.save(step, to: scope, modelContext: context, now: Self.now) != nil)
+        }
+        try context.save()
+
+        let fresh = ModelContext(container)
+        #expect(DayLogStore.fetch(date: Self.now, scope: scope, modelContext: fresh)?.weightKg == 68.3)
+        let profile = try #require(UserProfileStore.profile(for: scope, modelContext: fresh))
+        #expect(profile.goalWeightKg == 64.5)
+        #expect(profile.weeklyChangeKg == -0.3)
+        let resumed = ProfileOnboardingDraft(
+            profile: profile,
+            latestWeightKg: LatestBodyWeightResolver.latestWeightKg(scope: scope, modelContext: fresh)
+        )
+        #expect(resumed.currentWeightKg == 68.3)
+        #expect(resumed.goalWeightKg == 64.5)
+        #expect(resumed.weeklyChangeKg == -0.3)
+        #expect(resumed.ageYears == 34)
+    }
+
+    @Test("Off-grid stored weights open on the nearest wheel row; out-of-range ones stay unset")
+    func offGridWeightsSnap() {
+        let profile = UserProfile(goalWeightKg: 70.2, ownerAccountID: Self.accountA)
+        let draft = ProfileOnboardingDraft(profile: profile, latestWeightKg: 72.46)
+        #expect(draft.currentWeightKg == 72.5)
+        #expect(draft.goalWeightKg == 70)
+
+        let outOfRange = UserProfile(goalWeightKg: 200, ownerAccountID: Self.accountA)
+        let unset = ProfileOnboardingDraft(profile: outOfRange, latestWeightKg: 300)
+        #expect(unset.currentWeightKg == nil)
+        #expect(unset.goalWeightKg == nil)
+        #expect(!unset.isValid(.basics))
+    }
+
+    @Test("Current weight on two wheels: 30.0 to 250.0 in 0.1, never past 250.0")
+    func currentWeightSplitWheel() {
+        let scale = NumericWheelScale.bodyWeightKg
+        #expect(scale.wholeNumbers == 30...250)
+        #expect(scale.fractionCount == 10)
+        #expect((0..<10).map(scale.fractionText) == [".0", ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9"])
+        for (value, whole, fraction) in [(30.0, 30, 0), (82.5, 82, 5), (249.9, 249, 9), (250.0, 250, 0)] {
+            #expect(scale.value(whole: whole, fraction: fraction) == value)
+            #expect(scale.parts(of: value) == (whole, fraction))
+        }
+        // 249 offers every tenth; 250 offers .0 alone.
+        #expect(scale.fractions(forWhole: 249) == 0..<10)
+        #expect(scale.fractions(forWhole: 30) == 0..<10)
+        #expect(scale.fractions(forWhole: 250) == 0..<1)
+        // Turning the whole wheel from 249.9 to 250 lands on 250.0.
+        let from = scale.parts(of: 249.9)
+        let moved = scale.value(whole: 250, fraction: from.fraction)
+        #expect(moved == 250.0)
+        #expect(scale.parts(of: moved) == (250, 0))
+        #expect(scale.parts(of: 250.9) == (250, 0))
+    }
+
+    @Test("Goal weight on two wheels: 30.0 to 150.0 in 0.5, never 150.5")
+    func goalWeightSplitWheel() {
+        let scale = NumericWheelScale.goalWeightKg
+        #expect(scale.wholeNumbers == 30...150)
+        #expect(scale.fractionCount == 2)
+        #expect((0..<2).map(scale.fractionText) == [".0", ".5"])
+        for (value, whole, fraction) in [(30.0, 30, 0), (70.5, 70, 1), (150.0, 150, 0)] {
+            #expect(scale.value(whole: whole, fraction: fraction) == value)
+            #expect(scale.parts(of: value) == (whole, fraction))
+        }
+        #expect(scale.value(whole: 149, fraction: 1) == 149.5)
+        #expect(scale.fractions(forWhole: 149) == 0..<2)
+        #expect(scale.fractions(forWhole: 150) == 0..<1)
+        let moved = scale.value(whole: 150, fraction: scale.parts(of: 149.5).fraction)
+        #expect(moved == 150.0)
+        #expect(scale.parts(of: moved) == (150, 0))
+        // Off-grid snaps to the nearest half kilo.
+        #expect(scale.parts(of: 70.7) == (70, 1))
+        #expect(scale.parts(of: 70.8) == (71, 0))
     }
 }

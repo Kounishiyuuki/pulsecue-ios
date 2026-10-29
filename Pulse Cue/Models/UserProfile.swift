@@ -178,6 +178,8 @@ enum ProfileFieldRanges {
     static let ageYears = 10...100
     static let heightCm = 120...220
     static let bodyWeightKg = 30.0...250.0
+    /// The resolution the current weight is entered and stored at.
+    static let bodyWeightStepKg = 0.1
     static let goalWeightKg = 30.0...150.0
     static let goalWeightStepKg = 0.5
     static let weeklyChangeKg = -1.5...1.5
