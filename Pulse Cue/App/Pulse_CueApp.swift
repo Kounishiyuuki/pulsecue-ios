@@ -44,7 +44,8 @@ struct Pulse_CueApp: App {
             || PulseCueUITestSupport.requestedTrainingRoutineCount() != nil
             || PulseCueUITestSupport.isFormGuideDebugRoute()
             || PulseCueUITestSupport.requestedGlassUIRoute() != nil
-            || PulseCueUITestSupport.isProfileOnboardingFixture() {
+            || PulseCueUITestSupport.isProfileOnboardingFixture()
+            || PulseCueUITestSupport.isGuestFirstLaunchFixture() {
             inMemory = true
         }
         #endif
@@ -114,6 +115,8 @@ struct Pulse_CueApp: App {
             GlassUIVisualQARoot(route: route)
         } else if PulseCueUITestSupport.isProfileOnboardingFixture() {
             ProfileOnboardingFixtureRoot()
+        } else if PulseCueUITestSupport.isGuestFirstLaunchFixture() {
+            GuestFirstLaunchFixtureRoot()
         } else if let exerciseId = PulseCueUITestSupport.requestedFormGuideExerciseId() {
             // Isolated debug root: no ContentView, no SampleDataSeeder, no
             // onboarding, in-memory store only.
@@ -173,6 +176,20 @@ enum PulseCueUITestSupport {
     static func isProfileOnboardingFixture(_ args: [String] = ProcessInfo.processInfo.arguments) -> Bool {
         #if DEBUG
         return args.contains(profileOnboardingArgument)
+        #else
+        return false
+        #endif
+    }
+
+    /// Shows the first-launch cover in guest scope, offline, over its own
+    /// on-disk store so a relaunch can resume or skip it. `…-reset` starts
+    /// it fresh. DEBUG-only; compiled out of Release.
+    static let guestFirstLaunchArgument = "-pulsecue-ui-test-guest-first-launch"
+    static let guestFirstLaunchResetArgument = "-pulsecue-ui-test-guest-first-launch-reset"
+
+    static func isGuestFirstLaunchFixture(_ args: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG
+        return args.contains(guestFirstLaunchArgument)
         #else
         return false
         #endif

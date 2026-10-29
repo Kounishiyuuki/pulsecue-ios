@@ -5,9 +5,11 @@
 //  The personal-profile questions asked once per PulseCue account, after the
 //  server has confirmed the sign-in — Apple or Google alike, because both end
 //  in the same `ServerAccountStore.authenticated` state and the same internal
-//  account UUID.
+//  account UUID — and once for the guest, after "ゲストで始める" on first
+//  launch. The guest answers into the guest profile (`ownerAccountID == nil`),
+//  so adoption later carries the answers and the marker to an account as-is.
 //
-//  "Once" is the account's own profile: `profileOnboardingCompletedAt` on the
+//  "Once" is the scope's own profile: `profileOnboardingCompletedAt` on the
 //  `UserProfile` it owns. Not a device-wide flag — a second account on the
 //  same phone has never answered, and signing out and back in has. Deleting
 //  the account deletes its profile, so the marker goes with it.
@@ -64,7 +66,7 @@ private struct ProfileOnboardingPresenter: ViewModifier {
                 set: { _ in }
             )) {
                 if let id = pendingAccountID {
-                    ProfileOnboardingView(accountID: id)
+                    ProfileOnboardingView(scope: .account(id))
                         .interactiveDismissDisabled()
                         // A different account is a different screen: never
                         // carry one account's half-typed answers to the next.
@@ -240,15 +242,15 @@ struct ProfileOnboardingDraft: Equatable {
 }
 
 struct ProfileOnboardingView: View {
-    let accountID: UUID
+    /// `.guest` or a server-confirmed `.account`; never `.undetermined`,
+    /// which cannot hold a profile and would fail every save.
+    let scope: HealthDataScope
 
     @Environment(\.modelContext) private var modelContext
 
     @State private var step: ProfileOnboardingStep = .basics
     @State private var draft: ProfileOnboardingDraft?
     @State private var saveFailed = false
-
-    private var scope: HealthDataScope { .account(accountID) }
 
     var body: some View {
         NavigationStack {
@@ -477,7 +479,7 @@ struct ProfileOnboardingFixtureRoot: View {
                 Text("ホーム")
                     .accessibilityIdentifier("profile-onboarding-fixture-home")
             } else {
-                ProfileOnboardingView(accountID: ProfileOnboardingFixtureRoot.accountID)
+                ProfileOnboardingView(scope: .account(ProfileOnboardingFixtureRoot.accountID))
             }
         }
     }
@@ -497,6 +499,58 @@ struct ProfileOnboardingFixtureRoot: View {
             return try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
         } catch {
             fatalError("Could not open the profile onboarding fixture store at \(url.path): \(error)")
+        }
+    }
+}
+
+/// The `-pulsecue-ui-test-guest-first-launch` root: the real first-launch
+/// cover in guest scope, offline, then a stand-in Home once it finishes.
+/// The finished flag stands in for `SettingsStore.hasCompletedOnboarding`.
+struct GuestFirstLaunchFixtureRoot: View {
+    static let finishedKey = "uitest.guestFirstLaunch.finished"
+
+    @State private var container = Self.makeContainer()
+    @StateObject private var authSession = AuthSessionStore()
+    @StateObject private var serverAccount = ServerAccountStore(
+        api: PulseCueAccountAPIClient(configuration: PulseCueAPIConfiguration(rawValue: nil)),
+        tokenStore: InMemoryServerSessionTokenStore()
+    )
+    @StateObject private var dataScope = WorkoutDataScopeResolver(fixed: .guest)
+    @AppStorage(Self.finishedKey) private var finished = false
+
+    var body: some View {
+        Group {
+            if finished {
+                Text("ホーム")
+                    .accessibilityIdentifier("guest-first-launch-fixture-home")
+            } else {
+                Text("")
+                    .fullScreenCover(isPresented: .constant(true)) {
+                        FirstLaunchView { finished = true }
+                            .modelContainer(container)
+                            .environmentObject(authSession)
+                            .environmentObject(serverAccount)
+                            .environmentObject(dataScope)
+                    }
+            }
+        }
+        .modelContainer(container)
+    }
+
+    private static func makeContainer() -> ModelContainer {
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("uitest-guest-first-launch.sqlite")
+        if ProcessInfo.processInfo.arguments.contains(PulseCueUITestSupport.guestFirstLaunchResetArgument) {
+            for suffix in ["", "-shm", "-wal"] {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
+            }
+            UserDefaults.standard.removeObject(forKey: finishedKey)
+        }
+        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
+        do {
+            return try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+        } catch {
+            fatalError("Could not open the guest first-launch fixture store at \(url.path): \(error)")
         }
     }
 }
