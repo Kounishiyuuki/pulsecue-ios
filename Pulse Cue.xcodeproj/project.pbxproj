@@ -289,6 +289,7 @@
 		D17104DB1A8E4001B0DA7301 /* CustomMachineEndToEndTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */; };
 		D17104DB1A8E4001B0DA6201 /* CustomMachineRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA6202 /* CustomMachineRepositoryTests.swift */; };
 		A1B2C3D4E5F6000000000B01 /* ManualMachineSelectionViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000B02 /* ManualMachineSelectionViewModelTests.swift */; };
+		C0FFEE5E7A0000000000A003 /* GymEquipmentSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE5E7A0000000000A004 /* GymEquipmentSetupTests.swift */; };
 		D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */; };
 		D17104DB1A8E4001B0DA4101 /* GymCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */; };
 		D17104DB1A8E4001B0DA4201 /* GymCandidateSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */; };
@@ -315,6 +316,7 @@
 		CDCD08BBA10F45D481D93FCB /* HealthTargets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F5A9876A2D4595A55AB0B7 /* HealthTargets.swift */; };
 		726DBE5C035348F7882C9682 /* HealthTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEDEC929F59498E9CB3F240 /* HealthTargetResolver.swift */; };
 		1538B53023014DCD9A04358D /* HealthTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915E3336D125423996987EF7 /* HealthTargetStore.swift */; };
+		C0FFEE5E7A0000000000A001 /* GymEquipmentSetupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE5E7A0000000000A002 /* GymEquipmentSetupStore.swift */; };
 		80A050FE49EF4AF5B290D2A8 /* HealthTargetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */; };
 		91E24A763C894718BA258814 /* HealthTargetResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE1723552AB4F81AC7BF16C /* HealthTargetResolverTests.swift */; };
 		F608AEE7DB5045D6A4B0F3FB /* HealthTargetDifference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FCEE6E0F2044E58A81758CE /* HealthTargetDifference.swift */; };
@@ -665,6 +667,7 @@
 		D17104DB1A8E4001B0DA7302 /* CustomMachineEndToEndTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachineEndToEndTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA6202 /* CustomMachineRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomMachineRepositoryTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000B02 /* ManualMachineSelectionViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualMachineSelectionViewModelTests.swift; sourceTree = "<group>"; };
+		C0FFEE5E7A0000000000A004 /* GymEquipmentSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymEquipmentSetupTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineFactoryTests.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4102 /* GymCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidate.swift; sourceTree = "<group>"; };
 		D17104DB1A8E4001B0DA4202 /* GymCandidateSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymCandidateSearchService.swift; sourceTree = "<group>"; };
@@ -691,6 +694,7 @@
 		A2F5A9876A2D4595A55AB0B7 /* HealthTargets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargets.swift; sourceTree = "<group>"; };
 		8EEDEC929F59498E9CB3F240 /* HealthTargetResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetResolver.swift; sourceTree = "<group>"; };
 		915E3336D125423996987EF7 /* HealthTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetStore.swift; sourceTree = "<group>"; };
+		C0FFEE5E7A0000000000A002 /* GymEquipmentSetupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GymEquipmentSetupStore.swift; sourceTree = "<group>"; };
 		16F194C41E8E49C9883DE002 /* HealthTargetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetSettingsView.swift; sourceTree = "<group>"; };
 		BDE1723552AB4F81AC7BF16C /* HealthTargetResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetResolverTests.swift; sourceTree = "<group>"; };
 		8FCEE6E0F2044E58A81758CE /* HealthTargetDifference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthTargetDifference.swift; sourceTree = "<group>"; };
@@ -862,6 +866,7 @@
 				D17104DB1A8E4001B0DA2402 /* NutritionLedger.swift */,
 				D17104DB1A8E4001B0DA2902 /* UserProfileStore.swift */,
 				915E3336D125423996987EF7 /* HealthTargetStore.swift */,
+				C0FFEE5E7A0000000000A002 /* GymEquipmentSetupStore.swift */,
 				8EEDEC929F59498E9CB3F240 /* HealthTargetResolver.swift */,
 				8FCEE6E0F2044E58A81758CE /* HealthTargetDifference.swift */,
 				76DF9CD621CA4C5E8A53A2BF /* HealthTargetWeeklyAverage.swift */,
@@ -1173,6 +1178,7 @@
 				D17104DB1A8E4001B0DA8062 /* ExerciseLibraryTests.swift */,
 				D17104DB1A8E4001B0DA6202 /* CustomMachineRepositoryTests.swift */,
 				A1B2C3D4E5F6000000000B02 /* ManualMachineSelectionViewModelTests.swift */,
+				C0FFEE5E7A0000000000A004 /* GymEquipmentSetupTests.swift */,
 				D17104DB1A8E4001B0DA4002 /* RoutineFactoryTests.swift */,
 				D17104DB1A8E4001B0DA4802 /* GymCandidateSearchViewModelTests.swift */,
 				D17104DB1A8E4001B0DA5102 /* NearbyGymCandidateViewModelTests.swift */,
@@ -1501,6 +1507,7 @@
 				CDCD08BBA10F45D481D93FCB /* HealthTargets.swift in Sources */,
 				D17104DB1A8E4001B0DA2901 /* UserProfileStore.swift in Sources */,
 				1538B53023014DCD9A04358D /* HealthTargetStore.swift in Sources */,
+				C0FFEE5E7A0000000000A001 /* GymEquipmentSetupStore.swift in Sources */,
 				726DBE5C035348F7882C9682 /* HealthTargetResolver.swift in Sources */,
 				F608AEE7DB5045D6A4B0F3FB /* HealthTargetDifference.swift in Sources */,
 				72976D476DD544E2A4988A4A /* HealthTargetWeeklyAverage.swift in Sources */,
@@ -1724,6 +1731,7 @@
 				D17104DB1A8E4001B0DA8061 /* ExerciseLibraryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA6201 /* CustomMachineRepositoryTests.swift in Sources */,
 				A1B2C3D4E5F6000000000B01 /* ManualMachineSelectionViewModelTests.swift in Sources */,
+				C0FFEE5E7A0000000000A003 /* GymEquipmentSetupTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4001 /* RoutineFactoryTests.swift in Sources */,
 				D17104DB1A8E4001B0DA5751 /* RuleBasedWeeklyPlanGeneratorTests.swift in Sources */,
 				D17104DB1A8E4001B0DA4801 /* GymCandidateSearchViewModelTests.swift in Sources */,

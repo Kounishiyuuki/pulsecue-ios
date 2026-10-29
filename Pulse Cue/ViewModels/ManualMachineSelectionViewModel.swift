@@ -62,13 +62,21 @@ final class ManualMachineSelectionViewModel: ObservableObject {
     @Published private(set) var customMachines: [CustomMachine] = []
     @Published private(set) var availableCustomIds: Set<UUID> = []
 
+    /// True while `selectedIds` holds the staged common-machine suggestion
+    /// rather than anything the user saved. The suggestion lives only in
+    /// memory: nothing reaches `GymMachine` (and so the plan generator)
+    /// until `save()`.
+    @Published private(set) var isShowingSuggestedSelection = false
+
+    private let setupStore: GymEquipmentSetupStore
     private var modelContext: ModelContext?
     private var repository: GymRepository? {
         modelContext.map(GymRepository.init(modelContext:))
     }
 
-    init(gym: Gym) {
+    init(gym: Gym, setupStore: GymEquipmentSetupStore = GymEquipmentSetupStore()) {
         self.gym = gym
+        self.setupStore = setupStore
     }
 
     func configure(modelContext: ModelContext) {
@@ -76,6 +84,19 @@ final class ManualMachineSelectionViewModel: ObservableObject {
         guard let repository else { return }
         selectedIds = Set(repository.machines(for: gym).map(\.machineId))
         reloadCustomMachines()
+        stageSuggestionIfFirstSetup()
+    }
+
+    /// Suggests common machines only for a gym registered through the new
+    /// flow that still has nothing saved — a gym with any saved standard or
+    /// available custom machine keeps exactly what the user chose.
+    private func stageSuggestionIfFirstSetup() {
+        guard setupStore.isAwaitingInitialSetup(gym.id),
+              selectedIds.isEmpty,
+              availableCustomIds.isEmpty
+        else { return }
+        selectedIds = Set(MachineCatalog.commonGymMachineIds)
+        isShowingSuggestedSelection = true
     }
 
     /// Re-reads the gym's custom machines. Called after the form sheet
@@ -241,6 +262,8 @@ final class ManualMachineSelectionViewModel: ObservableObject {
                 isAvailable: availableCustomIds.contains(machine.id)
             )
         }
+        setupStore.markConfirmed(gym.id)
+        isShowingSuggestedSelection = false
         state = .saved
     }
 }

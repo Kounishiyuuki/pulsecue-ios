@@ -20,6 +20,9 @@ struct MyGymHomeView: View {
     /// Holds the gym the user has asked to delete, while the
     /// confirmation alert is on screen. `nil` when no alert is active.
     @State private var pendingDeletion: Gym?
+    /// Set by the one-time equipment prompt's「確認する」to push the
+    /// machine picker for the newly registered gym.
+    @State private var machineReviewGym: Gym?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -89,6 +92,27 @@ struct MyGymHomeView: View {
             }
         } message: { _ in
             Text("このジムに登録したマシン情報も削除されます。")
+        }
+        .alert(
+            "利用できるマシンを確認しましょう",
+            isPresented: Binding(
+                get: { viewModel.equipmentReviewPromptGym != nil && pendingDeletion == nil },
+                set: { _ in }
+            ),
+            presenting: viewModel.equipmentReviewPromptGym
+        ) { gym in
+            Button("確認する") {
+                viewModel.answerEquipmentReviewPrompt()
+                machineReviewGym = gym
+            }
+            Button("あとで", role: .cancel) {
+                viewModel.answerEquipmentReviewPrompt()
+            }
+        } message: { gym in
+            Text("「\(gym.name)」で使えるマシンを選ぶと、設備に合わせたメニューを作れます。一般的な設備を仮選択した状態から始められます。")
+        }
+        .navigationDestination(item: $machineReviewGym) { gym in
+            ManualMachineSelectionView(gym: gym)
         }
     }
 

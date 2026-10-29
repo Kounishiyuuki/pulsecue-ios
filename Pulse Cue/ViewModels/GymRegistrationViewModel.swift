@@ -69,6 +69,7 @@ final class GymRegistrationViewModel: ObservableObject {
             officialUrl: urlInput.isEmpty ? nil : urlInput,
             makeActive: true
         )
+        GymEquipmentSetupStore().markNewGym(gym.id)
         state = .saved(gymId: gym.id)
     }
 

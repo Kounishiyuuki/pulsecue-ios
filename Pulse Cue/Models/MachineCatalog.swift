@@ -157,6 +157,25 @@ enum MachineCatalog {
         MachineCatalogEntry(id: "triceps_extension_machine", displayName: "トライセプスエクステンション", bodyParts: [.arms], equipmentType: .machine, movementPattern: .push, difficulty: .beginner, beginnerFriendly: true, tags: ["トライセプス", "三頭", "上腕三頭筋", "アームエクステンション"]),
     ]
 
+    /// Machines commonly found at a typical commercial gym, staged as a
+    /// starting suggestion the first time a newly registered gym's
+    /// equipment is set up. A hand-picked list rather than a metadata
+    /// filter: `beginnerFriendly` also matches niche machines (hip
+    /// abduction, rowing ergometer) that many gyms lack. This is never a
+    /// claim about any specific gym — the user confirms before saving.
+    static let commonGymMachineIds: [String] = [
+        "chest_press",
+        "lat_pulldown",
+        "shoulder_press",
+        "leg_press",
+        "leg_extension",
+        "leg_curl",
+        "seated_row",
+        "abdominal_machine",
+        "treadmill",
+        "bike",
+    ]
+
     /// O(1) lookup by canonical id. Returns nil for ids that aren't in
     /// the catalog (e.g. older saved rows after a catalog rename).
     static func entry(for machineId: String) -> MachineCatalogEntry? {
