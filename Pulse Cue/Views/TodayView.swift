@@ -91,6 +91,14 @@ struct TodayView: View {
     @State private var progressSummary: HomeProgressSummary = .empty
 
     @State private var activeField: DayLogField?
+    /// Continuous entry (started from 続きを入力) versus a single edit from a
+    /// card. Only continuous entry advances after 保存.
+    @State private var isSequentialEntry = false
+    /// Fields already shown in this run of continuous entry.
+    @State private var visitedInSequence: Set<DayLogField> = []
+    /// Set by 保存 and presented in the sheet's `onDismiss`, so the next
+    /// sheet never presents while the previous one is still dismissing.
+    @State private var pendingNextField: DayLogField?
     @State private var showRoutinePicker = false
     /// Routine chosen in the picker, started in the sheet's `onDismiss` so the
     /// picker is fully gone before the Runner cover presents.
@@ -175,7 +183,8 @@ struct TodayView: View {
                         totalCount: 4,
                         weightText: latestWeightKg.map { "\(NumberFormat.weight($0)) kg" },
                         goalDifferenceText: goalDifferenceText,
-                        onTapWeight: { activeField = .weight }
+                        onTapWeight: { openField(.weight) },
+                        onContinueRecording: continueRecordingAction
                     )
 
                     TodayTrainingCard(
@@ -198,9 +207,9 @@ struct TodayView: View {
         }
         .navigationTitle("今日")
         .navigationBarTitleDisplayMode(.large)
-        .sheet(item: $activeField) { field in
+        .sheet(item: $activeField, onDismiss: presentPendingNextField) { field in
             if let dayLog = todayLog {
-                DayLogQuickInputSheet(field: field, dayLog: dayLog)
+                DayLogQuickInputSheet(field: field, dayLog: dayLog, onSave: quickInputSaved)
             }
         }
         .sheet(isPresented: $showRoutinePicker, onDismiss: startPendingRoutine) {
@@ -337,14 +346,67 @@ struct TodayView: View {
         PulseAtmosphericBackground()
     }
 
-    private var filledMetricCount: Int {
-        guard let log = todayLog else { return 0 }
-        var count = 0
-        if log.intakeCalories != nil { count += 1 }
-        if log.exerciseCalories != nil { count += 1 }
-        if log.sleepMinutes != nil { count += 1 }
-        if log.weightKg != nil { count += 1 }
-        return count
+    private var filledFields: Set<DayLogField> {
+        guard let log = todayLog else { return [] }
+        return DailyRecordSequence.filledFields(
+            intakeCalories: log.intakeCalories,
+            exerciseCalories: log.exerciseCalories,
+            sleepMinutes: log.sleepMinutes,
+            weightKg: log.weightKg
+        )
+    }
+
+    private var filledMetricCount: Int { filledFields.count }
+
+    private func nextSequentialField(visited: Set<DayLogField>) -> DayLogField? {
+        DailyRecordSequence.nextField(
+            filled: filledFields,
+            nutritionAcceptsManualEntry: nutritionSummary.acceptsManualIntakeEntry,
+            visited: visited
+        )
+    }
+
+    /// The 続きを入力 action, or `nil` to hide it.
+    ///
+    /// When the only gap is a meal-owned nutrition day, the button goes to
+    /// the Nutrition tab — the same place the 摂取 card sends it — rather than
+    /// offering a quick input `NutritionLedger` would overwrite.
+    private var continueRecordingAction: (() -> Void)? {
+        guard filledMetricCount < 4 else { return nil }
+        if nextSequentialField(visited: []) != nil {
+            return startSequentialEntry
+        }
+        if !filledFields.contains(.nutrition) && !nutritionSummary.acceptsManualIntakeEntry {
+            return onOpenNutrition
+        }
+        return nil
+    }
+
+    private func startSequentialEntry() {
+        ensureTodayLogExists()
+        guard let first = nextSequentialField(visited: []) else { return }
+        isSequentialEntry = true
+        visitedInSequence = [first]
+        activeField = first
+    }
+
+    private func quickInputSaved(_ field: DayLogField) {
+        guard isSequentialEntry else { return }
+        pendingNextField = nextSequentialField(visited: visitedInSequence.union([field]))
+    }
+
+    /// Runs after every quick-input dismissal. Cancel, delete, or a save with
+    /// nothing left all end continuous entry here.
+    private func presentPendingNextField() {
+        guard isSequentialEntry, let next = pendingNextField else {
+            isSequentialEntry = false
+            visitedInSequence = []
+            pendingNextField = nil
+            return
+        }
+        pendingNextField = nil
+        visitedInSequence.insert(next)
+        activeField = next
     }
 
     private func workoutAction() {
@@ -394,8 +456,10 @@ struct TodayView: View {
     }
 
 
+    /// A single edit from a card or the weight row: never continues.
     private func openField(_ field: DayLogField) {
         ensureTodayLogExists()
+        isSequentialEntry = false
         activeField = field
     }
 }

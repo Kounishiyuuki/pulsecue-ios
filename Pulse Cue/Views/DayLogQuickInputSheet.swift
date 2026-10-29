@@ -43,12 +43,19 @@ struct DayLogQuickInputSheet: View {
     /// the wheels; saving stays entirely with the "保存" button.
     @StateObject private var healthAssist: HealthKitInputAssist
 
+    /// Called after an explicit 保存, before the sheet dismisses. Not called
+    /// on キャンセル or 記録を削除. The sheet never presents anything itself;
+    /// the presenter decides what, if anything, comes next.
+    let onSave: ((DayLogField) -> Void)?
+
     init(
         field: DayLogField,
         dayLog: DayLog,
-        healthAssist: HealthKitInputAssist? = nil
+        healthAssist: HealthKitInputAssist? = nil,
+        onSave: ((DayLogField) -> Void)? = nil
     ) {
         self.field = field
+        self.onSave = onSave
         self._dayLog = Bindable(wrappedValue: dayLog)
         self._healthAssist = StateObject(wrappedValue: healthAssist ?? HealthKitInputAssist())
         self._valueText = State(initialValue: DayLogQuickInputSheet.initialValue(field: field, dayLog: dayLog))
@@ -98,6 +105,7 @@ struct DayLogQuickInputSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         save()
+                        onSave?(field)
                         dismiss()
                     }
                 }
