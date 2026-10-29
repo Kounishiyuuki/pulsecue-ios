@@ -131,22 +131,18 @@ struct BodyGoalsSettingsSection: View {
             VStack(alignment: .leading, spacing: 14) {
                 SettingsChrome.sectionHeader(icon: "person.fill", title: "パーソナルデータ")
 
-                SettingsChrome.inlineNumberCell(
+                SettingsChrome.wheelNumberCell(
                     label: "身長",
-                    value: profile.wrappedValue.heightCm,
-                    range: ProfileFieldRanges.heightCm,
-                    step: 1,
+                    scale: .heightCm,
                     unit: "cm",
-                    binding: profile.heightCm,
-                    identifier: "height-stepper"
+                    binding: profile.heightCm.wheelValue,
+                    identifier: "height-wheel"
                 )
-                SettingsChrome.inlineNumberCell(
+                SettingsChrome.wheelNumberCell(
                     label: "年齢",
-                    value: profile.wrappedValue.ageYears,
-                    range: ProfileFieldRanges.ageYears,
-                    step: 1,
+                    scale: .ageYears,
                     unit: "歳",
-                    binding: profile.ageYears
+                    binding: profile.ageYears.wheelValue
                 )
                 SettingsChrome.pickerCell(label: "性別", selection: profile.biologicalSex) { sex in
                     Text(sex.label).tag(sex)
@@ -186,26 +182,23 @@ struct BodyGoalsSettingsSection: View {
             VStack(alignment: .leading, spacing: 14) {
                 SettingsChrome.sectionHeader(icon: "flag.fill", title: "目標設定")
 
-                SettingsChrome.inlineDoubleCell(
+                SettingsChrome.wheelNumberCell(
                     label: "目標体重",
                     helper: currentWeightKg
                         .map { "現在の体重: \(NumberFormat.weight($0)) kg" }
                         ?? "現在の体重: 未入力",
-                    value: profile.wrappedValue.goalWeightKg,
-                    range: ProfileFieldRanges.goalWeightKg,
-                    step: ProfileFieldRanges.goalWeightStepKg,
+                    scale: .goalWeightKg,
                     unit: "kg",
-                    binding: profile.goalWeightKg
+                    binding: profile.goalWeightKg.wheelValue
                 )
 
-                SettingsChrome.inlineDoubleCell(
+                SettingsChrome.wheelNumberCell(
                     label: "週あたりの変化量",
                     helper: "推奨: -0.5 〜 +0.5 kg/週",
-                    value: profile.wrappedValue.weeklyChangeKg,
-                    range: ProfileFieldRanges.weeklyChangeKg,
-                    step: ProfileFieldRanges.weeklyChangeStepKg,
+                    scale: .weeklyChangeKg,
+                    signed: true,
                     unit: "kg",
-                    binding: profile.weeklyChangeKg
+                    binding: profile.weeklyChangeKg.wheelValue
                 )
 
                 SettingsChrome.derivedRow(
@@ -241,25 +234,18 @@ struct BodyGoalsSettingsSection: View {
                     Text("未設定").tag(ExperienceLevel?.none)
                     ForEach(ExperienceLevel.allCases, id: \.self) { Text($0.displayName).tag(Optional($0)) }
                 }
-                Stepper(
-                    value: Binding(
-                        get: { profile.wrappedValue.trainingDaysPerWeek ?? 3 },
-                        set: { profile.wrappedValue.trainingDaysPerWeek = $0 }
-                    ),
-                    in: ProfileFieldRanges.trainingDaysPerWeek
-                ) {
-                    LabeledContent("週あたり", value: profile.wrappedValue.trainingDaysPerWeek.map { "\($0) 回" } ?? "未設定")
-                }
-                Stepper(
-                    value: Binding(
-                        get: { profile.wrappedValue.preferredSessionMinutes ?? ProfileFieldRanges.defaultSessionMinutes },
-                        set: { profile.wrappedValue.preferredSessionMinutes = $0 }
-                    ),
-                    in: ProfileFieldRanges.sessionMinutes,
-                    step: ProfileFieldRanges.sessionMinutesStep
-                ) {
-                    LabeledContent("1回あたり", value: profile.wrappedValue.preferredSessionMinutes.map { "\($0) 分" } ?? "未設定")
-                }
+                NumericWheelField(
+                    "週あたり", unit: "回", scale: .trainingDaysPerWeek,
+                    value: profile.trainingDaysPerWeek.wheelValue,
+                    initial: 3,
+                    identifier: "training-days-wheel"
+                )
+                NumericWheelField(
+                    "1回あたり", unit: "分", scale: .sessionMinutes,
+                    value: profile.preferredSessionMinutes.wheelValue,
+                    initial: Double(ProfileFieldRanges.defaultSessionMinutes),
+                    identifier: "session-minutes-wheel"
+                )
             }
         }
     }

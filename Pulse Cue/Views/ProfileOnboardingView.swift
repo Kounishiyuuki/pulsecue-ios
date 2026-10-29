@@ -128,28 +128,40 @@ enum ProfileOnboardingGate {
 struct ProfileOnboardingDraft: Equatable {
     var ageYears: Int
     var heightCm: Int
-    var currentWeightText: String
+    var currentWeightKg: Double?
     var biologicalSex: BiologicalSex
     var activityFactor: ActivityFactor
     var trainingGoal: ProfileTrainingGoal?
-    var goalWeightText: String
+    var goalWeightKg: Double?
     var weeklyChangeKg: Double
     var trainingDaysPerWeek: Int
     var preferredSessionMinutes: Int
     var experienceLevel: ExperienceLevel?
+
+    /// Where a brand-new profile's age wheel starts. Onboarding's own choice,
+    /// not `UserProfile`'s default, which Settings and older data rely on.
+    static let newProfileAgeYears = 20
 
     init(profile: UserProfile?, latestWeightKg: Double?) {
         // A new profile's defaults, so a fresh draft starts where Settings
         // would. Only a profile that saved the goal step is trusted for the
         // weekly change: the -0.5 default assumes weight loss.
         let base = profile ?? UserProfile()
-        ageYears = base.ageYears
+        ageYears = profile?.ageYears ?? Self.newProfileAgeYears
         heightCm = base.heightCm
-        currentWeightText = latestWeightKg.map { NumberFormat.weight($0) } ?? ""
+        // Snapped onto the wheels' grids, so what the wheel shows is exactly
+        // what is saved. A value outside the range stays out (and invalid)
+        // rather than being clamped into a weight nobody entered.
+        currentWeightKg = latestWeightKg
+            .flatMap { ProfileFieldRanges.bodyWeightKg.contains($0) ? $0 : nil }
+            .map(NumericWheelScale.bodyWeightKg.snapped)
         biologicalSex = base.biologicalSex
         activityFactor = base.activityFactor
         trainingGoal = base.trainingGoal
-        goalWeightText = profile.map { NumberFormat.weight($0.goalWeightKg) } ?? ""
+        goalWeightKg = profile
+            .map(\.goalWeightKg)
+            .flatMap { ProfileFieldRanges.goalWeightKg.contains($0) ? $0 : nil }
+            .map(NumericWheelScale.goalWeightKg.snapped)
         weeklyChangeKg = base.trainingGoal.map { _ in base.weeklyChangeKg } ?? 0
         trainingDaysPerWeek = base.trainingDaysPerWeek ?? 3
         preferredSessionMinutes = base.preferredSessionMinutes
@@ -157,17 +169,15 @@ struct ProfileOnboardingDraft: Equatable {
         experienceLevel = base.experienceLevel
     }
 
-    var currentWeightKg: Double? { Self.parse(currentWeightText, in: ProfileFieldRanges.bodyWeightKg) }
-    var goalWeightKg: Double? { Self.parse(goalWeightText, in: ProfileFieldRanges.goalWeightKg) }
-
     func isValid(_ step: ProfileOnboardingStep) -> Bool {
         switch step {
         case .basics:
             return ProfileFieldRanges.ageYears.contains(ageYears)
                 && ProfileFieldRanges.heightCm.contains(heightCm)
-                && currentWeightKg != nil
+                && currentWeightKg.map(ProfileFieldRanges.bodyWeightKg.contains) == true
         case .goal:
-            return trainingGoal != nil && goalWeightKg != nil
+            return trainingGoal != nil
+                && goalWeightKg.map(ProfileFieldRanges.goalWeightKg.contains) == true
                 && ProfileFieldRanges.weeklyChangeKg.contains(weeklyChangeKg)
         case .habits:
             return ProfileFieldRanges.trainingDaysPerWeek.contains(trainingDaysPerWeek)
@@ -176,14 +186,6 @@ struct ProfileOnboardingDraft: Equatable {
         case .done:
             return true
         }
-    }
-
-    /// Accepts "65.5" and "65,5": a decimal pad in a comma locale types the
-    /// latter.
-    static func parse(_ text: String, in range: ClosedRange<Double>) -> Double? {
-        let normalized = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
-        guard let value = Double(normalized), range.contains(value) else { return nil }
-        return value
     }
 
     /// Stores `step`'s answers in `scope`'s profile — the existing one, or a
@@ -326,15 +328,24 @@ struct ProfileOnboardingView: View {
         switch step {
         case .basics:
             Section {
-                Stepper(value: draft.ageYears, in: ProfileFieldRanges.ageYears) {
-                    LabeledContent("年齢", value: "\(draft.wrappedValue.ageYears) 歳")
-                }
-                .accessibilityIdentifier("profile-onboarding-age")
-                Stepper(value: draft.heightCm, in: ProfileFieldRanges.heightCm) {
-                    LabeledContent("身長", value: "\(draft.wrappedValue.heightCm) cm")
-                }
-                .accessibilityIdentifier("profile-onboarding-height")
-                weightField("現在の体重", text: draft.currentWeightText, identifier: "profile-onboarding-current-weight")
+                NumericWheelField(
+                    "年齢", unit: "歳", scale: .ageYears,
+                    value: draft.ageYears.wheelValue,
+                    initial: Double(ProfileOnboardingDraft.newProfileAgeYears),
+                    identifier: "profile-onboarding-age"
+                )
+                NumericWheelField(
+                    "身長", unit: "cm", scale: .heightCm,
+                    value: draft.heightCm.wheelValue,
+                    initial: Double(draft.wrappedValue.heightCm),
+                    identifier: "profile-onboarding-height"
+                )
+                NumericWheelField(
+                    "現在の体重", unit: "kg", scale: .bodyWeightKg,
+                    value: draft.currentWeightKg,
+                    initial: Self.initialWeightKg,
+                    identifier: "profile-onboarding-current-weight"
+                )
                 Picker("性別（任意）", selection: draft.biologicalSex) {
                     ForEach(BiologicalSex.allCases) { Text($0.label).tag($0) }
                 }
@@ -343,10 +354,9 @@ struct ProfileOnboardingView: View {
                 }
                 .accessibilityIdentifier("profile-onboarding-activity")
             } footer: {
-                validation(
-                    draft.wrappedValue.currentWeightText.isEmpty || draft.wrappedValue.currentWeightKg != nil,
-                    "体重は 30〜250 kg で入力してください。"
-                )
+                if draft.wrappedValue.currentWeightKg == nil {
+                    Text("現在の体重を選択してください。")
+                }
             }
         case .goal:
             Section("トレーニングの目的") {
@@ -360,36 +370,35 @@ struct ProfileOnboardingView: View {
                 }
             }
             Section {
-                weightField("目標体重", text: draft.goalWeightText, identifier: "profile-onboarding-goal-weight")
-                Stepper(
-                    value: draft.weeklyChangeKg,
-                    in: ProfileFieldRanges.weeklyChangeKg,
-                    step: ProfileFieldRanges.weeklyChangeStepKg
-                ) {
-                    LabeledContent("週あたりの変化量", value: Self.weeklyChangeText(draft.wrappedValue.weeklyChangeKg))
-                }
-                .accessibilityIdentifier("profile-onboarding-weekly-change")
+                NumericWheelField(
+                    "目標体重", unit: "kg", scale: .goalWeightKg,
+                    value: draft.goalWeightKg,
+                    initial: NumericWheelScale.goalWeightKg.snapped(draft.wrappedValue.currentWeightKg ?? Self.initialWeightKg),
+                    identifier: "profile-onboarding-goal-weight"
+                )
+                NumericWheelField(
+                    "週あたりの変化量", unit: "kg", scale: .weeklyChangeKg, signed: true,
+                    value: draft.weeklyChangeKg.wheelValue,
+                    initial: draft.wrappedValue.weeklyChangeKg,
+                    identifier: "profile-onboarding-weekly-change"
+                )
             } footer: {
-                if draft.wrappedValue.goalWeightText.isEmpty || draft.wrappedValue.goalWeightKg != nil {
-                    Text("推奨: -0.5 〜 +0.5 kg/週。目標摂取カロリーの計算に使います。")
-                } else {
-                    Text("目標体重は 30〜150 kg で入力してください。").foregroundStyle(.orange)
-                }
+                Text("推奨: -0.5 〜 +0.5 kg/週。目標摂取カロリーの計算に使います。")
             }
         case .habits:
             Section {
-                Stepper(value: draft.trainingDaysPerWeek, in: ProfileFieldRanges.trainingDaysPerWeek) {
-                    LabeledContent("週あたり", value: "\(draft.wrappedValue.trainingDaysPerWeek) 回")
-                }
-                .accessibilityIdentifier("profile-onboarding-days")
-                Stepper(
-                    value: draft.preferredSessionMinutes,
-                    in: ProfileFieldRanges.sessionMinutes,
-                    step: ProfileFieldRanges.sessionMinutesStep
-                ) {
-                    LabeledContent("1回あたり", value: "\(draft.wrappedValue.preferredSessionMinutes) 分")
-                }
-                .accessibilityIdentifier("profile-onboarding-minutes")
+                NumericWheelField(
+                    "週あたり", unit: "回", scale: .trainingDaysPerWeek,
+                    value: draft.trainingDaysPerWeek.wheelValue,
+                    initial: Double(draft.wrappedValue.trainingDaysPerWeek),
+                    identifier: "profile-onboarding-days"
+                )
+                NumericWheelField(
+                    "1回あたり", unit: "分", scale: .sessionMinutes,
+                    value: draft.preferredSessionMinutes.wheelValue,
+                    initial: Double(ProfileFieldRanges.defaultSessionMinutes),
+                    identifier: "profile-onboarding-minutes"
+                )
                 Picker("経験レベル", selection: draft.experienceLevel) {
                     Text("選択してください").tag(ExperienceLevel?.none)
                     ForEach(ExperienceLevel.allCases, id: \.self) { Text($0.displayName).tag(Optional($0)) }
@@ -406,28 +415,9 @@ struct ProfileOnboardingView: View {
         }
     }
 
-    private static func weeklyChangeText(_ kg: Double) -> String {
-        String(format: "%+.1f kg", kg)
-    }
-
-    private func weightField(_ label: String, text: Binding<String>, identifier: String) -> some View {
-        LabeledContent(label) {
-            HStack(spacing: 4) {
-                TextField("0.0", text: text)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .accessibilityIdentifier(identifier)
-                Text("kg").foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func validation(_ isValid: Bool, _ message: String) -> some View {
-        if !isValid {
-            Text(message).foregroundStyle(.orange)
-        }
-    }
+    /// Where an unset weight wheel opens: mid-range for an adult, so reaching
+    /// any common weight is a short scroll.
+    private static let initialWeightKg = 60.0
 
     // MARK: - Footer
 

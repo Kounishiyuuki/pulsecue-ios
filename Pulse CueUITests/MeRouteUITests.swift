@@ -274,15 +274,19 @@ final class MeRouteUITests: XCTestCase {
         XCTAssertTrue(bmr.waitForExistence(timeout: 15), "BMR summary not found")
         let before = bmr.label
 
-        // Addressed by identifier rather than `steppers.firstMatch`, which
+        // Addressed by identifier rather than `buttons.firstMatch`, which
         // silently becomes a different control the moment one is added above.
-        let heightStepper = app.steppers["height-stepper"].firstMatch
-        XCTAssertTrue(heightStepper.waitForExistence(timeout: 10), "height stepper not found")
-        if !heightStepper.isHittable { app.swipeUp() }
-        // Several increments, so the change is larger than any rounding.
-        for _ in 0..<5 {
-            heightStepper.buttons.element(boundBy: 1).tap()
-        }
+        let heightCell = app.buttons["height-wheel"].firstMatch
+        XCTAssertTrue(heightCell.waitForExistence(timeout: 10), "height cell not found")
+        if !heightCell.isHittable { app.swipeUp() }
+        heightCell.tap()
+        let wheel = app.pickerWheels.firstMatch
+        XCTAssertTrue(wheel.waitForExistence(timeout: 5), "height wheel not shown")
+        // Well away from the current value, so the change is larger than any
+        // rounding whatever the fixture's height is.
+        let current = Int((wheel.value as? String ?? "").split(separator: " ").first ?? "") ?? 170
+        wheel.adjust(toPickerWheelValue: "\(current >= 200 ? current - 10 : current + 10) cm")
+        app.buttons["height-wheel-done"].tap()
 
         let updated = NSPredicate(format: "label != %@", before)
         expectation(for: updated, evaluatedWith: bmr)

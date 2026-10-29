@@ -86,96 +86,66 @@ enum SettingsChrome {
 
     // MARK: - Cells
 
+    /// A profile number shown large, opening the shared wheel sheet when
+    /// tapped — the same control onboarding uses for the same fields.
+    ///
     /// - Parameter identifier: stable handle for UI tests. Defaults to the
     ///   label, which is fine until two cells share one; pass an explicit
     ///   identifier when a test needs to address exactly this control.
-    static func inlineNumberCell(
+    static func wheelNumberCell(
         label: String,
-        value: Int,
-        range: ClosedRange<Int>,
-        step: Int,
+        helper: String? = nil,
+        scale: NumericWheelScale,
+        signed: Bool = false,
         unit: String,
-        binding: Binding<Int>,
+        binding: Binding<Double?>,
         identifier: String? = nil
     ) -> some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text("\(value)")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                    Text(unit)
-                        .font(.caption)
+        NumericWheelField(
+            title: label,
+            unit: unit,
+            scale: scale,
+            signed: signed,
+            value: binding,
+            initial: binding.wrappedValue ?? scale.minValue,
+            identifier: identifier ?? label
+        ) { _ in
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
+                    HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        Text(binding.wrappedValue.map { scale.text($0, signed: signed) } ?? "—")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                        Text(unit)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let helper {
+                        Text(helper)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            }
-            Spacer()
-            Stepper("", value: binding, in: range, step: step)
-                .labelsHidden()
-                .accessibilityLabel("\(label) \(value) \(unit)")
-                .accessibilityIdentifier(identifier ?? label)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.09))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.54), .white.opacity(0.06)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.6
-                        )
-                )
-        )
-    }
-
-    static func inlineDoubleCell(
-        label: String,
-        helper: String,
-        value: Double,
-        range: ClosedRange<Double>,
-        step: Double,
-        unit: String,
-        binding: Binding<Double>
-    ) -> some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text(NumberFormat.weight(value))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                    Text(unit)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text(helper)
-                    .font(.caption2)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            Stepper("", value: binding, in: range, step: step)
-                .labelsHidden()
-                .accessibilityLabel("\(label) \(NumberFormat.weight(value)) \(unit)")
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.09))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(.white.opacity(0.30), lineWidth: 0.6)
+                    )
+            )
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.09))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.30), lineWidth: 0.6)
-                )
-        )
+        .buttonStyle(.plain)
     }
 
     static func pickerCell<T, Content: View>(
