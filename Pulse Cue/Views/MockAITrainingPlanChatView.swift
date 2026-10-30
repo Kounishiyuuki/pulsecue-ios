@@ -438,15 +438,8 @@ struct MockAITrainingPlanChatView: View {
                     .foregroundStyle(AppTheme.textSecondary)
             }
             HStack(spacing: 6) {
-                if let setsReps = ex.setsAndRepsText {
-                    metricChip(icon: "repeat", text: setsReps)
-                }
-                if let rest = ex.restText {
-                    metricChip(icon: "timer", text: rest)
-                }
-                if !ex.hasMenuDefaults {
-                    metricChip(icon: "questionmark.circle", text: "目安なし")
-                }
+                metricChip(icon: "repeat", text: ex.displaySetsAndRepsText)
+                metricChip(icon: "timer", text: ex.displayRestText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

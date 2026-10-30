@@ -156,4 +156,26 @@ struct RoutineStepCandidate: Equatable {
 
     /// Concrete rest (seconds) to save.
     var resolvedRestSeconds: Int { template.restSeconds ?? Self.fallbackRestSeconds }
+
+    // MARK: - Review display
+    //
+    // Review screens must show what saving will actually write, so any
+    // field missing from the catalog is filled with the same fallback the
+    // resolved* accessors use. Catalog values (including rep ranges) are
+    // shown unchanged.
+
+    /// e.g. "3セット × 8〜12回", or "3セット × 10回" when the catalog has
+    /// no defaults. Never `nil`.
+    var displaySetsAndRepsText: String {
+        MachineExerciseTemplate(
+            sets: resolvedSets,
+            reps: template.reps ?? Self.fallbackRepsTarget...Self.fallbackRepsTarget,
+            restSeconds: resolvedRestSeconds
+        ).setsAndRepsText ?? ""
+    }
+
+    /// e.g. "セット間 1分30秒", or "セット間 1分" from the fallback.
+    var displayRestText: String {
+        "セット間 \(MachineExerciseTemplate.humanizedDuration(seconds: resolvedRestSeconds))"
+    }
 }
