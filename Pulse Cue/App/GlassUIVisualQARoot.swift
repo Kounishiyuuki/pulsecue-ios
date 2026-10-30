@@ -625,6 +625,8 @@ enum GlassUIVisualQAFixture {
         )
         context.insert(routine)
 
+        // ペックデック is second so the Runner's "次" chip fits unabbreviated
+        // on 1206-wide captures; ショルダープレス truncated there.
         let steps = [
             Step(
                 id: stepIDs[0],
@@ -639,7 +641,7 @@ enum GlassUIVisualQAFixture {
             Step(
                 id: stepIDs[1],
                 routineId: routineID,
-                order: 1,
+                order: 2,
                 title: "ショルダープレス",
                 sets: 3,
                 repsTarget: 10,
@@ -649,7 +651,7 @@ enum GlassUIVisualQAFixture {
             Step(
                 id: stepIDs[2],
                 routineId: routineID,
-                order: 2,
+                order: 1,
                 title: "ペックデック",
                 sets: 2,
                 repsTarget: 12,
