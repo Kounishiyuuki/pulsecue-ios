@@ -117,17 +117,24 @@ final class Exercise3DSceneController: ObservableObject {
         // programmable-blending is a common source of simulator Metal
         // pipeline warnings.
         let key = DirectionalLight()
-        key.light.intensity = 2200
-        key.light.color = .white
+        key.light.intensity = 2450
+        key.light.color = UIColor(red: 0.92, green: 0.97, blue: 1.0, alpha: 1)
         key.shadow = nil
         key.look(at: .zero, from: SIMD3(1.2, 2.0, 1.5), relativeTo: nil)
         anchor.addChild(key)
 
         let fill = PointLight()
-        fill.light.intensity = 12000
+        fill.light.intensity = 9000
         fill.light.attenuationRadius = 12
         fill.position = SIMD3(-1.5, 1.6, 2.0)
         anchor.addChild(fill)
+
+        let rim = PointLight()
+        rim.light.intensity = 7000
+        rim.light.color = UIColor(red: 0.32, green: 0.63, blue: 0.90, alpha: 1)
+        rim.light.attenuationRadius = 8
+        rim.position = SIMD3(1.2, 1.8, -1.4)
+        anchor.addChild(rim)
 
         // Camera.
         cameraEntity = PerspectiveCamera()
