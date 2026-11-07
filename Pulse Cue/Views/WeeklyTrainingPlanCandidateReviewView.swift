@@ -62,6 +62,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var selectedBodyParts: Set<BodyPart> = []
 
     @State private var candidate: WeeklyTrainingPlanCandidate?
+    /// Only "別のプランを見る" changes this; the generation inputs stay as-is.
+    @State private var variationSeed: UInt64 = 0
     @State private var saveState: WeeklyPlanSaveState = .idle
     @State private var equipmentNotice: String?
     /// Generation conditions are the primary purpose before a candidate
@@ -183,6 +185,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             hasEquipmentNotice: equipmentNotice != nil
         ) else { return }
         candidate = nil
+        variationSeed = 0
         saveState = .idle
         equipmentNotice = nil
         conditionsExpanded = true
@@ -368,7 +371,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             equipmentNotice = nil
             candidate = RuleBasedWeeklyPlanGenerator.generate(
                 request: request,
-                equipment: equipment
+                equipment: equipment,
+                variationSeed: variationSeed
             )
             // Regenerating clears any prior save so the new candidate is
             // inert again until the user confirms.
@@ -385,6 +389,42 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             saveState = .idle
             equipmentNotice = WeeklyPlanEquipmentProvider.needsActiveGymMessage
         }
+    }
+
+    /// Adopts the next seed whose plan actually differs from `current`; if
+    /// none exists within the bounded search, `current` stays on screen.
+    private func showAlternativePlan(current: WeeklyTrainingPlanCandidate) {
+        let repository = GymRepository(modelContext: modelContext)
+        guard case .ready(let equipment) = WeeklyPlanEquipmentProvider.resolve(repository: repository) else {
+            // The gym changed underneath us; reuse the normal path's notices.
+            generateCandidate()
+            return
+        }
+        guard let next = RuleBasedWeeklyPlanGenerator.nextDistinctVariation(
+            request: request,
+            equipment: equipment,
+            current: current,
+            currentSeed: variationSeed
+        ) else { return }
+        variationSeed = next.seed
+        candidate = next.candidate
+        saveState = .idle
+    }
+
+    /// Regenerates with the same conditions and only a new seed. Like the
+    /// first generation it writes nothing; saving stays explicit.
+    private func alternativePlanButton(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
+        Button {
+            showAlternativePlan(current: candidate)
+        } label: {
+            Label("別のプランを見る", systemImage: "arrow.triangle.2.circlepath")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!candidate.hasAlternatives)
+        .accessibilityHint(candidate.hasAlternatives ? "条件はそのままで別の候補を生成します" : "登録マシンが少ないため別の候補はありません")
     }
 
     // MARK: - Summary
@@ -570,6 +610,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                alternativePlanButton(candidate)
 
                 Button {
                     save(candidate)
