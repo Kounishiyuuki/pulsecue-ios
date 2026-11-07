@@ -116,6 +116,10 @@ struct WeeklyTrainingPlanCandidate: Equatable {
     /// Human-readable notes about clamps, relaxed filters, or thin
     /// catalog coverage.
     let warnings: [String]
+    /// True when at least one session had more suitable equipment than it
+    /// selected, i.e. a different `variationSeed` can yield a different
+    /// plan. The review UI disables "別のプランを見る" when false.
+    var hasAlternatives: Bool = false
 
     /// True when no session managed to include any exercise (e.g. an
     /// empty catalog).
@@ -155,9 +159,15 @@ enum RuleBasedWeeklyPlanGenerator {
     /// machines and unavailable custom machines cannot enter candidates.
     /// Unavailable equipment is dropped up front and never reaches a
     /// candidate.
+    ///
+    /// `variationSeed` picks one of several quality-equivalent plans. The
+    /// same input + seed always yields the same plan; seed `0` (default)
+    /// keeps catalog order. Filters (body parts, limits, beginner,
+    /// equipment) run before the seed is applied, so no seed can break them.
     static func generate(
         request: TrainingPlanGenerationRequest,
-        equipment: [AvailableEquipment] = AvailableEquipment.standardCatalog()
+        equipment: [AvailableEquipment] = AvailableEquipment.standardCatalog(),
+        variationSeed: UInt64 = 0
     ) -> WeeklyTrainingPlanCandidate {
         let catalog = equipment.filter(\.isAvailable)
         var warnings: [String] = []
@@ -178,14 +188,21 @@ enum RuleBasedWeeklyPlanGenerator {
         var anyFocusFallback = false
         var anyBeginnerRelaxed = false
         var anyShort = false
+        var hasAlternatives = false
+        var usedThisWeek: Set<String> = []
+        var rng = SeededGenerator(seed: variationSeed)
 
         for (index, spec) in daySpecs.enumerated() {
             let selection = selectExercises(
                 focus: spec.focus,
                 catalog: catalog,
                 count: perSession,
-                beginnerOnly: request.beginnerFriendlyOnly
+                beginnerOnly: request.beginnerFriendlyOnly,
+                usedThisWeek: usedThisWeek,
+                shuffle: variationSeed == 0 ? nil : { pool in pool.seededShuffled(using: &rng) }
             )
+            usedThisWeek.formUnion(selection.equipmentIds)
+            hasAlternatives = hasAlternatives || selection.hasAlternatives
             anyFocusFallback = anyFocusFallback || selection.focusFallback
             anyBeginnerRelaxed = anyBeginnerRelaxed || selection.beginnerRelaxed
             if !catalog.isEmpty && selection.candidates.count < perSession { anyShort = true }
@@ -220,7 +237,8 @@ enum RuleBasedWeeklyPlanGenerator {
             daysPerWeek: days,
             sessions: sessions,
             rationale: rationale(request: request, days: days, perSession: perSession),
-            warnings: warnings
+            warnings: warnings,
+            hasAlternatives: hasAlternatives
         )
     }
 
@@ -298,16 +316,21 @@ enum RuleBasedWeeklyPlanGenerator {
         let candidates: [RoutineStepCandidate]
         let focusFallback: Bool
         let beginnerRelaxed: Bool
+        /// The filtered pool held more equipment than was selected.
+        let hasAlternatives: Bool
+        var equipmentIds: [String] = []
     }
 
     private static func selectExercises(
         focus: [BodyPart],
         catalog: [AvailableEquipment],
         count: Int,
-        beginnerOnly: Bool
+        beginnerOnly: Bool,
+        usedThisWeek: Set<String>,
+        shuffle: (([AvailableEquipment]) -> [AvailableEquipment])?
     ) -> Selection {
         guard !catalog.isEmpty, count > 0 else {
-            return Selection(candidates: [], focusFallback: false, beginnerRelaxed: false)
+            return Selection(candidates: [], focusFallback: false, beginnerRelaxed: false, hasAlternatives: false)
         }
 
         func matches(parts: [BodyPart], beginner: Bool) -> [AvailableEquipment] {
@@ -341,7 +364,13 @@ enum RuleBasedWeeklyPlanGenerator {
             pool = whole
         }
 
-        let chosen = Array(pool.prefix(count))
+        // The pool is already fully filtered, so reordering it cannot break
+        // any constraint. Equipment not yet used this week goes first; used
+        // equipment stays as a tail so a thin catalog still fills the day.
+        let ordered = shuffle?(pool) ?? pool
+        let fresh = ordered.filter { !usedThisWeek.contains($0.id) }
+        let reused = ordered.filter { usedThisWeek.contains($0.id) }
+        let chosen = Array((fresh + reused).prefix(count))
         // Resolve each selected equipment into a concrete Exercise Library
         // movement using the day's focus (so a multi-purpose machine like
         // barbell/cable resolves to the right movement for this body part).
@@ -359,7 +388,13 @@ enum RuleBasedWeeklyPlanGenerator {
                 sourceLabel: sourceLabel
             )
         }
-        return Selection(candidates: candidates, focusFallback: focusFallback, beginnerRelaxed: beginnerRelaxed)
+        return Selection(
+            candidates: candidates,
+            focusFallback: focusFallback,
+            beginnerRelaxed: beginnerRelaxed,
+            hasAlternatives: pool.count > count,
+            equipmentIds: chosen.map(\.id)
+        )
     }
 
     // MARK: - Volume & copy rules
@@ -423,5 +458,40 @@ enum RuleBasedWeeklyPlanGenerator {
     private static func intersect(_ parts: [BodyPart], _ set: [BodyPart]) -> [BodyPart] {
         let allowed = Set(set)
         return canonical(parts).filter { allowed.contains($0) }
+    }
+}
+
+// MARK: - Seeded variation
+
+/// SplitMix64: a tiny, fully reproducible PRNG. Used instead of
+/// `SystemRandomNumberGenerator` so the same `variationSeed` always yields
+/// the same plan on every device and in unit tests.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+extension Array {
+    /// Fisher–Yates driven only by the supplied generator. Written out
+    /// instead of `shuffled(using:)` because the stdlib does not promise a
+    /// stable algorithm across Swift versions, which would silently change
+    /// which plan a stored seed maps to.
+    func seededShuffled(using generator: inout SeededGenerator) -> [Element] {
+        var result = self
+        guard result.count > 1 else { return result }
+        for i in stride(from: result.count - 1, to: 0, by: -1) {
+            let j = Int(generator.next() % UInt64(i + 1))
+            result.swapAt(i, j)
+        }
+        return result
     }
 }

@@ -366,6 +366,36 @@ struct CustomMachineEndToEndTests {
     }
 
     @Test
+    func variationSeedKeepsCustomMachinesValidAndSaveBoundaryIntact() throws {
+        let (repo, context) = try Self.makeRepo()
+        let gym = repo.createGym(name: "A")
+        let usable = try repo.addCustomMachine(to: gym, displayName: "自作チェスト", bodyParts: [.chest])
+        let blocked = try repo.addCustomMachine(to: gym, displayName: "封鎖中", bodyParts: [.chest])
+        repo.setCustomMachineAvailability(blocked, isAvailable: false)
+        let standard = ["bench_press", "chest_press", "pec_deck"].compactMap { MachineCatalog.entry(for: $0) }
+        let equipment = AvailableEquipment.standardCatalog(standard)
+            + [AvailableEquipment(custom: usable), AvailableEquipment(custom: blocked)]
+        let request = TrainingPlanGenerationRequest(daysPerWeek: 3, targetBodyParts: [.chest])
+        let routinesBefore = try context.fetchCount(FetchDescriptor<Routine>())
+
+        var customSeen = false
+        for seed in UInt64(0)...20 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: equipment, variationSeed: seed)
+            #expect(plan.sessions.allSatisfy { !$0.exercises.isEmpty })
+            let exercises = plan.sessions.flatMap(\.exercises)
+            #expect(!exercises.contains { $0.exerciseName == "封鎖中" })
+            if let custom = exercises.first(where: { $0.exerciseName == "自作チェスト" }) {
+                customSeen = true
+                #expect(custom.resolvedSets == RoutineStepCandidate.fallbackSets)
+            }
+            // Building routines for review is still non-persisting.
+            _ = RoutineFactory.makeRoutines(from: plan)
+        }
+        #expect(customSeen)
+        #expect(try context.fetchCount(FetchDescriptor<Routine>()) == routinesBefore)
+    }
+
+    @Test
     func customMachineWithUnknownPersistedMetadataDoesNotCrash() throws {
         let (repo, context) = try Self.makeRepo()
         let gym = repo.createGym(name: "A")

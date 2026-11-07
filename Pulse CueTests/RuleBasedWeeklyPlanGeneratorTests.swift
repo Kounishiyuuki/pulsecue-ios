@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import SwiftData
 import Testing
 @testable import Pulse_Cue
 
@@ -272,5 +273,133 @@ struct RuleBasedWeeklyPlanGeneratorTests {
         for g in TrainingGoal.allCases { #expect(!g.displayName.isEmpty) }
         for e in ExperienceLevel.allCases { #expect(!e.displayName.isEmpty) }
         for s in TrainingSplit.allCases { #expect(!s.displayName.isEmpty) }
+    }
+
+    // MARK: - Variation seed
+
+    private static let variedRequest = TrainingPlanGenerationRequest(
+        goal: .hypertrophy,
+        daysPerWeek: 3,
+        targetBodyParts: [.chest, .back, .legs],
+        experienceLevel: .intermediate,
+        preferredSplit: .fullBody
+    )
+
+    private static func machineIds(_ plan: WeeklyTrainingPlanCandidate) -> [[String]] {
+        plan.sessions.map { $0.exercises.map(\.machineId) }
+    }
+
+    @Test
+    func sameSeedYieldsSamePlan() {
+        for seed: UInt64 in [0, 1, 42, .max] {
+            let a = RuleBasedWeeklyPlanGenerator.generate(request: Self.variedRequest, variationSeed: seed)
+            let b = RuleBasedWeeklyPlanGenerator.generate(request: Self.variedRequest, variationSeed: seed)
+            #expect(a == b)
+        }
+    }
+
+    @Test
+    func differentSeedsYieldDifferentPlansWhenCatalogIsRich() {
+        let base = RuleBasedWeeklyPlanGenerator.generate(request: Self.variedRequest, variationSeed: 0)
+        #expect(base.hasAlternatives)
+        let distinct = Set((0..<10).map {
+            Self.machineIds(RuleBasedWeeklyPlanGenerator.generate(request: Self.variedRequest, variationSeed: UInt64($0)))
+        })
+        #expect(distinct.count > 1)
+    }
+
+    @Test
+    func seedsNeverBreakTargetLimitedOrBeginnerConstraints() {
+        let request = TrainingPlanGenerationRequest(
+            daysPerWeek: 4,
+            limitedBodyParts: [.legs],
+            preferredSplit: .fullBody,
+            beginnerFriendlyOnly: true
+        )
+        for seed in UInt64(1)...30 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, variationSeed: seed)
+            let ids = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
+            #expect(plan.sessions.allSatisfy { !$0.exercises.isEmpty && !$0.focusBodyParts.contains(.legs) })
+            #expect(ids.isDisjoint(with: ["leg_press", "leg_curl", "leg_extension"]))
+            #expect(ids.compactMap { MachineCatalog.entry(for: $0) }.allSatisfy { $0.beginnerFriendly == true })
+        }
+
+        let chestOnly = TrainingPlanGenerationRequest(daysPerWeek: 2, targetBodyParts: [.chest])
+        for seed in UInt64(1)...30 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: chestOnly, variationSeed: seed)
+            let entries = plan.sessions.flatMap { $0.exercises.map(\.machineId) }.compactMap { MachineCatalog.entry(for: $0) }
+            #expect(!entries.isEmpty)
+            #expect(entries.allSatisfy { $0.bodyParts.contains(.chest) })
+        }
+    }
+
+    @Test
+    func seedsNeverSelectUnavailableEquipment() {
+        let equipment = [
+            AvailableEquipment(entry: MachineCatalogEntry(id: "ok_a", displayName: "A", bodyParts: [.chest])),
+            AvailableEquipment(entry: MachineCatalogEntry(id: "ok_b", displayName: "B", bodyParts: [.chest])),
+            AvailableEquipment(entry: MachineCatalogEntry(id: "off", displayName: "Off", bodyParts: [.chest]), isAvailable: false),
+        ]
+        for seed in UInt64(0)...30 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(
+                request: TrainingPlanGenerationRequest(daysPerWeek: 3, targetBodyParts: [.chest]),
+                equipment: equipment,
+                variationSeed: seed
+            )
+            let ids = Set(plan.sessions.flatMap { $0.exercises.map(\.machineId) })
+            #expect(!ids.contains("off"))
+            #expect(!ids.isEmpty)
+        }
+    }
+
+    @Test
+    func weekPrefersUnusedEquipmentWhenEnoughCandidates() {
+        let equipment = AvailableEquipment.standardCatalog((1...6).map {
+            MachineCatalogEntry(id: "c\($0)", displayName: "C\($0)", bodyParts: [.chest])
+        })
+        let request = TrainingPlanGenerationRequest(daysPerWeek: 2, targetBodyParts: [.chest])
+        for seed in UInt64(0)...10 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: equipment, variationSeed: seed)
+            let all = plan.sessions.flatMap { $0.exercises.map(\.machineId) }
+            #expect(all.count == 6)                // 3 per day × 2 days
+            #expect(Set(all).count == all.count)   // no repeats across the week
+        }
+    }
+
+    @Test
+    func sparseCatalogReusesEquipmentInsteadOfEmptyingDays() {
+        let equipment = AvailableEquipment.standardCatalog([
+            MachineCatalogEntry(id: "solo", displayName: "Solo", bodyParts: [.chest]),
+        ])
+        for seed in UInt64(0)...10 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(
+                request: TrainingPlanGenerationRequest(daysPerWeek: 4),
+                equipment: equipment,
+                variationSeed: seed
+            )
+            #expect(plan.sessions.allSatisfy { $0.exercises.map(\.machineId) == ["solo"] })
+            // One machine: there is no other plan to offer.
+            #expect(!plan.hasAlternatives)
+        }
+        let empty = RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(daysPerWeek: 2),
+            equipment: [],
+            variationSeed: 7
+        )
+        #expect(empty.isEmpty)
+        #expect(!empty.hasAlternatives)
+    }
+
+    @Test
+    func regeneratingWithNewSeedPersistsNothing() throws {
+        let schema = Schema([Routine.self, Step.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+        for seed in UInt64(0)...5 {
+            _ = RuleBasedWeeklyPlanGenerator.generate(request: Self.variedRequest, variationSeed: seed)
+        }
+        #expect(try context.fetchCount(FetchDescriptor<Routine>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<Step>()) == 0)
+        #expect(!context.hasChanges)
     }
 }
