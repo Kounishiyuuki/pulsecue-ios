@@ -242,6 +242,32 @@ enum RuleBasedWeeklyPlanGenerator {
         )
     }
 
+    /// Upper bound on seeds tried by `nextDistinctVariation`. Neighbouring
+    /// seeds can map to the same plan on small pools, so one step is not
+    /// enough, but the search must stay bounded when no other plan exists.
+    static let maxVariationAttempts = 32
+
+    /// Walks seeds after `currentSeed` (deterministically, at most
+    /// `maxAttempts`) and returns the first one whose plan differs from
+    /// `current`. Returns nil when no different plan was found, so callers
+    /// keep showing `current`. Pure: persists nothing.
+    static func nextDistinctVariation(
+        request: TrainingPlanGenerationRequest,
+        equipment: [AvailableEquipment],
+        current: WeeklyTrainingPlanCandidate,
+        currentSeed: UInt64,
+        maxAttempts: Int = maxVariationAttempts
+    ) -> (seed: UInt64, candidate: WeeklyTrainingPlanCandidate)? {
+        guard current.hasAlternatives else { return nil }
+        var seed = currentSeed
+        for _ in 0..<max(0, maxAttempts) {
+            seed &+= 1
+            let next = generate(request: request, equipment: equipment, variationSeed: seed)
+            if next != current { return (seed, next) }
+        }
+        return nil
+    }
+
     // MARK: - Training set
 
     /// Target parts (canonical order) or a balanced full body, with

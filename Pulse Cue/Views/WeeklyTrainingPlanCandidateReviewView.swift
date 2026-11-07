@@ -391,12 +391,31 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         }
     }
 
+    /// Adopts the next seed whose plan actually differs from `current`; if
+    /// none exists within the bounded search, `current` stays on screen.
+    private func showAlternativePlan(current: WeeklyTrainingPlanCandidate) {
+        let repository = GymRepository(modelContext: modelContext)
+        guard case .ready(let equipment) = WeeklyPlanEquipmentProvider.resolve(repository: repository) else {
+            // The gym changed underneath us; reuse the normal path's notices.
+            generateCandidate()
+            return
+        }
+        guard let next = RuleBasedWeeklyPlanGenerator.nextDistinctVariation(
+            request: request,
+            equipment: equipment,
+            current: current,
+            currentSeed: variationSeed
+        ) else { return }
+        variationSeed = next.seed
+        candidate = next.candidate
+        saveState = .idle
+    }
+
     /// Regenerates with the same conditions and only a new seed. Like the
     /// first generation it writes nothing; saving stays explicit.
     private func alternativePlanButton(_ candidate: WeeklyTrainingPlanCandidate) -> some View {
         Button {
-            variationSeed &+= 1
-            generateCandidate()
+            showAlternativePlan(current: candidate)
         } label: {
             Label("別のプランを見る", systemImage: "arrow.triangle.2.circlepath")
                 .font(.subheadline.weight(.semibold))
