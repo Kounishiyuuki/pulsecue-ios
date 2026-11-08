@@ -1034,9 +1034,8 @@ struct SavedTrainingPlanDetailView: View {
     /// Saved explicitly: an edit left to autosave was lost when the app was
     /// terminated right after renaming.
     private func renamePlan() {
-        SavedTrainingPlanStore.rename(plan, to: renameText)
         do {
-            try modelContext.save()
+            try SavedTrainingPlanStore.rename(plan, to: renameText, in: modelContext)
         } catch {
             persistError = "プラン名「\(renameText)」の保存に失敗しました: \(error.localizedDescription)"
         }
@@ -1046,7 +1045,6 @@ struct SavedTrainingPlanDetailView: View {
         let name = plan.name
         do {
             try SavedTrainingPlanStore.deletePlanKeepingRoutines(plan, in: modelContext)
-            try modelContext.save()
             dismiss()
         } catch {
             persistError = "プラン「\(name)」の削除に失敗しました: \(error.localizedDescription)"

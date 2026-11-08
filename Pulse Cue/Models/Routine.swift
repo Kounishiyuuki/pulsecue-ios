@@ -165,11 +165,31 @@ enum SavedTrainingPlanStore {
 
     /// Renames the plan only; day routine names are untouched. Blank input
     /// keeps the current name.
-    static func rename(_ plan: SavedTrainingPlan, to input: String, now: Date = Date()) {
+    /// Renames and commits. If the commit fails, name and updatedAt are put
+    /// back so a later save (autosave) cannot persist a rename the user was
+    /// told had failed. Only this plan's two fields are restored — no
+    /// `rollback()`, which would also discard unrelated pending edits.
+    @discardableResult
+    static func rename(
+        _ plan: SavedTrainingPlan,
+        to input: String,
+        in context: ModelContext,
+        now: Date = Date(),
+        commit: (ModelContext) throws -> Void = { try $0.save() }
+    ) throws -> Bool {
         let name = resolvedName(input, fallback: plan.name)
-        guard name != plan.name else { return }
+        guard name != plan.name else { return false }
+        let previous = (name: plan.name, updatedAt: plan.updatedAt)
         plan.name = name
         plan.updatedAt = now
+        do {
+            try commit(context)
+        } catch {
+            plan.name = previous.name
+            plan.updatedAt = previous.updatedAt
+            throw error
+        }
+        return true
     }
 
     /// The plan's routines in day order (index, then name for stability).
@@ -179,17 +199,35 @@ enum SavedTrainingPlanStore {
             .sorted { ($0.planDayIndex ?? .max, $0.name) < ($1.planDayIndex ?? .max, $1.name) }
     }
 
-    /// Deletes the plan only. Its routines are unlinked and remain ordinary
-    /// routines; sessions/history are never touched.
-    static func deletePlanKeepingRoutines(_ plan: SavedTrainingPlan, in context: ModelContext) throws {
+    /// Deletes the plan only and commits. Its routines are unlinked and
+    /// remain ordinary routines; steps/sessions/history are never touched.
+    ///
+    /// The work happens in a separate context on the same container, so a
+    /// failed commit leaves `context` exactly as it was: nothing to restore,
+    /// and no `rollback()` of unrelated pending edits. (Re-inserting a
+    /// deleted-but-unsaved model does not cancel its deletion in SwiftData,
+    /// so an in-place delete cannot be reliably undone.) A successful save is
+    /// merged into the main context like any other store change.
+    static func deletePlanKeepingRoutines(
+        _ plan: SavedTrainingPlan,
+        in context: ModelContext,
+        commit: (ModelContext) throws -> Void = { try $0.save() }
+    ) throws {
+        let work = ModelContext(context.container)
+        work.autosaveEnabled = false
         let planId: UUID? = plan.id
-        let linked = try context.fetch(FetchDescriptor<Routine>(
+        let targetId = plan.id
+        let plans = try work.fetch(FetchDescriptor<SavedTrainingPlan>(
+            predicate: #Predicate { $0.id == targetId }
+        ))
+        let linked = try work.fetch(FetchDescriptor<Routine>(
             predicate: #Predicate { $0.savedTrainingPlanId == planId }
         ))
         for routine in linked {
             routine.savedTrainingPlanId = nil
             routine.planDayIndex = nil
         }
-        context.delete(plan)
+        plans.forEach(work.delete)
+        try commit(work)
     }
 }

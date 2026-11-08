@@ -443,13 +443,13 @@ struct SavedTrainingPlanTests {
         let created = Date(timeIntervalSince1970: 1_000)
         let saved = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "筋肥大メイン", in: context, now: created))
         let later = Date(timeIntervalSince1970: 2_000)
-        SavedTrainingPlanStore.rename(saved.plan, to: "夏までプラン", now: later)
+        try SavedTrainingPlanStore.rename(saved.plan, to: "夏までプラン", in: context, now: later)
         #expect(saved.plan.name == "夏までプラン")
         #expect(saved.plan.updatedAt == later)
         #expect(saved.plan.createdAt == created)
         #expect(saved.routines.first?.name == "Day 1 · 上半身")
         // Blank rename keeps the name and does not touch updatedAt.
-        SavedTrainingPlanStore.rename(saved.plan, to: "   ", now: Date(timeIntervalSince1970: 3_000))
+        try SavedTrainingPlanStore.rename(saved.plan, to: "   ", in: context, now: Date(timeIntervalSince1970: 3_000))
         #expect(saved.plan.name == "夏までプラン")
         #expect(saved.plan.updatedAt == later)
     }
@@ -488,18 +488,86 @@ struct SavedTrainingPlanTests {
         let before = try Self.counts(context)
 
         try SavedTrainingPlanStore.deletePlanKeepingRoutines(saved.plan, in: context)
-        try context.save()
 
-        let after = try Self.counts(context)
+        // Read back from the store, as the app's @Query does after the merge.
+        let store = ModelContext(context.container)
+        let after = try Self.counts(store)
         #expect(after.plans == before.plans - 1)
         #expect(after.routines == before.routines)
         #expect(after.steps == before.steps)
-        #expect(try context.fetchCount(FetchDescriptor<Session>()) == 1)
-        let routines = try context.fetch(FetchDescriptor<Routine>())
+        #expect(try store.fetchCount(FetchDescriptor<Session>()) == 1)
+        let routines = try store.fetch(FetchDescriptor<Routine>())
         let formerIds = Set(saved.routines.map(\.id))
         #expect(routines.filter { formerIds.contains($0.id) }.allSatisfy { $0.savedTrainingPlanId == nil && $0.planDayIndex == nil })
         // The other plan is untouched.
         #expect(routines.filter { $0.savedTrainingPlanId == other.plan.id }.count == 4)
+    }
+
+    // MARK: Rename / delete commit failure
+
+    @Test
+    func failedRenameRestoresNameAndUpdatedAtAndIsNeverPersisted() throws {
+        let context = try Self.makeContext()
+        context.autosaveEnabled = false
+        let saved = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "元の名前", in: context))
+        let before = (name: saved.plan.name, updatedAt: saved.plan.updatedAt)
+        let unrelated = Routine(name: "未保存の手作り")
+        context.insert(unrelated)
+
+        #expect(throws: InjectedSaveFailure.self) {
+            try SavedTrainingPlanStore.rename(
+                saved.plan, to: "失敗した名前", in: context, now: Date(timeIntervalSince1970: 9_000),
+                commit: { _ in throw InjectedSaveFailure() }
+            )
+        }
+        #expect(saved.plan.name == before.name)
+        #expect(saved.plan.updatedAt == before.updatedAt)
+
+        try context.save()   // what autosave would do later
+        let fresh = ModelContext(context.container)
+        let plans = try fresh.fetch(FetchDescriptor<SavedTrainingPlan>())
+        #expect(plans.map(\.name) == ["元の名前"])
+        #expect(plans.first?.updatedAt == before.updatedAt)
+        // The unrelated pending routine was not rolled back.
+        #expect(try fresh.fetch(FetchDescriptor<Routine>()).contains { $0.name == "未保存の手作り" })
+    }
+
+    @Test
+    func failedDeleteRestoresPlanAndLinksAndIsNeverPersisted() throws {
+        let context = try Self.makeContext()
+        context.autosaveEnabled = false
+        let saved = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "P", in: context))
+        let session = Session(routineId: saved.routines[0].id, dayDate: Date(), status: .completed)
+        context.insert(session)
+        try context.save()
+        let before = try Self.counts(context)
+        let planId = saved.plan.id
+        let links = Dictionary(uniqueKeysWithValues: saved.routines.map { ($0.id, $0.planDayIndex) })
+        let unrelated = Routine(name: "未保存の手作り")
+        context.insert(unrelated)
+
+        #expect(throws: InjectedSaveFailure.self) {
+            try SavedTrainingPlanStore.deletePlanKeepingRoutines(
+                saved.plan, in: context, commit: { _ in throw InjectedSaveFailure() }
+            )
+        }
+
+        func check(_ c: ModelContext) throws {
+            let plans = try c.fetch(FetchDescriptor<SavedTrainingPlan>())
+            #expect(plans.map(\.id) == [planId])
+            let routines = try c.fetch(FetchDescriptor<Routine>())
+            for (id, index) in links {
+                let routine = try #require(routines.first { $0.id == id })
+                #expect(routine.savedTrainingPlanId == planId)
+                #expect(routine.planDayIndex == index)
+            }
+            #expect(try c.fetchCount(FetchDescriptor<Step>()) == before.steps)
+            #expect(try c.fetchCount(FetchDescriptor<Session>()) == 1)
+            #expect(routines.contains { $0.name == "未保存の手作り" })
+        }
+        try check(context)
+        try context.save()   // what autosave would do later
+        try check(ModelContext(context.container))
     }
 }
 
