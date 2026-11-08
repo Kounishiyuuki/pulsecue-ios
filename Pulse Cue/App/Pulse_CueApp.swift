@@ -50,13 +50,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV10.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV11.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             let container = try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV10.self),
+                for: Schema(versionedSchema: PulseCueSchemaV11.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -648,9 +648,39 @@ enum PulseCueSchemaV4: VersionedSchema {
 /// pre-V5 routine stays visible.
 enum PulseCueSchemaV5: VersionedSchema {
     static var versionIdentifier = Schema.Version(5, 0, 0)
+
+    /// `Routine` exactly as it shipped from V5 through V10. Frozen when V11
+    /// added the saved-plan link so V5–V10 keep describing the on-disk shape
+    /// (the live type would change their hashes and orphan existing stores).
+    @Model
+    final class Routine {
+        @Attribute(.unique) var id: UUID
+        var name: String
+        var createdAt: Date
+        var updatedAt: Date
+        var isPinned: Bool
+        var storedOrigin: RoutineOrigin?
+
+        init(
+            id: UUID = UUID(),
+            name: String,
+            createdAt: Date = Date(),
+            updatedAt: Date = Date(),
+            isPinned: Bool = false,
+            storedOrigin: RoutineOrigin? = .userSaved
+        ) {
+            self.id = id
+            self.name = name
+            self.createdAt = createdAt
+            self.updatedAt = updatedAt
+            self.isPinned = isPinned
+            self.storedOrigin = storedOrigin
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV5.Routine.self,
             Step.self,
             PulseCueSchemaV1.Session.self,
             PulseCueSchemaV1.StepResult.self,
@@ -680,7 +710,7 @@ enum PulseCueSchemaV6: VersionedSchema {
     static var versionIdentifier = Schema.Version(6, 0, 0)
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV5.Routine.self,
             Step.self,
             Session.self,
             StepResult.self,
@@ -707,7 +737,7 @@ enum PulseCueSchemaV7: VersionedSchema {
     static var versionIdentifier = Schema.Version(7, 0, 0)
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV5.Routine.self,
             Step.self,
             Session.self,
             StepResult.self,
@@ -800,7 +830,7 @@ enum PulseCueSchemaV8: VersionedSchema {
 
     static var models: [any PersistentModel.Type] {
         [
-            Routine.self,
+            PulseCueSchemaV5.Routine.self,
             Step.self,
             Session.self,
             StepResult.self,
@@ -842,6 +872,19 @@ enum PulseCueSchemaV10: VersionedSchema {
     }
 }
 
+/// Adds `SavedTrainingPlan` and two optional links on `Routine`
+/// (`savedTrainingPlanId`, `planDayIndex`). Purely additive: existing routines
+/// migrate with nil links and stay ordinary routines, so the stage is
+/// lightweight and no row is rewritten or removed.
+enum PulseCueSchemaV11: VersionedSchema {
+    static var versionIdentifier = Schema.Version(11, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PulseCueSchemaV10.models.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV5.Routine.self) ? Routine.self : $0
+        } + [SavedTrainingPlan.self]
+    }
+}
+
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -854,7 +897,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV7.self,
             PulseCueSchemaV8.self,
             PulseCueSchemaV9.self,
-            PulseCueSchemaV10.self
+            PulseCueSchemaV10.self,
+            PulseCueSchemaV11.self
         ]
     }
 
@@ -895,6 +939,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV9.self,
                 toVersion: PulseCueSchemaV10.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV10.self,
+                toVersion: PulseCueSchemaV11.self
             )
         ]
     }

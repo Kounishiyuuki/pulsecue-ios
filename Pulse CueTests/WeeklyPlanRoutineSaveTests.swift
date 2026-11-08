@@ -266,3 +266,311 @@ struct WeeklyPlanRoutineSaveTests {
         #expect(!summary.isEmpty)
     }
 }
+
+// MARK: - Saved weekly plans (V11)
+
+@MainActor
+struct SavedTrainingPlanTests {
+
+    private static func makeContext() throws -> ModelContext {
+        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return ModelContext(try ModelContainer(for: schema, configurations: [config]))
+    }
+
+    private static let request = TrainingPlanGenerationRequest(
+        goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+        experienceLevel: .intermediate, preferredSplit: .upperLower
+    )
+    private static let equipment = AvailableEquipment.standardCatalog(
+        ["bench_press", "chest_press", "pec_deck", "incline_chest_press", "cable_machine",
+         "smith_machine", "dumbbells", "lat_pulldown", "seated_row"].compactMap { MachineCatalog.entry(for: $0) }
+    )
+    private static func candidate(seed: UInt64 = 0) -> WeeklyTrainingPlanCandidate {
+        RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: equipment, variationSeed: seed)
+    }
+
+    private static func counts(_ c: ModelContext) throws -> (plans: Int, routines: Int, steps: Int) {
+        (try c.fetchCount(FetchDescriptor<SavedTrainingPlan>()),
+         try c.fetchCount(FetchDescriptor<Routine>()),
+         try c.fetchCount(FetchDescriptor<Step>()))
+    }
+
+    // MARK: Save
+
+    @Test
+    func savingFourDayPlanCreatesOnePlanAndFourLinkedOrderedRoutines() throws {
+        let context = try Self.makeContext()
+        let plan = Self.candidate()
+        let saved = try #require(try SavedTrainingPlanStore.save(plan, split: .upperLower, name: "筋肥大メイン", in: context))
+        try context.save()
+
+        #expect(try context.fetchCount(FetchDescriptor<SavedTrainingPlan>()) == 1)
+        let routines = try context.fetch(FetchDescriptor<Routine>())
+        #expect(routines.count == 4)
+        #expect(routines.allSatisfy { $0.savedTrainingPlanId == saved.plan.id })
+        let ordered = SavedTrainingPlanStore.routines(of: saved.plan, in: routines)
+        #expect(ordered.map(\.planDayIndex) == [0, 1, 2, 3])
+        #expect(ordered.map(\.name) == ["Day 1 · 上半身", "Day 2 · 下半身", "Day 3 · 上半身", "Day 4 · 下半身"])
+        // Steps saved exactly as before: one per exercise, linked by routineId.
+        let steps = try context.fetch(FetchDescriptor<Step>())
+        #expect(steps.count == plan.sessions.reduce(0) { $0 + $1.exercises.count })
+        for (routine, session) in zip(ordered, plan.sessions) {
+            #expect(steps.filter { $0.routineId == routine.id }.count == session.exercises.count)
+        }
+        #expect(saved.plan.goalRaw == TrainingGoal.hypertrophy.rawValue)
+        #expect(saved.plan.splitRaw == TrainingSplit.upperLower.rawValue)
+        #expect(saved.plan.daysPerWeek == 4)
+    }
+
+    // MARK: Explicit save boundary
+
+    private struct InjectedSaveFailure: Error {}
+
+    @Test
+    func successfulSaveIsVisibleFromAFreshContextAndAfterReopen() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsecue-savedplan-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("store.sqlite")
+        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+        let expectedSteps = Self.candidate().sessions.reduce(0) { $0 + $1.exercises.count }
+
+        do {
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            context.autosaveEnabled = false   // prove persistence comes from the explicit save
+            _ = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "筋肥大メイン", in: context))
+            #expect(!context.hasChanges)
+            let fresh = try Self.counts(ModelContext(container))
+            #expect(fresh.plans == 1 && fresh.routines == 4 && fresh.steps == expectedSteps)
+        }
+        do {
+            let container = try ModelContainer(
+                for: schema, migrationPlan: PulseCueMigrationPlan.self,
+                configurations: ModelConfiguration(schema: schema, url: url)
+            )
+            let context = ModelContext(container)
+            let c = try Self.counts(context)
+            #expect(c.plans == 1 && c.routines == 4 && c.steps == expectedSteps)
+            #expect(try context.fetch(FetchDescriptor<SavedTrainingPlan>()).map(\.name) == ["筋肥大メイン"])
+        }
+    }
+
+    @Test
+    func failedSaveThrowsAndLeavesNothingForALaterSave() throws {
+        let context = try Self.makeContext()
+        context.autosaveEnabled = false
+        // An unrelated pending change made before the failed save.
+        let unrelated = Routine(name: "未保存の手作り")
+        context.insert(unrelated)
+
+        var threw = false
+        do {
+            _ = try SavedTrainingPlanStore.save(
+                Self.candidate(), split: .upperLower, name: "失敗", in: context,
+                commit: { _ in throw InjectedSaveFailure() }
+            )
+        } catch is InjectedSaveFailure {
+            threw = true
+        }
+        #expect(threw)   // the caller never reaches its success state
+
+        // A later save (what autosave would do) must not persist the plan.
+        try context.save()
+        let c = try Self.counts(context)
+        #expect(c.plans == 0)
+        #expect(c.steps == 0)
+        // Only the unrelated routine survived — no rollback() wiped it.
+        #expect(try context.fetch(FetchDescriptor<Routine>()).map(\.name) == ["未保存の手作り"])
+    }
+
+    @Test
+    func failedSaveIsRecoverableByRetrying() throws {
+        let context = try Self.makeContext()
+        _ = try? SavedTrainingPlanStore.save(
+            Self.candidate(), split: .upperLower, name: "P", in: context,
+            commit: { _ in throw InjectedSaveFailure() }
+        )
+        _ = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "P", in: context))
+        let c = try Self.counts(context)
+        #expect(c.plans == 1 && c.routines == 4)
+    }
+
+    // MARK: Non-save boundary
+
+    @Test
+    func generatingAndAlternativesPersistNothing() throws {
+        let context = try Self.makeContext()
+        var current = Self.candidate()
+        var seed: UInt64 = 0
+        for _ in 0..<3 {
+            let next = try #require(RuleBasedWeeklyPlanGenerator.nextDistinctVariation(
+                request: Self.request, equipment: Self.equipment, current: current, currentSeed: seed
+            ))
+            (seed, current) = (next.seed, next.candidate)
+        }
+        _ = SavedTrainingPlanStore.defaultName(for: current, split: .upperLower)
+        let c = try Self.counts(context)
+        #expect(c.plans == 0 && c.routines == 0 && c.steps == 0)
+        #expect(!context.hasChanges)
+    }
+
+    @Test
+    func emptyCandidateSavesNothing() throws {
+        let context = try Self.makeContext()
+        let empty = RuleBasedWeeklyPlanGenerator.generate(request: Self.request, equipment: [])
+        #expect(try SavedTrainingPlanStore.save(empty, split: .upperLower, name: "x", in: context) == nil)
+        let c = try Self.counts(context)
+        #expect(c.plans == 0 && c.routines == 0)
+    }
+
+    // MARK: Name
+
+    @Test
+    func customNameIsStoredAndBlankFallsBackToDefault() throws {
+        let context = try Self.makeContext()
+        let custom = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "  学校ある週 ", in: context))
+        #expect(custom.plan.name == "学校ある週")
+        let blank = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: " \n ", in: context))
+        #expect(blank.plan.name == "筋肥大・上下分割・週4日")
+    }
+
+    @Test
+    func renameChangesPlanNameAndUpdatedAtButNotDayNames() throws {
+        let context = try Self.makeContext()
+        let created = Date(timeIntervalSince1970: 1_000)
+        let saved = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "筋肥大メイン", in: context, now: created))
+        let later = Date(timeIntervalSince1970: 2_000)
+        SavedTrainingPlanStore.rename(saved.plan, to: "夏までプラン", now: later)
+        #expect(saved.plan.name == "夏までプラン")
+        #expect(saved.plan.updatedAt == later)
+        #expect(saved.plan.createdAt == created)
+        #expect(saved.routines.first?.name == "Day 1 · 上半身")
+        // Blank rename keeps the name and does not touch updatedAt.
+        SavedTrainingPlanStore.rename(saved.plan, to: "   ", now: Date(timeIntervalSince1970: 3_000))
+        #expect(saved.plan.name == "夏までプラン")
+        #expect(saved.plan.updatedAt == later)
+    }
+
+    // MARK: Compatibility
+
+    @Test
+    func unlinkedRoutinesKeepTheirExistingBehaviour() throws {
+        let context = try Self.makeContext()
+        let manual = Routine(name: "手作り")
+        let generated = Routine(name: "Quick", origin: .workoutGenerated)
+        context.insert(manual); context.insert(generated)
+        try context.save()
+        let all = try context.fetch(FetchDescriptor<Routine>())
+        #expect(all.allSatisfy { $0.savedTrainingPlanId == nil && $0.planDayIndex == nil })
+        #expect(RoutineLibrary.startable(from: all).map(\.name) == ["手作り"])
+        let saved = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "P", in: context))
+        // A plan's day lookup never picks up unrelated routines.
+        #expect(SavedTrainingPlanStore.routines(of: saved.plan, in: try context.fetch(FetchDescriptor<Routine>())).count == 4)
+        // Plan days are ordinary user-saved routines (editor / library path).
+        #expect(saved.routines.allSatisfy { $0.origin == .userSaved })
+        saved.routines[0].name = "Day 1 · 胸の日"
+        #expect(saved.plan.name == "P")
+    }
+
+    // MARK: Delete
+
+    @Test
+    func deletingPlanKeepsRoutinesStepsAndSessionsAndUnlinksThem() throws {
+        let context = try Self.makeContext()
+        let saved = try #require(try SavedTrainingPlanStore.save(Self.candidate(), split: .upperLower, name: "P", in: context))
+        let other = try #require(try SavedTrainingPlanStore.save(Self.candidate(seed: 3), split: .upperLower, name: "Q", in: context))
+        let session = Session(routineId: saved.routines[0].id, dayDate: Date(), status: .completed)
+        context.insert(session)
+        try context.save()
+        let before = try Self.counts(context)
+
+        try SavedTrainingPlanStore.deletePlanKeepingRoutines(saved.plan, in: context)
+        try context.save()
+
+        let after = try Self.counts(context)
+        #expect(after.plans == before.plans - 1)
+        #expect(after.routines == before.routines)
+        #expect(after.steps == before.steps)
+        #expect(try context.fetchCount(FetchDescriptor<Session>()) == 1)
+        let routines = try context.fetch(FetchDescriptor<Routine>())
+        let formerIds = Set(saved.routines.map(\.id))
+        #expect(routines.filter { formerIds.contains($0.id) }.allSatisfy { $0.savedTrainingPlanId == nil && $0.planDayIndex == nil })
+        // The other plan is untouched.
+        #expect(routines.filter { $0.savedTrainingPlanId == other.plan.id }.count == 4)
+    }
+}
+
+// MARK: - V10 → V11 migration
+
+@MainActor
+struct SavedTrainingPlanMigrationTests {
+
+    @Test("V11 is the latest schema: it only swaps the frozen Routine and adds SavedTrainingPlan")
+    func v11OnlyReplacesRoutineAndAddsPlan() {
+        let v10 = Set(PulseCueSchemaV10.models.map { ObjectIdentifier($0) })
+        let v11 = Set(PulseCueSchemaV11.models.map { ObjectIdentifier($0) })
+        #expect(v11.subtracting(v10) == [ObjectIdentifier(Routine.self), ObjectIdentifier(SavedTrainingPlan.self)])
+        #expect(v10.subtracting(v11) == [ObjectIdentifier(PulseCueSchemaV5.Routine.self)])
+        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV11.self)
+        // V5–V10 still describe the pre-V11 on-disk Routine.
+        let v10Names = Set(Schema(versionedSchema: PulseCueSchemaV10.self).entitiesByName["Routine"]?.properties.map(\.name) ?? [])
+        #expect(v10Names.contains("storedOrigin"))
+        #expect(!v10Names.contains("savedTrainingPlanId"))
+    }
+
+    @Test("V10 → V11 keeps existing routines and leaves them unlinked")
+    func migrationPreservesRoutines() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsecue-v11migtest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("store.sqlite")
+        let manualID = UUID(), generatedID = UUID(), legacyID = UUID()
+
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            context.insert(PulseCueSchemaV5.Routine(id: manualID, name: "手作り", isPinned: true, storedOrigin: .userSaved))
+            context.insert(PulseCueSchemaV5.Routine(id: generatedID, name: "Quick", storedOrigin: .workoutGenerated))
+            context.insert(PulseCueSchemaV5.Routine(id: legacyID, name: "古い", storedOrigin: nil))
+            context.insert(Step(routineId: manualID, order: 0, title: "ベンチ", sets: 3, repsTarget: 10, restSeconds: 60))
+            try context.save()
+        }
+
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: PulseCueMigrationPlan.self,
+                configurations: ModelConfiguration(schema: schema, url: url)
+            )
+            let context = ModelContext(container)
+            let routines = try context.fetch(FetchDescriptor<Routine>())
+            #expect(Set(routines.map(\.id)) == [manualID, generatedID, legacyID])
+            #expect(routines.allSatisfy { $0.savedTrainingPlanId == nil && $0.planDayIndex == nil })
+            #expect(routines.first { $0.id == manualID }?.isPinned == true)
+            #expect(routines.first { $0.id == generatedID }?.origin == .workoutGenerated)
+            #expect(routines.first { $0.id == legacyID }?.origin == .userSaved)
+            #expect(try context.fetchCount(FetchDescriptor<Step>()) == 1)
+            #expect(try context.fetchCount(FetchDescriptor<SavedTrainingPlan>()) == 0)
+
+            // The migrated store is usable: a plan written now survives reopening.
+            context.insert(SavedTrainingPlan(name: "移行後", goalRaw: "hypertrophy", splitRaw: "upperLower", daysPerWeek: 4))
+            try context.save()
+        }
+
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: PulseCueMigrationPlan.self,
+                configurations: ModelConfiguration(schema: schema, url: url)
+            )
+            let context = ModelContext(container)
+            #expect(try context.fetch(FetchDescriptor<SavedTrainingPlan>()).map(\.name) == ["移行後"])
+            #expect(try context.fetchCount(FetchDescriptor<Routine>()) == 3)
+        }
+    }
+}

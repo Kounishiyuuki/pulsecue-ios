@@ -21,7 +21,7 @@ struct AccountDataPolicyTests {
     // MARK: - Fixture
 
     private static func makeContext() throws -> ModelContext {
-        let schema = Schema(versionedSchema: PulseCueSchemaV7.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
