@@ -50,7 +50,7 @@ struct HealthDataOwnershipMigrationTests {
     /// Opens the same store the way the app does: the current schema + the
     /// migration plan, then the scoped-key backfill.
     private static func openV8Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
-        let schema = Schema(versionedSchema: PulseCueSchemaV10.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
         let container = try ModelContainer(
             for: schema,
             migrationPlan: PulseCueMigrationPlan.self,

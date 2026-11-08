@@ -35,6 +35,8 @@ enum TrainingSurface {
         case machineCatalog
         case progress
         case weeklyPlan
+        /// Weekly plans the user saved as a named unit.
+        case savedPlans
         case aiPlanning
     }
 
@@ -55,7 +57,7 @@ enum TrainingSurface {
         case .plan, .history:
             return .secondary
         case .gym, .exerciseLibrary, .machineCatalog, .progress, .weeklyPlan,
-             .aiPlanning:
+             .savedPlans, .aiPlanning:
             return .more
         }
     }

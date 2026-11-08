@@ -76,6 +76,13 @@ struct TrainingMoreSection: View {
                 icon: "calendar"
             ) { WeeklyTrainingPlanCandidateReviewView() }
 
+        case .savedPlans:
+            row(
+                title: "保存済みプラン",
+                subtitle: "名前を付けて保存した週間プラン",
+                icon: "folder"
+            ) { SavedTrainingPlanListView() }
+
         case .aiPlanning:
             row(
                 title: "AI プラン相談",

@@ -361,14 +361,15 @@ struct ProfileOnboardingTests {
 
     // MARK: - Migration
 
-    @Test("V10 is the latest schema and only swaps the pinned profile for the current one")
+    @Test("V10 only swaps the pinned profile for the current one")
     func v10OnlyReplacesTheProfile() {
         let v9 = PulseCueSchemaV9.models.map { ObjectIdentifier($0) }
         let v10 = PulseCueSchemaV10.models.map { ObjectIdentifier($0) }
         #expect(v9.count == v10.count)
         #expect(Set(v10).subtracting(v9) == [ObjectIdentifier(UserProfile.self)])
         #expect(Set(v9).subtracting(v10) == [ObjectIdentifier(PulseCueSchemaV8.UserProfile.self)])
-        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV10.self)
+        // V11 (saved weekly plans) now follows V10; see SavedTrainingPlanMigrationTests.
+        #expect(PulseCueMigrationPlan.schemas.contains { $0 == PulseCueSchemaV10.self })
 
         let v9Names = Set(Schema(versionedSchema: PulseCueSchemaV9.self).entitiesByName["UserProfile"]?.properties.map(\.name) ?? [])
         #expect(v9Names.contains("ownerAccountID"))

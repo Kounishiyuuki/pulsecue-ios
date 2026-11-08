@@ -64,8 +64,12 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var candidate: WeeklyTrainingPlanCandidate?
     /// Only "別のプランを見る" changes this; the generation inputs stay as-is.
     @State private var variationSeed: UInt64 = 0
+    /// Name for the saved plan; prefilled on generation, freely editable.
+    @State private var planName = ""
     @State private var saveState: WeeklyPlanSaveState = .idle
     @State private var equipmentNotice: String?
+    /// Set when the explicit save fails; the candidate stays unsaved.
+    @State private var saveErrorMessage: String?
     /// Generation conditions are the primary purpose before a candidate
     /// exists (expanded); once a candidate is generated the review/save
     /// becomes primary, so the conditions collapse to a "生成条件" disclosure.
@@ -174,6 +178,14 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         // Every generation-affecting input participates in this fingerprint.
         // Any change invalidates the old candidate; regeneration stays explicit.
         .onChange(of: generationInputs) { _, _ in invalidateStaleCandidate() }
+        .alert("保存できませんでした", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveErrorMessage ?? "")
+        }
     }
 
     /// Clears a stale candidate (and any save/equipment state) when the
@@ -374,6 +386,9 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 equipment: equipment,
                 variationSeed: variationSeed
             )
+            if let candidate {
+                planName = SavedTrainingPlanStore.defaultName(for: candidate, split: split)
+            }
             // Regenerating clears any prior save so the new candidate is
             // inert again until the user confirms.
             saveState = .idle
@@ -613,6 +628,18 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
                 alternativePlanButton(candidate)
 
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("プラン名")
+                        .font(.subheadline.weight(.bold))
+                    TextField(
+                        SavedTrainingPlanStore.defaultName(for: candidate, split: split),
+                        text: $planName
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .submitLabel(.done)
+                    .accessibilityHint("空欄の場合は条件から作った名前で保存します")
+                }
+
                 Button {
                     save(candidate)
                 } label: {
@@ -651,15 +678,18 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     /// this explicit user action only. SwiftUI's `modelContext` autosaves,
     /// matching the machine-candidate and generated-plan save paths.
     private func save(_ candidate: WeeklyTrainingPlanCandidate) {
-        let outputs = RoutineFactory.makeRoutines(from: candidate)
-        guard !outputs.isEmpty else { return }
-        for output in outputs {
-            modelContext.insert(output.routine)
-            for step in output.steps {
-                modelContext.insert(step)
-            }
+        do {
+            guard let saved = try SavedTrainingPlanStore.save(
+                candidate,
+                split: split,
+                name: planName,
+                in: modelContext
+            ) else { return }
+            // Only after the commit succeeded.
+            saveState = .saved(routineCount: saved.routines.count)
+        } catch {
+            saveErrorMessage = "週次プラン「\(planName)」を保存できませんでした。もう一度お試しください。（\(error.localizedDescription)）"
         }
-        saveState = .saved(routineCount: outputs.count)
     }
 
     // MARK: - Footer
@@ -812,4 +842,212 @@ enum WeeklyPlanEquipmentProvider {
         WeeklyTrainingPlanCandidateReviewView()
     }
     .modelContainer(for: [Routine.self, Step.self], inMemory: true)
+}
+
+// MARK: - Saved weekly plans
+//
+// Kept in this file (rather than new files) so the feature ships without an
+// Xcode project-file change. Days are ordinary routines: detail rows open the
+// existing `RoutineEditorView` and start through the shared `WorkoutStarter`.
+
+struct SavedTrainingPlanListView: View {
+    @Query(sort: [SortDescriptor(\SavedTrainingPlan.updatedAt, order: .reverse)])
+    private var plans: [SavedTrainingPlan]
+
+    var body: some View {
+        List {
+            if plans.isEmpty {
+                ContentUnavailableView(
+                    "保存済みプランはありません",
+                    systemImage: "folder",
+                    description: Text("週間プランで候補を作り、名前を付けて保存するとここに表示されます。")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(plans) { plan in
+                    NavigationLink {
+                        SavedTrainingPlanDetailView(plan: plan)
+                    } label: {
+                        SavedTrainingPlanRow(plan: plan)
+                    }
+                }
+            }
+        }
+        .navigationTitle("保存済みプラン")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct SavedTrainingPlanRow: View {
+    let plan: SavedTrainingPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(plan.name)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\(plan.goalDisplayName) · \(plan.splitDisplayName) · 週\(plan.daysPerWeek)日")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("更新 \(plan.updatedAt.formatted(date: .abbreviated, time: .omitted))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct SavedTrainingPlanDetailView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var runnerViewModel: RunnerViewModel
+    @EnvironmentObject private var settings: SettingsStore
+    @Query private var routines: [Routine]
+    @Query private var steps: [Step]
+    @State private var restStore = RoutineRestPreferenceStore()
+    @State private var renameText = ""
+    @State private var isRenaming = false
+    @State private var isConfirmingDelete = false
+    @State private var persistError: String?
+    /// Day editor, presented like WorkoutView's: a sheet with its own stack.
+    /// Pushing it onto the shared stack made this list re-render in a loop.
+    @State private var editorRoutine: Routine?
+    @State private var routinePendingStart: Routine?
+
+    @Bindable var plan: SavedTrainingPlan
+
+    init(plan: SavedTrainingPlan) {
+        self.plan = plan
+        let planId: UUID? = plan.id
+        self._routines = Query(filter: #Predicate<Routine> { $0.savedTrainingPlanId == planId })
+    }
+
+    private var days: [Routine] { SavedTrainingPlanStore.routines(of: plan, in: routines) }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(plan.name)
+                        .font(.title2.weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("週\(plan.daysPerWeek)日 · \(plan.splitDisplayName) · \(plan.goalDisplayName)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("Day") {
+                if days.isEmpty {
+                    Text("このプランのルーティンはありません。")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(days) { routine in
+                    Button {
+                        editorRoutine = routine
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(routine.name)
+                                .font(.body.weight(.semibold))
+                            Text("\(steps.filter { $0.routineId == routine.id }.count) 種目")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Button("プラン名を変更") {
+                    renameText = plan.name
+                    isRenaming = true
+                }
+                Button("プランを削除", role: .destructive) {
+                    isConfirmingDelete = true
+                }
+            } footer: {
+                Text("プランを削除しても、各Dayのルーティンと履歴は通常のルーティンとして残ります。")
+            }
+        }
+        .navigationTitle("プラン詳細")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editorRoutine, onDismiss: startPendingRoutine) { routine in
+            NavigationStack {
+                RoutineEditorView(routine: routine) { selected in
+                    // Start only after the sheet is gone, as WorkoutView does.
+                    routinePendingStart = selected
+                    editorRoutine = nil
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("閉じる") { editorRoutine = nil }
+                    }
+                }
+            }
+        }
+        .alert("プラン名を変更", isPresented: $isRenaming) {
+            TextField("プラン名", text: $renameText)
+            Button("キャンセル", role: .cancel) {}
+            Button("保存", action: renamePlan)
+        } message: {
+            Text("各Dayのルーティン名は変わりません。")
+        }
+        .confirmationDialog(
+            "「\(plan.name)」を削除しますか？",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("プランだけ削除", role: .destructive, action: deletePlan)
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("ルーティンと履歴は削除されず、通常のルーティンとして残ります。")
+        }
+        .alert("保存できませんでした", isPresented: Binding(
+            get: { persistError != nil },
+            set: { if !$0 { persistError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(persistError ?? "")
+        }
+    }
+
+    private func startPendingRoutine() {
+        guard let routine = routinePendingStart else { return }
+        routinePendingStart = nil
+        start(routine)
+    }
+
+    private func start(_ routine: Routine) {
+        WorkoutStarter.start(
+            routine: routine,
+            steps: steps.filter { $0.routineId == routine.id },
+            modelContext: modelContext,
+            restStore: restStore,
+            appDefaultRestSeconds: settings.defaultRestSeconds,
+            runner: runnerViewModel
+        )
+    }
+
+    /// Saved explicitly: an edit left to autosave was lost when the app was
+    /// terminated right after renaming.
+    private func renamePlan() {
+        do {
+            try SavedTrainingPlanStore.rename(plan, to: renameText, in: modelContext)
+        } catch {
+            persistError = "プラン名「\(renameText)」の保存に失敗しました: \(error.localizedDescription)"
+        }
+    }
+
+    private func deletePlan() {
+        let name = plan.name
+        do {
+            try SavedTrainingPlanStore.deletePlanKeepingRoutines(plan, in: modelContext)
+            dismiss()
+        } catch {
+            persistError = "プラン「\(name)」の削除に失敗しました: \(error.localizedDescription)"
+        }
+    }
 }
