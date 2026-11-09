@@ -489,3 +489,260 @@ struct RuleBasedWeeklyPlanGeneratorTests {
         #expect(!context.hasChanges)
     }
 }
+
+// MARK: - Session themes
+
+@MainActor
+struct SessionThemeGeneratorTests {
+
+    private static let equipment = AvailableEquipment.standardCatalog()
+    private static let byId = Dictionary(uniqueKeysWithValues: equipment.map { ($0.id, $0) })
+
+    /// 筋肥大・中級・上下分割・週4日・胸＋背中 — the scenario the spec names.
+    private static func chestBack(_ theme: SessionTheme = .balanced) -> TrainingPlanGenerationRequest {
+        TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+            experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: theme
+        )
+    }
+
+    /// Whole-body week so every body-part theme has a session to act on.
+    private static func wholeBody(_ theme: SessionTheme) -> TrainingPlanGenerationRequest {
+        TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, experienceLevel: .intermediate,
+            preferredSplit: .upperLower, sessionTheme: theme
+        )
+    }
+
+    private static func chosen(_ plan: WeeklyTrainingPlanCandidate) -> [AvailableEquipment] {
+        plan.sessions.flatMap(\.exercises).compactMap { byId[$0.machineId] }
+    }
+
+    /// Total theme fit of everything the plan picked.
+    private static func fit(_ plan: WeeklyTrainingPlanCandidate, _ theme: SessionTheme) -> Int {
+        chosen(plan).map(theme.score).reduce(0, +)
+    }
+
+    private static func count(_ plan: WeeklyTrainingPlanCandidate, where predicate: (AvailableEquipment) -> Bool) -> Int {
+        chosen(plan).filter(predicate).count
+    }
+
+    // MARK: Compatibility & determinism
+
+    @Test
+    func requestDefaultsToBalancedAndBalancedMatchesUnthemedRequest() {
+        let unthemed = TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+            experienceLevel: .intermediate, preferredSplit: .upperLower
+        )
+        #expect(unthemed.sessionTheme == .balanced)
+        for seed: UInt64 in [0, 1, 7] {
+            let a = RuleBasedWeeklyPlanGenerator.generate(request: unthemed, equipment: Self.equipment, variationSeed: seed)
+            let b = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(.balanced), equipment: Self.equipment, variationSeed: seed)
+            #expect(a == b)
+            #expect(a.sessionTheme == .balanced)
+        }
+    }
+
+    @Test
+    func balancedRationaleIsUnchangedAndThemedRationaleNamesTheTheme() {
+        let balanced = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(.balanced), equipment: Self.equipment)
+        let chest = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(.chestFocus), equipment: Self.equipment)
+        #expect(!balanced.rationale.contains("セッションの方向性"))
+        #expect(chest.rationale.contains("胸重視"))
+        #expect(chest.title == balanced.title)
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func sameRequestSeedAndThemeIsDeterministic(theme: SessionTheme) {
+        for seed: UInt64 in [0, 3, 42] {
+            let a = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(theme), equipment: Self.equipment, variationSeed: seed)
+            let b = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(theme), equipment: Self.equipment, variationSeed: seed)
+            #expect(a == b)
+            #expect(a.sessionTheme == theme)
+        }
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func seedsStillVaryThePlanWithinATheme(theme: SessionTheme) {
+        let plans = (0..<12).map {
+            RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(theme), equipment: Self.equipment, variationSeed: UInt64($0))
+        }
+        let distinct = plans.reduce(into: [WeeklyTrainingPlanCandidate]()) { if !$0.contains($1) { $0.append($1) } }
+        #expect(distinct.count >= 2)
+        #expect(plans.allSatisfy { !$0.isEmpty && $0.sessionTheme == theme })
+    }
+
+    @Test
+    func nextDistinctVariationKeepsTheThemeAndPersistsNothing() throws {
+        let request = Self.chestBack(.backFocus)
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment)
+        let next = try #require(RuleBasedWeeklyPlanGenerator.nextDistinctVariation(
+            request: request, equipment: Self.equipment, current: current, currentSeed: 0
+        ))
+        #expect(next.candidate != current)
+        #expect(next.candidate.sessionTheme == .backFocus)
+        #expect(next.candidate == RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment, variationSeed: next.seed))
+    }
+
+    // MARK: Themes change the composition
+
+    /// Two days (one upper, one lower) so weekly de-duplication does not
+    /// exhaust the pool — over a long week every machine ends up used and
+    /// totals tie regardless of theme. Balanced follows pool order, so with the catalog reversed it no longer
+    /// happens to pick themed machines early; each theme must then raise its
+    /// own fit purely through priority. (With the normal order some themes —
+    /// e.g. core, whose two machines sort first — already tie balanced.)
+    @Test(arguments: SessionTheme.allCases.filter { $0 != .balanced })
+    func everyThemeRaisesItsOwnFitOverBalanced(theme: SessionTheme) {
+        let gym = Array(Self.equipment.reversed())
+        func twoDays(_ t: SessionTheme) -> TrainingPlanGenerationRequest {
+            var r = Self.wholeBody(t); r.daysPerWeek = 2; return r
+        }
+        let balanced = RuleBasedWeeklyPlanGenerator.generate(request: twoDays(.balanced), equipment: gym)
+        let themed = RuleBasedWeeklyPlanGenerator.generate(request: twoDays(theme), equipment: gym)
+        #expect(Self.fit(themed, theme) > Self.fit(balanced, theme))
+        // And never lower with the normal order.
+        let b2 = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(.balanced), equipment: Self.equipment)
+        let t2 = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(theme), equipment: Self.equipment)
+        #expect(Self.fit(t2, theme) >= Self.fit(b2, theme))
+    }
+
+    /// Measured on Day 1 (the first upper day): over the whole 4-day week
+    /// de-duplication uses almost every chest/back machine whatever the
+    /// theme, so the theme shows in what each session leads with.
+    @Test
+    func chestBackScenarioShiftsTowardTheChosenFocus() {
+        func plan(_ theme: SessionTheme) -> WeeklyTrainingPlanCandidate {
+            let full = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(theme), equipment: Self.equipment)
+            return WeeklyTrainingPlanCandidate(
+                title: full.title, goal: full.goal, daysPerWeek: 1,
+                sessions: [full.sessions[0]], rationale: "", warnings: []
+            )
+        }
+        let balanced = plan(.balanced)
+        let isPush: (AvailableEquipment) -> Bool = { $0.catalogEntry?.movementPattern == .push }
+        let isPull: (AvailableEquipment) -> Bool = { $0.catalogEntry?.movementPattern == .pull }
+        #expect(Self.count(plan(.push), where: isPush) > Self.count(balanced, where: isPush))
+        #expect(Self.count(plan(.pull), where: isPull) > Self.count(balanced, where: isPull))
+        #expect(Self.fit(plan(.chestFocus), .chestFocus) > Self.fit(balanced, .chestFocus))
+        #expect(Self.fit(plan(.backFocus), .backFocus) > Self.fit(balanced, .backFocus))
+        #expect(Self.fit(plan(.press), .press) > Self.fit(balanced, .press))
+        // Chest- and back-focused weeks really are different weeks.
+        #expect(plan(.chestFocus) != plan(.backFocus))
+    }
+
+    /// The theme must hold on every session it applies to, not just Day 1:
+    /// the later upper day (Day 3) re-uses strong fits from Day 1 rather
+    /// than falling back to unused non-themed equipment.
+    /// Per seed a themed session is never weaker than balanced (balanced can
+    /// tie by chance when its leftovers already fit); over seeds each day
+    /// must be strictly stronger.
+    @Test(arguments: [SessionTheme.chestFocus, .backFocus, .push, .pull, .press])
+    func themeHoldsOnEveryUpperSessionOfTheWeek(theme: SessionTheme) {
+        var totals = [0: (themed: 0, balanced: 0), 2: (themed: 0, balanced: 0)]
+        for seed: UInt64 in 0..<6 {
+            let balanced = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(), equipment: Self.equipment, variationSeed: seed)
+            let themed = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(theme), equipment: Self.equipment, variationSeed: seed)
+            for day in [0, 2] {
+                // Fit of the session's best `themedSlots` picks: balanced has no
+                // cap, so it may stack a 4th fit the themed session gives up
+                // for diversity by design.
+                func fit(_ plan: WeeklyTrainingPlanCandidate) -> Int {
+                    plan.sessions[day].exercises.compactMap { Self.byId[$0.machineId] }.map(theme.score)
+                        .sorted(by: >).prefix(RuleBasedWeeklyPlanGenerator.themedSlots(4)).reduce(0, +)
+                }
+                #expect(fit(themed) >= fit(balanced), "theme \(theme) seed \(seed) day \(day + 1)")
+                totals[day]!.themed += fit(themed)
+                totals[day]!.balanced += fit(balanced)
+                let picks = themed.sessions[day].exercises.compactMap { Self.byId[$0.machineId] }
+                #expect(picks.count == 4)
+                #expect(picks.filter { theme.score($0) > 0 }.count <= RuleBasedWeeklyPlanGenerator.themedSlots(4))
+            }
+        }
+        for (day, total) in totals {
+            #expect(total.themed > total.balanced, "theme \(theme) day \(day + 1)")
+        }
+    }
+
+    /// Every upper-day pool here also holds equipment outside these themes
+    /// (chest vs back machines, push vs pull), so the theme must leave room.
+    @Test(arguments: [SessionTheme.chestFocus, .backFocus, .push, .pull, .press])
+    func themeIsAPriorityNotAFilter(theme: SessionTheme) {
+        #expect(RuleBasedWeeklyPlanGenerator.themedSlots(4) == 3)
+        for seed: UInt64 in 0..<6 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(theme), equipment: Self.equipment, variationSeed: seed)
+            for upper in [plan.sessions[0], plan.sessions[2]] {
+                let picks = upper.exercises.compactMap { Self.byId[$0.machineId] }
+                #expect(picks.count == 4)
+                #expect(picks.contains { theme.score($0) == 0 })
+            }
+        }
+    }
+
+    @Test
+    func pressPrefersMultiJointPushOverIsolation() {
+        let entries = ["chest_press", "pec_deck", "shoulder_press", "lateral_raise_machine", "triceps_extension_machine"]
+            .compactMap(MachineCatalog.entry(for:))
+        let items = AvailableEquipment.standardCatalog(entries)
+        let score = Dictionary(uniqueKeysWithValues: items.map { ($0.id, SessionTheme.press.score($0)) })
+        #expect(score["chest_press"]! > score["pec_deck"]!)
+        #expect(score["shoulder_press"]! > score["lateral_raise_machine"]!)
+        #expect(score["shoulder_press"]! > score["triceps_extension_machine"]!)
+    }
+
+    // MARK: Safety constraints win over the theme
+
+    @Test(arguments: SessionTheme.allCases)
+    func themesNeverPickUnavailableEquipment(theme: SessionTheme) {
+        let unavailable = Set(["bench_press", "chest_press", "lat_pulldown", "leg_press"])
+        let gym = MachineCatalog.all.map { AvailableEquipment(entry: $0, isAvailable: !unavailable.contains($0.id)) }
+        for seed: UInt64 in 0..<6 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(theme), equipment: gym, variationSeed: seed)
+            #expect(plan.sessions.flatMap(\.exercises).allSatisfy { !unavailable.contains($0.machineId) })
+        }
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func themesKeepBeginnerFriendlyOnly(theme: SessionTheme) {
+        var request = Self.wholeBody(theme)
+        request.beginnerFriendlyOnly = true
+        for seed: UInt64 in 0..<6 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment, variationSeed: seed)
+            #expect(!plan.isEmpty)
+            #expect(Self.chosen(plan).allSatisfy { $0.catalogEntry?.beginnerFriendly == true })
+        }
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func themesKeepLimitedBodyPartsOut(theme: SessionTheme) {
+        var request = Self.wholeBody(theme)
+        request.limitedBodyParts = [.legs]
+        for seed: UInt64 in 0..<6 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment, variationSeed: seed)
+            #expect(plan.sessions.allSatisfy { !$0.focusBodyParts.contains(.legs) })
+            for session in plan.sessions {
+                let focus = Set(session.focusBodyParts)
+                #expect(session.exercises.allSatisfy { ex in
+                    Self.byId[ex.machineId].map { !$0.bodyParts.isDisjoint(with: focus) } ?? false
+                })
+            }
+        }
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func emptyEquipmentDoesNotCrash(theme: SessionTheme) {
+        let plan = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(theme), equipment: [])
+        #expect(plan.isEmpty)
+        #expect(plan.sessions.count == 4)
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func smallGymNeverEmptiesASession(theme: SessionTheme) {
+        let gym = AvailableEquipment.standardCatalog(["chest_press", "leg_press"].compactMap(MachineCatalog.entry(for:)))
+        let plan = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(theme), equipment: gym)
+        let balanced = RuleBasedWeeklyPlanGenerator.generate(request: Self.wholeBody(.balanced), equipment: gym)
+        #expect(plan.sessions.allSatisfy { !$0.exercises.isEmpty })
+        #expect(zip(plan.sessions, balanced.sessions).allSatisfy { $0.exercises.count == $1.exercises.count })
+    }
+}

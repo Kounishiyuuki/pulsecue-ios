@@ -107,7 +107,10 @@ enum SavedTrainingPlanStore {
 
     /// e.g. "筋肥大・上下分割・週4日".
     static func defaultName(for plan: WeeklyTrainingPlanCandidate, split: TrainingSplit) -> String {
-        "\(plan.goal.displayName)・\(split.displayName)・週\(plan.daysPerWeek)日"
+        // A non-default theme is part of what the plan *is*; keeping it in
+        // the suggested name lets a saved plan show it without a schema change.
+        let theme = plan.sessionTheme == .balanced ? "" : "・\(plan.sessionTheme.displayName)"
+        return "\(plan.goal.displayName)・\(split.displayName)・週\(plan.daysPerWeek)日\(theme)"
     }
 
     /// Trimmed user input, or `fallback` when it is empty/whitespace.
