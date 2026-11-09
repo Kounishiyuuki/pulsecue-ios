@@ -62,6 +62,78 @@ enum TrainingSplit: String, CaseIterable, Equatable, Sendable {
     }
 }
 
+/// What each session leans toward when picking exercises. Independent of
+/// `TrainingSplit` (the shape of the week): an upper/lower week can be
+/// balanced or chest-focused. A theme only *re-orders* an already filtered
+/// pool — it never removes equipment — so every safety filter still wins.
+/// Scoring reads existing catalog metadata (`bodyParts`,
+/// `secondaryMuscles`, `movementPattern`); there is no separate table.
+enum SessionTheme: String, CaseIterable, Equatable, Sendable {
+    case balanced, push, pull, press
+    case chestFocus, backFocus, shoulderFocus, armsFocus, legsFocus, coreFocus
+
+    var displayName: String {
+        switch self {
+        case .balanced: return "バランス"
+        case .push: return "Push重視"
+        case .pull: return "Pull重視"
+        case .press: return "Press重視"
+        case .chestFocus: return "胸重視"
+        case .backFocus: return "背中重視"
+        case .shoulderFocus: return "肩重視"
+        case .armsFocus: return "腕重視"
+        case .legsFocus: return "脚重視"
+        case .coreFocus: return "体幹重視"
+        }
+    }
+
+    /// The body part a `…Focus` theme favours.
+    var focusBodyPart: BodyPart? {
+        switch self {
+        case .chestFocus: return .chest
+        case .backFocus: return .back
+        case .shoulderFocus: return .shoulders
+        case .armsFocus: return .arms
+        case .legsFocus: return .legs
+        case .coreFocus: return .core
+        case .balanced, .push, .pull, .press: return nil
+        }
+    }
+
+    /// How strongly `equipment` fits this theme; 0 = not themed.
+    ///
+    /// - Body-part themes: a dedicated machine (few `bodyParts`) beats a
+    ///   multi-purpose one; a secondary muscle counts a little.
+    /// - Press: a multi-joint push (push pattern over 2+ body parts, e.g.
+    ///   chest/shoulder presses) beats single-joint push work (pec deck,
+    ///   lateral raise, calf raise, triceps extension).
+    ///   This is an approximation from existing metadata, not a true
+    ///   "compound press" flag: a general-purpose item tagged push over 2+
+    ///   body parts (e.g. dumbbells) can also score 2.
+    /// Custom equipment carries no movement pattern, so it only scores on
+    /// body-part themes.
+    func score(_ equipment: AvailableEquipment) -> Int {
+        let pattern = equipment.catalogEntry?.movementPattern
+        switch self {
+        case .balanced:
+            return 0
+        case .push:
+            return pattern == .push ? 1 : 0
+        case .pull:
+            return pattern == .pull ? 1 : 0
+        case .press:
+            guard pattern == .push else { return 0 }
+            return equipment.bodyParts.count >= 2 ? 2 : 1
+        case .chestFocus, .backFocus, .shoulderFocus, .armsFocus, .legsFocus, .coreFocus:
+            guard let part = focusBodyPart else { return 0 }
+            if equipment.bodyParts.contains(part) {
+                return max(1, 4 - equipment.bodyParts.count)
+            }
+            return equipment.catalogEntry?.secondaryMuscles.contains(part) == true ? 1 : 0
+        }
+    }
+}
+
 /// All-optional-ish request describing what kind of week the user wants.
 /// Defaulted so call sites and tests stay terse.
 struct TrainingPlanGenerationRequest: Equatable {
@@ -73,6 +145,9 @@ struct TrainingPlanGenerationRequest: Equatable {
     var preferredSplit: TrainingSplit
     var sessionDurationMinutes: Int?
     var beginnerFriendlyOnly: Bool
+    /// Defaults to `.balanced`, which reproduces the pre-theme selection
+    /// exactly, so existing callers are unaffected.
+    var sessionTheme: SessionTheme
 
     init(
         goal: TrainingGoal = .consistency,
@@ -82,7 +157,8 @@ struct TrainingPlanGenerationRequest: Equatable {
         experienceLevel: ExperienceLevel = .beginner,
         preferredSplit: TrainingSplit = .fullBody,
         sessionDurationMinutes: Int? = nil,
-        beginnerFriendlyOnly: Bool = false
+        beginnerFriendlyOnly: Bool = false,
+        sessionTheme: SessionTheme = .balanced
     ) {
         self.goal = goal
         self.daysPerWeek = daysPerWeek
@@ -92,6 +168,7 @@ struct TrainingPlanGenerationRequest: Equatable {
         self.preferredSplit = preferredSplit
         self.sessionDurationMinutes = sessionDurationMinutes
         self.beginnerFriendlyOnly = beginnerFriendlyOnly
+        self.sessionTheme = sessionTheme
     }
 }
 
@@ -120,6 +197,8 @@ struct WeeklyTrainingPlanCandidate: Equatable {
     /// selected, i.e. a different `variationSeed` can yield a different
     /// plan. The review UI disables "別のプランを見る" when false.
     var hasAlternatives: Bool = false
+    /// The theme the plan was generated with, so the review can show it.
+    var sessionTheme: SessionTheme = .balanced
 
     /// True when no session managed to include any exercise (e.g. an
     /// empty catalog).
@@ -199,6 +278,7 @@ enum RuleBasedWeeklyPlanGenerator {
                 count: perSession,
                 beginnerOnly: request.beginnerFriendlyOnly,
                 usedThisWeek: usedThisWeek,
+                theme: request.sessionTheme,
                 shuffle: variationSeed == 0 ? nil : { pool in pool.seededShuffled(using: &rng) }
             )
             usedThisWeek.formUnion(selection.equipmentIds)
@@ -238,7 +318,8 @@ enum RuleBasedWeeklyPlanGenerator {
             sessions: sessions,
             rationale: rationale(request: request, days: days, perSession: perSession),
             warnings: warnings,
-            hasAlternatives: hasAlternatives
+            hasAlternatives: hasAlternatives,
+            sessionTheme: request.sessionTheme
         )
     }
 
@@ -353,6 +434,7 @@ enum RuleBasedWeeklyPlanGenerator {
         count: Int,
         beginnerOnly: Bool,
         usedThisWeek: Set<String>,
+        theme: SessionTheme,
         shuffle: (([AvailableEquipment]) -> [AvailableEquipment])?
     ) -> Selection {
         guard !catalog.isEmpty, count > 0 else {
@@ -396,7 +478,7 @@ enum RuleBasedWeeklyPlanGenerator {
         let ordered = shuffle?(pool) ?? pool
         let fresh = ordered.filter { !usedThisWeek.contains($0.id) }
         let reused = ordered.filter { usedThisWeek.contains($0.id) }
-        let chosen = Array((fresh + reused).prefix(count))
+        let chosen = themed(fresh: fresh, reused: reused, count: count, theme: theme)
         // Resolve each selected equipment into a concrete Exercise Library
         // movement using the day's focus (so a multi-purpose machine like
         // barbell/cable resolves to the right movement for this body part).
@@ -421,6 +503,52 @@ enum RuleBasedWeeklyPlanGenerator {
             hasAlternatives: pool.count > count,
             equipmentIds: chosen.map(\.id)
         )
+    }
+
+    /// Picks `count` items, favouring the theme without letting it take the
+    /// whole session. Priority: hard constraints (already applied to the
+    /// pool) > theme > unused this week > seeded order.
+    /// - Themed slots (at most `themedSlots`): themed equipment by score,
+    ///   fresh before reused only on equal score, so later sessions of the
+    ///   week keep the theme even when the best fits were used on Day 1.
+    /// - Remaining slots (diversity): fresh non-themed, then reused
+    ///   non-themed, and themed leftovers only when nothing non-themed is
+    ///   left, so a session never empties.
+    /// `.balanced` is exactly the pre-theme rule. Ties keep the (possibly
+    /// seeded) incoming order, so seeds still vary the plan within a theme.
+    private static func themed(
+        fresh: [AvailableEquipment],
+        reused: [AvailableEquipment],
+        count: Int,
+        theme: SessionTheme
+    ) -> [AvailableEquipment] {
+        guard theme != .balanced else { return Array((fresh + reused).prefix(count)) }
+        // Offset encodes "fresh before reused, then incoming order" as the
+        // tie-break under the theme score.
+        let ordered = fresh + reused
+        let themedByScore = ordered.enumerated()
+            .filter { theme.score($0.element) > 0 }
+            .sorted { (theme.score($1.element), $0.offset) < (theme.score($0.element), $1.offset) }
+            .map(\.element)
+        var chosen = Array(themedByScore.prefix(themedSlots(count)))
+        let picked = Set(chosen.map(\.id))
+        let freshIds = Set(fresh.map(\.id))
+        let leftover = ordered.filter { !picked.contains($0.id) }
+        // Diversity slots: being outside the theme beats being unused, so a
+        // reused non-themed pick wins over an unused themed one. Themed
+        // leftovers only fill in when no non-themed candidate remains.
+        let nonThemed = leftover.filter { theme.score($0) == 0 }
+        let rest = nonThemed.filter { freshIds.contains($0.id) }
+            + nonThemed.filter { !freshIds.contains($0.id) }
+            + leftover.filter { theme.score($0) > 0 }
+        chosen += rest.prefix(count - chosen.count)
+        return chosen
+    }
+
+    /// Themed share of a session: all but a quarter (at least one kept for
+    /// the base focus once there are 2+ exercises).
+    static func themedSlots(_ count: Int) -> Int {
+        count <= 1 ? count : count - max(1, count / 4)
     }
 
     // MARK: - Volume & copy rules
@@ -469,6 +597,7 @@ enum RuleBasedWeeklyPlanGenerator {
             + "\(request.preferredSplit.displayName)プランです（週\(days)日 / 1回あたり最大\(perSession)種目）。"
             + "カタログにセット数等が未登録の種目は、目安値"
             + "（約\(RoutineStepCandidate.fallbackSets)セット×\(RoutineStepCandidate.fallbackRepsTarget)レップ）として扱われます。"
+            + (request.sessionTheme == .balanced ? "" : "セッションの方向性は「\(request.sessionTheme.displayName)」で、該当する種目を優先しています。")
     }
 
     // MARK: - Body-part helpers (deterministic ordering)

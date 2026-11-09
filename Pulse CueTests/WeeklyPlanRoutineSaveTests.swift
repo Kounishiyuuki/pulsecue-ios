@@ -569,6 +569,48 @@ struct SavedTrainingPlanTests {
         try context.save()   // what autosave would do later
         try check(ModelContext(context.container))
     }
+
+    // MARK: Session theme
+
+    @Test
+    func changingThemeGeneratingAndAlternativesPersistNothing() throws {
+        let context = try Self.makeContext()
+        for theme in SessionTheme.allCases {
+            var request = Self.request
+            request.sessionTheme = theme
+            let current = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment)
+            _ = RuleBasedWeeklyPlanGenerator.nextDistinctVariation(
+                request: request, equipment: Self.equipment, current: current, currentSeed: 0
+            )
+        }
+        let c = try Self.counts(context)
+        #expect(c.plans == 0 && c.routines == 0 && c.steps == 0)
+        #expect(!context.hasChanges)
+    }
+
+    @Test
+    func defaultNameShowsANonBalancedTheme() {
+        var request = Self.request
+        #expect(SavedTrainingPlanStore.defaultName(
+            for: RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment), split: .upperLower
+        ) == "筋肥大・上下分割・週4日")
+        request.sessionTheme = .chestFocus
+        #expect(SavedTrainingPlanStore.defaultName(
+            for: RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment), split: .upperLower
+        ) == "筋肥大・上下分割・週4日・胸重視")
+    }
+
+    @Test
+    func themedPlanSavesLikeAnyOtherPlan() throws {
+        let context = try Self.makeContext()
+        var request = Self.request
+        request.sessionTheme = .backFocus
+        let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: Self.equipment)
+        let saved = try #require(try SavedTrainingPlanStore.save(plan, split: .upperLower, name: "", in: context))
+        #expect(saved.plan.name == "筋肥大・上下分割・週4日・背中重視")
+        #expect(saved.routines.count == 4)
+        #expect(try ModelContext(context.container).fetchCount(FetchDescriptor<SavedTrainingPlan>()) == 1)
+    }
 }
 
 // MARK: - V10 → V11 migration

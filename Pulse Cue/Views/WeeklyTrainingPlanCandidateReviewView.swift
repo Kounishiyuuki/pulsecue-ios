@@ -31,20 +31,23 @@ struct WeeklyPlanGenerationInputs: Equatable {
     let split: TrainingSplit
     let daysPerWeek: Int
     let bodyParts: Set<BodyPart>
+    var sessionTheme: SessionTheme = .balanced
 
     static func production(
         goal: TrainingGoal,
         experience: ExperienceLevel,
         split: TrainingSplit,
         daysPerWeek: Int,
-        bodyParts: Set<BodyPart>
+        bodyParts: Set<BodyPart>,
+        sessionTheme: SessionTheme = .balanced
     ) -> Self {
         Self(
             goal: goal,
             experience: experience,
             split: split,
             daysPerWeek: daysPerWeek,
-            bodyParts: bodyParts
+            bodyParts: bodyParts,
+            sessionTheme: sessionTheme
         )
     }
 }
@@ -60,6 +63,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var split: TrainingSplit = .fullBody
     @State private var daysPerWeek: Int = 3
     @State private var selectedBodyParts: Set<BodyPart> = []
+    @State private var sessionTheme: SessionTheme = .balanced
 
     @State private var candidate: WeeklyTrainingPlanCandidate?
     /// Only "別のプランを見る" changes this; the generation inputs stay as-is.
@@ -98,6 +102,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         _split = State(initialValue: debugRequest.preferredSplit)
         _daysPerWeek = State(initialValue: debugRequest.daysPerWeek)
         _selectedBodyParts = State(initialValue: Set(debugRequest.targetBodyParts))
+        _sessionTheme = State(initialValue: debugRequest.sessionTheme)
         _conditionsExpanded = State(initialValue: false)
     }
 
@@ -119,7 +124,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             daysPerWeek: daysPerWeek,
             targetBodyParts: bodyPartChoices.filter { selectedBodyParts.contains($0) },
             experienceLevel: experience,
-            preferredSplit: split
+            preferredSplit: split,
+            sessionTheme: sessionTheme
         )
     }
 
@@ -129,7 +135,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             experience: experience,
             split: split,
             daysPerWeek: daysPerWeek,
-            bodyParts: selectedBodyParts
+            bodyParts: selectedBodyParts,
+            sessionTheme: sessionTheme
         )
     }
 
@@ -255,6 +262,22 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                         .font(.headline)
                 }
                 .frame(minHeight: 44)
+            }
+
+            // Ten options: a menu rather than a segmented control, which
+            // would not fit (and is unreadable at large Dynamic Type).
+            VStack(alignment: .leading, spacing: 6) {
+                decisionLabel("セッションの方向性")
+                Picker("セッションの方向性", selection: $sessionTheme) {
+                    ForEach(SessionTheme.allCases, id: \.self) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(minHeight: 44)
+                Text("選んだ方向性に合う種目を優先します（他の種目も含まれます）。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -470,11 +493,13 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
                         metaPill(text: candidate.goal.displayName)
+                        metaPill(text: candidate.sessionTheme.displayName)
                         metaPill(text: "週 \(candidate.daysPerWeek) 日")
                         metaPill(text: "\(candidate.sessions.count) セッション")
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         metaPill(text: candidate.goal.displayName)
+                        metaPill(text: candidate.sessionTheme.displayName)
                         metaPill(text: "週 \(candidate.daysPerWeek) 日")
                         metaPill(text: "\(candidate.sessions.count) セッション")
                     }
