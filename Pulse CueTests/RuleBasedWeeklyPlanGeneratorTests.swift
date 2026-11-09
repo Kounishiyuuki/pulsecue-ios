@@ -784,3 +784,304 @@ struct SessionThemeGeneratorTests {
         #expect(zip(plan.sessions, balanced.sessions).allSatisfy { $0.exercises.count == $1.exercises.count })
     }
 }
+
+// MARK: - Exercise locks + one-day regeneration
+
+struct WeeklyPlanExerciseLockTests {
+
+    private static let equipment = AvailableEquipment.standardCatalog()
+    private static let byId = Dictionary(uniqueKeysWithValues: equipment.map { ($0.id, $0) })
+
+    private static func request(_ theme: SessionTheme = .chestFocus) -> TrainingPlanGenerationRequest {
+        TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+            experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: theme
+        )
+    }
+
+    private static func plan(_ theme: SessionTheme = .chestFocus) -> WeeklyTrainingPlanCandidate {
+        RuleBasedWeeklyPlanGenerator.generate(request: request(theme), equipment: equipment)
+    }
+
+    private static func regen(
+        _ current: WeeklyTrainingPlanCandidate, day: Int = 0, locks: Set<String>, seed: UInt64,
+        request: TrainingPlanGenerationRequest = request(), equipment: [AvailableEquipment] = equipment
+    ) -> WeeklyTrainingPlanCandidate? {
+        RuleBasedWeeklyPlanGenerator.regenerateSession(
+            request: request, equipment: equipment, current: current,
+            sessionIndex: day, lockedMachineIds: locks, seed: seed
+        )
+    }
+
+    @Test
+    func lockedExerciseSurvivesUnchangedInPlace() throws {
+        let current = Self.plan()
+        let kept = current.sessions[0].exercises[1]
+        for seed: UInt64 in 1...8 {
+            let next = try #require(Self.regen(current, locks: [kept.machineId], seed: seed))
+            #expect(next.sessions[0].exercises[1] == kept)
+        }
+    }
+
+    @Test
+    func multipleLocksAllSurviveInPlace() throws {
+        let current = Self.plan()
+        let day = current.sessions[0].exercises
+        let locks: Set<String> = [day[0].machineId, day[3].machineId]
+        for seed: UInt64 in 1...8 {
+            let next = try #require(Self.regen(current, locks: locks, seed: seed)).sessions[0].exercises
+            #expect(next[0] == day[0])
+            #expect(next[3] == day[3])
+            #expect(next.count == day.count)
+        }
+    }
+
+    @Test
+    func anUnlockedSlotChangesWhenAlternativesExist() throws {
+        let current = Self.plan()
+        let day = current.sessions[0].exercises
+        let next = try #require(RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: Self.request(), equipment: Self.equipment, current: current,
+            sessionIndex: 0, lockedMachineIds: [day[0].machineId], currentSeed: 0
+        )).candidate.sessions[0].exercises
+        #expect(next[0] == day[0])
+        #expect(zip(next.dropFirst(), day.dropFirst()).contains { $0 != $1 })
+    }
+
+    @Test(arguments: [0, 1, 2, 3])
+    func onlyTheTargetDayChanges(day: Int) throws {
+        let current = Self.plan()
+        let next = try #require(RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: Self.request(), equipment: Self.equipment, current: current,
+            sessionIndex: day, lockedMachineIds: [], currentSeed: 0
+        )).candidate
+        for other in current.sessions.indices where other != day {
+            #expect(next.sessions[other] == current.sessions[other])
+        }
+        #expect(next.sessions[day] != current.sessions[day])
+        #expect(next.sessionTheme == current.sessionTheme)
+        #expect(next.title == current.title && next.rationale == current.rationale)
+    }
+
+    @Test
+    func allLockedCannotRegenerate() {
+        let current = Self.plan()
+        let all = Set(current.sessions[0].exercises.map(\.machineId))
+        #expect(Self.regen(current, locks: all, seed: 1) == nil)
+        #expect(RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: Self.request(), equipment: Self.equipment, current: current,
+            sessionIndex: 0, lockedMachineIds: all, currentSeed: 0
+        ) == nil)
+    }
+
+    @Test
+    func zeroLocksReplacesTheWholeDay() throws {
+        let current = Self.plan()
+        let next = try #require(RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: Self.request(), equipment: Self.equipment, current: current,
+            sessionIndex: 0, lockedMachineIds: [], currentSeed: 0
+        )).candidate
+        #expect(next.sessions[0].exercises.count == current.sessions[0].exercises.count)
+        #expect(next.sessions[0] != current.sessions[0])
+    }
+
+    @Test
+    func noDuplicateMachineWithinADay() throws {
+        for theme in SessionTheme.allCases {
+            let current = Self.plan(theme)
+            let locks: Set<String> = [current.sessions[0].exercises[0].machineId]
+            for seed: UInt64 in 1...10 {
+                let ids = try #require(Self.regen(current, locks: locks, seed: seed, request: Self.request(theme)))
+                    .sessions[0].exercises.map(\.machineId)
+                #expect(Set(ids).count == ids.count, "\(theme) seed \(seed): \(ids)")
+            }
+        }
+    }
+
+    @Test
+    func sameInputsAndSeedAreDeterministic() {
+        let current = Self.plan()
+        let locks: Set<String> = [current.sessions[0].exercises[0].machineId]
+        for seed: UInt64 in 1...6 {
+            #expect(Self.regen(current, locks: locks, seed: seed) == Self.regen(current, locks: locks, seed: seed))
+        }
+    }
+
+    @Test
+    func differentSeedsYieldAlternatives() {
+        let current = Self.plan()
+        let locks: Set<String> = [current.sessions[0].exercises[0].machineId]
+        let days = Set((1...12).compactMap { Self.regen(current, locks: locks, seed: $0)?.sessions[0].exercises.map(\.machineId) })
+        #expect(days.count >= 2)
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func constraintsHoldOnPartialRegeneration(theme: SessionTheme) throws {
+        let unavailable: Set<String> = ["bench_press", "lat_pulldown"]
+        let gym = MachineCatalog.all.map { AvailableEquipment(entry: $0, isAvailable: !unavailable.contains($0.id)) }
+        var request = Self.request(theme)
+        request.beginnerFriendlyOnly = true
+        request.limitedBodyParts = [.shoulders]
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: gym)
+        let byId = Dictionary(uniqueKeysWithValues: gym.map { ($0.id, $0) })
+        for day in current.sessions.indices where !current.sessions[day].exercises.isEmpty {
+            let locks: Set<String> = [current.sessions[day].exercises[0].machineId]
+            for seed: UInt64 in 1...6 {
+                let next = try #require(Self.regen(current, day: day, locks: locks, seed: seed, request: request, equipment: gym))
+                for ex in next.sessions[day].exercises {
+                    #expect(!unavailable.contains(ex.machineId))
+                    #expect(byId[ex.machineId]?.catalogEntry?.beginnerFriendly == true)
+                }
+            }
+        }
+    }
+
+    /// Theme fit of the day's best `themedSlots` picks, as in the theme tests.
+    private static func fit(_ day: TrainingSessionCandidate, _ theme: SessionTheme) -> Int {
+        day.exercises.compactMap { byId[$0.machineId] }.map(theme.score)
+            .sorted(by: >).prefix(RuleBasedWeeklyPlanGenerator.themedSlots(4)).reduce(0, +)
+    }
+
+    @Test(arguments: [SessionTheme.chestFocus, .backFocus, .push, .pull])
+    func themeHoldsAfterPartialRegeneration(theme: SessionTheme) throws {
+        let themed = Self.plan(theme)
+        let balanced = Self.plan(.balanced)
+        for day in [0, 2] {
+            var themedTotal = 0, balancedTotal = 0
+            for seed: UInt64 in 1...6 {
+                let t = try #require(Self.regen(themed, day: day, locks: [], seed: seed, request: Self.request(theme)))
+                let b = try #require(Self.regen(balanced, day: day, locks: [], seed: seed, request: Self.request(.balanced)))
+                #expect(Self.fit(t.sessions[day], theme) >= Self.fit(b.sessions[day], theme), "\(theme) day \(day + 1) seed \(seed)")
+                themedTotal += Self.fit(t.sessions[day], theme)
+                balancedTotal += Self.fit(b.sessions[day], theme)
+                let picks = t.sessions[day].exercises.compactMap { Self.byId[$0.machineId] }
+                #expect(picks.contains { theme.score($0) == 0 }, "diversity slot kept")
+            }
+            // Balanced can already sit at the ceiling (e.g. a back-heavy
+            // Day 3), so the strict check is "never weaker", plus: the themed
+            // day reaches the best top-3 fit its focus pool allows.
+            #expect(themedTotal >= balancedTotal, "\(theme) day \(day + 1)")
+            // Ceiling from the eligible pool (same filter the generator uses:
+            // available + day focus), independent of any generated result.
+            let query = MachineCatalogQuery(bodyParts: themed.sessions[day].focusBodyParts, beginnerFriendlyOnly: false)
+            let ceiling = Self.equipment.filter { $0.isAvailable && $0.matches(query) }.map(theme.score)
+                .sorted(by: >).prefix(RuleBasedWeeklyPlanGenerator.themedSlots(4)).reduce(0, +)
+            #expect(themedTotal == ceiling * 6, "\(theme) day \(day + 1) reaches the ceiling")
+        }
+    }
+
+    @Test
+    func thinGymKeepsLocksAndFillsWhatItCan() throws {
+        let ids = ["bench_press", "chest_press", "lat_pulldown", "leg_press"]
+        let gym = AvailableEquipment.standardCatalog(ids.compactMap(MachineCatalog.entry(for:)))
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: Self.request(), equipment: gym)
+        let day = current.sessions[0].exercises
+        let locks: Set<String> = [day[0].machineId]
+        let next = try #require(Self.regen(current, locks: locks, seed: 3, equipment: gym)).sessions[0].exercises
+        #expect(next[0] == day[0])
+        #expect(!next.isEmpty)
+        #expect(Set(next.map(\.machineId)).count == next.count)
+    }
+
+    /// Chest day, thin gym: locked bench + one other chest machine only.
+    /// The open slots must keep the valid original chest pick rather than
+    /// widening to the leg machines that are also in the gym.
+    @Test
+    func validOriginalBeatsOffTargetFallback() throws {
+        let ids = ["bench_press", "chest_press", "pec_deck", "lat_pulldown", "leg_press", "leg_extension", "leg_curl"]
+        let gym = AvailableEquipment.standardCatalog(ids.compactMap(MachineCatalog.entry(for:)))
+        let request = TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest],
+            experienceLevel: .intermediate, preferredSplit: .bodyPart, sessionTheme: .chestFocus
+        )
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: gym)
+        let day = current.sessions[0]
+        let lock = try #require(day.exercises.first { $0.machineId == "bench_press" })
+        let focusIds = Set(gym.filter { $0.matches(MachineCatalogQuery(bodyParts: day.focusBodyParts, beginnerFriendlyOnly: false)) }.map(\.id))
+        for seed: UInt64 in 1...8 {
+            let next = try #require(Self.regen(current, locks: [lock.machineId], seed: seed, request: request, equipment: gym)).sessions[0].exercises
+            #expect(next.contains(lock))
+            #expect(next.allSatisfy { focusIds.contains($0.machineId) }, "seed \(seed): \(next.map(\.machineId))")
+            #expect(!next.contains { ["leg_press", "leg_extension", "leg_curl"].contains($0.machineId) })
+            #expect(Set(next.map(\.machineId)).count == next.count)
+        }
+    }
+
+    @Test(arguments: SessionTheme.allCases)
+    func notEnoughValidEquipmentStaysInBounds(theme: SessionTheme) throws {
+        let unavailable: Set<String> = ["chest_press", "incline_chest_press", "pec_deck", "smith_machine", "barbell", "dumbbells", "cable_machine"]
+        let gym = MachineCatalog.all.map { AvailableEquipment(entry: $0, isAvailable: !unavailable.contains($0.id)) }
+        var request = Self.request(theme)
+        request.targetBodyParts = [.chest]
+        request.limitedBodyParts = [.legs]
+        request.beginnerFriendlyOnly = true
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: gym)
+        let byId = Dictionary(uniqueKeysWithValues: gym.map { ($0.id, $0) })
+        for dayIndex in current.sessions.indices where !current.sessions[dayIndex].exercises.isEmpty {
+            let day = current.sessions[dayIndex]
+            let locks: Set<String> = [day.exercises[0].machineId]
+            let before = Set(day.exercises.map(\.machineId))
+            for seed: UInt64 in 1...4 {
+                guard let next = Self.regen(current, day: dayIndex, locks: locks, seed: seed, request: request, equipment: gym) else { continue }
+                let picks = next.sessions[dayIndex].exercises
+                #expect(picks.first == day.exercises[0])
+                #expect(picks.allSatisfy { !unavailable.contains($0.machineId) })
+                // New picks stay inside the day's filters (focus already
+                // excludes the limited legs); anything else must be an
+                // original that was already on this day.
+                let query = MachineCatalogQuery(bodyParts: day.focusBodyParts, beginnerFriendlyOnly: true)
+                for ex in picks where !before.contains(ex.machineId) {
+                    #expect(byId[ex.machineId].map { $0.matches(query) } == true, "\(ex.machineId)")
+                }
+            }
+        }
+    }
+
+    /// A chest day whose candidate holds an off-target leg machine (as the
+    /// first generation's whole-body fallback can produce), on a gym too
+    /// thin to refill the chest slots.
+    private static func chestDayWithLegLeftover() -> (WeeklyTrainingPlanCandidate, [AvailableEquipment], TrainingPlanGenerationRequest) {
+        let ids = ["bench_press", "chest_press", "leg_press", "leg_extension", "leg_curl", "lat_pulldown"]
+        let gym = AvailableEquipment.standardCatalog(ids.compactMap(MachineCatalog.entry(for:)))
+        let byId = Dictionary(uniqueKeysWithValues: gym.map { ($0.id, $0) })
+        let request = TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 2, targetBodyParts: [.chest],
+            experienceLevel: .intermediate, preferredSplit: .bodyPart, sessionTheme: .chestFocus
+        )
+        let base = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: gym)
+        let day = base.sessions[0]
+        let exercises = ["bench_press", "leg_press", "chest_press"].map { RoutineStepCandidate(equipment: byId[$0]!) }
+        var sessions = base.sessions
+        sessions[0] = TrainingSessionCandidate(title: day.title, focusBodyParts: day.focusBodyParts, exercises: exercises, notes: day.notes)
+        let plan = WeeklyTrainingPlanCandidate(
+            title: base.title, goal: base.goal, daysPerWeek: base.daysPerWeek, sessions: sessions,
+            rationale: base.rationale, warnings: base.warnings, hasAlternatives: base.hasAlternatives, sessionTheme: base.sessionTheme
+        )
+        return (plan, gym, request)
+    }
+
+    @Test
+    func unlockedOffTargetOriginalIsDroppedNotKept() throws {
+        let (plan, gym, request) = Self.chestDayWithLegLeftover()
+        #expect(plan.sessions[0].focusBodyParts == [.chest])
+        let legs: Set<String> = ["leg_press", "leg_extension", "leg_curl"]
+        for seed: UInt64 in 1...6 {
+            let next = try #require(Self.regen(plan, locks: ["bench_press"], seed: seed, request: request, equipment: gym)).sessions[0].exercises
+            #expect(next.first == plan.sessions[0].exercises[0], "locked bench stays first")
+            #expect(!next.contains { legs.contains($0.machineId) }, "seed \(seed): \(next.map(\.machineId))")
+            #expect(next.allSatisfy { ["bench_press", "chest_press"].contains($0.machineId) })
+            #expect(next.count < 4, "only two chest machines exist; the day may be short")
+        }
+    }
+
+    @Test
+    func lockedOffTargetOriginalIsKept() throws {
+        let (plan, gym, request) = Self.chestDayWithLegLeftover()
+        for seed: UInt64 in 1...6 {
+            let next = try #require(Self.regen(plan, locks: ["leg_press"], seed: seed, request: request, equipment: gym)).sessions[0].exercises
+            #expect(next[1] == plan.sessions[0].exercises[1], "locked leg_press stays in place")
+            #expect(next.filter { $0.machineId != "leg_press" }.allSatisfy { ["bench_press", "chest_press"].contains($0.machineId) })
+        }
+    }
+}
+
