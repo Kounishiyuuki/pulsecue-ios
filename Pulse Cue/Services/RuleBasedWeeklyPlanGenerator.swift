@@ -511,8 +511,9 @@ enum RuleBasedWeeklyPlanGenerator {
     /// - Themed slots (at most `themedSlots`): themed equipment by score,
     ///   fresh before reused only on equal score, so later sessions of the
     ///   week keep the theme even when the best fits were used on Day 1.
-    /// - Remaining slots: fresh non-themed first (diversity), then whatever
-    ///   is left, so a session never empties.
+    /// - Remaining slots (diversity): fresh non-themed, then reused
+    ///   non-themed, and themed leftovers only when nothing non-themed is
+    ///   left, so a session never empties.
     /// `.balanced` is exactly the pre-theme rule. Ties keep the (possibly
     /// seeded) incoming order, so seeds still vary the plan within a theme.
     private static func themed(
@@ -533,8 +534,13 @@ enum RuleBasedWeeklyPlanGenerator {
         let picked = Set(chosen.map(\.id))
         let freshIds = Set(fresh.map(\.id))
         let leftover = ordered.filter { !picked.contains($0.id) }
-        let rest = leftover.filter { freshIds.contains($0.id) && theme.score($0) == 0 }
-            + leftover.filter { !(freshIds.contains($0.id) && theme.score($0) == 0) }
+        // Diversity slots: being outside the theme beats being unused, so a
+        // reused non-themed pick wins over an unused themed one. Themed
+        // leftovers only fill in when no non-themed candidate remains.
+        let nonThemed = leftover.filter { theme.score($0) == 0 }
+        let rest = nonThemed.filter { freshIds.contains($0.id) }
+            + nonThemed.filter { !freshIds.contains($0.id) }
+            + leftover.filter { theme.score($0) > 0 }
         chosen += rest.prefix(count - chosen.count)
         return chosen
     }

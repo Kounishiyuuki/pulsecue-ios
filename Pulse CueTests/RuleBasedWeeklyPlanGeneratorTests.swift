@@ -665,6 +665,44 @@ struct SessionThemeGeneratorTests {
         }
     }
 
+    /// Regression (UI QA, 胸重視 Day 3): with the three themed slots filled,
+    /// an unused themed item (smith machine) must not take the diversity
+    /// slot from a non-themed item already used on Day 1 (seated row).
+    @Test
+    func diversitySlotPrefersReusedNonThemedOverUnusedThemed() {
+        let ids = ["pec_deck", "chest_press", "incline_chest_press", "bench_press", "smith_machine", "seated_row",
+                   "leg_press", "leg_extension", "leg_curl", "hack_squat", "calf_raise", "hip_abduction"]
+        let gym = AvailableEquipment.standardCatalog(ids.compactMap(MachineCatalog.entry(for:)))
+        for seed: UInt64 in 0..<6 {
+            let plan = RuleBasedWeeklyPlanGenerator.generate(request: Self.chestBack(.chestFocus), equipment: gym, variationSeed: seed)
+            for day in [0, 2] {
+                let picks = plan.sessions[day].exercises.map(\.machineId)
+                #expect(picks.count == 4, "seed \(seed) day \(day + 1)")
+                #expect(picks.contains("seated_row"), "seed \(seed) day \(day + 1): \(picks)")
+            }
+            // Day 3 really is the case under test: seated_row was used on Day 1.
+            #expect(plan.sessions[0].exercises.contains { $0.machineId == "seated_row" })
+        }
+    }
+
+    /// With no non-themed candidate at all, themed items fill the session
+    /// rather than leaving it short.
+    @Test
+    func allThemedPoolStillFillsTheSession() {
+        let ids = ["pec_deck", "chest_press", "incline_chest_press", "bench_press", "smith_machine",
+                   "leg_press", "leg_extension", "leg_curl", "hack_squat"]
+        let gym = AvailableEquipment.standardCatalog(ids.compactMap(MachineCatalog.entry(for:)))
+        let request = TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest],
+            experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: .chestFocus
+        )
+        let plan = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: gym)
+        for day in [0, 2] {
+            #expect(plan.sessions[day].exercises.count == 4)
+            #expect(plan.sessions[day].exercises.allSatisfy { ["pec_deck", "chest_press", "incline_chest_press", "bench_press", "smith_machine"].contains($0.machineId) })
+        }
+    }
+
     /// Every upper-day pool here also holds equipment outside these themes
     /// (chest vs back machines, push vs pull), so the theme must leave room.
     @Test(arguments: [SessionTheme.chestFocus, .backFocus, .push, .pull, .press])
