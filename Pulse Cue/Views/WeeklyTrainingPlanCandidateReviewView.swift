@@ -68,6 +68,12 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     @State private var candidate: WeeklyTrainingPlanCandidate?
     /// Only "別のプランを見る" changes this; the generation inputs stay as-is.
     @State private var variationSeed: UInt64 = 0
+    /// Candidate-only edit state, never persisted: locked `machineId`s per
+    /// session index (machineId is unique within a day, so a lock cannot
+    /// drift onto another exercise) and each day's partial-regeneration
+    /// seed, kept apart from `variationSeed` so one day never moves others.
+    @State private var lockedMachineIds: [Int: Set<String>] = [:]
+    @State private var daySeeds: [Int: UInt64] = [:]
     /// Name for the saved plan; prefilled on generation, freely editable.
     @State private var planName = ""
     @State private var saveState: WeeklyPlanSaveState = .idle
@@ -165,8 +171,8 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                         if !candidate.warnings.isEmpty {
                             warningsCard(candidate.warnings)
                         }
-                        ForEach(Array(candidate.sessions.enumerated()), id: \.offset) { _, session in
-                            sessionCard(session)
+                        ForEach(Array(candidate.sessions.enumerated()), id: \.offset) { index, session in
+                            sessionCard(session, index: index, in: candidate)
                         }
                         saveSection(candidate)
                     }
@@ -205,6 +211,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         ) else { return }
         candidate = nil
         variationSeed = 0
+        resetCandidateEdits()
         saveState = .idle
         equipmentNotice = nil
         conditionsExpanded = true
@@ -404,6 +411,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         switch WeeklyPlanEquipmentProvider.resolve(repository: repository) {
         case .ready(let equipment):
             equipmentNotice = nil
+            resetCandidateEdits()
             candidate = RuleBasedWeeklyPlanGenerator.generate(
                 request: request,
                 equipment: equipment,
@@ -445,6 +453,45 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             currentSeed: variationSeed
         ) else { return }
         variationSeed = next.seed
+        // A whole new plan: old locks would point at a different week.
+        resetCandidateEdits()
+        candidate = next.candidate
+        saveState = .idle
+    }
+
+    private func resetCandidateEdits() {
+        lockedMachineIds = [:]
+        daySeeds = [:]
+    }
+
+    private func isLocked(_ machineId: String, session index: Int) -> Bool {
+        lockedMachineIds[index]?.contains(machineId) == true
+    }
+
+    private func toggleLock(_ machineId: String, session index: Int) {
+        var set = lockedMachineIds[index] ?? []
+        if set.contains(machineId) { set.remove(machineId) } else { set.insert(machineId) }
+        lockedMachineIds[index] = set
+    }
+
+    /// Re-picks the unlocked exercises of one day only. Like the other
+    /// candidate actions it writes nothing; saving stays explicit.
+    private func regenerateUnlocked(session index: Int, current: WeeklyTrainingPlanCandidate) {
+        let repository = GymRepository(modelContext: modelContext)
+        guard case .ready(let equipment) = WeeklyPlanEquipmentProvider.resolve(repository: repository) else {
+            generateCandidate()
+            return
+        }
+        guard let next = RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: request,
+            equipment: equipment,
+            current: current,
+            sessionIndex: index,
+            lockedMachineIds: lockedMachineIds[index] ?? [],
+            currentSeed: daySeeds[index] ?? 0
+        ) else { return }
+        daySeeds[index] = next.seed
+        // Locks survive on this day: kept exercises keep their machineIds.
         candidate = next.candidate
         saveState = .idle
     }
@@ -540,7 +587,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
 
     // MARK: - Session
 
-    private func sessionCard(_ session: TrainingSessionCandidate) -> some View {
+    private func sessionCard(_ session: TrainingSessionCandidate, index: Int, in candidate: WeeklyTrainingPlanCandidate) -> some View {
         card {
             VStack(alignment: .leading, spacing: 10) {
                 Text(session.title)
@@ -555,9 +602,10 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                 } else {
                     VStack(spacing: 8) {
                         ForEach(Array(session.exercises.enumerated()), id: \.offset) { _, ex in
-                            exerciseRow(ex)
+                            exerciseRow(ex, session: index)
                         }
                     }
+                    regenerateDayButton(session, index: index, in: candidate)
                 }
                 if !session.notes.isEmpty {
                     Text(session.notes)
@@ -569,10 +617,48 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
         }
     }
 
-    private func exerciseRow(_ ex: RoutineStepCandidate) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(ex.exerciseName)
-                .font(.subheadline.weight(.semibold))
+    private func regenerateDayButton(_ session: TrainingSessionCandidate, index: Int, in candidate: WeeklyTrainingPlanCandidate) -> some View {
+        let allLocked = session.exercises.allSatisfy { isLocked($0.machineId, session: index) }
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                regenerateUnlocked(session: index, current: candidate)
+            } label: {
+                Label("ロック以外を再生成", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(allLocked)
+            .accessibilityHint(allLocked ? "すべての種目が固定されています" : "固定した種目を残して、この日の他の種目を変更します")
+            Text(allLocked ? "すべての種目が固定されています。" : "固定した種目を残して、この日の他の種目を変更します。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func exerciseRow(_ ex: RoutineStepCandidate, session index: Int) -> some View {
+        let locked = isLocked(ex.machineId, session: index)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(ex.exerciseName)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Icon shape (open vs closed lock) and the「固定中」text carry
+                // the state, so it never depends on color alone.
+                Button {
+                    toggleLock(ex.machineId, session: index)
+                } label: {
+                    Label(locked ? "固定中" : "固定", systemImage: locked ? "lock.fill" : "lock.open")
+                        .font(.caption.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(locked ? Color.accentColor : Color.secondary)
+                .accessibilityLabel(locked ? "\(ex.exerciseName)の固定を解除" : "\(ex.exerciseName)を固定")
+                .accessibilityAddTraits(locked ? .isSelected : [])
+            }
             if !ex.bodyParts.isEmpty {
                 Text(ex.bodyParts.map(\.displayName).joined(separator: " / "))
                     .font(.caption2)

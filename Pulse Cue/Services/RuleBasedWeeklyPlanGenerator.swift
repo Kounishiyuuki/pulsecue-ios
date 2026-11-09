@@ -349,6 +349,132 @@ enum RuleBasedWeeklyPlanGenerator {
         return nil
     }
 
+    // MARK: - Partial (one-day) regeneration
+
+    /// Rebuilds only `sessionIndex` of `current`, keeping every exercise
+    /// whose `machineId` is in `lockedMachineIds` exactly as it is (same
+    /// value, same position). Unlocked positions are re-picked with the same
+    /// rules as `generate` (filters, theme, week diversity) from equipment
+    /// not already in that day, so the day never holds a machine twice.
+    /// Other sessions are returned untouched. Pure and deterministic for
+    /// the same inputs + `seed`; persists nothing.
+    ///
+    /// Locks are keyed by `machineId` (unique within a session) rather than
+    /// position, so a lock can never drift onto a different exercise.
+    /// Returns nil when there is nothing to regenerate (bad index or every
+    /// exercise locked).
+    static func regenerateSession(
+        request: TrainingPlanGenerationRequest,
+        equipment: [AvailableEquipment],
+        current: WeeklyTrainingPlanCandidate,
+        sessionIndex: Int,
+        lockedMachineIds: Set<String>,
+        seed: UInt64
+    ) -> WeeklyTrainingPlanCandidate? {
+        guard current.sessions.indices.contains(sessionIndex) else { return nil }
+        let session = current.sessions[sessionIndex]
+        let locked = session.exercises.filter { lockedMachineIds.contains($0.machineId) }
+        let slotCount = max(session.exercises.count, exercisesPerSession(request))
+        let openCount = slotCount - locked.count
+        guard openCount > 0, locked.count < session.exercises.count || session.exercises.isEmpty else { return nil }
+
+        let lockedIds = Set(locked.map(\.machineId))
+        let catalog = equipment.filter { $0.isAvailable && !lockedIds.contains($0.id) }
+        // Fill order for open slots: new equipment matching the day, then
+        // equipment used on other days, then this day's own unlocked
+        // originals that still pass the day's filters (tail of the reused
+        // tier). The filters are never widened (no whole-body fallback), so
+        // a thin gym yields a shorter day rather than an off-target one.
+        let originals = session.exercises.filter { !lockedIds.contains($0.machineId) }
+        let originalIds = Set(originals.map(\.machineId))
+        let usedThisWeek = Set(current.sessions.enumerated()
+            .filter { $0.offset != sessionIndex }
+            .flatMap { $0.element.exercises.map(\.machineId) })
+            .union(originalIds)
+        // Locked exercises count toward the session's themed share.
+        let byId = Dictionary(equipment.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let lockedThemed = lockedIds.filter { id in byId[id].map { request.sessionTheme.score($0) > 0 } ?? false }.count
+        let cap = max(0, themedSlots(slotCount) - lockedThemed)
+
+        // Mix the day into the seed so each day walks its own sequence.
+        var rng = SeededGenerator(seed: seed &* 0x9E37_79B9_7F4A_7C15 &+ UInt64(sessionIndex + 1))
+        let selection = selectExercises(
+            focus: session.focusBodyParts,
+            catalog: catalog,
+            count: openCount,
+            beginnerOnly: request.beginnerFriendlyOnly,
+            usedThisWeek: usedThisWeek,
+            theme: request.sessionTheme,
+            themedCap: cap,
+            allowFallback: false,
+            shuffle: { pool in
+                let shuffled = pool.seededShuffled(using: &rng)
+                return shuffled.filter { !originalIds.contains($0.id) } + shuffled.filter { originalIds.contains($0.id) }
+            }
+        )
+        // Unlocked originals can only come back through the filtered pool,
+        // so one that breaks today's constraints (e.g. a leg machine the
+        // first generation's whole-body fallback put on a chest day) is
+        // dropped; a shorter day beats an off-target one. Locked exercises
+        // are the only thing kept regardless of constraints.
+        let picks = selection.candidates
+
+        // Locked exercises keep their positions; fresh picks fill the gaps
+        // in order, then any extra slots at the end.
+        var fresh = picks.makeIterator()
+        var exercises: [RoutineStepCandidate] = []
+        for exercise in session.exercises {
+            if lockedIds.contains(exercise.machineId) {
+                exercises.append(exercise)
+            } else if let next = fresh.next() {
+                exercises.append(next)
+            }
+        }
+        while let next = fresh.next() { exercises.append(next) }
+
+        var sessions = current.sessions
+        sessions[sessionIndex] = TrainingSessionCandidate(
+            title: session.title,
+            focusBodyParts: session.focusBodyParts,
+            exercises: exercises,
+            notes: session.notes
+        )
+        return WeeklyTrainingPlanCandidate(
+            title: current.title,
+            goal: current.goal,
+            daysPerWeek: current.daysPerWeek,
+            sessions: sessions,
+            rationale: current.rationale,
+            warnings: current.warnings,
+            hasAlternatives: current.hasAlternatives,
+            sessionTheme: current.sessionTheme
+        )
+    }
+
+    /// Walks day seeds after `currentSeed` (at most `maxAttempts`) and
+    /// returns the first whose regenerated day differs from the current
+    /// one. nil when no different day exists or nothing is unlocked.
+    static func nextDistinctSessionVariation(
+        request: TrainingPlanGenerationRequest,
+        equipment: [AvailableEquipment],
+        current: WeeklyTrainingPlanCandidate,
+        sessionIndex: Int,
+        lockedMachineIds: Set<String>,
+        currentSeed: UInt64,
+        maxAttempts: Int = maxVariationAttempts
+    ) -> (seed: UInt64, candidate: WeeklyTrainingPlanCandidate)? {
+        var seed = currentSeed
+        for _ in 0..<max(0, maxAttempts) {
+            seed &+= 1
+            guard let next = regenerateSession(
+                request: request, equipment: equipment, current: current,
+                sessionIndex: sessionIndex, lockedMachineIds: lockedMachineIds, seed: seed
+            ) else { return nil }
+            if next.sessions[sessionIndex] != current.sessions[sessionIndex] { return (seed, next) }
+        }
+        return nil
+    }
+
     // MARK: - Training set
 
     /// Target parts (canonical order) or a balanced full body, with
@@ -435,6 +561,8 @@ enum RuleBasedWeeklyPlanGenerator {
         beginnerOnly: Bool,
         usedThisWeek: Set<String>,
         theme: SessionTheme,
+        themedCap: Int? = nil,
+        allowFallback: Bool = true,
         shuffle: (([AvailableEquipment]) -> [AvailableEquipment])?
     ) -> Selection {
         guard !catalog.isEmpty, count > 0 else {
@@ -453,6 +581,11 @@ enum RuleBasedWeeklyPlanGenerator {
         var focusFallback = false
 
         var pool = matches(parts: focus, beginner: beginnerOnly)
+        if pool.isEmpty && !allowFallback {
+            // Partial regeneration keeps the day's hard constraints; the
+            // caller decides what to do with the empty result.
+            return Selection(candidates: [], focusFallback: false, beginnerRelaxed: false, hasAlternatives: false)
+        }
         if pool.isEmpty && beginnerOnly {
             let relaxed = matches(parts: focus, beginner: false)
             if !relaxed.isEmpty {
@@ -478,7 +611,7 @@ enum RuleBasedWeeklyPlanGenerator {
         let ordered = shuffle?(pool) ?? pool
         let fresh = ordered.filter { !usedThisWeek.contains($0.id) }
         let reused = ordered.filter { usedThisWeek.contains($0.id) }
-        let chosen = themed(fresh: fresh, reused: reused, count: count, theme: theme)
+        let chosen = themed(fresh: fresh, reused: reused, count: count, theme: theme, themedCap: themedCap)
         // Resolve each selected equipment into a concrete Exercise Library
         // movement using the day's focus (so a multi-purpose machine like
         // barbell/cable resolves to the right movement for this body part).
@@ -520,7 +653,8 @@ enum RuleBasedWeeklyPlanGenerator {
         fresh: [AvailableEquipment],
         reused: [AvailableEquipment],
         count: Int,
-        theme: SessionTheme
+        theme: SessionTheme,
+        themedCap: Int? = nil
     ) -> [AvailableEquipment] {
         guard theme != .balanced else { return Array((fresh + reused).prefix(count)) }
         // Offset encodes "fresh before reused, then incoming order" as the
@@ -530,7 +664,7 @@ enum RuleBasedWeeklyPlanGenerator {
             .filter { theme.score($0.element) > 0 }
             .sorted { (theme.score($1.element), $0.offset) < (theme.score($0.element), $1.offset) }
             .map(\.element)
-        var chosen = Array(themedByScore.prefix(themedSlots(count)))
+        var chosen = Array(themedByScore.prefix(min(count, themedCap ?? themedSlots(count))))
         let picked = Set(chosen.map(\.id))
         let freshIds = Set(fresh.map(\.id))
         let leftover = ordered.filter { !picked.contains($0.id) }

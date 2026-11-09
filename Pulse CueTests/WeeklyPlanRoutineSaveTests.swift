@@ -611,6 +611,49 @@ struct SavedTrainingPlanTests {
         #expect(saved.routines.count == 4)
         #expect(try ModelContext(context.container).fetchCount(FetchDescriptor<SavedTrainingPlan>()) == 1)
     }
+
+    // MARK: Exercise locks + partial regeneration
+
+    @Test
+    func lockingAndPartialRegenerationPersistNothing() throws {
+        let context = try Self.makeContext()
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: Self.request, equipment: Self.equipment)
+        let locks: Set<String> = [current.sessions[0].exercises[0].machineId]
+        for seed: UInt64 in 0..<5 {
+            _ = RuleBasedWeeklyPlanGenerator.regenerateSession(
+                request: Self.request, equipment: Self.equipment, current: current,
+                sessionIndex: 0, lockedMachineIds: locks, seed: seed
+            )
+        }
+        _ = RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: Self.request, equipment: Self.equipment, current: current,
+            sessionIndex: 1, lockedMachineIds: [], currentSeed: 0
+        )
+        let c = try Self.counts(context)
+        #expect(c.plans == 0 && c.routines == 0 && c.steps == 0)
+        #expect(!context.hasChanges)
+    }
+
+    @Test
+    func partiallyRegeneratedPlanSavesExactlyWhatIsShown() throws {
+        let context = try Self.makeContext()
+        let current = RuleBasedWeeklyPlanGenerator.generate(request: Self.request, equipment: Self.equipment)
+        let locks: Set<String> = [current.sessions[0].exercises[0].machineId, current.sessions[0].exercises[2].machineId]
+        let edited = try #require(RuleBasedWeeklyPlanGenerator.nextDistinctSessionVariation(
+            request: Self.request, equipment: Self.equipment, current: current,
+            sessionIndex: 0, lockedMachineIds: locks, currentSeed: 0
+        )).candidate
+        let saved = try #require(try SavedTrainingPlanStore.save(edited, split: .upperLower, name: "", in: context))
+        let fresh = ModelContext(context.container)
+        let steps = try fresh.fetch(FetchDescriptor<Step>())
+        #expect(saved.routines.count == edited.savableSessionCount)
+        for (routine, session) in zip(saved.routines, edited.savableSessions) {
+            let rows = steps.filter { $0.routineId == routine.id }.sorted { $0.order < $1.order }
+            #expect(rows.map(\.title) == session.exercises.map(\.exerciseName))
+            #expect(rows.map(\.restSeconds) == session.exercises.map { $0.template.restSeconds ?? rows[0].restSeconds }
+                || session.exercises.contains { $0.template.restSeconds == nil })
+        }
+    }
 }
 
 // MARK: - V10 → V11 migration
