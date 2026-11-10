@@ -74,6 +74,10 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
     /// seed, kept apart from `variationSeed` so one day never moves others.
     @State private var lockedMachineIds: [Int: Set<String>] = [:]
     @State private var daySeeds: [Int: UInt64] = [:]
+    /// Which body-part row of 週間バランス shows its per-day breakdown.
+    /// Display-only; the numbers themselves are always derived from
+    /// `candidate`.
+    @State private var expandedBalancePart: BodyPart?
     /// Name for the saved plan; prefilled on generation, freely editable.
     @State private var planName = ""
     @State private var saveState: WeeklyPlanSaveState = .idle
@@ -171,6 +175,7 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
                         if !candidate.warnings.isEmpty {
                             warningsCard(candidate.warnings)
                         }
+                        weeklyBalanceCard(WeeklyTrainingVolumeAnalyzer.analyze(candidate))
                         ForEach(Array(candidate.sessions.enumerated()), id: \.offset) { index, session in
                             sessionCard(session, index: index, in: candidate)
                         }
@@ -583,6 +588,195 @@ struct WeeklyTrainingPlanCandidateReviewView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
         )
+    }
+
+    // MARK: - Weekly balance
+
+    /// The six parts always shown (0 included) so weeks compare at a glance.
+    private static let balanceParts: [BodyPart] = [.chest, .back, .shoulders, .arms, .legs, .core]
+
+    private func weeklyBalanceCard(_ summary: WeeklyTrainingVolumeSummary) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("週間バランス")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                balanceOverview(summary)
+                Divider()
+                balanceBodyParts(summary)
+                Divider()
+                balanceDayStrip(summary)
+            }
+        }
+        .accessibilityIdentifier("weeklyBalanceCard")
+    }
+
+    private func balanceOverview(_ summary: WeeklyTrainingVolumeSummary) -> some View {
+        let items: [(String, Int, String)] = [
+            ("合計セット", summary.totalSets, "セット"),
+            ("トレーニング日", summary.activeDayCount, "日"),
+            ("種目", summary.exerciseCount, "種目"),
+        ]
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(items, id: \.0) { item in
+                    overviewStat(label: item.0, value: item.1, unit: item.2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(items, id: \.0) { item in
+                    overviewStat(label: item.0, value: item.1, unit: item.2)
+                }
+            }
+        }
+    }
+
+    private func overviewStat(label: String, value: Int, unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(value)")
+                .font(.title.weight(.bold))
+                .monospacedDigit()
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label)、\(value)\(unit)")
+    }
+
+    private func balanceBodyParts(_ summary: WeeklyTrainingVolumeSummary) -> some View {
+        var parts = Self.balanceParts
+        if summary.sets(for: .fullBody) > 0 { parts.append(.fullBody) }
+        let maxSets = max(1, parts.map { summary.sets(for: $0) }.max() ?? 0)
+        return VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("部位別の主対象セット")
+                    .font(.subheadline.weight(.semibold))
+                Text("各種目のセット数を、主に鍛える1部位にだけ数えています。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(parts) { part in
+                balanceRow(part, summary: summary, maxSets: maxSets)
+            }
+            if summary.unclassifiedSets > 0 {
+                Text("複数部位（主対象を特定できない種目）：\(summary.unclassifiedSets)セット")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func balanceRow(_ part: BodyPart, summary: WeeklyTrainingVolumeSummary, maxSets: Int) -> some View {
+        let sets = summary.sets(for: part)
+        let isExpanded = expandedBalancePart == part
+        let breakdown = summary.days.compactMap { day -> (Int, Int)? in
+            let value = day.primarySetsByBodyPart[part] ?? 0
+            return value > 0 ? (day.index, value) : nil
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            Button {
+                expandedBalancePart = isExpanded ? nil : part
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(part.displayName)
+                            .font(.subheadline)
+                        Spacer(minLength: 8)
+                        Text("\(sets)セット")
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(sets == 0 ? .secondary : .primary)
+                        if !breakdown.isEmpty {
+                            Image(systemName: "chevron.down")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        }
+                    }
+                    balanceBar(fraction: Double(sets) / Double(maxSets))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(breakdown.isEmpty)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(part.displayName)、\(sets)セット")
+            .accessibilityHint(breakdown.isEmpty ? "" : (isExpanded ? "日ごとの内訳を閉じます" : "日ごとの内訳を表示します"))
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(breakdown, id: \.0) { entry in
+                        HStack {
+                            Text("Day \(entry.0 + 1)")
+                            Spacer()
+                            Text("\(entry.1)セット").monospacedDigit()
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+                .padding(.leading, 12)
+            }
+        }
+    }
+
+    private func balanceBar(fraction: Double) -> some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.08))
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.85))
+                    .frame(width: fraction > 0 ? max(6, proxy.size.width * fraction) : 0)
+            }
+        }
+        .frame(height: 6)
+        .accessibilityHidden(true)
+    }
+
+    private func balanceDayStrip(_ summary: WeeklyTrainingVolumeSummary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("日ごとのセット")
+                .font(.subheadline.weight(.semibold))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(summary.days, id: \.index) { day in
+                        dayVolumeTile(day)
+                    }
+                }
+            }
+        }
+    }
+
+    private func dayVolumeTile(_ day: DayTrainingVolume) -> some View {
+        let label = day.focusLabel
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Day \(day.index + 1)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\(day.totalSets)セット")
+                .font(.headline)
+                .monospacedDigit()
+            Text("\(day.exerciseCount)種目")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 96, alignment: .leading)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Day \(day.index + 1)、\(label)、\(day.totalSets)セット、\(day.exerciseCount)種目")
     }
 
     // MARK: - Session

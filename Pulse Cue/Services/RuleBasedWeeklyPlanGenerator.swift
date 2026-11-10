@@ -784,3 +784,112 @@ extension Array {
         return result
     }
 }
+
+// MARK: - Weekly volume analysis
+
+/// Set-count breakdown of one training day. Plain value; no persistence.
+struct DayTrainingVolume: Equatable {
+    let index: Int
+    let title: String
+    let focusBodyParts: [BodyPart]
+    let exerciseCount: Int
+    let totalSets: Int
+    let primarySetsByBodyPart: [BodyPart: Int]
+
+    /// Short label built from the actual focus, never from the session
+    /// title (a split label like 下半身 can disagree with the focus).
+    var focusLabel: String { WeeklyTrainingVolumeAnalyzer.compactFocusLabel(focusBodyParts) }
+}
+
+/// Set-count summary of a whole weekly candidate. "Volume" here is the
+/// number of working sets only — no load × reps — so the UI labels it as
+/// 主対象セット, not training volume.
+struct WeeklyTrainingVolumeSummary: Equatable {
+    let totalSets: Int
+    let exerciseCount: Int
+    let activeDayCount: Int
+    let primarySetsByBodyPart: [BodyPart: Int]
+    /// Sets from custom / unresolved exercises tagged with several body
+    /// parts: there is no evidence which one is primary, so they are not
+    /// attributed to any part.
+    let unclassifiedSets: Int
+    let days: [DayTrainingVolume]
+
+    func sets(for part: BodyPart) -> Int { primarySetsByBodyPart[part] ?? 0 }
+}
+
+/// Pure derivation over a `WeeklyTrainingPlanCandidate`. Holds no state,
+/// so re-running it on a regenerated candidate always reflects that
+/// candidate.
+enum WeeklyTrainingVolumeAnalyzer {
+    /// The body part a candidate's sets count toward, or `nil` when it
+    /// cannot be decided without guessing.
+    /// - Resolved standard exercises list the primary part first.
+    /// - Custom / unresolved entries only count when they name one part.
+    static func primaryBodyPart(of exercise: RoutineStepCandidate) -> BodyPart? {
+        if exercise.exerciseId != nil { return exercise.bodyParts.first }
+        return exercise.bodyParts.count == 1 ? exercise.bodyParts[0] : nil
+    }
+
+    private static let upperBody: Set<BodyPart> = [.chest, .back, .shoulders, .arms]
+    private static let lowerBody: Set<BodyPart> = [.legs, .core]
+    private static let displayOrder: [BodyPart] = [.chest, .back, .shoulders, .arms, .legs, .core]
+
+    /// Compact day label from focus body parts:
+    /// - empty, `.fullBody`, or all six parts → 全身
+    /// - exactly the upper / lower group → 上半身 / 下半身
+    /// - a whole group plus extras → e.g. 上半身・脚
+    /// - up to three items → joined with ・ (胸・背中)
+    /// - more → first two plus ほかN部位 (e.g. 下半身・胸 ほか2部位)
+    static func compactFocusLabel(_ parts: [BodyPart]) -> String {
+        let set = Set(parts)
+        if set.isEmpty || set.contains(.fullBody) || upperBody.union(lowerBody).isSubset(of: set) { return "全身" }
+        func names(_ s: Set<BodyPart>) -> [String] { displayOrder.filter(s.contains).map(\.displayName) }
+        let items: [String]
+        if upperBody.isSubset(of: set) {
+            items = ["上半身"] + names(set.subtracting(upperBody))
+        } else if lowerBody.isSubset(of: set) {
+            items = ["下半身"] + names(set.subtracting(lowerBody))
+        } else {
+            items = names(set)
+        }
+        if items.count <= 3 { return items.joined(separator: "・") }
+        return "\(items.prefix(2).joined(separator: "・")) ほか\(items.count - 2)部位"
+    }
+
+    static func analyze(_ candidate: WeeklyTrainingPlanCandidate) -> WeeklyTrainingVolumeSummary {
+        var weekly: [BodyPart: Int] = [:]
+        var unclassified = 0
+        var days: [DayTrainingVolume] = []
+        for (index, session) in candidate.sessions.enumerated() {
+            var perDay: [BodyPart: Int] = [:]
+            var dayTotal = 0
+            for exercise in session.exercises {
+                let sets = exercise.resolvedSets
+                dayTotal += sets
+                if let part = primaryBodyPart(of: exercise) {
+                    perDay[part, default: 0] += sets
+                    weekly[part, default: 0] += sets
+                } else {
+                    unclassified += sets
+                }
+            }
+            days.append(DayTrainingVolume(
+                index: index,
+                title: session.title,
+                focusBodyParts: session.focusBodyParts,
+                exerciseCount: session.exercises.count,
+                totalSets: dayTotal,
+                primarySetsByBodyPart: perDay
+            ))
+        }
+        return WeeklyTrainingVolumeSummary(
+            totalSets: days.reduce(0) { $0 + $1.totalSets },
+            exerciseCount: days.reduce(0) { $0 + $1.exerciseCount },
+            activeDayCount: days.filter { $0.exerciseCount > 0 }.count,
+            primarySetsByBodyPart: weekly,
+            unclassifiedSets: unclassified,
+            days: days
+        )
+    }
+}
