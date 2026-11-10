@@ -1085,3 +1085,198 @@ struct WeeklyPlanExerciseLockTests {
     }
 }
 
+
+// MARK: - Weekly volume analysis
+
+@MainActor
+struct WeeklyTrainingVolumeAnalyzerTests {
+
+    private static func ex(
+        _ id: String, _ parts: [BodyPart], sets: Int?, resolved: Bool = true
+    ) -> RoutineStepCandidate {
+        RoutineStepCandidate(
+            machineId: id, exerciseName: id, bodyParts: parts,
+            template: MachineExerciseTemplate(sets: sets, reps: 8...12, restSeconds: 90),
+            notes: nil, sourceLabel: "test",
+            exerciseId: resolved ? ExerciseID(rawValue: id) : nil
+        )
+    }
+
+    private static func plan(_ days: [[RoutineStepCandidate]]) -> WeeklyTrainingPlanCandidate {
+        WeeklyTrainingPlanCandidate(
+            title: "t", goal: .hypertrophy, daysPerWeek: days.count,
+            sessions: days.enumerated().map { i, exercises in
+                TrainingSessionCandidate(title: "Day \(i + 1)", focusBodyParts: [.chest], exercises: exercises, notes: "")
+            },
+            rationale: "", warnings: []
+        )
+    }
+
+    @Test
+    func totalsMatchResolvedSetsAndExerciseCount() {
+        let candidate = RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(
+                goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+                experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: .chestFocus
+            ),
+            equipment: AvailableEquipment.standardCatalog()
+        )
+        let all = candidate.sessions.flatMap(\.exercises)
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(candidate)
+        #expect(!all.isEmpty)
+        #expect(summary.totalSets == all.reduce(0) { $0 + $1.resolvedSets })
+        #expect(summary.exerciseCount == all.count)
+        #expect(summary.activeDayCount == candidate.savableSessions.count)
+        #expect(summary.primarySetsByBodyPart.values.reduce(0, +) + summary.unclassifiedSets == summary.totalSets)
+    }
+
+    @Test
+    func emptySessionIsNotAnActiveDay() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([[Self.ex("a", [.chest], sets: 3)], []]))
+        #expect(summary.activeDayCount == 1)
+        #expect(summary.days.count == 2)
+        #expect(summary.days[1].totalSets == 0)
+    }
+
+    @Test
+    func resolvedExerciseCountsOnlyItsPrimaryPart() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([[Self.ex("bench", [.chest, .arms, .shoulders], sets: 3)]]))
+        #expect(summary.sets(for: .chest) == 3)
+        #expect(summary.sets(for: .arms) == 0)
+        #expect(summary.sets(for: .shoulders) == 0)
+        #expect(summary.unclassifiedSets == 0)
+    }
+
+    @Test
+    func unresolvedSinglePartCountsTowardThatPart() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([[Self.ex("custom", [.back], sets: 4, resolved: false)]]))
+        #expect(summary.sets(for: .back) == 4)
+        #expect(summary.unclassifiedSets == 0)
+    }
+
+    @Test
+    func unresolvedMultiPartIsUnclassified() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([[Self.ex("custom", [.chest, .back], sets: 4, resolved: false)]]))
+        #expect(summary.sets(for: .chest) == 0)
+        #expect(summary.sets(for: .back) == 0)
+        #expect(summary.unclassifiedSets == 4)
+        #expect(summary.totalSets == 4)
+    }
+
+    @Test
+    func missingSetsUseTheSameFallbackAsSave() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([[Self.ex("a", [.legs], sets: nil)]]))
+        #expect(summary.sets(for: .legs) == RoutineStepCandidate.fallbackSets)
+    }
+
+    @Test
+    func dayTotalsAndPerDayBreakdown() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([
+            [Self.ex("a", [.chest], sets: 3), Self.ex("b", [.back, .arms], sets: 4)],
+            [Self.ex("c", [.chest], sets: 2)],
+        ]))
+        #expect(summary.days.map(\.totalSets) == [7, 2])
+        #expect(summary.days.map(\.exerciseCount) == [2, 1])
+        #expect(summary.days[0].primarySetsByBodyPart == [.chest: 3, .back: 4])
+        #expect(summary.days[1].primarySetsByBodyPart == [.chest: 2])
+        #expect(summary.sets(for: .chest) == 5)
+    }
+
+    @Test
+    func reflectsPartialRegeneration() throws {
+        let request = TrainingPlanGenerationRequest(
+            goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+            experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: .chestFocus
+        )
+        let equipment = AvailableEquipment.standardCatalog()
+        let before = RuleBasedWeeklyPlanGenerator.generate(request: request, equipment: equipment)
+        let after = try #require(RuleBasedWeeklyPlanGenerator.regenerateSession(
+            request: request, equipment: equipment, current: before,
+            sessionIndex: 0, lockedMachineIds: [before.sessions[0].exercises[0].machineId], seed: 7
+        ))
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(after)
+        let day0 = after.sessions[0].exercises
+        #expect(summary.days[0].totalSets == day0.reduce(0) { $0 + $1.resolvedSets })
+        #expect(summary.days[0].exerciseCount == day0.count)
+        #expect(summary == WeeklyTrainingVolumeAnalyzer.analyze(after))
+        #expect(summary.exerciseCount == after.sessions.flatMap(\.exercises).count)
+        #expect(Array(summary.days.dropFirst()) == Array(WeeklyTrainingVolumeAnalyzer.analyze(before).days.dropFirst()))
+    }
+
+    @Test
+    func compactFocusLabels() {
+        let label = WeeklyTrainingVolumeAnalyzer.compactFocusLabel
+        #expect(label([.chest, .back, .shoulders, .arms]) == "上半身")
+        #expect(label([.legs, .core]) == "下半身")
+        #expect(label([.back, .chest]) == "胸・背中")
+        #expect(label([.chest]) == "胸")
+        #expect(label([.chest, .back, .legs, .shoulders, .arms, .core]) == "全身")
+        #expect(label([.fullBody]) == "全身")
+        #expect(label([]) == "全身")
+        #expect(label([.chest, .back, .shoulders]) == "胸・背中・肩")
+        #expect(label([.chest, .back, .shoulders, .arms, .legs]) == "上半身・脚")
+        #expect(label([.legs, .core, .chest]) == "下半身・胸")
+        #expect(label([.legs, .core, .chest, .back, .shoulders]) == "下半身・胸 ほか2部位")
+    }
+
+    @Test
+    func dayLabelsFollowFocusNotSessionTitle() {
+        let equipment = AvailableEquipment.standardCatalog()
+        let chestBack = WeeklyTrainingVolumeAnalyzer.analyze(RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(
+                goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back],
+                experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: .chestFocus
+            ), equipment: equipment
+        ))
+        // Day 2 / 4 are titled 下半身 here but their focus is chest + back.
+        #expect(chestBack.days.map(\.focusLabel) == ["胸・背中", "胸・背中", "胸・背中", "胸・背中"])
+        let everything = WeeklyTrainingVolumeAnalyzer.analyze(RuleBasedWeeklyPlanGenerator.generate(
+            request: TrainingPlanGenerationRequest(
+                goal: .hypertrophy, daysPerWeek: 4,
+                targetBodyParts: [.chest, .back, .shoulders, .arms, .legs, .core],
+                experienceLevel: .intermediate, preferredSplit: .upperLower
+            ), equipment: equipment
+        ))
+        #expect(everything.days.map(\.focusLabel) == ["上半身", "下半身", "上半身", "下半身"])
+    }
+
+    /// Every exercise lands in exactly one bucket: one body part or
+    /// unclassified — never several, never none.
+    @Test
+    func everySetIsCountedInExactlyOneBucket() {
+        let mixed = Self.plan([
+            [Self.ex("bench", [.chest, .arms, .shoulders], sets: 3),
+             Self.ex("custom1", [.back], sets: 4, resolved: false),
+             Self.ex("custom2", [.chest, .back], sets: 5, resolved: false),
+             Self.ex("nil", [.legs, .core], sets: nil)],
+            [],
+            [Self.ex("row", [.back, .arms], sets: 2)],
+        ])
+        var cases = [mixed]
+        for theme in SessionTheme.allCases {
+            cases.append(RuleBasedWeeklyPlanGenerator.generate(
+                request: TrainingPlanGenerationRequest(
+                    goal: .hypertrophy, daysPerWeek: 4, targetBodyParts: [.chest, .back, .legs],
+                    experienceLevel: .intermediate, preferredSplit: .upperLower, sessionTheme: theme
+                ), equipment: AvailableEquipment.standardCatalog()
+            ))
+        }
+        for candidate in cases {
+            let s = WeeklyTrainingVolumeAnalyzer.analyze(candidate)
+            #expect(s.totalSets == s.primarySetsByBodyPart.values.reduce(0, +) + s.unclassifiedSets)
+        }
+        let s = WeeklyTrainingVolumeAnalyzer.analyze(mixed)
+        #expect(s.totalSets == 3 + 4 + 5 + RoutineStepCandidate.fallbackSets + 2)
+        #expect(s.unclassifiedSets == 5)
+    }
+
+    @Test
+    func emptyCandidateIsAllZero() {
+        let summary = WeeklyTrainingVolumeAnalyzer.analyze(Self.plan([]))
+        #expect(summary.totalSets == 0)
+        #expect(summary.exerciseCount == 0)
+        #expect(summary.activeDayCount == 0)
+        #expect(summary.days.isEmpty)
+        #expect(summary.unclassifiedSets == 0)
+    }
+}
