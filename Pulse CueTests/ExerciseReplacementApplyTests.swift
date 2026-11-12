@@ -287,12 +287,25 @@ struct GeneratedPlanEditingTests {
         #expect(steps.first(where: { $0.order == 0 })?.sets == 7)
     }
 
+    /// Persisted Step values in `Step.order` order. An unsorted
+    /// `FetchDescriptor` has no defined order, so comparing raw fetches
+    /// fails on identical data; sorting by the order contract keeps the
+    /// comparison strict (count, order, and every stored field).
+    private static func stepSnapshots(in context: ModelContext) throws -> [[String]] {
+        try context.fetch(FetchDescriptor<Step>(sortBy: [SortDescriptor(\.order)])).map {
+            [$0.id.uuidString, $0.routineId.uuidString, "\($0.order)", $0.title,
+             "\($0.sets)", "\($0.repsTarget)", "\($0.restSeconds)", $0.note,
+             "\($0.isWarmup)", $0.exerciseId ?? "nil"]
+        }
+    }
+
     @Test
     func replacementIsIgnoredOnceSavedAndStepsStayPut() throws {
         let (vm, context) = try Self.viewModel()
         vm.saveAsRoutine()
         let before = try #require(vm.plan)
-        let stepsBefore = try context.fetch(FetchDescriptor<Step>()).map { [$0.title, "\($0.sets)", "\($0.repsTarget)", "\($0.restSeconds)"] }
+        let stepsBefore = try Self.stepSnapshots(in: context)
+        #expect(!stepsBefore.isEmpty)
 
         vm.replaceExercise(at: 0, with: GeneratedExercise(
             machineId: "cable_machine", exerciseName: "ケーブルクロスオーバー",
@@ -302,7 +315,7 @@ struct GeneratedPlanEditingTests {
 
         #expect(vm.plan == before)
         #expect(vm.isSaved)
-        let stepsAfter = try context.fetch(FetchDescriptor<Step>()).map { [$0.title, "\($0.sets)", "\($0.repsTarget)", "\($0.restSeconds)"] }
+        let stepsAfter = try Self.stepSnapshots(in: context)
         #expect(stepsAfter == stepsBefore)
         #expect(try context.fetch(FetchDescriptor<Routine>()).count == 1)
     }
