@@ -394,16 +394,23 @@ final class RunnerViewModel: ObservableObject {
         progression = ProgressionRule.suggest(
             previous: previous,
             baselineReps: step.repsTarget,
-            allowsRepProgression: !isCardio
+            expectedSets: step.sets,
+            allowsRepProgression: !isCardio,
+            allowsWeightProgression: currentStepAcceptsWeight
         )
     }
 
-    /// Sets the current set's on-screen rep counter to the suggested target.
-    /// Transient only — it uses the same path as the ± buttons, so no
-    /// `StepResult`, completed set, or session state is touched.
-    func applySuggestedReps() {
-        guard phase == .exercise, isRunning, let suggested = progression?.suggestedReps else { return }
-        currentReps = max(0, suggested)
+    /// Copies the suggestion into the current set's on-screen reps and, for a
+    /// load suggestion, its weight. Only on an explicit tap — never on
+    /// exercise start. Transient only, like the ± buttons: no `StepResult`,
+    /// `Step`, or `Routine` is touched; Complete records it as usual.
+    func applyProgressionSuggestion() {
+        guard phase == .exercise, isRunning, let suggestion = progression else { return }
+        currentReps = max(0, suggestion.suggestedReps)
+        if let weight = suggestion.suggestedWeightKg, currentStepAcceptsWeight,
+           let valid = SetWeight.validated(weight) {
+            currentWeightKg = valid
+        }
         saveState()
     }
 

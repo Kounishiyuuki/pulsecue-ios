@@ -480,17 +480,24 @@ struct RunnerView: View {
     private var previousPerformanceCard: some View {
         if runnerViewModel.phase == .exercise, let previous = runnerViewModel.previousPerformance {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("前回")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AppTheme.accent)
-                    Text(previous.setReps.map(String.init).joined(separator: " / ") + " 回")
-                        .font(.subheadline.weight(.semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Text(Self.previousDateFormatter.string(from: previous.date))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                if dynamicTypeSize.isAccessibilitySize {
+                    // Mixed-load history can be long; stack it rather than
+                    // squeezing one row.
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            previousCaption
+                            Spacer(minLength: 8)
+                            previousDate(previous)
+                        }
+                        previousValue(previous)
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        previousCaption
+                        previousValue(previous)
+                        Spacer(minLength: 8)
+                        previousDate(previous)
+                    }
                 }
                 if let suggestion = runnerViewModel.progression {
                     Divider().overlay(Color.white.opacity(0.08))
@@ -508,26 +515,46 @@ struct RunnerView: View {
         }
     }
 
-    private func suggestionLabel(_ suggestion: ProgressionSuggestion) -> some View {
-        HStack(spacing: 6) {
-            Text("今回の目安")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(AppTheme.accent)
-            Text(suggestionText(suggestion))
-                .font(.subheadline.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
-        }
+    private var previousCaption: some View {
+        Text("前回")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(AppTheme.accent)
     }
 
-    private func suggestionText(_ s: ProgressionSuggestion) -> String {
-        s.isProgression
-            ? "各セット \(s.baselineReps)〜\(s.suggestedReps) 回"
-            : "各セット \(s.suggestedReps) 回"
+    private func previousValue(_ previous: PreviousPerformance) -> some View {
+        Text(ProgressionPresentation.previousText(previous))
+            .font(.subheadline.weight(.semibold))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func previousDate(_ previous: PreviousPerformance) -> some View {
+        Text(Self.previousDateFormatter.string(from: previous.date))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+    }
+
+    private func suggestionLabel(_ suggestion: ProgressionSuggestion) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("今回の目安")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.accent)
+                Text(ProgressionPresentation.suggestionText(suggestion))
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let reason = ProgressionPresentation.reasonText(suggestion) {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var applySuggestionButton: some View {
         Button {
-            runnerViewModel.applySuggestedReps()
+            runnerViewModel.applyProgressionSuggestion()
         } label: {
             Text("目安を適用")
                 .font(.caption.weight(.semibold))
@@ -539,7 +566,7 @@ struct RunnerView: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.accentSoft)
         )
-        .accessibilityLabel("目安のレップ数を適用")
+        .accessibilityLabel(runnerViewModel.progression.map(ProgressionPresentation.applyAccessibilityLabel) ?? "目安のレップ数を適用")
     }
 
     // MARK: - Exercise replacement entries
