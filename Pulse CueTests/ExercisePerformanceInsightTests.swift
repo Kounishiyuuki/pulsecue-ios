@@ -220,8 +220,8 @@ struct WeightedProgressionRuleTests {
     @Test func mixedWeightsNeverPickAWorkingWeight() {
         let s = suggest(prev([10, 10, 10], [60, 60, 57.5]))
         #expect(s?.suggestedWeightKg == nil)
-        #expect(s?.kind != .increaseWeight)
-        #expect(s?.kind != .holdWeight)
+        #expect(s?.kind == .increaseReps)
+        #expect(s?.suggestedReps == 11)
     }
 
     @Test func partlyMissingWeightNeverIncreasesLoad() {
@@ -245,6 +245,12 @@ struct WeightedProgressionRuleTests {
         #expect(s?.kind == .increaseReps)
         #expect(s?.suggestedWeightKg == nil)
         #expect(s?.suggestedReps == 11)
+    }
+
+    @Test func incrementLandingExactlyOnTheMaximumIsAllowed() {
+        let s = suggest(prev([10, 10, 10], [997.5, 997.5, 997.5]))
+        #expect(s?.kind == .increaseWeight)
+        #expect(s?.suggestedWeightKg == 1000.0)
     }
 
     @Test func neverSuggestsAboveTheMaximum() {
@@ -287,15 +293,15 @@ struct WeightedProgressionRuleTests {
 
     @Test func weightIncreaseText() throws {
         let s = try #require(suggest(prev([10, 10, 10], [60, 60, 60])))
-        #expect(ProgressionPresentation.suggestionText(s) == "62.5 kg・各セット 10 回")
+        #expect(ProgressionPresentation.suggestionText(s) == "62.5\u{00A0}kg・各セット 10 回")
         #expect(ProgressionPresentation.reasonText(s) == "前回は同じ重量で全セット目標回数を達成")
         #expect(ProgressionPresentation.applyAccessibilityLabel(s) == "目安の重量とレップ数を適用")
-        #expect(ProgressionPresentation.previousText(prev([10, 10, 10], [60, 60, 60])) == "60 kg × 10 / 10 / 10 回")
+        #expect(ProgressionPresentation.previousText(prev([10, 10, 10], [60, 60, 60])) == "60\u{00A0}kg × 10 / 10 / 10 回")
     }
 
     @Test func weightedHoldText() throws {
         let s = try #require(suggest(prev([10, 10, 9], [60, 60, 60])))
-        #expect(ProgressionPresentation.suggestionText(s) == "60 kg・各セット 10 回")
+        #expect(ProgressionPresentation.suggestionText(s) == "60\u{00A0}kg・各セット 10 回")
         #expect(ProgressionPresentation.reasonText(s) == nil)
     }
 
@@ -306,6 +312,11 @@ struct WeightedProgressionRuleTests {
         #expect(ProgressionPresentation.previousText(prev([10, 10, 10], [nil, nil, nil])) == "10 / 10 / 10 回")
         let hold = try #require(suggest(prev([10, 10], [nil, nil])))
         #expect(ProgressionPresentation.suggestionText(hold) == "各セット 10 回")
+    }
+
+    @Test func weightTextNeverSplitsNumberFromUnit() {
+        #expect(ProgressionPresentation.weightText(62.5) == "62.5\u{00A0}kg")
+        #expect(ProgressionPresentation.weightText(60) == "60\u{00A0}kg")
     }
 
     @Test func mixedWeightTextKeepsEachSetPaired() {

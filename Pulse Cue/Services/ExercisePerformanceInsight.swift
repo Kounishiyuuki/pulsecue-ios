@@ -201,26 +201,30 @@ enum ProgressionRule {
 /// wording is unit-testable.
 enum ProgressionPresentation {
 
+    /// "62.5\u{00A0}kg": a load joined to its unit by a non-breaking space, so
+    /// Dynamic Type wrapping never separates the number from "kg".
+    static func weightText(_ kg: Double) -> String {
+        "\(SetWeight.number(kg))\u{00A0}kg"
+    }
+
     /// "60 kg × 10 / 10 / 10 回" for one load, "60 kg×10 / 57.5 kg×9" for
     /// mixed loads (a set without a load shows reps only), "10 / 10 回" when
     /// no load was recorded.
     static func previousText(_ previous: PreviousPerformance) -> String {
         let reps = previous.setReps.map(String.init).joined(separator: " / ")
         if let weight = previous.uniformWeightKg {
-            return "\(SetWeight.display(weight)) × \(reps) 回"
+            return "\(weightText(weight)) × \(reps) 回"
         }
         guard previous.sets.contains(where: { $0.weightKg != nil }) else { return reps + " 回" }
-        // Non-breaking space inside each pair so wrapping (Dynamic Type) only
-        // happens between sets, never between a weight and its unit.
         return previous.sets.map { set in
-            set.weightKg.map { "\(SetWeight.number($0))\u{00A0}kg×\(set.reps)" } ?? "\(set.reps)回"
+            set.weightKg.map { "\(weightText($0))×\(set.reps)" } ?? "\(set.reps)回"
         }.joined(separator: " / ")
     }
 
     static func suggestionText(_ s: ProgressionSuggestion) -> String {
         switch s.kind {
         case .increaseWeight, .holdWeight:
-            let weight = s.suggestedWeightKg.map(SetWeight.display) ?? ""
+            let weight = s.suggestedWeightKg.map(weightText) ?? ""
             return "\(weight)・各セット \(s.suggestedReps) 回"
         case .increaseReps:
             return "各セット \(s.baselineReps)〜\(s.suggestedReps) 回"
