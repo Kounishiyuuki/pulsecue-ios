@@ -23,7 +23,7 @@ struct AccountScopedSyncTests {
     // MARK: - Fixture
 
     private static func makeContext() throws -> ModelContext {
-        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV12.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -367,5 +367,48 @@ struct AccountScopedSyncTests {
 
         #expect(try store.outboxItems(for: a, in: context).isEmpty)
         #expect(try store.outboxItems(for: b, in: context).count == 1)
+    }
+}
+
+// MARK: - Per-set weight through the sync boundary
+
+/// There is no iOS network uploader yet; the local boundary a future one
+/// reads from is `syncCandidateStepResults`, and adoption rewrites owners in
+/// place. Both must carry `weightKg` untouched.
+@MainActor
+struct StepResultWeightSyncBoundaryTests {
+
+    private static func makeContext() throws -> ModelContext {
+        let schema = Schema(versionedSchema: PulseCueSchemaV12.self)
+        return ModelContext(try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)))
+    }
+
+    @Test
+    func syncCandidatesCarryExactWeightsAndNil() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let session = Session(routineId: UUID(), dayDate: Date(), ownerAccountID: a)
+        context.insert(session)
+        let stepId = UUID()
+        for (i, w) in [Double?](arrayLiteral: 60, 62.5, nil).enumerated() {
+            context.insert(StepResult(sessionId: session.id, stepId: stepId, setIndex: i, done: true, actualReps: 10, ownerAccountID: a, weightKg: w))
+        }
+        try context.save()
+        let rows = try AccountScopedSyncStore().syncCandidateStepResults(for: a, in: context).sorted { $0.setIndex < $1.setIndex }
+        #expect(rows.map(\.weightKg) == [60, 62.5, nil])
+    }
+
+    @Test
+    func guestAdoptionKeepsWeights() throws {
+        let context = try Self.makeContext()
+        let a = UUID()
+        let session = Session(routineId: UUID(), dayDate: Date(), ownerAccountID: nil)
+        context.insert(session)
+        context.insert(StepResult(sessionId: session.id, stepId: UUID(), setIndex: 0, done: true, actualReps: 9, weightKg: 57.5))
+        try context.save()
+        _ = try AccountScopedSyncStore().adoptGuestWorkoutData(for: a, in: context)
+        let rows = try AccountScopedSyncStore().syncCandidateStepResults(for: a, in: context)
+        #expect(rows.map(\.weightKg) == [57.5])
+        #expect(rows.map(\.ownerAccountID) == [a])
     }
 }

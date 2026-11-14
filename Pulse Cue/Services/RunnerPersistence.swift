@@ -30,6 +30,8 @@ struct RunnerPersistentState: Codable {
     var stepIndex: Int
     var setIndex: Int
     var currentReps: Int? = nil
+    /// Optional so state saved before weights existed still decodes (as nil).
+    var currentWeightKg: Double? = nil
     var restDeadline: Date?
     var lastUpdatedAt: Date
 }
