@@ -20,6 +20,9 @@ struct PreviousPerformance: Equatable {
     let date: Date
     /// Completed-set reps, in `setIndex` order. Never empty for a non-nil value.
     let setReps: [Int]
+    /// Load per completed set, parallel to `setReps` (same sets, same order);
+    /// `nil` where no weight was recorded. Not used by `ProgressionRule` yet.
+    var setWeightsKg: [Double?] = []
 }
 
 enum PreviousPerformanceQuery {
@@ -64,13 +67,15 @@ enum PreviousPerformanceQuery {
         }
         guard let sessionId = latest, let date = dateBySession[sessionId] else { return nil }
 
-        let setReps = relevant
+        // `relevant` only holds results with a rep count, so reps and weights
+        // stay aligned set for set.
+        let sets = relevant
             .filter { $0.sessionId == sessionId }
             .sorted { $0.setIndex < $1.setIndex }
-            .compactMap(\.actualReps)
+        let setReps = sets.compactMap(\.actualReps)
         guard !setReps.isEmpty else { return nil }
 
-        return PreviousPerformance(date: date, setReps: setReps)
+        return PreviousPerformance(date: date, setReps: setReps, setWeightsKg: sets.map(\.weightKg))
     }
 }
 

@@ -494,7 +494,7 @@ struct ProfileOnboardingFixtureRoot: View {
                 try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
             }
         }
-        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV12.self)
         do {
             return try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
         } catch {
@@ -546,7 +546,7 @@ struct GuestFirstLaunchFixtureRoot: View {
             }
             UserDefaults.standard.removeObject(forKey: finishedKey)
         }
-        let schema = Schema(versionedSchema: PulseCueSchemaV11.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV12.self)
         do {
             return try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
         } catch {

@@ -29,6 +29,8 @@ struct RunnerView: View {
     @State private var showRoutinePicker = false
     @State private var routinePendingStartAfterPickerDismissal: Routine?
     @State private var showEndAlert = false
+    @State private var showWeightEntry = false
+    @State private var weightEntryText = ""
     /// Non-nil while the Form Guide sheet is shown for the current step.
     /// Resolved ONLY from the persisted `Step.exerciseId` (never from title
     /// or equipment). Presenting it is observational — no workout state,
@@ -85,6 +87,23 @@ struct RunnerView: View {
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("このセッションは中断として保存されます。")
+        }
+        .alert("重量（kg）", isPresented: $showWeightEntry) {
+            TextField("例: 60", text: $weightEntryText)
+                .keyboardType(.decimalPad)
+            Button("設定") {
+                if let kg = SetWeight.parse(weightEntryText) {
+                    runnerViewModel.setCurrentWeight(kg)
+                }
+            }
+            if runnerViewModel.currentWeightKg != nil {
+                Button("未入力に戻す", role: .destructive) {
+                    runnerViewModel.setCurrentWeight(nil)
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("このセットで使う重量です。0〜\(SetWeight.number(SetWeight.maximumKg)) kg")
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -220,12 +239,97 @@ struct RunnerView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
+
+            if runnerViewModel.isRunning, runnerViewModel.phase == .exercise, runnerViewModel.currentStepAcceptsWeight {
+                weightRow
+            }
         }
         .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 22)
         .padding(.vertical, 24)
         .frame(maxWidth: .infinity)
         .background(focusCardBackground)
         .overlay(focusCardStroke)
+    }
+
+    // MARK: - Weight
+
+    /// One compact row under the rep counter: a single entry button while no
+    /// load is set, then −2.5 / value / +2.5 with the value tappable for exact
+    /// input. Reps stay the hero; weight is secondary.
+    @ViewBuilder
+    private var weightRow: some View {
+        if let weight = runnerViewModel.currentWeightKg {
+            VStack(spacing: 6) {
+                Text("重量")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                HStack(spacing: 12) {
+                    weightStepButton(title: "−2.5", label: "2.5キログラム減らす", disabled: weight <= 0) {
+                        runnerViewModel.adjustCurrentWeight(by: -2.5)
+                    }
+                    Button {
+                        beginWeightEntry()
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(SetWeight.number(weight))
+                                .font(.title2.weight(.bold))
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                            Text("kg")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("重量 \(SetWeight.number(weight))キログラム")
+                    .accessibilityHint("タップして重量を入力")
+                    weightStepButton(title: "+2.5", label: "2.5キログラム増やす", disabled: weight + 2.5 > SetWeight.maximumKg) {
+                        runnerViewModel.adjustCurrentWeight(by: 2.5)
+                    }
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.04)))
+        } else {
+            Button {
+                beginWeightEntry()
+            } label: {
+                Label("重量を入力", systemImage: "scalemass")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppTheme.accent)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.accentSoft))
+        }
+    }
+
+    /// Text-labelled capsule so the weight steps never read as the round rep
+    /// ± buttons above them.
+    private func weightStepButton(title: String, label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .padding(.horizontal, 12)
+                .frame(minWidth: 64, minHeight: 44)
+                .foregroundStyle(disabled ? Color.secondary.opacity(0.35) : AppTheme.accent)
+                .background(Capsule().fill(Color.white.opacity(0.055)))
+                .overlay(Capsule().strokeBorder(AppTheme.separator.opacity(0.45), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(label)
+    }
+
+    private func beginWeightEntry() {
+        weightEntryText = runnerViewModel.currentWeightKg.map(SetWeight.number) ?? ""
+        showWeightEntry = true
     }
 
     // MARK: - Rest timer card

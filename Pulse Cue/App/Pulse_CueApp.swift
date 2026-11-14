@@ -50,13 +50,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV11.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV12.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             let container = try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV11.self),
+                for: Schema(versionedSchema: PulseCueSchemaV12.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -708,12 +708,48 @@ enum PulseCueSchemaV5: VersionedSchema {
 /// entities are additive, like V1→V2 and V2→V3 before them.
 enum PulseCueSchemaV6: VersionedSchema {
     static var versionIdentifier = Schema.Version(6, 0, 0)
+
+    /// `StepResult` exactly as it shipped from V6 through V11. Frozen when V12
+    /// added `weightKg` so V6–V11 keep describing the on-disk shape (the live
+    /// type would change their hashes and orphan existing stores).
+    @Model
+    final class StepResult {
+        @Attribute(.unique) var id: UUID
+        var sessionId: UUID
+        var stepId: UUID
+        var setIndex: Int
+        var done: Bool
+        var actualReps: Int?
+        var memo: String?
+        var ownerAccountID: UUID?
+
+        init(
+            id: UUID = UUID(),
+            sessionId: UUID,
+            stepId: UUID,
+            setIndex: Int,
+            done: Bool,
+            actualReps: Int? = nil,
+            memo: String? = nil,
+            ownerAccountID: UUID? = nil
+        ) {
+            self.id = id
+            self.sessionId = sessionId
+            self.stepId = stepId
+            self.setIndex = setIndex
+            self.done = done
+            self.actualReps = actualReps
+            self.memo = memo
+            self.ownerAccountID = ownerAccountID
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         [
             PulseCueSchemaV5.Routine.self,
             Step.self,
             Session.self,
-            StepResult.self,
+            PulseCueSchemaV6.StepResult.self,
             PulseCueSchemaV1.DayLog.self,
             PulseCueSchemaV1.MealEntry.self,
             PulseCueSchemaV1.UserProfile.self,
@@ -740,7 +776,7 @@ enum PulseCueSchemaV7: VersionedSchema {
             PulseCueSchemaV5.Routine.self,
             Step.self,
             Session.self,
-            StepResult.self,
+            PulseCueSchemaV6.StepResult.self,
             PulseCueSchemaV1.DayLog.self,
             PulseCueSchemaV1.MealEntry.self,
             PulseCueSchemaV1.UserProfile.self,
@@ -833,7 +869,7 @@ enum PulseCueSchemaV8: VersionedSchema {
             PulseCueSchemaV5.Routine.self,
             Step.self,
             Session.self,
-            StepResult.self,
+            PulseCueSchemaV6.StepResult.self,
             DayLog.self,
             MealEntry.self,
             PulseCueSchemaV8.UserProfile.self,
@@ -885,6 +921,18 @@ enum PulseCueSchemaV11: VersionedSchema {
     }
 }
 
+/// Adds `StepResult.weightKg`: the load actually used for each set. Optional
+/// with no meaningful default, so the stage is lightweight and every existing
+/// result migrates to `nil` ("not recorded") — never to 0.
+enum PulseCueSchemaV12: VersionedSchema {
+    static var versionIdentifier = Schema.Version(12, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PulseCueSchemaV11.models.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV6.StepResult.self) ? StepResult.self : $0
+        }
+    }
+}
+
 enum PulseCueMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -898,7 +946,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV8.self,
             PulseCueSchemaV9.self,
             PulseCueSchemaV10.self,
-            PulseCueSchemaV11.self
+            PulseCueSchemaV11.self,
+            PulseCueSchemaV12.self
         ]
     }
 
@@ -943,6 +992,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV10.self,
                 toVersion: PulseCueSchemaV11.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV11.self,
+                toVersion: PulseCueSchemaV12.self
             )
         ]
     }

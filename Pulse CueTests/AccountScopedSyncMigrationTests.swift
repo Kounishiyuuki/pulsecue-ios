@@ -110,7 +110,7 @@ struct AccountScopedSyncMigrationTests {
                 // The point of the test.
                 #expect(migrated.ownerAccountID == nil)
 
-                let results = try context.fetch(FetchDescriptor<StepResult>())
+                let results = try context.fetch(FetchDescriptor<PulseCueSchemaV6.StepResult>())
                 let result = try #require(results.first { $0.id == resultID })
                 #expect(results.count == 1)
                 #expect(result.sessionId == sessionID)

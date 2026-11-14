@@ -676,3 +676,208 @@ struct RunnerStateMachineTests {
         #expect(try fx.context.fetch(FetchDescriptor<Session>()).count == 1)
     }
 }
+
+// MARK: - Per-set weight
+
+@MainActor
+struct RunnerSetWeightTests {
+
+    private struct Fixture {
+        let viewModel: RunnerViewModel
+        let routine: Routine
+        let steps: [Step]
+        let context: ModelContext
+    }
+
+    private static func makeFixture(exerciseIds: [String?] = ["bench_press", "bench_press"], sets: Int = 2) throws -> Fixture {
+        RunnerPersistence.clear()
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "Weights")
+        context.insert(routine)
+        var steps: [Step] = []
+        for (index, id) in exerciseIds.enumerated() {
+            let step = Step(routineId: routine.id, order: index, title: "Step \(index)", sets: sets, repsTarget: 10, restSeconds: 0, exerciseId: id)
+            context.insert(step)
+            steps.append(step)
+        }
+        try context.save()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.weight.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context)
+        return Fixture(viewModel: viewModel, routine: routine, steps: steps, context: context)
+    }
+
+    private static func complete(_ vm: RunnerViewModel) throws {
+        vm.handle(action: .complete, context: try #require(vm.completeContext))
+    }
+
+    private static func results(_ fx: Fixture) throws -> [StepResult] {
+        let order = Dictionary(uniqueKeysWithValues: fx.steps.enumerated().map { ($1.id, $0) })
+        return try fx.context.fetch(FetchDescriptor<StepResult>()).sorted {
+            let l = order[$0.stepId] ?? 0, r = order[$1.stepId] ?? 0
+            return l != r ? l < r : $0.setIndex < $1.setIndex
+        }
+    }
+
+    @Test
+    func completeRecordsRepsAndWeightOnTheSameResult() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(60)
+        try Self.complete(fx.viewModel)
+        let r = try #require(try Self.results(fx).first)
+        #expect(r.done)
+        #expect(r.actualReps == 10)
+        #expect(r.weightKg == 60)
+    }
+
+    @Test
+    func decimalWeightIsStoredExactly() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(62.5)
+        try Self.complete(fx.viewModel)
+        #expect(try Self.results(fx).first?.weightKg == 62.5)
+    }
+
+    @Test
+    func blankWeightStaysNilNotZero() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(try Self.results(fx).first?.weightKg == nil)
+    }
+
+    @Test
+    func invalidWeightsAreRejected() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(50)
+        for bad in [-1, .nan, .infinity, SetWeight.maximumKg + 1] {
+            fx.viewModel.setCurrentWeight(bad)
+            #expect(fx.viewModel.currentWeightKg == 50)
+        }
+        fx.viewModel.setCurrentWeight(0)
+        #expect(fx.viewModel.currentWeightKg == 0)
+        fx.viewModel.adjustCurrentWeight(by: -2.5)
+        #expect(fx.viewModel.currentWeightKg == 0)
+    }
+
+    @Test
+    func skipLeavesNoWeight() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(60)
+        fx.viewModel.handle(action: .skip)
+        let r = try #require(try Self.results(fx).first)
+        #expect(!r.done)
+        #expect(r.actualReps == nil)
+        #expect(r.weightKg == nil)
+    }
+
+    @Test
+    func nextSetStartsFromPreviousWeightAndCanChange() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(60)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.currentSetIndex == 1)
+        #expect(fx.viewModel.currentWeightKg == 60)
+        // Not recorded for set 2 until it is completed.
+        #expect(try Self.results(fx).count == 1)
+        fx.viewModel.adjustCurrentWeight(by: 2.5)
+        try Self.complete(fx.viewModel)
+        let rs = try Self.results(fx)
+        #expect(rs.map(\.weightKg) == [60, 62.5])
+        #expect(rs.map(\.actualReps) == [10, 10])
+    }
+
+    @Test
+    func newExerciseStartsWithoutWeight() throws {
+        let fx = try Self.makeFixture(sets: 1)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(80)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.currentStepIndex == 1)
+        #expect(fx.viewModel.currentWeightKg == nil)
+    }
+
+    @Test
+    func backRestoresTheRecordedWeightAndRecompleteOverwrites() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(60)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.setCurrentWeight(70)
+        fx.viewModel.handle(action: .back)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.currentWeightKg == 60)
+        fx.viewModel.setCurrentWeight(57.5)
+        try Self.complete(fx.viewModel)
+        let rs = try Self.results(fx)
+        #expect(rs.count == 1)
+        #expect(rs.first?.weightKg == 57.5)
+        #expect(fx.viewModel.currentWeightKg == 57.5)
+    }
+
+    @Test
+    func resumeRestoresTheUncommittedWeight() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(60)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.adjustCurrentWeight(by: 2.5)
+
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.weight.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let resumed = RunnerViewModel(settings: settings)
+        resumed.configure(modelContext: fx.context)
+        #expect(resumed.currentSetIndex == 1)
+        #expect(resumed.currentWeightKg == 62.5)
+        try Self.complete(resumed)
+        #expect(try Self.results(fx).map(\.weightKg) == [60, 62.5])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func legacyPersistedStateDecodesWithoutWeight() throws {
+        let json = #"{"sessionId":"\#(UUID().uuidString)","routineId":"\#(UUID().uuidString)","phase":"exercise","stepIndex":0,"setIndex":0,"currentReps":8,"lastUpdatedAt":0}"#
+        let state = try JSONDecoder().decode(RunnerPersistentState.self, from: Data(json.utf8))
+        #expect(state.currentWeightKg == nil)
+        #expect(state.currentReps == 8)
+    }
+
+    @Test
+    func timedOrCardioExerciseHidesWeightAndRecordsNone() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["treadmill_warmup", nil], sets: 1)
+        fx.viewModel.start(routine: fx.routine)
+        #expect(!fx.viewModel.currentStepAcceptsWeight)
+        fx.viewModel.setCurrentWeight(20)
+        #expect(fx.viewModel.currentWeightKg == nil)
+        try Self.complete(fx.viewModel)
+        #expect(try Self.results(fx).first?.weightKg == nil)
+        // Custom / unresolved exercise accepts a weight.
+        #expect(fx.viewModel.currentStepAcceptsWeight)
+    }
+
+    @Test
+    func previousPerformanceStillWorksAndCarriesWeights() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(60)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.adjustCurrentWeight(by: 2.5)
+        try Self.complete(fx.viewModel)
+        try fx.context.save()
+
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        let previous = try #require(fx.viewModel.previousPerformance)
+        #expect(previous.setReps == [10, 10])
+        #expect(previous.setWeightsKg == [60, 62.5])
+        #expect(fx.viewModel.progression != nil)
+    }
+}

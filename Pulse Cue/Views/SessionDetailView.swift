@@ -22,6 +22,23 @@ enum SessionHistoryPresentation {
     /// is persisted on `StepResult`, so we never guess one.
     static let orphanedTitle = "削除された種目"
 
+    /// Right-hand text of a set row: "60 kg × 10 回" when a weight was
+    /// recorded, otherwise exactly the pre-weight text ("10 回" / "記録なし").
+    static func setValueText(_ result: StepResult) -> String {
+        let reps = result.actualReps.map { "\($0) 回" }
+        guard let weight = result.weightKg else { return reps ?? "記録なし" }
+        return reps.map { "\(SetWeight.display(weight)) × \($0)" } ?? SetWeight.display(weight)
+    }
+
+    /// VoiceOver label of a set row. Without a weight it reads exactly as
+    /// before ("セット 1、完了、10回").
+    static func setAccessibilityLabel(_ result: StepResult) -> String {
+        var parts = ["セット \(result.setIndex + 1)", result.done ? "完了" : "未完了"]
+        if let weight = result.weightKg { parts.append("\(SetWeight.number(weight))キログラム") }
+        parts.append(result.actualReps.map { "\($0)回" } ?? "回数記録なし")
+        return parts.joined(separator: "、")
+    }
+
     /// Groups every persisted `StepResult` by its historical `stepId`.
     /// Resolvable steps come first in `Step.order`; orphaned groups follow in
     /// deterministic persisted-data order. Nothing is ever dropped.
@@ -190,9 +207,7 @@ struct SessionDetailView: View {
                         }
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel(
-                        "セット \(result.setIndex + 1)、\(result.done ? "完了" : "未完了")、\(result.actualReps.map { "\($0)回" } ?? "回数記録なし")"
-                    )
+                    .accessibilityLabel(SessionHistoryPresentation.setAccessibilityLabel(result))
                 }
             }
         }
@@ -210,9 +225,9 @@ struct SessionDetailView: View {
     }
 
     private func resultRepetitions(_ result: StepResult) -> some View {
-        Text(result.actualReps.map { "\($0) 回" } ?? "記録なし")
+        Text(SessionHistoryPresentation.setValueText(result))
             .font(.subheadline.monospacedDigit())
-            .foregroundStyle(result.actualReps == nil ? .secondary : .primary)
+            .foregroundStyle(result.actualReps == nil && result.weightKg == nil ? .secondary : .primary)
     }
 
     private var emptyState: some View {

@@ -173,3 +173,42 @@ struct SessionHistoryPresentationTests {
         #expect(groups[0].results.first?.done == true)
     }
 }
+
+// MARK: - Per-set weight
+
+struct SessionHistoryWeightTextTests {
+    private func result(reps: Int?, weight: Double?, done: Bool = true, set: Int = 0) -> StepResult {
+        StepResult(sessionId: UUID(), stepId: UUID(), setIndex: set, done: done, actualReps: reps, weightKg: weight)
+    }
+
+    @Test func weightAndRepsReadTogether() {
+        #expect(SessionHistoryPresentation.setValueText(result(reps: 10, weight: 60)) == "60 kg × 10 回")
+        #expect(SessionHistoryPresentation.setValueText(result(reps: 9, weight: 62.5)) == "62.5 kg × 9 回")
+        #expect(SessionHistoryPresentation.setValueText(result(reps: 10, weight: 0)) == "0 kg × 10 回")
+    }
+
+    @Test func noWeightKeepsThePreviousText() {
+        #expect(SessionHistoryPresentation.setValueText(result(reps: 10, weight: nil)) == "10 回")
+        #expect(SessionHistoryPresentation.setValueText(result(reps: nil, weight: nil, done: false)) == "記録なし")
+    }
+
+    @Test func accessibilityLabels() {
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(result(reps: 10, weight: 60)) == "セット 1、完了、60キログラム、10回")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(result(reps: 10, weight: nil)) == "セット 1、完了、10回")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(result(reps: nil, weight: nil, done: false, set: 2)) == "セット 3、未完了、回数記録なし")
+    }
+
+    @Test func weightFormattingAndParsing() {
+        #expect(SetWeight.display(60) == "60 kg")
+        #expect(SetWeight.display(62.5) == "62.5 kg")
+        #expect(SetWeight.display(61.25) == "61.25 kg")
+        #expect(SetWeight.parse("62,5") == 62.5)
+        #expect(SetWeight.parse(" 60 ") == 60)
+        #expect(SetWeight.parse("") == nil)
+        #expect(SetWeight.parse("-5") == nil)
+        #expect(SetWeight.parse("abc") == nil)
+        #expect(SetWeight.validated(.nan) == nil)
+        #expect(SetWeight.validated(.infinity) == nil)
+        #expect(SetWeight.validated(60.000000001) == 60)
+    }
+}

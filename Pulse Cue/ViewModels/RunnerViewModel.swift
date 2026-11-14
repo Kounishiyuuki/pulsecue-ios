@@ -25,6 +25,10 @@ final class RunnerViewModel: ObservableObject {
     @Published private(set) var currentStepIndex: Int = 0
     @Published private(set) var currentSetIndex: Int = 0
     @Published private(set) var currentReps: Int = 0
+    /// Load for the set on screen, in kg; `nil` = not entered. Transient until
+    /// Complete writes it to that set's `StepResult.weightKg`, which is the
+    /// truth. Carried to the next set of the same exercise as a starting value.
+    @Published private(set) var currentWeightKg: Double?
     @Published private(set) var restDeadline: Date?
     @Published private(set) var remainingSeconds: Int = 0
     @Published var needsAttention: Bool = false
@@ -118,6 +122,7 @@ final class RunnerViewModel: ObservableObject {
         currentStepIndex = 0
         currentSetIndex = 0
         currentReps = 0
+        currentWeightKg = nil
         phase = .done
         restDeadline = nil
         remainingSeconds = 0
@@ -143,6 +148,7 @@ final class RunnerViewModel: ObservableObject {
         self.currentStepIndex = 0
         self.currentSetIndex = 0
         self.currentReps = steps.first?.repsTarget ?? 0
+        self.currentWeightKg = nil
         self.phase = .exercise
         self.restDeadline = nil
         self.remainingSeconds = 0
@@ -224,6 +230,34 @@ final class RunnerViewModel: ObservableObject {
         guard !overflowed else { return }
         currentReps = max(0, adjustedReps)
         saveState()
+    }
+
+    /// Whether the current exercise takes a load. Hidden only when the library
+    /// says the movement is timed or cardio; custom / unresolved exercises
+    /// accept a weight.
+    var currentStepAcceptsWeight: Bool {
+        guard let step = currentStep else { return false }
+        guard let exercise = resolvedExercise(for: step) else { return true }
+        return !exercise.isDurationBased && exercise.movementPattern != .cardio
+    }
+
+    /// Sets the current set's load. Invalid values (negative, non-finite, over
+    /// `SetWeight.maximumKg`) are ignored rather than clamped; `nil` clears it.
+    func setCurrentWeight(_ kg: Double?) {
+        guard phase == .exercise, isRunning, currentStepAcceptsWeight else { return }
+        if let kg {
+            guard let valid = SetWeight.validated(kg) else { return }
+            currentWeightKg = valid
+        } else {
+            currentWeightKg = nil
+        }
+        saveState()
+    }
+
+    /// Steps the current load; floors at 0. No-op while nothing is entered.
+    func adjustCurrentWeight(by delta: Double) {
+        guard let current = currentWeightKg else { return }
+        setCurrentWeight(max(0, current + delta))
     }
 
     func shortenRest() {
@@ -319,6 +353,7 @@ final class RunnerViewModel: ObservableObject {
         invalidateCompleteContext()
         if index == currentStepIndex {
             currentReps = step.repsTarget
+            currentWeightKg = nil
         }
         try? modelContext?.save()
         saveState()
@@ -399,7 +434,11 @@ final class RunnerViewModel: ObservableObject {
             return
         }
 
-        recordStepResult(done: true, actualReps: currentReps)
+        recordStepResult(
+            done: true,
+            actualReps: currentReps,
+            weightKg: currentStepAcceptsWeight ? currentWeightKg : nil
+        )
         startRest(for: step)
     }
 
@@ -418,7 +457,7 @@ final class RunnerViewModel: ObservableObject {
             finishSession(completed: true)
             return
         }
-        recordStepResult(done: false, actualReps: nil)
+        recordStepResult(done: false, actualReps: nil, weightKg: nil)
         advanceToNextStepSkippingSets()
     }
 
@@ -446,6 +485,7 @@ final class RunnerViewModel: ObservableObject {
             restDeadline = nil
             stopTimer()
             currentReps = restoredRepsForCurrentPosition()
+            restoreWeightForCurrentPosition()
             saveState()
             return
         }
@@ -465,6 +505,7 @@ final class RunnerViewModel: ObservableObject {
         guard moved else { return }
         invalidateCompleteContext()
         currentReps = restoredRepsForCurrentPosition()
+        restoreWeightForCurrentPosition()
         saveState()
     }
 
@@ -497,10 +538,12 @@ final class RunnerViewModel: ObservableObject {
         }
 
         if currentSetIndex + 1 < step.sets {
+            // Same exercise: the load just used is the natural starting value.
             currentSetIndex += 1
         } else {
             currentSetIndex = 0
             currentStepIndex += 1
+            currentWeightKg = nil
         }
 
         if currentStepIndex >= steps.count {
@@ -516,6 +559,7 @@ final class RunnerViewModel: ObservableObject {
     private func advanceToNextStepSkippingSets() {
         currentSetIndex = 0
         currentStepIndex += 1
+        currentWeightKg = nil
 
         if currentStepIndex >= steps.count {
             finishSession(completed: true)
@@ -575,6 +619,7 @@ final class RunnerViewModel: ObservableObject {
         currentStepIndex = 0
         currentSetIndex = 0
         currentReps = 0
+        currentWeightKg = nil
         restDeadline = nil
         remainingSeconds = 0
         needsAttention = false
@@ -586,7 +631,7 @@ final class RunnerViewModel: ObservableObject {
         RunnerPersistence.clear(scope: scope)
     }
 
-    private func recordStepResult(done: Bool, actualReps: Int?) {
+    private func recordStepResult(done: Bool, actualReps: Int?, weightKg: Double?) {
         guard let modelContext, let sessionId, let step = currentStep else { return }
         let stepId = step.id
         let setIndex = currentSetIndex
@@ -598,6 +643,7 @@ final class RunnerViewModel: ObservableObject {
         if let existing = try? modelContext.fetch(descriptor).first {
             existing.done = done
             existing.actualReps = actualReps
+            existing.weightKg = weightKg
             return
         }
         // Owner comes from the parent session, never from the current account.
@@ -610,7 +656,8 @@ final class RunnerViewModel: ObservableObject {
             setIndex: currentSetIndex,
             done: done,
             actualReps: actualReps,
-            ownerAccountID: session?.ownerAccountID
+            ownerAccountID: session?.ownerAccountID,
+            weightKg: weightKg
         )
         modelContext.insert(result)
     }
@@ -628,6 +675,23 @@ final class RunnerViewModel: ObservableObject {
         )
         let recordedReps = (try? modelContext.fetch(descriptor).first)?.actualReps
         return max(0, recordedReps ?? step.repsTarget)
+    }
+
+    /// After moving back onto a set: a set that already has a result shows the
+    /// weight recorded for it (`nil` if none); a set with no result keeps the
+    /// value on screen, so going back never silently drops an entered load.
+    private func restoreWeightForCurrentPosition() {
+        guard let modelContext, let sessionId, let step = currentStep else { return }
+        let stepId = step.id
+        let setIndex = currentSetIndex
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> {
+                $0.sessionId == sessionId && $0.stepId == stepId && $0.setIndex == setIndex
+            }
+        )
+        if let recorded = try? modelContext.fetch(descriptor).first {
+            currentWeightKg = recorded.weightKg
+        }
     }
 
     private func fetchSteps(routineId: UUID) -> [Step] {
@@ -786,6 +850,7 @@ final class RunnerViewModel: ObservableObject {
             stepIndex: currentStepIndex,
             setIndex: currentSetIndex,
             currentReps: currentReps,
+            currentWeightKg: currentWeightKg,
             restDeadline: restDeadline,
             lastUpdatedAt: Date()
         )
@@ -825,6 +890,7 @@ final class RunnerViewModel: ObservableObject {
         self.currentStepIndex = min(state.stepIndex, max(0, steps.count - 1))
         self.currentSetIndex = max(0, state.setIndex)
         self.currentReps = max(0, state.currentReps ?? currentStep?.repsTarget ?? 0)
+        self.currentWeightKg = SetWeight.validated(state.currentWeightKg)
         self.phase = state.phase
         self.restDeadline = state.restDeadline
         self.remainingSeconds = 0
