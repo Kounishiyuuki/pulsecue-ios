@@ -1004,6 +1004,44 @@ struct RunnerWeightedProgressionTests {
     }
 
     @Test
+    func endingEarlyAfterOneSetKeepsTheOlderFullRecordAsLastTime() throws {
+        let fx = try Self.makeFixture()
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [60, 60, 60])
+        // Today: one set at 62.5, then "中断して終了".
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(62.5)
+        fx.viewModel.handle(action: .complete, context: try #require(fx.viewModel.completeContext))
+        fx.viewModel.endSessionEarly()
+        try fx.context.save()
+
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        #expect(fx.viewModel.previousPerformance?.setWeightsKg == [60, 60, 60])
+        #expect(fx.viewModel.progression?.kind == .increaseWeight)
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 62.5)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func duplicatedStepUsesOnlyItsOwnHistory() throws {
+        let fx = try Self.makeFixture()
+        // A second bench step in the same routine (e.g. via 複製).
+        let backOff = Step(routineId: fx.routine.id, order: 1, title: "ベンチプレス", sets: 3, repsTarget: 10, restSeconds: 0, exerciseId: "bench_press")
+        fx.context.insert(backOff)
+        let past = Session(routineId: fx.routine.id, dayDate: .now, startedAt: Date().addingTimeInterval(-86_400), status: .completed)
+        fx.context.insert(past)
+        for i in 0..<3 { fx.context.insert(StepResult(sessionId: past.id, stepId: fx.step.id, setIndex: i, done: true, actualReps: 10, weightKg: 60)) }
+        fx.context.insert(StepResult(sessionId: past.id, stepId: backOff.id, setIndex: 0, done: true, actualReps: 10, weightKg: 40))
+        try fx.context.save()
+
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        #expect(fx.viewModel.previousPerformance?.setWeightsKg == [60, 60, 60])
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 62.5)
+        RunnerPersistence.clear()
+    }
+
+    @Test
     func repOnlySuggestionLeavesTheWeightAlone() throws {
         let fx = try Self.makeFixture()
         try Self.seedHistory(fx, stepId: fx.step.id, weights: [nil, nil, nil])

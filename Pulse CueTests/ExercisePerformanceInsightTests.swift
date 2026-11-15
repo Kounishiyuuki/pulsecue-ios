@@ -16,12 +16,12 @@ import Testing
 @MainActor
 struct ExercisePerformanceInsightTests {
 
-    private func step(_ exerciseId: String?, id: UUID = UUID()) -> Step {
-        Step(id: id, routineId: UUID(), order: 0, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
+    private func step(_ exerciseId: String?, id: UUID = UUID(), order: Int = 0) -> Step {
+        Step(id: id, routineId: UUID(), order: order, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
     }
 
-    private func session(_ id: UUID, daysAgo: Int) -> Session {
-        Session(id: id, routineId: UUID(), dayDate: .now, startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)), status: .completed)
+    private func session(_ id: UUID, daysAgo: Int, status: SessionStatus = .completed) -> Session {
+        Session(id: id, routineId: UUID(), dayDate: .now, startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)), status: status)
     }
 
     private func result(_ sessionId: UUID, _ stepId: UUID, set: Int, reps: Int?, done: Bool = true) -> StepResult {
@@ -34,7 +34,7 @@ struct ExercisePerformanceInsightTests {
     func noHistoryYieldsNil() {
         let s = step("bench_press")
         let result = PreviousPerformanceQuery.latest(
-            exerciseId: "bench_press", excludingSessionId: nil,
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
             steps: [s], sessions: [], results: []
         )
         #expect(result == nil)
@@ -50,7 +50,7 @@ struct ExercisePerformanceInsightTests {
             result(sess.id, bench.id, set: 2, reps: 9),
         ]
         let perf = PreviousPerformanceQuery.latest(
-            exerciseId: "bench_press", excludingSessionId: nil,
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
             steps: [bench], sessions: [sess], results: results
         )
         #expect(perf?.setReps == [10, 10, 9])
@@ -67,7 +67,7 @@ struct ExercisePerformanceInsightTests {
             result(newer.id, bench.id, set: 1, reps: 10),
         ]
         let perf = PreviousPerformanceQuery.latest(
-            exerciseId: "bench_press", excludingSessionId: nil,
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
             steps: [bench], sessions: [older, newer], results: results
         )
         #expect(perf?.setReps == [10, 10]) // newer session, not the older 8
@@ -84,7 +84,7 @@ struct ExercisePerformanceInsightTests {
             result(sess.id, chest.id, set: 0, reps: 12),               // other exercise
         ]
         let perf = PreviousPerformanceQuery.latest(
-            exerciseId: "bench_press", excludingSessionId: nil,
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
             steps: [bench, chest], sessions: [sess], results: results
         )
         #expect(perf?.setReps == [10]) // only the completed bench set
@@ -100,7 +100,7 @@ struct ExercisePerformanceInsightTests {
             result(current.id, bench.id, set: 0, reps: 10), // this session, must be ignored
         ]
         let perf = PreviousPerformanceQuery.latest(
-            exerciseId: "bench_press", excludingSessionId: current.id,
+            exerciseId: "bench_press", excludingSessionId: current.id, expectedSets: 3,
             steps: [bench], sessions: [past, current], results: results
         )
         #expect(perf?.setReps == [9]) // the past session, not the current 10
@@ -115,7 +115,7 @@ struct ExercisePerformanceInsightTests {
         let sess = session(UUID(), daysAgo: 2)
         let results = [result(sess.id, originalStep.id, set: 0, reps: 11)]
         let perf = PreviousPerformanceQuery.latest(
-            exerciseId: "chest_press", excludingSessionId: nil,
+            exerciseId: "chest_press", excludingSessionId: nil, expectedSets: 3,
             steps: [originalStep, swappedInStep], sessions: [sess], results: results
         )
         #expect(perf?.setReps == [11])
@@ -130,9 +130,179 @@ struct ExercisePerformanceInsightTests {
             result(a.id, bench.id, set: 0, reps: 10),
             result(b.id, bench.id, set: 0, reps: 8),
         ]
-        let first = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, steps: [bench], sessions: [a, b], results: results)
-        let second = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, steps: [bench], sessions: [a, b], results: results)
+        let first = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3, steps: [bench], sessions: [a, b], results: results)
+        let second = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3, steps: [bench], sessions: [a, b], results: results)
         #expect(first == second)
+    }
+
+    // MARK: - Which session counts as "last time"
+
+    /// `count` done sets of 10 reps (and 60 kg) for `stepId` in `sessionId`.
+    private func sets(_ sessionId: UUID, _ stepId: UUID, done count: Int, skipped: Int = 0) -> [StepResult] {
+        (0..<count).map { StepResult(sessionId: sessionId, stepId: stepId, setIndex: $0, done: true, actualReps: 10, weightKg: 60) }
+            + (count..<(count + skipped)).map { StepResult(sessionId: sessionId, stepId: stepId, setIndex: $0, done: false, actualReps: nil) }
+    }
+
+    private func latest(_ bench: Step, _ sessions: [Session], _ results: [StepResult], excluding: UUID? = nil) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: excluding, expectedSets: 3, steps: [bench], sessions: sessions, results: results)
+    }
+
+    @Test
+    func newerAbandonedPartialDoesNotHideAnOlderFullRecord() {
+        let bench = step("bench_press")
+        let full = session(UUID(), daysAgo: 5)
+        let partial = session(UUID(), daysAgo: 3, status: .abandoned)
+        let perf = latest(bench, [full, partial], sets(full.id, bench.id, done: 3) + sets(partial.id, bench.id, done: 1))
+        #expect(perf?.date == full.startedAt)
+        #expect(perf?.sets.count == 3)
+    }
+
+    @Test
+    func inProgressSessionIsNeverLastTime() {
+        let bench = step("bench_press")
+        let full = session(UUID(), daysAgo: 5)
+        let running = session(UUID(), daysAgo: 1, status: .inProgress)
+        let perf = latest(bench, [full, running], sets(full.id, bench.id, done: 3) + sets(running.id, bench.id, done: 3))
+        #expect(perf?.date == full.startedAt)
+        // Only an in-progress record → nothing to show.
+        #expect(latest(bench, [running], sets(running.id, bench.id, done: 3)) == nil)
+    }
+
+    @Test
+    func abandonedSessionWithThisExerciseFullyDoneCounts() {
+        let bench = step("bench_press")
+        let older = session(UUID(), daysAgo: 7)
+        let abandoned = session(UUID(), daysAgo: 2, status: .abandoned)
+        let perf = latest(bench, [older, abandoned], sets(older.id, bench.id, done: 3) + sets(abandoned.id, bench.id, done: 3))
+        #expect(perf?.date == abandoned.startedAt)
+    }
+
+    @Test
+    func withoutAnyFullRecordTheNewestPartialIsShownAndHeld() throws {
+        let bench = step("bench_press")
+        let older = session(UUID(), daysAgo: 7, status: .abandoned)
+        let newer = session(UUID(), daysAgo: 2, status: .abandoned)
+        let perf = try #require(latest(bench, [older, newer], sets(older.id, bench.id, done: 1) + sets(newer.id, bench.id, done: 2)))
+        #expect(perf.date == newer.startedAt)
+        #expect(perf.sets.count == 2)
+        let s = ProgressionRule.suggest(previous: perf, baselineReps: 10, expectedSets: 3, allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedWeightKg == nil)
+    }
+
+    @Test
+    func resumedSessionCountsOnlyOnceFinished() {
+        let bench = step("bench_press")
+        let older = session(UUID(), daysAgo: 7)
+        let resumed = session(UUID(), daysAgo: 1, status: .inProgress)
+        let olderSets = sets(older.id, bench.id, done: 3)
+        #expect(latest(bench, [older, resumed], olderSets + sets(resumed.id, bench.id, done: 1))?.date == older.startedAt)
+        resumed.status = .completed
+        #expect(latest(bench, [older, resumed], olderSets + sets(resumed.id, bench.id, done: 3))?.date == resumed.startedAt)
+    }
+
+    @Test
+    func completedSessionWithSkippedSetsIsNotAFullRecord() {
+        let bench = step("bench_press")
+        let full = session(UUID(), daysAgo: 7)
+        let skipped = session(UUID(), daysAgo: 2) // .completed, but 2 of 3 skipped
+        let perf = latest(bench, [full, skipped], sets(full.id, bench.id, done: 3) + sets(skipped.id, bench.id, done: 1, skipped: 2))
+        #expect(perf?.date == full.startedAt)
+    }
+
+    @Test
+    func newestOfSeveralFullRecordsWins() {
+        let bench = step("bench_press")
+        let a = session(UUID(), daysAgo: 9)
+        let b = session(UUID(), daysAgo: 4)
+        let c = session(UUID(), daysAgo: 6, status: .abandoned)
+        let perf = latest(bench, [a, b, c], sets(a.id, bench.id, done: 3) + sets(b.id, bench.id, done: 3) + sets(c.id, bench.id, done: 3))
+        #expect(perf?.date == b.startedAt)
+    }
+
+    // MARK: Duplicated steps of one exercise in one session
+
+    /// `count` done sets for `stepId`, each at `weight` and `reps`.
+    private func stepSets(_ sessionId: UUID, _ stepId: UUID, done count: Int, weight: Double = 60, reps: Int = 10) -> [StepResult] {
+        (0..<count).map { StepResult(sessionId: sessionId, stepId: stepId, setIndex: $0, done: true, actualReps: reps, weightKg: weight) }
+    }
+
+    private func latest(_ steps: [Step], _ sessions: [Session], _ results: [StepResult], order: Int?) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3, currentStepOrder: order, steps: steps, sessions: sessions, results: results)
+    }
+
+    @Test
+    func fullStepWinsOverItsPartialDuplicateInTheSameSession() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let perf = latest([a, b], [sess], stepSets(sess.id, a.id, done: 3, weight: 80) + stepSets(sess.id, b.id, done: 1, weight: 50), order: 1)
+        #expect(perf?.sets.count == 3)
+        #expect(perf?.setWeightsKg == [80, 80, 80])
+    }
+
+    @Test
+    func twoPartialStepsNeverAddUpToAFullRecord() throws {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let perf = try #require(latest([a, b], [sess], stepSets(sess.id, a.id, done: 2) + stepSets(sess.id, b.id, done: 1), order: 0))
+        #expect(perf.sets.count == 2) // step A alone, not 2 + 1
+        let s = ProgressionRule.suggest(previous: perf, baselineReps: 10, expectedSets: 3, allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedWeightKg == nil)
+    }
+
+    @Test
+    func twoFullStepsAreNotSixSetsAndThePickIsStable() {
+        let a = step("bench_press", id: UUID(), order: 0), b = step("bench_press", id: UUID(), order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let results = stepSets(sess.id, a.id, done: 3, weight: 80) + stepSets(sess.id, b.id, done: 3, weight: 50)
+        // No order match → lowest order (A), regardless of input order.
+        let first = latest([a, b], [sess], results, order: 5)
+        let second = latest([b, a], [sess], results.reversed(), order: 5)
+        #expect(first?.sets.count == 3)
+        #expect(first?.setWeightsKg == [80, 80, 80])
+        #expect(first == second)
+    }
+
+    @Test
+    func twoPartialStepsAreNotMixedIntoFourSets() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let perf = latest([a, b], [sess], stepSets(sess.id, a.id, done: 2, weight: 80) + stepSets(sess.id, b.id, done: 2, weight: 50), order: 0)
+        #expect(perf?.sets.count == 2)
+        #expect(perf?.setWeightsKg == [80, 80])
+    }
+
+    @Test
+    func matchingStepOrderWinsAmongFullDuplicates() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let results = stepSets(sess.id, a.id, done: 3, weight: 80) + stepSets(sess.id, b.id, done: 3, weight: 50)
+        #expect(latest([a, b], [sess], results, order: 1)?.setWeightsKg == [50, 50, 50])
+        #expect(latest([a, b], [sess], results, order: 0)?.setWeightsKg == [80, 80, 80])
+    }
+
+    @Test
+    func fullDuplicateInAnOlderSessionBeatsANewerPartialStep() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let older = session(UUID(), daysAgo: 7)
+        let newer = session(UUID(), daysAgo: 2, status: .abandoned)
+        let results = stepSets(older.id, a.id, done: 3) + stepSets(newer.id, a.id, done: 2) + stepSets(newer.id, b.id, done: 1)
+        let perf = latest([a, b], [older, newer], results, order: 0)
+        #expect(perf?.date == older.startedAt)
+        #expect(perf?.sets.count == 3)
+    }
+
+    @Test
+    func otherExercisesNeverCountTowardTheSetTotal() {
+        let bench = step("bench_press")
+        let squat = step("barbell_squat")
+        let full = session(UUID(), daysAgo: 7)
+        let newer = session(UUID(), daysAgo: 2, status: .abandoned)
+        // The newer session has 3 done sets in total, but only 1 is bench.
+        let results = sets(full.id, bench.id, done: 3) + sets(newer.id, bench.id, done: 1) + sets(newer.id, squat.id, done: 2)
+        let perf = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3, steps: [bench, squat], sessions: [full, newer], results: results)
+        #expect(perf?.date == full.startedAt)
     }
 
     // MARK: - Progression
