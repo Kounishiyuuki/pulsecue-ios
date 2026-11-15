@@ -881,3 +881,139 @@ struct RunnerSetWeightTests {
         #expect(fx.viewModel.progression != nil)
     }
 }
+
+/// Weighted "目安を適用": transient only, recorded on Complete, re-derived after
+/// a replacement, and never mixing another account's history.
+@MainActor
+struct RunnerWeightedProgressionTests {
+
+    private struct Fixture {
+        let viewModel: RunnerViewModel
+        let routine: Routine
+        let step: Step
+        let context: ModelContext
+    }
+
+    private static func makeFixture(scope: WorkoutDataScope = .guest) throws -> Fixture {
+        RunnerPersistence.clear()
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "Progression")
+        context.insert(routine)
+        let step = Step(routineId: routine.id, order: 0, title: "ベンチプレス", sets: 3, repsTarget: 10, restSeconds: 0, exerciseId: "bench_press")
+        context.insert(step)
+        try context.save()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.wprog.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context, scope: scope)
+        return Fixture(viewModel: viewModel, routine: routine, step: step, context: context)
+    }
+
+    /// One past completed session of `stepId` with the given sets.
+    private static func seedHistory(_ fx: Fixture, stepId: UUID, weights: [Double?], reps: [Int] = [10, 10, 10], owner: UUID? = nil) throws {
+        let past = Session(routineId: fx.routine.id, dayDate: .now, startedAt: Date().addingTimeInterval(-86_400), status: .completed)
+        past.ownerAccountID = owner
+        fx.context.insert(past)
+        for (index, (r, w)) in zip(reps, weights).enumerated() {
+            fx.context.insert(StepResult(sessionId: past.id, stepId: stepId, setIndex: index, done: true, actualReps: r, ownerAccountID: owner, weightKg: w))
+        }
+        try fx.context.save()
+    }
+
+    private static func resultCount(_ fx: Fixture) throws -> Int {
+        try fx.context.fetch(FetchDescriptor<StepResult>()).count
+    }
+
+    @Test
+    func applyingAWeightSuggestionSetsWeightAndRepsOnly() throws {
+        let fx = try Self.makeFixture()
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [60, 60, 60])
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        let before = try Self.resultCount(fx)
+        // Shown, not applied: the set starts with no weight.
+        #expect(fx.viewModel.progression?.kind == .increaseWeight)
+        #expect(fx.viewModel.currentWeightKg == nil)
+
+        fx.viewModel.applyProgressionSuggestion()
+        #expect(fx.viewModel.currentWeightKg == 62.5)
+        #expect(fx.viewModel.currentReps == 10)
+        #expect(try Self.resultCount(fx) == before)
+        #expect(fx.step.repsTarget == 10)
+        #expect(fx.step.sets == 3)
+
+        fx.viewModel.handle(action: .complete, context: try #require(fx.viewModel.completeContext))
+        let sessionId = try #require(fx.viewModel.sessionId)
+        let recorded = try fx.context.fetch(FetchDescriptor<StepResult>()).filter { $0.sessionId == sessionId }
+        #expect(recorded.count == 1)
+        #expect(recorded.first?.weightKg == 62.5)
+        #expect(recorded.first?.actualReps == 10)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func userCanEnterAnyWeightWithoutApplying() throws {
+        let fx = try Self.makeFixture()
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [60, 60, 60])
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        fx.viewModel.setCurrentWeight(55)
+        fx.viewModel.handle(action: .complete, context: try #require(fx.viewModel.completeContext))
+        let sessionId = try #require(fx.viewModel.sessionId)
+        let recorded = try fx.context.fetch(FetchDescriptor<StepResult>()).filter { $0.sessionId == sessionId }
+        #expect(recorded.first?.weightKg == 55)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func replacementRecomputesFromTheNewExercise() throws {
+        let fx = try Self.makeFixture()
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [60, 60, 60])
+        // History for the replacement target lives on another routine's step.
+        let other = Step(routineId: UUID(), order: 0, title: "チェストプレス", sets: 3, repsTarget: 10, restSeconds: 0, exerciseId: "machine_chest_press")
+        fx.context.insert(other)
+        try Self.seedHistory(fx, stepId: other.id, weights: [40, 40, 40])
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 62.5)
+
+        let candidate = GeneratedExercise(machineId: "chest_press", exerciseName: "チェストプレス", sets: 3, reps: 10, restSeconds: 0, cue: "", exerciseId: "machine_chest_press")
+        #expect(fx.viewModel.replaceExercise(fx.step, with: candidate))
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 42.5)
+        #expect(fx.viewModel.previousPerformance?.setWeightsKg == [40, 40, 40])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func anotherAccountsWeightsAreNeverUsed() throws {
+        let me = UUID()
+        let fx = try Self.makeFixture(scope: .account(me))
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [100, 100, 100], owner: UUID())
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [100, 100, 100], owner: nil)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        #expect(fx.viewModel.previousPerformance == nil)
+        #expect(fx.viewModel.progression == nil)
+
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [60, 60, 60], owner: me)
+        fx.viewModel.refreshExerciseInsight()
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 62.5)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func repOnlySuggestionLeavesTheWeightAlone() throws {
+        let fx = try Self.makeFixture()
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [nil, nil, nil])
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        fx.viewModel.setCurrentWeight(50)
+        fx.viewModel.applyProgressionSuggestion()
+        #expect(fx.viewModel.currentReps == 11)
+        #expect(fx.viewModel.currentWeightKg == 50)
+        RunnerPersistence.clear()
+    }
+}
+
