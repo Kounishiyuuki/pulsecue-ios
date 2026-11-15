@@ -1278,3 +1278,100 @@ struct RunnerPlannedSetsSnapshotTests {
         RunnerPersistence.clear()
     }
 }
+
+/// 案F through the Runner: last time's planned-sets snapshot decides the
+/// suggestion after the routine's set count changed.
+@MainActor
+struct RunnerPlannedSetsProgressionTests {
+
+    private struct Fixture {
+        let viewModel: RunnerViewModel
+        let routine: Routine
+        let step: Step
+        let context: ModelContext
+    }
+
+    private static func makeFixture(sets: Int) throws -> Fixture {
+        RunnerPersistence.clear()
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "PlannedSets")
+        context.insert(routine)
+        let step = Step(routineId: routine.id, order: 0, title: "ベンチプレス", sets: sets, repsTarget: 10, restSeconds: 0, exerciseId: "bench_press")
+        context.insert(step)
+        try context.save()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.pprog.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context, scope: .guest)
+        return Fixture(viewModel: viewModel, routine: routine, step: step, context: context)
+    }
+
+    private static func seed(_ fx: Fixture, reps: [Int], planned: Int?) throws {
+        let past = Session(routineId: fx.routine.id, dayDate: .now, startedAt: Date().addingTimeInterval(-86_400), status: .completed)
+        fx.context.insert(past)
+        for (index, r) in reps.enumerated() {
+            fx.context.insert(StepResult(sessionId: past.id, stepId: fx.step.id, setIndex: index, done: true, actualReps: r, weightKg: 60, plannedSetsAtExecution: planned))
+        }
+        try fx.context.save()
+    }
+
+    private static func run(_ fx: Fixture) {
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+    }
+
+    @Test
+    func fourPlannedToThreeSuggestsHeavier() throws {
+        let fx = try Self.makeFixture(sets: 3)
+        try Self.seed(fx, reps: [10, 10, 10, 10], planned: 4)
+        Self.run(fx)
+        #expect(fx.viewModel.previousPerformance?.plannedSetCount == 4)
+        #expect(fx.viewModel.progression?.kind == .increaseWeight)
+        fx.viewModel.applyProgressionSuggestion()
+        #expect(fx.viewModel.currentWeightKg == 62.5)
+        #expect(fx.viewModel.currentReps == 10)
+        #expect(fx.step.sets == 3)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func threePlannedToFourHoldsTheWeight() throws {
+        let fx = try Self.makeFixture(sets: 4)
+        try Self.seed(fx, reps: [10, 10, 10], planned: 3)
+        Self.run(fx)
+        #expect(fx.viewModel.progression?.kind == .holdWeight)
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 60)
+        fx.viewModel.applyProgressionSuggestion()
+        #expect(fx.viewModel.currentWeightKg == 60)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func legacyHistoryKeepsTheOldBehavior() throws {
+        let fx = try Self.makeFixture(sets: 3)
+        try Self.seed(fx, reps: [10, 10, 10, 10], planned: nil)
+        Self.run(fx)
+        #expect(fx.viewModel.previousPerformance?.plannedSetCount == nil)
+        #expect(fx.viewModel.progression?.kind == .holdReps)
+        #expect(fx.viewModel.progression?.suggestedWeightKg == nil)
+        RunnerPersistence.clear()
+
+        let same = try Self.makeFixture(sets: 3)
+        try Self.seed(same, reps: [10, 10, 10], planned: nil)
+        Self.run(same)
+        #expect(same.viewModel.progression?.kind == .increaseWeight)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func partialSnapshotNeverProgresses() throws {
+        let fx = try Self.makeFixture(sets: 2)
+        try Self.seed(fx, reps: [10, 10], planned: 4)
+        Self.run(fx)
+        #expect(fx.viewModel.progression?.kind == .holdWeight)
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 60)
+        RunnerPersistence.clear()
+    }
+}
