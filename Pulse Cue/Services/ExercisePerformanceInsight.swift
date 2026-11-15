@@ -10,8 +10,11 @@
 //  Each completed set carries its actual reps and, since V12, the load the
 //  user recorded (`StepResult.weightKg`, nil when not entered). The guidance
 //  suggests a heavier load only when last time is unambiguous — same weight on
-//  every set, every set at target, same set count — and otherwise falls back
-//  to the reps-only rule, so pre-weight history behaves exactly as before.
+//  every set, every set at target, a known like-for-like set count — and
+//  otherwise falls back to the reps-only rule, so pre-weight history behaves
+//  exactly as before. Since V13 each record also knows how many sets it was
+//  planned for, so a changed set count can still be judged; records without
+//  that snapshot keep the pre-V13 rule.
 //
 
 import Foundation
@@ -30,21 +33,47 @@ struct PreviousPerformance: Equatable {
     let date: Date
     /// Completed sets in `setIndex` order. Never empty for a non-nil value.
     let sets: [PreviousSetPerformance]
+    /// How many sets that session planned for this step
+    /// (`StepResult.plannedSetsAtExecution`, V13+). `nil` when unknown: every
+    /// pre-V13 record, and any record whose results disagree. Never derived
+    /// from the live `Step.sets`, the completed count, or `setIndex`.
+    let plannedSetCount: Int?
+    /// The record's results carried different snapshots (impossible under the
+    /// V13 write rule). Such a record is never treated as complete and never
+    /// progresses, because no one value can be trusted.
+    let hasInconsistentPlannedSets: Bool
 
-    init(date: Date, sets: [PreviousSetPerformance]) {
+    init(
+        date: Date,
+        sets: [PreviousSetPerformance],
+        plannedSetCount: Int? = nil,
+        hasInconsistentPlannedSets: Bool = false
+    ) {
         self.date = date
         self.sets = sets
+        self.plannedSetCount = hasInconsistentPlannedSets ? nil : plannedSetCount
+        self.hasInconsistentPlannedSets = hasInconsistentPlannedSets
     }
 
     /// Convenience for reps-only history; `setWeightsKg` is matched by index
     /// and missing entries are treated as unrecorded.
-    init(date: Date, setReps: [Int], setWeightsKg: [Double?] = []) {
+    init(date: Date, setReps: [Int], setWeightsKg: [Double?] = [], plannedSetCount: Int? = nil) {
         self.init(date: date, sets: setReps.enumerated().map { index, reps in
             PreviousSetPerformance(
                 reps: reps,
                 weightKg: index < setWeightsKg.count ? setWeightsKg[index] : nil
             )
-        })
+        }, plannedSetCount: plannedSetCount)
+    }
+
+    /// Whether this record is a full one. With a snapshot, against what that
+    /// session planned — today's `expectedSets` is irrelevant. Without one
+    /// (legacy), the pre-V13 rule: the done count equals `expectedSets`; that
+    /// match says nothing about what was planned back then.
+    func isComplete(expectedSets: Int) -> Bool {
+        if hasInconsistentPlannedSets { return false }
+        if let plannedSetCount { return sets.count == plannedSetCount }
+        return sets.count == expectedSets
     }
 
     var setReps: [Int] { sets.map(\.reps) }
@@ -74,9 +103,10 @@ enum PreviousPerformanceQuery {
     ///   left behind), so they cannot hide an earlier record;
     /// - a record is one step's sets in one session — never the sets of two
     ///   steps that share this exercise (a routine can hold a duplicated step);
-    /// - among `.completed` / `.abandoned` sessions, the newest record with
-    ///   exactly `expectedSets` done sets wins — whether the session as a whole
-    ///   was finished is irrelevant to this exercise;
+    /// - among `.completed` / `.abandoned` sessions, the newest complete
+    ///   record wins (`PreviousPerformance.isComplete`: done count equals the
+    ///   record's own planned-sets snapshot, or `expectedSets` for legacy
+    ///   records) — whether the session as a whole was finished is irrelevant;
     /// - with no such full record, the newest partial one is returned (the
     ///   set-count rule then holds the target);
     /// - order: session `startedAt`, then session id; within one session, the
@@ -132,21 +162,32 @@ enum PreviousPerformanceQuery {
             if lo != ro { return lo < ro }
             return lhs.stepId.uuidString < rhs.stepId.uuidString
         }
-        let full = ranked.first { byRecord[$0]?.count == expectedSets }
-        guard let record = full ?? ranked.first, let date = finished[record.sessionId] else { return nil }
-
         // `relevant` only holds results with a rep count; each set is built
-        // from one result of the chosen step, so reps and weight cannot
-        // misalign and no other step's sets are mixed in.
-        let sets: [PreviousSetPerformance] = (byRecord[record] ?? [])
-            .sorted { $0.setIndex < $1.setIndex }
-            .compactMap { result in
+        // from one result of one step, so reps and weight cannot misalign and
+        // no other step's sets are mixed in.
+        func performance(_ record: Record) -> PreviousPerformance? {
+            guard let date = finished[record.sessionId] else { return nil }
+            let results = (byRecord[record] ?? []).sorted { $0.setIndex < $1.setIndex }
+            let sets: [PreviousSetPerformance] = results.compactMap { result in
                 guard let reps = result.actualReps else { return nil }
                 return PreviousSetPerformance(reps: reps, weightKg: result.weightKg)
             }
-        guard !sets.isEmpty else { return nil }
+            guard !sets.isEmpty else { return nil }
+            // One value per record by the V13 write rule. All nil → legacy;
+            // any disagreement (two values, or a value next to nil) → unknown,
+            // never a max/min/first pick that could unlock a progression.
+            let snapshots = Set(results.map(\.plannedSetsAtExecution))
+            let inconsistent = snapshots.count > 1
+            return PreviousPerformance(
+                date: date,
+                sets: sets,
+                plannedSetCount: inconsistent ? nil : results.first?.plannedSetsAtExecution,
+                hasInconsistentPlannedSets: inconsistent
+            )
+        }
 
-        return PreviousPerformance(date: date, sets: sets)
+        let candidates = ranked.compactMap(performance)
+        return candidates.first { $0.isComplete(expectedSets: expectedSets) } ?? candidates.first
     }
 }
 
@@ -174,6 +215,11 @@ struct ProgressionSuggestion: Equatable {
     /// Last time's single working weight, when the suggestion is load-based.
     var previousWorkingWeightKg: Double? = nil
     var kind: ProgressionKind
+    /// Last time's planned set count, set only when it is known (V13
+    /// snapshot, complete record) and differs from `expectedSetCount`, so the
+    /// reason line can say the set count changed. Display-only, never stored.
+    var previousSetCount: Int? = nil
+    var expectedSetCount: Int? = nil
 
     /// True when the suggestion nudges up because last time was fully achieved.
     var isProgression: Bool { kind == .increaseWeight || kind == .increaseReps }
@@ -185,14 +231,21 @@ enum ProgressionRule {
     /// per-exercise increment has a single seam.
     static let weightIncrementKg = 2.5
 
-    /// Conservative guidance, explainable in one sentence:
+    /// Conservative guidance, explainable in one sentence. With `p` the
+    /// planned set count last time and `e` = `expectedSets`:
     /// - no previous data, or a non-rep exercise (e.g. cardio) → `nil`;
-    /// - last time had a different set count than `expectedSets` → hold the
-    ///   rep target (not a like-for-like session, so never progress);
-    /// - same positive weight on every set (and load is tracked here):
-    ///   every set at target → +2.5 kg at the base reps, otherwise hold that
-    ///   weight; never above `SetWeight.maximumKg` and never down (no deload);
-    /// - otherwise (no / mixed / partial / 0 kg load) → the reps-only rule:
+    /// - snapshot known (V13+), record complete:
+    ///   - `p >= e`: judge every one of last time's `p` sets (never only the
+    ///     first `e`) with the like-for-like rule below;
+    ///   - `p < e`: more sets is already the increase → hold weight / reps;
+    /// - snapshot known but record partial, or snapshots inconsistent → hold
+    ///   (weight if a single positive one is clear, else reps), never up;
+    /// - legacy (no snapshot): last time's done count differs from
+    ///   `expectedSets` → hold the rep target, otherwise the like-for-like rule;
+    /// - like-for-like rule: same positive weight on every set (and load is
+    ///   tracked here): every set at target → +2.5 kg at the base reps,
+    ///   otherwise hold that weight; never above `SetWeight.maximumKg` and
+    ///   never down (no deload). Otherwise (no / mixed / partial / 0 kg load)
     ///   every set at target → one more rep, otherwise hold.
     static func suggest(
         previous: PreviousPerformance?,
@@ -204,28 +257,57 @@ enum ProgressionRule {
         guard allowsRepProgression, baselineReps > 0, expectedSets > 0,
               let previous, !previous.sets.isEmpty else { return nil }
 
-        let hold = ProgressionSuggestion(baselineReps: baselineReps, suggestedReps: baselineReps, kind: .holdReps)
-        guard previous.sets.count == expectedSets else { return hold }
-
-        let achievedEverySet = previous.sets.allSatisfy { $0.reps >= baselineReps }
-
+        let holdReps = ProgressionSuggestion(baselineReps: baselineReps, suggestedReps: baselineReps, kind: .holdReps)
         // 0 kg is a real record but may mean bodyweight / no added load, so it
-        // never seeds a load increase.
-        if allowsWeightProgression, let weight = previous.uniformWeightKg, weight > 0 {
-            let next = weight + weightIncrementKg
-            if achievedEverySet, next <= SetWeight.maximumKg {
-                return ProgressionSuggestion(
-                    baselineReps: baselineReps, suggestedReps: baselineReps,
-                    suggestedWeightKg: next, previousWorkingWeightKg: weight, kind: .increaseWeight
-                )
-            }
+        // never seeds a load suggestion.
+        let loadWeight: Double? = allowsWeightProgression
+            ? previous.uniformWeightKg.flatMap { $0 > 0 ? $0 : nil }
+            : nil
+        func hold() -> ProgressionSuggestion {
+            guard let weight = loadWeight else { return holdReps }
             return ProgressionSuggestion(
                 baselineReps: baselineReps, suggestedReps: baselineReps,
                 suggestedWeightKg: weight, previousWorkingWeightKg: weight, kind: .holdWeight
             )
         }
 
-        guard achievedEverySet else { return hold }
+        if previous.hasInconsistentPlannedSets { return hold() }
+
+        guard let planned = previous.plannedSetCount else {
+            // Legacy: what was planned is unknown, so only an equal done count
+            // is like-for-like.
+            guard previous.sets.count == expectedSets else { return holdReps }
+            return likeForLike(previous, loadWeight: loadWeight, baselineReps: baselineReps, hold: hold())
+        }
+
+        guard previous.sets.count == planned else { return hold() }
+
+        var suggestion = planned < expectedSets
+            ? hold()
+            : likeForLike(previous, loadWeight: loadWeight, baselineReps: baselineReps, hold: hold())
+        if planned != expectedSets {
+            suggestion.previousSetCount = planned
+            suggestion.expectedSetCount = expectedSets
+        }
+        return suggestion
+    }
+
+    /// Every one of last time's sets counts: one miss anywhere holds.
+    private static func likeForLike(
+        _ previous: PreviousPerformance,
+        loadWeight: Double?,
+        baselineReps: Int,
+        hold: ProgressionSuggestion
+    ) -> ProgressionSuggestion {
+        guard previous.sets.allSatisfy({ $0.reps >= baselineReps }) else { return hold }
+        if let weight = loadWeight {
+            let next = weight + weightIncrementKg
+            guard next <= SetWeight.maximumKg else { return hold }
+            return ProgressionSuggestion(
+                baselineReps: baselineReps, suggestedReps: baselineReps,
+                suggestedWeightKg: next, previousWorkingWeightKg: weight, kind: .increaseWeight
+            )
+        }
         return ProgressionSuggestion(baselineReps: baselineReps, suggestedReps: baselineReps + 1, kind: .increaseReps)
     }
 }
@@ -266,10 +348,21 @@ enum ProgressionPresentation {
         }
     }
 
-    /// One short reason, only for a load increase (the case that changes the
-    /// user's plan most).
+    /// One short reason: for a load increase (the case that changes the
+    /// user's plan most), and whenever the set count changed since last time
+    /// (so a hold after adding sets is not a mystery).
     static func reasonText(_ s: ProgressionSuggestion) -> String? {
-        s.kind == .increaseWeight ? "前回は同じ重量で全セット目標回数を達成" : nil
+        if let p = s.previousSetCount, let e = s.expectedSetCount, p != e {
+            switch s.kind {
+            case .increaseWeight, .increaseReps:
+                return "前回は\(p)セットをすべて達成。今回は\(e)セット"
+            case .holdWeight:
+                return p < e ? "前回は\(p)セット、今回は\(e)セットのため重量を維持" : "前回は\(p)セット、今回は\(e)セット"
+            case .holdReps:
+                return p < e ? "前回は\(p)セット、今回は\(e)セットのため回数を維持" : "前回は\(p)セット、今回は\(e)セット"
+            }
+        }
+        return s.kind == .increaseWeight ? "前回は同じ重量で全セット目標回数を達成" : nil
     }
 
     static func applyAccessibilityLabel(_ s: ProgressionSuggestion) -> String {

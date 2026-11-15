@@ -541,3 +541,313 @@ struct WeightedProgressionRuleTests {
     }
 }
 
+
+/// 案F: a changed set count judged against what last time actually planned
+/// (`StepResult.plannedSetsAtExecution`), with legacy records kept on the
+/// pre-V13 rule and anything ambiguous held.
+struct PlannedSetsProgressionRuleTests {
+
+    private func prev(_ reps: [Int], _ weights: [Double?]? = nil, planned: Int?) -> PreviousPerformance {
+        let w = weights ?? Array(repeating: nil, count: reps.count)
+        return PreviousPerformance(
+            date: .now,
+            sets: zip(reps, w).map { PreviousSetPerformance(reps: $0, weightKg: $1) },
+            plannedSetCount: planned
+        )
+    }
+
+    private func suggest(_ p: PreviousPerformance, sets: Int, weight: Bool = true) -> ProgressionSuggestion? {
+        ProgressionRule.suggest(previous: p, baselineReps: 10, expectedSets: sets, allowsRepProgression: true, allowsWeightProgression: weight)
+    }
+
+    // MARK: weighted
+
+    @Test func a_fourToThreeAllAchievedIncreasesWeight() {
+        let s = suggest(prev([10, 10, 10, 10], [60, 60, 60, 60], planned: 4), sets: 3)
+        #expect(s?.kind == .increaseWeight)
+        #expect(s?.suggestedWeightKg == 62.5)
+        #expect(s?.suggestedReps == 10)
+    }
+
+    @Test func b_fourToThreeLastSetMissedHoldsWeight() {
+        let s = suggest(prev([10, 10, 10, 8], [60, 60, 60, 60], planned: 4), sets: 3)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+        #expect(s?.suggestedReps == 10)
+    }
+
+    @Test func c_threeToFourAllAchievedHoldsWeight() {
+        let s = suggest(prev([10, 10, 10], [60, 60, 60], planned: 3), sets: 4)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+        #expect(s?.suggestedReps == 10)
+    }
+
+    @Test func d_threeToFourWithMissHoldsWeightNeverDown() {
+        let s = suggest(prev([10, 10, 8], [60, 60, 60], planned: 3), sets: 4)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+    }
+
+    @Test func e_twoToFourHoldsWeight() {
+        let s = suggest(prev([10, 10], [60, 60], planned: 2), sets: 4)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+    }
+
+    @Test func f_fourToTwoAllAchievedIncreasesWeight() {
+        let s = suggest(prev([10, 10, 10, 10], [60, 60, 60, 60], planned: 4), sets: 2)
+        #expect(s?.kind == .increaseWeight)
+        #expect(s?.suggestedWeightKg == 62.5)
+    }
+
+    @Test func g_fourToTwoLastSetMissedHoldsWeight() {
+        let s = suggest(prev([10, 10, 10, 9], [60, 60, 60, 60], planned: 4), sets: 2)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+    }
+
+    @Test func sameSnapshotKeepsTheExistingRuleAndCeiling() {
+        #expect(suggest(prev([10, 10, 10], [60, 60, 60], planned: 3), sets: 3)?.kind == .increaseWeight)
+        #expect(suggest(prev([10, 10, 9], [60, 60, 60], planned: 3), sets: 3)?.kind == .holdWeight)
+        let top = suggest(prev([10, 10, 10, 10], [999, 999, 999, 999], planned: 4), sets: 3)
+        #expect(top?.kind == .holdWeight)
+        #expect(top?.suggestedWeightKg == 999)
+    }
+
+    // MARK: reps-only
+
+    @Test func h_repsOnlyThreeToFourHoldsReps() {
+        let s = suggest(prev([10, 10, 10], planned: 3), sets: 4)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedReps == 10)
+    }
+
+    @Test func i_repsOnlyFourToThreeAllAchievedAddsARep() {
+        let s = suggest(prev([10, 10, 10, 10], planned: 4), sets: 3)
+        #expect(s?.kind == .increaseReps)
+        #expect(s?.suggestedReps == 11)
+    }
+
+    @Test func j_repsOnlyFourToThreeLastSetMissedHoldsReps() {
+        let s = suggest(prev([10, 10, 10, 8], planned: 4), sets: 3)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedReps == 10)
+    }
+
+    @Test func k_mixedWeightThreeToFourHoldsReps() {
+        let s = suggest(prev([10, 10, 10], [60, 57.5, 60], planned: 3), sets: 4)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedWeightKg == nil)
+    }
+
+    @Test func l_zeroKgThreeToFourHoldsReps() {
+        let s = suggest(prev([10, 10, 10], [0, 0, 0], planned: 3), sets: 4)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedReps == 10)
+    }
+
+    @Test func m_mixedWeightFourToThreeAllAchievedAddsARep() {
+        let s = suggest(prev([10, 10, 10, 10], [60, 57.5, 60, 60], planned: 4), sets: 3)
+        #expect(s?.kind == .increaseReps)
+        #expect(s?.suggestedReps == 11)
+    }
+
+    // MARK: partial / inconsistent
+
+    @Test func n_partialSnapshotWeightedHoldsWeight() {
+        let s = suggest(prev([10, 10], [60, 60], planned: 4), sets: 4)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+        // Also when today's count happens to equal the done count.
+        #expect(suggest(prev([10, 10], [60, 60], planned: 4), sets: 2)?.kind == .holdWeight)
+    }
+
+    @Test func o_partialSnapshotRepsOnlyHoldsReps() {
+        #expect(suggest(prev([10, 10], planned: 4), sets: 4)?.kind == .holdReps)
+        #expect(suggest(prev([10, 10], planned: 4), sets: 2)?.kind == .holdReps)
+    }
+
+    @Test func inconsistentSnapshotNeverProgresses() {
+        let p = PreviousPerformance(
+            date: .now,
+            sets: [10, 10, 10].map { PreviousSetPerformance(reps: $0, weightKg: 60) },
+            plannedSetCount: 3,
+            hasInconsistentPlannedSets: true
+        )
+        #expect(p.plannedSetCount == nil)
+        #expect(!p.isComplete(expectedSets: 3))
+        let s = suggest(p, sets: 3)
+        #expect(s?.kind == .holdWeight)
+        #expect(s?.suggestedWeightKg == 60)
+        #expect(suggest(p, sets: 3, weight: false)?.kind == .holdReps)
+    }
+
+    // MARK: legacy
+
+    @Test func p_legacySameCountKeepsTheExistingRule() {
+        #expect(suggest(prev([10, 10, 10], [60, 60, 60], planned: nil), sets: 3)?.kind == .increaseWeight)
+        #expect(suggest(prev([10, 10, 10], planned: nil), sets: 3)?.kind == .increaseReps)
+        let s = suggest(prev([10, 10, 10], [60, 60, 60], planned: nil), sets: 3)
+        #expect(s?.previousSetCount == nil)
+        #expect(s.flatMap(ProgressionPresentation.reasonText) == "前回は同じ重量で全セット目標回数を達成")
+    }
+
+    @Test func q_legacyDifferentCountHoldsAsBefore() {
+        // Same data that progresses with a snapshot of 4 → held without one.
+        let s = suggest(prev([10, 10, 10, 10], [60, 60, 60, 60], planned: nil), sets: 3)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedWeightKg == nil)
+        #expect(s.flatMap(ProgressionPresentation.reasonText) == nil)
+        #expect(suggest(prev([10, 10, 10], planned: nil), sets: 4)?.kind == .holdReps)
+    }
+
+    // MARK: reason
+
+    @Test func reasonNamesTheSetCountChange() {
+        let down = suggest(prev([10, 10, 10, 10], [60, 60, 60, 60], planned: 4), sets: 3)
+        #expect(down?.previousSetCount == 4)
+        #expect(down?.expectedSetCount == 3)
+        #expect(down.flatMap(ProgressionPresentation.reasonText) == "前回は4セットをすべて達成。今回は3セット")
+        let up = suggest(prev([10, 10, 10], [60, 60, 60], planned: 3), sets: 4)
+        #expect(up.flatMap(ProgressionPresentation.reasonText) == "前回は3セット、今回は4セットのため重量を維持")
+        let upReps = suggest(prev([10, 10, 10], planned: 3), sets: 4)
+        #expect(upReps.flatMap(ProgressionPresentation.reasonText) == "前回は3セット、今回は4セットのため回数を維持")
+        let downMiss = suggest(prev([10, 10, 10, 8], [60, 60, 60, 60], planned: 4), sets: 3)
+        #expect(downMiss.flatMap(ProgressionPresentation.reasonText) == "前回は4セット、今回は3セット")
+        let downRepsMiss = suggest(prev([10, 10, 10, 8], planned: 4), sets: 3)
+        #expect(downRepsMiss.flatMap(ProgressionPresentation.reasonText) == "前回は4セット、今回は3セット")
+        let repsDown = suggest(prev([10, 10, 10, 10], planned: 4), sets: 3)
+        #expect(repsDown.flatMap(ProgressionPresentation.reasonText) == "前回は4セットをすべて達成。今回は3セット")
+    }
+
+    @Test func noNewReasonWithoutASetCountChangeOrForPartials() {
+        #expect(suggest(prev([10, 10, 10], [60, 60, 60], planned: 3), sets: 3).flatMap(ProgressionPresentation.reasonText) == "前回は同じ重量で全セット目標回数を達成")
+        #expect(suggest(prev([10, 10, 9], [60, 60, 60], planned: 3), sets: 3).flatMap(ProgressionPresentation.reasonText) == nil)
+        #expect(suggest(prev([10, 10], [60, 60], planned: 4), sets: 3).flatMap(ProgressionPresentation.reasonText) == nil)
+    }
+
+    @Test func applyLabelUnchanged() throws {
+        let w = try #require(suggest(prev([10, 10, 10], [60, 60, 60], planned: 3), sets: 4))
+        #expect(ProgressionPresentation.applyAccessibilityLabel(w) == "目安の重量とレップ数を適用")
+        let r = try #require(suggest(prev([10, 10, 10], planned: 3), sets: 4))
+        #expect(ProgressionPresentation.applyAccessibilityLabel(r) == "目安のレップ数を適用")
+    }
+}
+
+/// 案F selection: completeness against each record's own snapshot.
+@MainActor
+struct PlannedSetsPreviousPerformanceQueryTests {
+
+    private func session(daysAgo: Int, status: SessionStatus = .completed) -> Session {
+        Session(routineId: UUID(), dayDate: .now, startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)), status: status)
+    }
+
+    private func sets(_ s: Session, _ stepId: UUID, reps: [Int], planned: [Int?], weight: Double? = 60) -> [StepResult] {
+        zip(reps, planned).enumerated().map { i, pair in
+            StepResult(sessionId: s.id, stepId: stepId, setIndex: i, done: true, actualReps: pair.0, weightKg: weight, plannedSetsAtExecution: pair.1)
+        }
+    }
+
+    private func latest(_ steps: [Step], _ sessions: [Session], _ results: [StepResult], expected: Int, order: Int? = nil) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: expected, currentStepOrder: order,
+            steps: steps, sessions: sessions, results: results
+        )
+    }
+
+    private let bench = Step(routineId: UUID(), order: 0, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: "bench_press")
+
+    @Test func s_olderThreeOfThreeBeatsNewerOneOfFour() throws {
+        let old = session(daysAgo: 3), new = session(daysAgo: 1)
+        let r = sets(old, bench.id, reps: [10, 10, 10], planned: [3, 3, 3]) + sets(new, bench.id, reps: [10], planned: [4])
+        let p = try #require(latest([bench], [old, new], r, expected: 4))
+        #expect(p.plannedSetCount == 3)
+        #expect(p.sets.count == 3)
+        #expect(p.isComplete(expectedSets: 4))
+    }
+
+    @Test func t_olderFourOfFourBeatsNewerOneOfThree() throws {
+        let old = session(daysAgo: 3), new = session(daysAgo: 1)
+        let r = sets(old, bench.id, reps: [10, 10, 10, 10], planned: [4, 4, 4, 4]) + sets(new, bench.id, reps: [10], planned: [3])
+        let p = try #require(latest([bench], [old, new], r, expected: 3))
+        #expect(p.plannedSetCount == 4)
+        #expect(p.sets.count == 4)
+    }
+
+    @Test func u_abandonedThreeOfThreeIsComplete() throws {
+        let old = session(daysAgo: 3), new = session(daysAgo: 1, status: .abandoned)
+        let r = sets(old, bench.id, reps: [10, 10, 10], planned: [3, 3, 3]) + sets(new, bench.id, reps: [9, 9, 9], planned: [3, 3, 3])
+        let p = try #require(latest([bench], [old, new], r, expected: 4))
+        #expect(p.setReps == [9, 9, 9])
+        #expect(p.isComplete(expectedSets: 4))
+    }
+
+    @Test func v_completedSessionWithThreeOfFourIsPartial() throws {
+        let old = session(daysAgo: 3), new = session(daysAgo: 1)
+        // Newer: 3 of 4 done — partial even though today's expectedSets is 3.
+        let r = sets(old, bench.id, reps: [10, 10, 10], planned: [3, 3, 3]) + sets(new, bench.id, reps: [11, 11, 11], planned: [4, 4, 4])
+        let p = try #require(latest([bench], [old, new], r, expected: 3))
+        #expect(p.setReps == [10, 10, 10])
+        // Alone, the partial one is the fallback and does not progress.
+        let only = try #require(latest([bench], [new], sets(new, bench.id, reps: [11, 11, 11], planned: [4, 4, 4]), expected: 3))
+        #expect(!only.isComplete(expectedSets: 3))
+        #expect(ProgressionRule.suggest(previous: only, baselineReps: 10, expectedSets: 3, allowsRepProgression: true, allowsWeightProgression: true)?.kind == .holdWeight)
+    }
+
+    @Test func w_twoStepsOfOneExerciseAreNotMerged() throws {
+        let other = Step(routineId: bench.routineId, order: 1, title: "x", sets: 2, repsTarget: 10, restSeconds: 60, exerciseId: "bench_press")
+        let s = session(daysAgo: 1)
+        let r = sets(s, bench.id, reps: [10, 10], planned: [2, 2]) + sets(s, other.id, reps: [10, 10], planned: [2, 2])
+        let p = try #require(latest([bench, other], [s], r, expected: 4))
+        #expect(p.sets.count == 2)
+        #expect(p.plannedSetCount == 2)
+    }
+
+    @Test func x_rankingByStartedAtThenCurrentOrderIsKept() throws {
+        let second = Step(routineId: bench.routineId, order: 1, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: "bench_press")
+        let old = session(daysAgo: 3), new = session(daysAgo: 1)
+        let r = sets(old, bench.id, reps: [12, 12, 12], planned: [3, 3, 3])
+            + sets(new, bench.id, reps: [10, 10, 10], planned: [3, 3, 3])
+            + sets(new, second.id, reps: [8, 8, 8], planned: [3, 3, 3])
+        #expect(latest([bench, second], [old, new], r, expected: 3, order: 1)?.setReps == [8, 8, 8])
+        #expect(latest([bench, second], [old, new], r, expected: 3, order: 0)?.setReps == [10, 10, 10])
+        #expect(latest([bench, second], [old, new], r, expected: 3)?.setReps == [10, 10, 10])
+    }
+
+    @Test func r_newerLegacyPartialDoesNotHideOlderSnapshotComplete() throws {
+        let old = session(daysAgo: 3), new = session(daysAgo: 1)
+        let r = sets(old, bench.id, reps: [10, 10, 10, 10], planned: [4, 4, 4, 4]) + sets(new, bench.id, reps: [10, 10], planned: [nil, nil])
+        let p = try #require(latest([bench], [old, new], r, expected: 3))
+        #expect(p.plannedSetCount == 4)
+        // A newer legacy record that is full by the old rule still wins (compatibility).
+        let r2 = sets(old, bench.id, reps: [10, 10, 10, 10], planned: [4, 4, 4, 4]) + sets(new, bench.id, reps: [9, 9, 9], planned: [nil, nil, nil])
+        let p2 = try #require(latest([bench], [old, new], r2, expected: 3))
+        #expect(p2.plannedSetCount == nil)
+        #expect(p2.setReps == [9, 9, 9])
+    }
+
+    @Test func legacyRecordStaysUnknown() throws {
+        let s = session(daysAgo: 1)
+        let p = try #require(latest([bench], [s], sets(s, bench.id, reps: [10, 10, 10], planned: [nil, nil, nil]), expected: 3))
+        #expect(p.plannedSetCount == nil)
+        #expect(!p.hasInconsistentPlannedSets)
+        #expect(p.isComplete(expectedSets: 3))
+    }
+
+    @Test func inconsistentSnapshotIsUnknownPartialAndHeld() throws {
+        let old = session(daysAgo: 3), new = session(daysAgo: 1)
+        let bad = sets(new, bench.id, reps: [10, 10, 10], planned: [3, 4, 3])
+        let alone = try #require(latest([bench], [new], bad, expected: 3))
+        #expect(alone.hasInconsistentPlannedSets)
+        #expect(alone.plannedSetCount == nil)
+        #expect(ProgressionRule.suggest(previous: alone, baselineReps: 10, expectedSets: 3, allowsRepProgression: true, allowsWeightProgression: true)?.kind == .holdWeight)
+        #expect(ProgressionRule.suggest(previous: alone, baselineReps: 10, expectedSets: 4, allowsRepProgression: true, allowsWeightProgression: true)?.kind == .holdWeight)
+        // nil mixed with a value is also inconsistent.
+        let mixed = try #require(latest([bench], [new], sets(new, bench.id, reps: [10, 10, 10], planned: [3, nil, 3]), expected: 3))
+        #expect(mixed.hasInconsistentPlannedSets)
+        // An older consistent complete record is preferred over it.
+        let withGood = bad + sets(old, bench.id, reps: [10, 10, 10], planned: [3, 3, 3])
+        #expect(latest([bench], [old, new], withGood, expected: 3)?.plannedSetCount == 3)
+    }
+}
