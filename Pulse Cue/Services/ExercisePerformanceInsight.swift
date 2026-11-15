@@ -148,6 +148,11 @@ enum PreviousPerformanceQuery {
 
         struct Record: Hashable { let sessionId: UUID; let stepId: UUID }
         let byRecord = Dictionary(grouping: relevant) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
+        // Every result of a candidate record — skipped ones too — for the
+        // snapshot consistency check only; sets still come from `byRecord`.
+        let allByRecord = Dictionary(grouping: results.filter { byRecord[Record(sessionId: $0.sessionId, stepId: $0.stepId)] != nil }) {
+            Record(sessionId: $0.sessionId, stepId: $0.stepId)
+        }
 
         let ranked = byRecord.keys.sorted { lhs, rhs in
             let l = finished[lhs.sessionId] ?? .distantPast
@@ -173,15 +178,16 @@ enum PreviousPerformanceQuery {
                 return PreviousSetPerformance(reps: reps, weightKg: result.weightKg)
             }
             guard !sets.isEmpty else { return nil }
-            // One value per record by the V13 write rule. All nil → legacy;
+            // One value per record by the V13 write rule, checked across every
+            // result of the record (skipped sets included). All nil → legacy;
             // any disagreement (two values, or a value next to nil) → unknown,
             // never a max/min/first pick that could unlock a progression.
-            let snapshots = Set(results.map(\.plannedSetsAtExecution))
+            let snapshots = Set((allByRecord[record] ?? results).map(\.plannedSetsAtExecution))
             let inconsistent = snapshots.count > 1
             return PreviousPerformance(
                 date: date,
                 sets: sets,
-                plannedSetCount: inconsistent ? nil : results.first?.plannedSetsAtExecution,
+                plannedSetCount: inconsistent ? nil : snapshots.first ?? nil,
                 hasInconsistentPlannedSets: inconsistent
             )
         }
@@ -220,6 +226,10 @@ struct ProgressionSuggestion: Equatable {
     /// reason line can say the set count changed. Display-only, never stored.
     var previousSetCount: Int? = nil
     var expectedSetCount: Int? = nil
+    /// Whether every one of last time's sets reached the rep target; set
+    /// together with `previousSetCount`, so a hold after fewer sets can say
+    /// "未達" only when there really was a miss (not at the load ceiling).
+    var previousAchievedEverySet: Bool? = nil
 
     /// True when the suggestion nudges up because last time was fully achieved.
     var isProgression: Bool { kind == .increaseWeight || kind == .increaseReps }
@@ -288,6 +298,7 @@ enum ProgressionRule {
         if planned != expectedSets {
             suggestion.previousSetCount = planned
             suggestion.expectedSetCount = expectedSets
+            suggestion.previousAchievedEverySet = previous.sets.allSatisfy { $0.reps >= baselineReps }
         }
         return suggestion
     }
@@ -356,10 +367,13 @@ enum ProgressionPresentation {
             switch s.kind {
             case .increaseWeight, .increaseReps:
                 return "前回は\(p)セットをすべて達成。今回は\(e)セット"
-            case .holdWeight:
-                return p < e ? "前回は\(p)セット、今回は\(e)セットのため重量を維持" : "前回は\(p)セット、今回は\(e)セット"
-            case .holdReps:
-                return p < e ? "前回は\(p)セット、今回は\(e)セットのため回数を維持" : "前回は\(p)セット、今回は\(e)セット"
+            case .holdWeight, .holdReps:
+                let keep = s.kind == .holdWeight ? "重量を維持" : "回数を維持"
+                if p < e { return "前回は\(p)セット、今回は\(e)セットのため\(keep)" }
+                if s.previousAchievedEverySet == false {
+                    return "前回は\(p)セット中に未達あり。今回は\(e)セットのため\(keep)"
+                }
+                return "前回は\(p)セット、今回は\(e)セット"
             }
         }
         return s.kind == .increaseWeight ? "前回は同じ重量で全セット目標回数を達成" : nil

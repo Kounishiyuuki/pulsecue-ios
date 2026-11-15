@@ -714,9 +714,9 @@ struct PlannedSetsProgressionRuleTests {
         let upReps = suggest(prev([10, 10, 10], planned: 3), sets: 4)
         #expect(upReps.flatMap(ProgressionPresentation.reasonText) == "前回は3セット、今回は4セットのため回数を維持")
         let downMiss = suggest(prev([10, 10, 10, 8], [60, 60, 60, 60], planned: 4), sets: 3)
-        #expect(downMiss.flatMap(ProgressionPresentation.reasonText) == "前回は4セット、今回は3セット")
+        #expect(downMiss.flatMap(ProgressionPresentation.reasonText) == "前回は4セット中に未達あり。今回は3セットのため重量を維持")
         let downRepsMiss = suggest(prev([10, 10, 10, 8], planned: 4), sets: 3)
-        #expect(downRepsMiss.flatMap(ProgressionPresentation.reasonText) == "前回は4セット、今回は3セット")
+        #expect(downRepsMiss.flatMap(ProgressionPresentation.reasonText) == "前回は4セット中に未達あり。今回は3セットのため回数を維持")
         let repsDown = suggest(prev([10, 10, 10, 10], planned: 4), sets: 3)
         #expect(repsDown.flatMap(ProgressionPresentation.reasonText) == "前回は4セットをすべて達成。今回は3セット")
     }
@@ -849,5 +849,158 @@ struct PlannedSetsPreviousPerformanceQueryTests {
         // An older consistent complete record is preferred over it.
         let withGood = bad + sets(old, bench.id, reps: [10, 10, 10], planned: [3, 3, 3])
         #expect(latest([bench], [old, new], withGood, expected: 3)?.plannedSetCount == 3)
+    }
+}
+
+/// Hardening of 案F: inconsistent snapshots (skipped results included), the
+/// snapshot-partial vs legacy-complete conflict, and the miss reason line.
+@MainActor
+struct PlannedSetsHardeningTests {
+
+    private let bench = Step(routineId: UUID(), order: 0, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: "bench_press")
+
+    private func session(daysAgo: Int) -> Session {
+        Session(routineId: UUID(), dayDate: .now, startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)), status: .completed)
+    }
+
+    private func result(_ s: Session, set: Int, planned: Int?, done: Bool = true, reps: Int? = 10, weight: Double? = 60) -> StepResult {
+        StepResult(sessionId: s.id, stepId: bench.id, setIndex: set, done: done, actualReps: done ? reps : nil, weightKg: done ? weight : nil, plannedSetsAtExecution: planned)
+    }
+
+    private func latest(_ sessions: [Session], _ results: [StepResult], expected: Int = 3) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: expected,
+            steps: [bench], sessions: sessions, results: results
+        )
+    }
+
+    private func suggest(_ p: PreviousPerformance, expected: Int = 3, weight: Bool = true) -> ProgressionSuggestion? {
+        ProgressionRule.suggest(previous: p, baselineReps: 10, expectedSets: expected, allowsRepProgression: true, allowsWeightProgression: weight)
+    }
+
+    /// Full sets at 60 kg × 10, every one at target, with the given snapshots.
+    private func assertInconsistentHolds(_ planned: [Int?]) throws {
+        let s = session(daysAgo: 1)
+        let p = try #require(latest([s], planned.enumerated().map { result(s, set: $0, planned: $1) }))
+        #expect(p.sets.count == 3)
+        #expect(p.setReps == [10, 10, 10])
+        #expect(p.hasInconsistentPlannedSets)
+        #expect(p.plannedSetCount == nil)
+        #expect(!p.isComplete(expectedSets: 3))
+
+        let weighted = try #require(suggest(p))
+        #expect(weighted.kind == .holdWeight)
+        #expect(weighted.suggestedWeightKg == 60)
+        #expect(weighted.suggestedReps == 10)
+        #expect(!weighted.isProgression)
+        #expect(weighted.previousSetCount == nil)
+        #expect(ProgressionPresentation.reasonText(weighted) == nil)
+
+        let reps = try #require(suggest(p, weight: false))
+        #expect(reps.kind == .holdReps)
+        #expect(reps.suggestedReps == 10)
+        #expect(reps.suggestedWeightKg == nil)
+    }
+
+    @Test func a_valueNilValueIsInconsistentAndHeld() throws { try assertInconsistentHolds([3, nil, 3]) }
+    @Test func b_nilValueNilIsInconsistentAndHeld() throws { try assertInconsistentHolds([nil, 3, nil]) }
+    @Test func c_twoValuesAreInconsistentAndHeld() throws { try assertInconsistentHolds([3, 4, 3]) }
+
+    @Test func skippedResultJoinsTheConsistencyCheck() throws {
+        let s = session(daysAgo: 1)
+        let r = [
+            result(s, set: 0, planned: 3),
+            result(s, set: 1, planned: 4, done: false),
+            result(s, set: 2, planned: 3),
+        ]
+        let p = try #require(latest([s], r, expected: 2))
+        // Sets still come from completed results only.
+        #expect(p.setReps == [10, 10])
+        #expect(p.hasInconsistentPlannedSets)
+        #expect(p.plannedSetCount == nil)
+        #expect(!p.isComplete(expectedSets: 2))
+        let sug = try #require(suggest(p, expected: 2))
+        #expect(sug.kind == .holdWeight)
+        #expect(sug.suggestedWeightKg == 60)
+        #expect(suggest(p, expected: 2, weight: false)?.kind == .holdReps)
+    }
+
+    @Test func consistentSkippedResultKeepsTheSnapshot() throws {
+        // Normal V13 data: a skipped set carries the same snapshot.
+        let s = session(daysAgo: 1)
+        let r = [result(s, set: 0, planned: 3), result(s, set: 1, planned: 3), result(s, set: 2, planned: 3, done: false)]
+        let p = try #require(latest([s], r))
+        #expect(!p.hasInconsistentPlannedSets)
+        #expect(p.plannedSetCount == 3)
+        #expect(!p.isComplete(expectedSets: 3))
+        #expect(suggest(p)?.kind == .holdWeight)
+    }
+
+    @Test func conflictC_newerSnapshotPartialLosesToOlderLegacyComplete() throws {
+        let old = session(daysAgo: 5), new = session(daysAgo: 1)
+        let r = [result(old, set: 0, planned: nil, reps: 12), result(old, set: 1, planned: nil, reps: 12), result(old, set: 2, planned: nil, reps: 12),
+                 result(new, set: 0, planned: 4), result(new, set: 1, planned: 4)]
+        let p = try #require(latest([old, new], r, expected: 3))
+        #expect(p.date == old.startedAt)
+        #expect(p.setReps == [12, 12, 12])
+        #expect(p.plannedSetCount == nil)
+        #expect(!p.hasInconsistentPlannedSets)
+        #expect(p.isComplete(expectedSets: 3))
+        // Legacy rule then applies unchanged.
+        #expect(suggest(p)?.kind == .increaseWeight)
+        #expect(suggest(p)?.suggestedWeightKg == 62.5)
+    }
+
+    // MARK: reason
+
+    private func prev(_ reps: [Int], weight: Double? = 60, planned: Int) -> PreviousPerformance {
+        PreviousPerformance(date: .now, sets: reps.map { PreviousSetPerformance(reps: $0, weightKg: weight) }, plannedSetCount: planned)
+    }
+
+    @Test func d_fewerSetsWithAMissNamesItWeighted() throws {
+        let s = try #require(suggest(prev([10, 10, 10, 8], planned: 4)))
+        #expect(s.kind == .holdWeight)
+        #expect(s.suggestedWeightKg == 60)
+        let reason = try #require(ProgressionPresentation.reasonText(s))
+        #expect(reason.contains("未達"))
+        #expect(reason.contains("重量を維持"))
+        #expect(reason == "前回は4セット中に未達あり。今回は3セットのため重量を維持")
+    }
+
+    @Test func e_fewerSetsWithAMissNamesItRepsOnly() throws {
+        let s = try #require(suggest(prev([10, 10, 10, 8], weight: nil, planned: 4)))
+        #expect(s.kind == .holdReps)
+        #expect(s.suggestedReps == 10)
+        let reason = try #require(ProgressionPresentation.reasonText(s))
+        #expect(reason.contains("未達"))
+        #expect(reason.contains("回数を維持"))
+    }
+
+    @Test func f_fewerSetsAllAchievedSaysSo() throws {
+        for w in [Double?(60), nil] {
+            let s = try #require(suggest(prev([10, 10, 10, 10], weight: w, planned: 4)))
+            #expect(s.isProgression)
+            let reason = try #require(ProgressionPresentation.reasonText(s))
+            #expect(reason.contains("すべて達成"))
+            #expect(!reason.contains("未達"))
+        }
+    }
+
+    @Test func g_moreSetsReasonUnchanged() {
+        #expect(suggest(prev([10, 10, 10], planned: 3), expected: 4).flatMap(ProgressionPresentation.reasonText) == "前回は3セット、今回は4セットのため重量を維持")
+        #expect(suggest(prev([10, 10, 8], weight: nil, planned: 3), expected: 4).flatMap(ProgressionPresentation.reasonText) == "前回は3セット、今回は4セットのため回数を維持")
+    }
+
+    @Test func ceilingHoldAfterFewerSetsNeverClaimsAMiss() throws {
+        let s = try #require(suggest(prev([10, 10, 10, 10], weight: 999, planned: 4)))
+        #expect(s.kind == .holdWeight)
+        #expect(s.suggestedWeightKg == 999)
+        #expect(ProgressionPresentation.reasonText(s) == "前回は4セット、今回は3セット")
+    }
+
+    @Test func legacyAndPartialStillShowNoSetCountReason() {
+        let legacy = PreviousPerformance(date: .now, setReps: [10, 10, 10, 8], setWeightsKg: [60, 60, 60, 60])
+        #expect(suggest(legacy).flatMap(ProgressionPresentation.reasonText) == nil)
+        #expect(suggest(prev([10, 8], planned: 4)).flatMap(ProgressionPresentation.reasonText) == nil)
     }
 }
