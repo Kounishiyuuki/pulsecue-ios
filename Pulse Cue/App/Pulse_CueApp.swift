@@ -50,13 +50,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV12.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV13.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             let container = try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV12.self),
+                for: Schema(versionedSchema: PulseCueSchemaV13.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -926,9 +926,61 @@ enum PulseCueSchemaV11: VersionedSchema {
 /// result migrates to `nil` ("not recorded") — never to 0.
 enum PulseCueSchemaV12: VersionedSchema {
     static var versionIdentifier = Schema.Version(12, 0, 0)
+
+    /// `StepResult` exactly as it shipped in V12. Frozen when V13 added
+    /// `plannedSetsAtExecution` so V12 keeps describing the on-disk shape (the
+    /// live type would change its hash and orphan existing stores).
+    @Model
+    final class StepResult {
+        @Attribute(.unique) var id: UUID
+        var sessionId: UUID
+        var stepId: UUID
+        var setIndex: Int
+        var done: Bool
+        var actualReps: Int?
+        var memo: String?
+        var ownerAccountID: UUID?
+        var weightKg: Double?
+
+        init(
+            id: UUID = UUID(),
+            sessionId: UUID,
+            stepId: UUID,
+            setIndex: Int,
+            done: Bool,
+            actualReps: Int? = nil,
+            memo: String? = nil,
+            ownerAccountID: UUID? = nil,
+            weightKg: Double? = nil
+        ) {
+            self.id = id
+            self.sessionId = sessionId
+            self.stepId = stepId
+            self.setIndex = setIndex
+            self.done = done
+            self.actualReps = actualReps
+            self.memo = memo
+            self.ownerAccountID = ownerAccountID
+            self.weightKg = weightKg
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         PulseCueSchemaV11.models.map {
-            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV6.StepResult.self) ? StepResult.self : $0
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV6.StepResult.self) ? PulseCueSchemaV12.StepResult.self : $0
+        }
+    }
+}
+
+/// Adds `StepResult.plannedSetsAtExecution`: the set count a step was planned
+/// for when the session ran it. Optional, so the stage is lightweight and
+/// every existing result migrates to `nil` ("unknown") — nothing is backfilled
+/// from the live `Step.sets` or inferred from the recorded sets.
+enum PulseCueSchemaV13: VersionedSchema {
+    static var versionIdentifier = Schema.Version(13, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PulseCueSchemaV12.models.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV12.StepResult.self) ? StepResult.self : $0
         }
     }
 }
@@ -947,7 +999,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV9.self,
             PulseCueSchemaV10.self,
             PulseCueSchemaV11.self,
-            PulseCueSchemaV12.self
+            PulseCueSchemaV12.self,
+            PulseCueSchemaV13.self
         ]
     }
 
@@ -996,6 +1049,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV11.self,
                 toVersion: PulseCueSchemaV12.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV12.self,
+                toVersion: PulseCueSchemaV13.self
             )
         ]
     }

@@ -650,11 +650,22 @@ final class RunnerViewModel: ObservableObject {
             }
         )
         if let existing = try? modelContext.fetch(descriptor).first {
+            // `plannedSetsAtExecution` is deliberately left as first written.
             existing.done = done
             existing.actualReps = actualReps
             existing.weightKg = weightKg
             return
         }
+        // The step's planned set count as this session runs it. The first
+        // result of (session, step) snapshots `step.sets`; later ones copy that
+        // value, so editing the routine mid-session (before a resume) can never
+        // split one step's results across two plans. A sibling's `nil` (a
+        // session begun before V13) is copied as is, never filled in.
+        let siblings = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.stepId == stepId }
+        )
+        let firstSibling = ((try? modelContext.fetch(siblings)) ?? []).min { $0.setIndex < $1.setIndex }
+        let plannedSets = firstSibling.map(\.plannedSetsAtExecution) ?? step.sets
         // Owner comes from the parent session, never from the current account.
         // Reading the account here would let a result be written under a
         // different owner than the workout it belongs to — the one pair the
@@ -666,7 +677,8 @@ final class RunnerViewModel: ObservableObject {
             done: done,
             actualReps: actualReps,
             ownerAccountID: session?.ownerAccountID,
-            weightKg: weightKg
+            weightKg: weightKg,
+            plannedSetsAtExecution: plannedSets
         )
         modelContext.insert(result)
     }

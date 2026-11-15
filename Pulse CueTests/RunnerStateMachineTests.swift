@@ -1055,3 +1055,226 @@ struct RunnerWeightedProgressionTests {
     }
 }
 
+
+/// `StepResult.plannedSetsAtExecution`: the first result of a
+/// (session, step) snapshots `step.sets`, every later one — including after a
+/// resume or a Back overwrite — keeps that value.
+@MainActor
+struct RunnerPlannedSetsSnapshotTests {
+
+    private struct Fixture {
+        let viewModel: RunnerViewModel
+        let routine: Routine
+        let steps: [Step]
+        let context: ModelContext
+        let defaults: UserDefaults
+    }
+
+    private static func makeFixture(sets: [Int], exerciseId: String? = "bench_press", restSeconds: Int = 0) throws -> Fixture {
+        RunnerPersistence.clear()
+        let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "Planned")
+        context.insert(routine)
+        let steps = sets.enumerated().map { index, count in
+            Step(routineId: routine.id, order: index, title: "Step \(index)", sets: count, repsTarget: 10, restSeconds: restSeconds, exerciseId: exerciseId)
+        }
+        steps.forEach(context.insert)
+        try context.save()
+        let defaults = UserDefaults(suiteName: "test.planned.\(UUID().uuidString)")!
+        let settings = SettingsStore(defaults: defaults)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context)
+        return Fixture(viewModel: viewModel, routine: routine, steps: steps, context: context, defaults: defaults)
+    }
+
+    private static func complete(_ vm: RunnerViewModel) throws {
+        vm.handle(action: .complete, context: try #require(vm.completeContext))
+    }
+
+    /// Results of `step`, in set order.
+    private static func results(_ fx: Fixture, _ step: Step) throws -> [StepResult] {
+        let stepId = step.id
+        return try fx.context.fetch(FetchDescriptor<StepResult>(predicate: #Predicate { $0.stepId == stepId }))
+            .sorted { $0.setIndex < $1.setIndex }
+    }
+
+    @Test
+    func everyCompletedSetCarriesThePlannedCount() throws {
+        let fx = try Self.makeFixture(sets: [3])
+        fx.viewModel.start(routine: fx.routine)
+        for _ in 0..<3 { try Self.complete(fx.viewModel) }
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.setIndex) == [0, 1, 2])
+        #expect(results.map(\.plannedSetsAtExecution) == [3, 3, 3])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aSkippedSetCarriesThePlannedCount() throws {
+        let fx = try Self.makeFixture(sets: [3, 3])
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.handle(action: .skip)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.count == 1)
+        #expect(results.first?.done == false)
+        #expect(results.first?.plannedSetsAtExecution == 3)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func skippingTheRestFromRestLeavesOneOfThree() throws {
+        let fx = try Self.makeFixture(sets: [3, 3], restSeconds: 60)
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.phase == .rest)
+        fx.viewModel.handle(action: .skip) // rest-phase skip: no results for sets 1–2
+        #expect(fx.viewModel.currentStepIndex == 1)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.filter(\.done).count == 1)
+        #expect(results.map(\.plannedSetsAtExecution) == [3])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func endingEarlyKeepsThePlannedCountOnTheDoneSets() throws {
+        let fx = try Self.makeFixture(sets: [4, 3])
+        fx.viewModel.start(routine: fx.routine)
+        let sessionId = try #require(fx.viewModel.sessionId)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.endSessionEarly()
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>(predicate: #Predicate { $0.id == sessionId })).first)
+        #expect(session.status == .abandoned)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.done) == [true, true])
+        #expect(results.map(\.plannedSetsAtExecution) == [4, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func resumeKeepsTheFirstSnapshotEvenIfTheStepChanged() throws {
+        let fx = try Self.makeFixture(sets: [4])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.appDidEnterBackground()
+        // The routine is edited while the workout is suspended.
+        fx.steps[0].sets = 5
+        try fx.context.save()
+
+        let resumed = RunnerViewModel(settings: SettingsStore(defaults: fx.defaults))
+        resumed.configure(modelContext: fx.context)
+        #expect(resumed.currentSetIndex == 2)
+        try Self.complete(resumed)
+        try Self.complete(resumed)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.setIndex) == [0, 1, 2, 3])
+        #expect(results.map(\.plannedSetsAtExecution) == [4, 4, 4, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func resumingALegacySessionKeepsItsUnknownSnapshot() throws {
+        let fx = try Self.makeFixture(sets: [4])
+        fx.viewModel.start(routine: fx.routine)
+        let sessionId = try #require(fx.viewModel.sessionId)
+        try Self.complete(fx.viewModel)
+        // Stand-in for a V12 result migrated to V13: same session and step,
+        // recorded before the snapshot existed, so it is unknown (nil).
+        let legacy = try #require(try Self.results(fx, fx.steps[0]).first)
+        legacy.plannedSetsAtExecution = nil
+        try fx.context.save()
+        fx.viewModel.appDidEnterBackground()
+
+        let resumed = RunnerViewModel(settings: SettingsStore(defaults: fx.defaults))
+        resumed.configure(modelContext: fx.context)
+        #expect(resumed.sessionId == sessionId)
+        #expect(resumed.currentSetIndex == 1)
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>(predicate: #Predicate { $0.id == sessionId })).first)
+        #expect(session.status == .inProgress)
+        try Self.complete(resumed)
+
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.count == 2)
+        #expect(results.map(\.sessionId) == [sessionId, sessionId])
+        #expect(results.map(\.stepId) == [fx.steps[0].id, fx.steps[0].id])
+        #expect(results.map(\.setIndex) == [0, 1])
+        #expect(results.map(\.done) == [true, true])
+        #expect(results.map(\.actualReps) == [10, 10])
+        // Never filled in from the live `step.sets` (4), never mixed.
+        #expect(results.map(\.plannedSetsAtExecution) == [nil, nil])
+        #expect(results.map(\.plannedSetsAtExecution) != [nil, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func changingStepSetsAfterTheFirstResultNeverSplitsTheSnapshot() throws {
+        let fx = try Self.makeFixture(sets: [4])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        fx.steps[0].sets = 2
+        try Self.complete(fx.viewModel)
+        #expect(try Self.results(fx, fx.steps[0]).map(\.plannedSetsAtExecution) == [4, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func overwritingASetViaBackKeepsItsSnapshot() throws {
+        let fx = try Self.makeFixture(sets: [3])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        fx.steps[0].sets = 5
+        fx.viewModel.handle(action: .back)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        fx.viewModel.adjustCurrentReps(by: -2)
+        try Self.complete(fx.viewModel)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.count == 1)
+        #expect(results.first?.actualReps == 8)
+        #expect(results.first?.plannedSetsAtExecution == 3)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func duplicatedStepsOfOneExerciseKeepTheirOwnPlannedCounts() throws {
+        let fx = try Self.makeFixture(sets: [3, 4])
+        fx.viewModel.start(routine: fx.routine)
+        for _ in 0..<7 { try Self.complete(fx.viewModel) }
+        #expect(fx.steps.map(\.exerciseId) == ["bench_press", "bench_press"])
+        #expect(try Self.results(fx, fx.steps[0]).map(\.plannedSetsAtExecution) == [3, 3, 3])
+        #expect(try Self.results(fx, fx.steps[1]).map(\.plannedSetsAtExecution) == [4, 4, 4, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aReplacedExerciseSnapshotsAtItsFirstResult() throws {
+        let fx = try Self.makeFixture(sets: [3])
+        fx.viewModel.start(routine: fx.routine)
+        let candidate = GeneratedExercise(machineId: "chest_press", exerciseName: "チェストプレス", sets: 5, reps: 10, restSeconds: 0, cue: "", exerciseId: "machine_chest_press")
+        #expect(fx.viewModel.replaceExercise(fx.steps[0], with: candidate))
+        try Self.complete(fx.viewModel)
+        // The replacement keeps the step's own sets (3), not the candidate's.
+        #expect(fx.steps[0].exerciseId == "machine_chest_press")
+        #expect(try Self.results(fx, fx.steps[0]).map(\.plannedSetsAtExecution) == [3])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func guestAdoptionKeepsThePlannedCount() throws {
+        let fx = try Self.makeFixture(sets: [2])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        try fx.context.save()
+        let account = UUID()
+        let summary = try AccountScopedSyncStore().adoptGuestWorkoutData(for: account, in: fx.context)
+        #expect(summary.adoptedStepResults == 2)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.ownerAccountID) == [account, account])
+        #expect(results.map(\.plannedSetsAtExecution) == [2, 2])
+        RunnerPersistence.clear()
+    }
+}

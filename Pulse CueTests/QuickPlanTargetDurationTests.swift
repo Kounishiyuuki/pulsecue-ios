@@ -23,7 +23,7 @@ struct QuickPlanTargetDurationTests {
     // MARK: - Fixtures
 
     private static func makeGym() throws -> (Gym, ModelContext) {
-        let schema = Schema(versionedSchema: PulseCueSchemaV12.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
         let container = try ModelContainer(
             for: schema,
             configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
