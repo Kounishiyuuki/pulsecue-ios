@@ -1177,6 +1177,40 @@ struct RunnerPlannedSetsSnapshotTests {
     }
 
     @Test
+    func resumingALegacySessionKeepsItsUnknownSnapshot() throws {
+        let fx = try Self.makeFixture(sets: [4])
+        fx.viewModel.start(routine: fx.routine)
+        let sessionId = try #require(fx.viewModel.sessionId)
+        try Self.complete(fx.viewModel)
+        // Stand-in for a V12 result migrated to V13: same session and step,
+        // recorded before the snapshot existed, so it is unknown (nil).
+        let legacy = try #require(try Self.results(fx, fx.steps[0]).first)
+        legacy.plannedSetsAtExecution = nil
+        try fx.context.save()
+        fx.viewModel.appDidEnterBackground()
+
+        let resumed = RunnerViewModel(settings: SettingsStore(defaults: fx.defaults))
+        resumed.configure(modelContext: fx.context)
+        #expect(resumed.sessionId == sessionId)
+        #expect(resumed.currentSetIndex == 1)
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>(predicate: #Predicate { $0.id == sessionId })).first)
+        #expect(session.status == .inProgress)
+        try Self.complete(resumed)
+
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.count == 2)
+        #expect(results.map(\.sessionId) == [sessionId, sessionId])
+        #expect(results.map(\.stepId) == [fx.steps[0].id, fx.steps[0].id])
+        #expect(results.map(\.setIndex) == [0, 1])
+        #expect(results.map(\.done) == [true, true])
+        #expect(results.map(\.actualReps) == [10, 10])
+        // Never filled in from the live `step.sets` (4), never mixed.
+        #expect(results.map(\.plannedSetsAtExecution) == [nil, nil])
+        #expect(results.map(\.plannedSetsAtExecution) != [nil, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
     func changingStepSetsAfterTheFirstResultNeverSplitsTheSnapshot() throws {
         let fx = try Self.makeFixture(sets: [4])
         fx.viewModel.start(routine: fx.routine)
