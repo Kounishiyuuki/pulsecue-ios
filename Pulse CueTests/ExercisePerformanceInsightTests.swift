@@ -305,6 +305,52 @@ struct ExercisePerformanceInsightTests {
         #expect(perf?.date == full.startedAt)
     }
 
+    // MARK: Set counts other than 3, and session recency vs step order
+
+    @Test
+    func twoSetPlanPrefersTheOlderFullRecordAndProgresses() throws {
+        let bench = step("bench_press")
+        let full = session(UUID(), daysAgo: 7)
+        let partial = session(UUID(), daysAgo: 2, status: .abandoned)
+        let perf = try #require(PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 2,
+            steps: [bench], sessions: [full, partial],
+            results: stepSets(full.id, bench.id, done: 2) + stepSets(partial.id, bench.id, done: 1)
+        ))
+        #expect(perf.date == full.startedAt)
+        #expect(perf.sets.count == 2)
+        let s = ProgressionRule.suggest(previous: perf, baselineReps: 10, expectedSets: 2, allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(s?.kind == .increaseWeight)
+        #expect(s?.suggestedWeightKg == 62.5)
+    }
+
+    @Test
+    func fourSetPlanPrefersTheOlderFullRecord() {
+        let bench = step("bench_press")
+        let full = session(UUID(), daysAgo: 7)
+        let partial = session(UUID(), daysAgo: 2, status: .abandoned)
+        let perf = PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 4,
+            steps: [bench], sessions: [full, partial],
+            results: stepSets(full.id, bench.id, done: 4) + stepSets(partial.id, bench.id, done: 3)
+        )
+        #expect(perf?.date == full.startedAt)
+        #expect(perf?.sets.count == 4)
+    }
+
+    @Test
+    func newerSessionBeatsAnOlderOneWhoseStepOrderMatches() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let older = session(UUID(), daysAgo: 5)
+        let newer = session(UUID(), daysAgo: 3)
+        let results = stepSets(older.id, a.id, done: 3, weight: 80) + stepSets(newer.id, b.id, done: 3, weight: 50)
+        // currentStepOrder only breaks ties inside one session; it never
+        // reorders sessions by recency.
+        let perf = latest([a, b], [older, newer], results, order: 0)
+        #expect(perf?.date == newer.startedAt)
+        #expect(perf?.setWeightsKg == [50, 50, 50])
+    }
+
     // MARK: - Progression
 
     @Test
