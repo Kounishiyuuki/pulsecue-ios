@@ -81,11 +81,11 @@ struct StepExerciseIdMigrationTests {
     /// V3 → V4 lightweight stage).
     private static func openV4Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
         let config = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV12.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV13.self),
             url: url
         )
         let container = try ModelContainer(
-            for: Schema(versionedSchema: PulseCueSchemaV12.self),
+            for: Schema(versionedSchema: PulseCueSchemaV13.self),
             migrationPlan: PulseCueMigrationPlan.self,
             configurations: config
         )

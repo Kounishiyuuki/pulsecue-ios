@@ -31,6 +31,13 @@ final class StepResult {
     /// left blank. `0` is a real value ("no added load"), never a stand-in for
     /// "unknown". Not the body weight on `DayLog.weightKg`.
     var weightKg: Double?
+    /// How many sets this step was planned for when this session ran it
+    /// (schema V13+). `Step.sets` is the live, editable value, so it cannot
+    /// say what an earlier session planned. Every result of one
+    /// (session, step) carries the same value: the first one written takes
+    /// `step.sets`, later ones copy it. `nil` for every pre-V13 result —
+    /// unknown, and never backfilled or guessed.
+    var plannedSetsAtExecution: Int?
 
     init(
         id: UUID = UUID(),
@@ -41,7 +48,8 @@ final class StepResult {
         actualReps: Int? = nil,
         memo: String? = nil,
         ownerAccountID: UUID? = nil,
-        weightKg: Double? = nil
+        weightKg: Double? = nil,
+        plannedSetsAtExecution: Int? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -52,6 +60,7 @@ final class StepResult {
         self.memo = memo
         self.ownerAccountID = ownerAccountID
         self.weightKg = weightKg
+        self.plannedSetsAtExecution = plannedSetsAtExecution
     }
 }
 
