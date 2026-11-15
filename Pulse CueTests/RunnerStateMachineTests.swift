@@ -1004,6 +1004,25 @@ struct RunnerWeightedProgressionTests {
     }
 
     @Test
+    func endingEarlyAfterOneSetKeepsTheOlderFullRecordAsLastTime() throws {
+        let fx = try Self.makeFixture()
+        try Self.seedHistory(fx, stepId: fx.step.id, weights: [60, 60, 60])
+        // Today: one set at 62.5, then "中断して終了".
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(62.5)
+        fx.viewModel.handle(action: .complete, context: try #require(fx.viewModel.completeContext))
+        fx.viewModel.endSessionEarly()
+        try fx.context.save()
+
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.refreshExerciseInsight()
+        #expect(fx.viewModel.previousPerformance?.setWeightsKg == [60, 60, 60])
+        #expect(fx.viewModel.progression?.kind == .increaseWeight)
+        #expect(fx.viewModel.progression?.suggestedWeightKg == 62.5)
+        RunnerPersistence.clear()
+    }
+
+    @Test
     func repOnlySuggestionLeavesTheWeightAlone() throws {
         let fx = try Self.makeFixture()
         try Self.seedHistory(fx, stepId: fx.step.id, weights: [nil, nil, nil])

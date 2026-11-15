@@ -62,17 +62,28 @@ struct PreviousPerformance: Equatable {
 
 enum PreviousPerformanceQuery {
 
-    /// The most recent completed performance of `exerciseId`, from a session
-    /// other than `excludingSessionId` (the one in progress). Matching is by
-    /// stable `Step.exerciseId` — resolved through the steps that still carry
-    /// it — never by display name. Only completed sets with a recorded rep
-    /// count are counted. Returns `nil` when there is no such history.
+    /// The most recent performance of `exerciseId` worth calling "last time",
+    /// from a session other than `excludingSessionId` (the one in progress).
+    /// Matching is by stable `Step.exerciseId` — resolved through the steps
+    /// that still carry it — never by display name. Only completed sets with a
+    /// recorded rep count are counted. Returns `nil` when there is no such
+    /// history.
+    ///
+    /// Selection:
+    /// - `.inProgress` sessions are never "last time" (still resumable, or
+    ///   left behind), so they cannot hide an earlier record;
+    /// - among `.completed` / `.abandoned` sessions, the newest one where this
+    ///   exercise has exactly `expectedSets` done sets wins — whether the
+    ///   session as a whole was finished is irrelevant to this exercise;
+    /// - with no such full record, the newest partial one is returned (the
+    ///   set-count rule then holds the target).
     ///
     /// Pure over the provided snapshots; the caller fetches them once (on
     /// workout start / exercise change), never per body render.
     static func latest(
         exerciseId: String,
         excludingSessionId: UUID?,
+        expectedSets: Int,
         steps: [Step],
         sessions: [Session],
         results: [StepResult]
@@ -81,26 +92,31 @@ enum PreviousPerformanceQuery {
         let stepIds = Set(steps.filter { $0.exerciseId == exerciseId }.map(\.id))
         guard !stepIds.isEmpty else { return nil }
 
+        // Finished (completed or ended early) sessions only.
+        let finished = Dictionary(
+            sessions.filter { $0.status != .inProgress }.map { ($0.id, $0.startedAt) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         let relevant = results.filter { result in
             result.done
                 && result.actualReps != nil
                 && result.sessionId != excludingSessionId
+                && finished[result.sessionId] != nil
                 && stepIds.contains(result.stepId)
         }
         guard !relevant.isEmpty else { return nil }
 
-        let dateBySession = Dictionary(sessions.map { ($0.id, $0.startedAt) }, uniquingKeysWith: { first, _ in first })
-
-        // Most recent session that has a completed set of this exercise.
-        // Tie-break on session id so the result is fully deterministic.
-        let sessionIds = Set(relevant.map(\.sessionId))
-        let latest = sessionIds.max { lhs, rhs in
-            let l = dateBySession[lhs] ?? .distantPast
-            let r = dateBySession[rhs] ?? .distantPast
-            if l != r { return l < r }
-            return lhs.uuidString < rhs.uuidString
+        // Newest first; tie-break on session id so the choice is deterministic.
+        let doneSetCount = Dictionary(grouping: relevant, by: \.sessionId).mapValues(\.count)
+        let newestFirst = doneSetCount.keys.sorted { lhs, rhs in
+            let l = finished[lhs] ?? .distantPast
+            let r = finished[rhs] ?? .distantPast
+            if l != r { return l > r }
+            return lhs.uuidString > rhs.uuidString
         }
-        guard let sessionId = latest, let date = dateBySession[sessionId] else { return nil }
+        let full = newestFirst.first { doneSetCount[$0] == expectedSets }
+        guard let sessionId = full ?? newestFirst.first, let date = finished[sessionId] else { return nil }
 
         // `relevant` only holds results with a rep count; each set is built
         // from one result, so reps and weight cannot misalign.

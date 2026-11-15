@@ -383,6 +383,7 @@ final class RunnerViewModel: ObservableObject {
         let previous = PreviousPerformanceQuery.latest(
             exerciseId: exerciseId,
             excludingSessionId: sessionId,
+            expectedSets: step.sets,
             steps: allSteps,
             sessions: allSessions,
             results: allResults
