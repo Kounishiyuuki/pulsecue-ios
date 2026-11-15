@@ -384,6 +384,7 @@ final class RunnerViewModel: ObservableObject {
             exerciseId: exerciseId,
             excludingSessionId: sessionId,
             expectedSets: step.sets,
+            currentStepOrder: step.order,
             steps: allSteps,
             sessions: allSessions,
             results: allResults

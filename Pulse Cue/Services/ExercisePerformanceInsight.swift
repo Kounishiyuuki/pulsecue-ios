@@ -72,11 +72,16 @@ enum PreviousPerformanceQuery {
     /// Selection:
     /// - `.inProgress` sessions are never "last time" (still resumable, or
     ///   left behind), so they cannot hide an earlier record;
-    /// - among `.completed` / `.abandoned` sessions, the newest one where this
-    ///   exercise has exactly `expectedSets` done sets wins — whether the
-    ///   session as a whole was finished is irrelevant to this exercise;
+    /// - a record is one step's sets in one session — never the sets of two
+    ///   steps that share this exercise (a routine can hold a duplicated step);
+    /// - among `.completed` / `.abandoned` sessions, the newest record with
+    ///   exactly `expectedSets` done sets wins — whether the session as a whole
+    ///   was finished is irrelevant to this exercise;
     /// - with no such full record, the newest partial one is returned (the
-    ///   set-count rule then holds the target).
+    ///   set-count rule then holds the target);
+    /// - order: session `startedAt`, then session id; within one session, the
+    ///   step whose `order` equals `currentStepOrder`, then the lowest `order`,
+    ///   then step id — so the same data always yields the same record.
     ///
     /// Pure over the provided snapshots; the caller fetches them once (on
     /// workout start / exercise change), never per body render.
@@ -84,13 +89,17 @@ enum PreviousPerformanceQuery {
         exerciseId: String,
         excludingSessionId: UUID?,
         expectedSets: Int,
+        currentStepOrder: Int? = nil,
         steps: [Step],
         sessions: [Session],
         results: [StepResult]
     ) -> PreviousPerformance? {
         // Every step (across routines) that represents this exercise.
-        let stepIds = Set(steps.filter { $0.exerciseId == exerciseId }.map(\.id))
-        guard !stepIds.isEmpty else { return nil }
+        let orderByStep = Dictionary(
+            steps.filter { $0.exerciseId == exerciseId }.map { ($0.id, $0.order) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard !orderByStep.isEmpty else { return nil }
 
         // Finished (completed or ended early) sessions only.
         let finished = Dictionary(
@@ -103,25 +112,33 @@ enum PreviousPerformanceQuery {
                 && result.actualReps != nil
                 && result.sessionId != excludingSessionId
                 && finished[result.sessionId] != nil
-                && stepIds.contains(result.stepId)
+                && orderByStep[result.stepId] != nil
         }
         guard !relevant.isEmpty else { return nil }
 
-        // Newest first; tie-break on session id so the choice is deterministic.
-        let doneSetCount = Dictionary(grouping: relevant, by: \.sessionId).mapValues(\.count)
-        let newestFirst = doneSetCount.keys.sorted { lhs, rhs in
-            let l = finished[lhs] ?? .distantPast
-            let r = finished[rhs] ?? .distantPast
+        struct Record: Hashable { let sessionId: UUID; let stepId: UUID }
+        let byRecord = Dictionary(grouping: relevant) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
+
+        let ranked = byRecord.keys.sorted { lhs, rhs in
+            let l = finished[lhs.sessionId] ?? .distantPast
+            let r = finished[rhs.sessionId] ?? .distantPast
             if l != r { return l > r }
-            return lhs.uuidString > rhs.uuidString
+            if lhs.sessionId != rhs.sessionId { return lhs.sessionId.uuidString > rhs.sessionId.uuidString }
+            let lo = orderByStep[lhs.stepId] ?? .max
+            let ro = orderByStep[rhs.stepId] ?? .max
+            let lMatch = currentStepOrder != nil && lo == currentStepOrder
+            let rMatch = currentStepOrder != nil && ro == currentStepOrder
+            if lMatch != rMatch { return lMatch }
+            if lo != ro { return lo < ro }
+            return lhs.stepId.uuidString < rhs.stepId.uuidString
         }
-        let full = newestFirst.first { doneSetCount[$0] == expectedSets }
-        guard let sessionId = full ?? newestFirst.first, let date = finished[sessionId] else { return nil }
+        let full = ranked.first { byRecord[$0]?.count == expectedSets }
+        guard let record = full ?? ranked.first, let date = finished[record.sessionId] else { return nil }
 
         // `relevant` only holds results with a rep count; each set is built
-        // from one result, so reps and weight cannot misalign.
-        let sets: [PreviousSetPerformance] = relevant
-            .filter { $0.sessionId == sessionId }
+        // from one result of the chosen step, so reps and weight cannot
+        // misalign and no other step's sets are mixed in.
+        let sets: [PreviousSetPerformance] = (byRecord[record] ?? [])
             .sorted { $0.setIndex < $1.setIndex }
             .compactMap { result in
                 guard let reps = result.actualReps else { return nil }

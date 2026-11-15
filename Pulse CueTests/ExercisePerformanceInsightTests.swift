@@ -16,8 +16,8 @@ import Testing
 @MainActor
 struct ExercisePerformanceInsightTests {
 
-    private func step(_ exerciseId: String?, id: UUID = UUID()) -> Step {
-        Step(id: id, routineId: UUID(), order: 0, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
+    private func step(_ exerciseId: String?, id: UUID = UUID(), order: Int = 0) -> Step {
+        Step(id: id, routineId: UUID(), order: order, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
     }
 
     private func session(_ id: UUID, daysAgo: Int, status: SessionStatus = .completed) -> Session {
@@ -218,6 +218,79 @@ struct ExercisePerformanceInsightTests {
         let c = session(UUID(), daysAgo: 6, status: .abandoned)
         let perf = latest(bench, [a, b, c], sets(a.id, bench.id, done: 3) + sets(b.id, bench.id, done: 3) + sets(c.id, bench.id, done: 3))
         #expect(perf?.date == b.startedAt)
+    }
+
+    // MARK: Duplicated steps of one exercise in one session
+
+    /// `count` done sets for `stepId`, each at `weight` and `reps`.
+    private func stepSets(_ sessionId: UUID, _ stepId: UUID, done count: Int, weight: Double = 60, reps: Int = 10) -> [StepResult] {
+        (0..<count).map { StepResult(sessionId: sessionId, stepId: stepId, setIndex: $0, done: true, actualReps: reps, weightKg: weight) }
+    }
+
+    private func latest(_ steps: [Step], _ sessions: [Session], _ results: [StepResult], order: Int?) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3, currentStepOrder: order, steps: steps, sessions: sessions, results: results)
+    }
+
+    @Test
+    func fullStepWinsOverItsPartialDuplicateInTheSameSession() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let perf = latest([a, b], [sess], stepSets(sess.id, a.id, done: 3, weight: 80) + stepSets(sess.id, b.id, done: 1, weight: 50), order: 1)
+        #expect(perf?.sets.count == 3)
+        #expect(perf?.setWeightsKg == [80, 80, 80])
+    }
+
+    @Test
+    func twoPartialStepsNeverAddUpToAFullRecord() throws {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let perf = try #require(latest([a, b], [sess], stepSets(sess.id, a.id, done: 2) + stepSets(sess.id, b.id, done: 1), order: 0))
+        #expect(perf.sets.count == 2) // step A alone, not 2 + 1
+        let s = ProgressionRule.suggest(previous: perf, baselineReps: 10, expectedSets: 3, allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(s?.kind == .holdReps)
+        #expect(s?.suggestedWeightKg == nil)
+    }
+
+    @Test
+    func twoFullStepsAreNotSixSetsAndThePickIsStable() {
+        let a = step("bench_press", id: UUID(), order: 0), b = step("bench_press", id: UUID(), order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let results = stepSets(sess.id, a.id, done: 3, weight: 80) + stepSets(sess.id, b.id, done: 3, weight: 50)
+        // No order match → lowest order (A), regardless of input order.
+        let first = latest([a, b], [sess], results, order: 5)
+        let second = latest([b, a], [sess], results.reversed(), order: 5)
+        #expect(first?.sets.count == 3)
+        #expect(first?.setWeightsKg == [80, 80, 80])
+        #expect(first == second)
+    }
+
+    @Test
+    func twoPartialStepsAreNotMixedIntoFourSets() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let perf = latest([a, b], [sess], stepSets(sess.id, a.id, done: 2, weight: 80) + stepSets(sess.id, b.id, done: 2, weight: 50), order: 0)
+        #expect(perf?.sets.count == 2)
+        #expect(perf?.setWeightsKg == [80, 80])
+    }
+
+    @Test
+    func matchingStepOrderWinsAmongFullDuplicates() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let sess = session(UUID(), daysAgo: 2)
+        let results = stepSets(sess.id, a.id, done: 3, weight: 80) + stepSets(sess.id, b.id, done: 3, weight: 50)
+        #expect(latest([a, b], [sess], results, order: 1)?.setWeightsKg == [50, 50, 50])
+        #expect(latest([a, b], [sess], results, order: 0)?.setWeightsKg == [80, 80, 80])
+    }
+
+    @Test
+    func fullDuplicateInAnOlderSessionBeatsANewerPartialStep() {
+        let a = step("bench_press", order: 0), b = step("bench_press", order: 1)
+        let older = session(UUID(), daysAgo: 7)
+        let newer = session(UUID(), daysAgo: 2, status: .abandoned)
+        let results = stepSets(older.id, a.id, done: 3) + stepSets(newer.id, a.id, done: 2) + stepSets(newer.id, b.id, done: 1)
+        let perf = latest([a, b], [older, newer], results, order: 0)
+        #expect(perf?.date == older.startedAt)
+        #expect(perf?.sets.count == 3)
     }
 
     @Test
