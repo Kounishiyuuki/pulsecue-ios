@@ -650,7 +650,7 @@ final class RunnerViewModel: ObservableObject {
             }
         )
         if let existing = try? modelContext.fetch(descriptor).first {
-            // `plannedSetsAtExecution` is deliberately left as first written.
+            // The `…AtExecution` snapshots are deliberately left as first written.
             existing.done = done
             existing.actualReps = actualReps
             existing.weightKg = weightKg
@@ -666,6 +666,12 @@ final class RunnerViewModel: ObservableObject {
         )
         let firstSibling = ((try? modelContext.fetch(siblings)) ?? []).min { $0.setIndex < $1.setIndex }
         let plannedSets = firstSibling.map(\.plannedSetsAtExecution) ?? step.sets
+        // Same rule for the exercise identity: a Runner replacement or Routine
+        // edit rewrites the live step, so only the first result may read it.
+        // A sibling's nil/nil (a session begun before V14) is copied as is —
+        // the live step may already be a different exercise.
+        let exerciseId = firstSibling.map(\.exerciseIdAtExecution) ?? step.exerciseId
+        let exerciseTitle = firstSibling.map(\.exerciseTitleAtExecution) ?? step.title
         // Owner comes from the parent session, never from the current account.
         // Reading the account here would let a result be written under a
         // different owner than the workout it belongs to — the one pair the
@@ -678,7 +684,9 @@ final class RunnerViewModel: ObservableObject {
             actualReps: actualReps,
             ownerAccountID: session?.ownerAccountID,
             weightKg: weightKg,
-            plannedSetsAtExecution: plannedSets
+            plannedSetsAtExecution: plannedSets,
+            exerciseIdAtExecution: exerciseId,
+            exerciseTitleAtExecution: exerciseTitle
         )
         modelContext.insert(result)
     }

@@ -273,7 +273,7 @@ struct WeeklyPlanRoutineSaveTests {
 struct SavedTrainingPlanTests {
 
     private static func makeContext() throws -> ModelContext {
-        let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return ModelContext(try ModelContainer(for: schema, configurations: [config]))
     }
@@ -334,7 +334,7 @@ struct SavedTrainingPlanTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("store.sqlite")
-        let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
         let expectedSteps = Self.candidate().sessions.reduce(0) { $0 + $1.exercises.count }
 
         do {
@@ -815,13 +815,12 @@ struct StepResultPlannedSetsMigrationTests {
         return Set(attributes.map { "\($0.name)|\($0.isOptional)|\($0.isUnique)|\(String(describing: $0.valueType))" })
     }
 
-    @Test("V13 only swaps the frozen V12 StepResult for the live one")
+    @Test("V13 only swaps the frozen V12 StepResult for the frozen V13 one")
     func v13OnlyReplacesStepResult() {
         let v12 = Set(PulseCueSchemaV12.models.map { ObjectIdentifier($0) })
         let v13 = Set(PulseCueSchemaV13.models.map { ObjectIdentifier($0) })
-        #expect(v13.subtracting(v12) == [ObjectIdentifier(StepResult.self)])
+        #expect(v13.subtracting(v12) == [ObjectIdentifier(PulseCueSchemaV13.StepResult.self)])
         #expect(v12.subtracting(v13) == [ObjectIdentifier(PulseCueSchemaV12.StepResult.self)])
-        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV13.self)
         #expect(PulseCueSchemaV12.versionIdentifier == Schema.Version(12, 0, 0))
         #expect(PulseCueSchemaV13.versionIdentifier == Schema.Version(13, 0, 0))
     }
@@ -874,7 +873,7 @@ struct StepResultPlannedSetsMigrationTests {
                 configurations: ModelConfiguration(schema: schema, url: url)
             )
             let context = ModelContext(container)
-            let results = try context.fetch(FetchDescriptor<StepResult>()).sorted { $0.setIndex < $1.setIndex }
+            let results = try context.fetch(FetchDescriptor<PulseCueSchemaV13.StepResult>()).sorted { $0.setIndex < $1.setIndex }
             #expect(results.map(\.sessionId) == [sessionID, sessionID])
             #expect(results.map(\.stepId) == [stepID, stepID])
             #expect(results.map(\.done) == [true, false])
@@ -888,7 +887,7 @@ struct StepResultPlannedSetsMigrationTests {
             #expect(try context.fetchCount(FetchDescriptor<Step>()) == 1)
             #expect(try context.fetchCount(FetchDescriptor<Routine>()) == 1)
 
-            context.insert(StepResult(sessionId: UUID(), stepId: stepID, setIndex: 0, done: true, actualReps: 8, plannedSetsAtExecution: 4))
+            context.insert(PulseCueSchemaV13.StepResult(sessionId: UUID(), stepId: stepID, setIndex: 0, done: true, actualReps: 8, plannedSetsAtExecution: 4))
             try context.save()
         }
 
@@ -899,8 +898,125 @@ struct StepResultPlannedSetsMigrationTests {
                 configurations: ModelConfiguration(schema: schema, url: url)
             )
             let context = ModelContext(container)
-            let planned = try context.fetch(FetchDescriptor<StepResult>()).map(\.plannedSetsAtExecution)
+            let planned = try context.fetch(FetchDescriptor<PulseCueSchemaV13.StepResult>()).map(\.plannedSetsAtExecution)
             #expect(planned.sorted { ($0 ?? -1) < ($1 ?? -1) } == [nil, nil, 4])
+        }
+    }
+}
+
+// MARK: - V13 → V14 migration
+
+@MainActor
+struct StepResultExerciseSnapshotMigrationTests {
+
+    /// (name, optional, unique, type) of every attribute of `entity` in a schema.
+    private static func shape(_ schema: any VersionedSchema.Type, _ entity: String = "StepResult") -> Set<String> {
+        let attributes = Schema(versionedSchema: schema).entitiesByName[entity]?.attributes ?? []
+        return Set(attributes.map { "\($0.name)|\($0.isOptional)|\($0.isUnique)|\(String(describing: $0.valueType))" })
+    }
+
+    @Test("V14 only swaps the frozen V13 StepResult for the live one")
+    func v14OnlyReplacesStepResult() {
+        let v13 = Set(PulseCueSchemaV13.models.map { ObjectIdentifier($0) })
+        let v14 = Set(PulseCueSchemaV14.models.map { ObjectIdentifier($0) })
+        #expect(v14.subtracting(v13) == [ObjectIdentifier(StepResult.self)])
+        #expect(v13.subtracting(v14) == [ObjectIdentifier(PulseCueSchemaV13.StepResult.self)])
+        #expect(PulseCueSchemaV13.models.count == PulseCueSchemaV14.models.count)
+        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV14.self)
+        #expect(PulseCueMigrationPlan.stages.count == PulseCueMigrationPlan.schemas.count - 1)
+        #expect(PulseCueSchemaV13.versionIdentifier == Schema.Version(13, 0, 0))
+        #expect(PulseCueSchemaV14.versionIdentifier == Schema.Version(14, 0, 0))
+    }
+
+    @Test("Frozen V13 StepResult is exactly the shipped V13 shape")
+    func frozenV13MatchesTheShippedShape() {
+        let v12 = Self.shape(PulseCueSchemaV12.self)
+        let v13 = Self.shape(PulseCueSchemaV13.self)
+        // Shipped V13 = frozen V12 plus an optional Int `plannedSetsAtExecution`.
+        #expect(v12.isSubset(of: v13))
+        #expect(v13.subtracting(v12) == ["plannedSetsAtExecution|true|false|\(String(describing: Optional<Int>.self))"])
+        #expect(Set(v13.map { String($0.prefix { $0 != "|" }) }) == [
+            "id", "sessionId", "stepId", "setIndex", "done", "actualReps", "memo", "ownerAccountID", "weightKg",
+            "plannedSetsAtExecution",
+        ])
+        #expect(v13.contains { $0.hasPrefix("id|false|true|") })
+        #expect(Schema(versionedSchema: PulseCueSchemaV13.self).entitiesByName["StepResult"]?.relationships.isEmpty == true)
+        // V14 adds exactly two optional Strings and changes nothing else.
+        let v14 = Self.shape(PulseCueSchemaV14.self)
+        #expect(v13.isSubset(of: v14))
+        let optionalString = String(describing: Optional<String>.self)
+        #expect(v14.subtracting(v13) == [
+            "exerciseIdAtExecution|true|false|\(optionalString)",
+            "exerciseTitleAtExecution|true|false|\(optionalString)",
+        ])
+        // Every other entity is byte-for-byte the same model in V13 and V14.
+        let names = Schema(versionedSchema: PulseCueSchemaV13.self).entitiesByName.keys.filter { $0 != "StepResult" }
+        #expect(Set(names) == Set(Schema(versionedSchema: PulseCueSchemaV14.self).entitiesByName.keys.filter { $0 != "StepResult" }))
+        for name in names {
+            #expect(Self.shape(PulseCueSchemaV13.self, name) == Self.shape(PulseCueSchemaV14.self, name), "\(name)")
+        }
+    }
+
+    @Test("V13 → V14 keeps every result; the exercise snapshot starts nil and then persists")
+    func migrationPreservesResultsAndStartsNil() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsecue-v14migtest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("store.sqlite")
+        let owner = UUID(), sessionID = UUID(), stepID = UUID(), routineID = UUID()
+
+        // A store genuinely stamped V13 (V13 schema only, no plan).
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            context.insert(Routine(id: routineID, name: "既存"))
+            context.insert(Step(id: stepID, routineId: routineID, order: 0, title: "ベンチ", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: "bench_press"))
+            context.insert(Session(id: sessionID, routineId: routineID, dayDate: Date(), ownerAccountID: owner))
+            context.insert(PulseCueSchemaV13.StepResult(sessionId: sessionID, stepId: stepID, setIndex: 0, done: true, actualReps: 10, memo: "m", ownerAccountID: owner, weightKg: 60, plannedSetsAtExecution: 3))
+            context.insert(PulseCueSchemaV13.StepResult(sessionId: sessionID, stepId: stepID, setIndex: 1, done: false, ownerAccountID: owner))
+            try context.save()
+        }
+
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: PulseCueMigrationPlan.self,
+                configurations: ModelConfiguration(schema: schema, url: url)
+            )
+            let context = ModelContext(container)
+            let results = try context.fetch(FetchDescriptor<StepResult>()).sorted { $0.setIndex < $1.setIndex }
+            #expect(results.map(\.sessionId) == [sessionID, sessionID])
+            #expect(results.map(\.stepId) == [stepID, stepID])
+            #expect(results.map(\.done) == [true, false])
+            #expect(results.map(\.actualReps) == [10, nil])
+            #expect(results.map(\.weightKg) == [60, nil])
+            #expect(results.map(\.ownerAccountID) == [owner, owner])
+            #expect(results.map(\.plannedSetsAtExecution) == [3, nil])
+            #expect(results.first?.memo == "m")
+            // Legacy results are unknown, never backfilled from the live step.
+            #expect(results.map(\.exerciseIdAtExecution) == [nil, nil])
+            #expect(results.map(\.exerciseTitleAtExecution) == [nil, nil])
+            #expect(try context.fetch(FetchDescriptor<Step>()).first?.exerciseId == "bench_press")
+            #expect(try context.fetchCount(FetchDescriptor<Session>()) == 1)
+            #expect(try context.fetchCount(FetchDescriptor<Routine>()) == 1)
+
+            context.insert(StepResult(sessionId: UUID(), stepId: stepID, setIndex: 0, done: true, actualReps: 8, plannedSetsAtExecution: 3, exerciseIdAtExecution: "machine_chest_press", exerciseTitleAtExecution: "チェストプレス"))
+            try context.save()
+        }
+
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
+            let container = try ModelContainer(
+                for: schema, migrationPlan: PulseCueMigrationPlan.self,
+                configurations: ModelConfiguration(schema: schema, url: url)
+            )
+            let context = ModelContext(container)
+            let results = try context.fetch(FetchDescriptor<StepResult>())
+            #expect(results.count == 3)
+            #expect(results.compactMap(\.exerciseIdAtExecution) == ["machine_chest_press"])
+            #expect(results.compactMap(\.exerciseTitleAtExecution) == ["チェストプレス"])
         }
     }
 }

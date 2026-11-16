@@ -1072,7 +1072,7 @@ struct RunnerPlannedSetsSnapshotTests {
 
     private static func makeFixture(sets: [Int], exerciseId: String? = "bench_press", restSeconds: Int = 0) throws -> Fixture {
         RunnerPersistence.clear()
-        let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = ModelContext(container)
         let routine = Routine(name: "Planned")
@@ -1274,6 +1274,294 @@ struct RunnerPlannedSetsSnapshotTests {
         #expect(summary.adoptedStepResults == 2)
         let results = try Self.results(fx, fx.steps[0])
         #expect(results.map(\.ownerAccountID) == [account, account])
+        #expect(results.map(\.plannedSetsAtExecution) == [2, 2])
+        RunnerPersistence.clear()
+    }
+}
+
+/// `StepResult.exerciseIdAtExecution` / `exerciseTitleAtExecution`: the first
+/// result of a (session, step) snapshots the step's exercise, every later one —
+/// after a resume, a Back overwrite, or a live edit of the step — keeps it.
+@MainActor
+struct RunnerExerciseSnapshotTests {
+
+    private struct Fixture {
+        let viewModel: RunnerViewModel
+        let routine: Routine
+        let steps: [Step]
+        let context: ModelContext
+        let defaults: UserDefaults
+    }
+
+    private static func makeFixture(sets: [Int], exerciseIds: [String?]? = nil, restSeconds: Int = 0) throws -> Fixture {
+        RunnerPersistence.clear()
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "Exercise")
+        context.insert(routine)
+        let ids = exerciseIds ?? Array(repeating: "bench_press", count: sets.count)
+        let steps = sets.enumerated().map { index, count in
+            Step(routineId: routine.id, order: index, title: "ベンチプレス", sets: count, repsTarget: 10, restSeconds: restSeconds, exerciseId: ids[index])
+        }
+        steps.forEach(context.insert)
+        try context.save()
+        let defaults = UserDefaults(suiteName: "test.exercise.\(UUID().uuidString)")!
+        let settings = SettingsStore(defaults: defaults)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context)
+        return Fixture(viewModel: viewModel, routine: routine, steps: steps, context: context, defaults: defaults)
+    }
+
+    private static func complete(_ vm: RunnerViewModel) throws {
+        vm.handle(action: .complete, context: try #require(vm.completeContext))
+    }
+
+    private static func results(_ fx: Fixture, _ step: Step) throws -> [StepResult] {
+        let stepId = step.id
+        return try fx.context.fetch(FetchDescriptor<StepResult>(predicate: #Predicate { $0.stepId == stepId }))
+            .sorted { $0.setIndex < $1.setIndex }
+    }
+
+    private static func ids(_ results: [StepResult]) -> [String?] { results.map(\.exerciseIdAtExecution) }
+    private static func titles(_ results: [StepResult]) -> [String?] { results.map(\.exerciseTitleAtExecution) }
+
+    private static let chestPress = GeneratedExercise(machineId: "chest_press", exerciseName: "チェストプレス", sets: 3, reps: 10, restSeconds: 0, cue: "", exerciseId: "machine_chest_press")
+
+    @Test
+    func everyCompletedSetCarriesTheExercise() throws {
+        let fx = try Self.makeFixture(sets: [3])
+        fx.viewModel.start(routine: fx.routine)
+        for _ in 0..<3 { try Self.complete(fx.viewModel) }
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.setIndex) == [0, 1, 2])
+        #expect(Self.ids(results) == ["bench_press", "bench_press", "bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス", "ベンチプレス", "ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aSkippedSetCarriesTheExercise() throws {
+        let fx = try Self.makeFixture(sets: [3, 3])
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.handle(action: .skip)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.done) == [false])
+        #expect(Self.ids(results) == ["bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func skippingTheRestLeavesTheExerciseOnTheRecordedSet() throws {
+        let fx = try Self.makeFixture(sets: [3, 3], restSeconds: 60)
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.phase == .rest)
+        fx.viewModel.handle(action: .skip) // rest-phase skip: no results for sets 1–2
+        #expect(fx.viewModel.currentStepIndex == 1)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.count == 1)
+        #expect(Self.ids(results) == ["bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func endingEarlyKeepsTheExerciseOnTheDoneSets() throws {
+        let fx = try Self.makeFixture(sets: [4, 3])
+        fx.viewModel.start(routine: fx.routine)
+        let sessionId = try #require(fx.viewModel.sessionId)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.endSessionEarly()
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>(predicate: #Predicate { $0.id == sessionId })).first)
+        #expect(session.status == .abandoned)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(Self.ids(results) == ["bench_press", "bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス", "ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func resumeKeepsTheFirstSnapshotEvenIfTheStepChanged() throws {
+        let fx = try Self.makeFixture(sets: [4])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.appDidEnterBackground()
+        fx.steps[0].exerciseId = "incline_bench_press"
+        fx.steps[0].title = "インクラインベンチ"
+        try fx.context.save()
+
+        let resumed = RunnerViewModel(settings: SettingsStore(defaults: fx.defaults))
+        resumed.configure(modelContext: fx.context)
+        #expect(resumed.currentSetIndex == 2)
+        try Self.complete(resumed)
+        try Self.complete(resumed)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.setIndex) == [0, 1, 2, 3])
+        #expect(Self.ids(results) == Array(repeating: "bench_press", count: 4))
+        #expect(Self.titles(results) == Array(repeating: "ベンチプレス", count: 4))
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func resumingALegacySessionKeepsItsUnknownExercise() throws {
+        let fx = try Self.makeFixture(sets: [4])
+        fx.viewModel.start(routine: fx.routine)
+        let sessionId = try #require(fx.viewModel.sessionId)
+        try Self.complete(fx.viewModel)
+        // Stand-in for a V13 result migrated to V14: no exercise snapshot.
+        let legacy = try #require(try Self.results(fx, fx.steps[0]).first)
+        legacy.exerciseIdAtExecution = nil
+        legacy.exerciseTitleAtExecution = nil
+        try fx.context.save()
+        fx.viewModel.appDidEnterBackground()
+
+        let resumed = RunnerViewModel(settings: SettingsStore(defaults: fx.defaults))
+        resumed.configure(modelContext: fx.context)
+        #expect(resumed.sessionId == sessionId)
+        #expect(resumed.currentSetIndex == 1)
+        try Self.complete(resumed)
+
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.setIndex) == [0, 1])
+        #expect(results.map(\.done) == [true, true])
+        // Never filled in from the live step, never mixed.
+        #expect(Self.ids(results) == [nil, nil])
+        #expect(Self.titles(results) == [nil, nil])
+        // The planned-sets snapshot is untouched by the legacy exercise nil.
+        #expect(results.map(\.plannedSetsAtExecution) == [4, 4])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func changingTheStepAfterTheFirstResultNeverSplitsTheSnapshot() throws {
+        let fx = try Self.makeFixture(sets: [3])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        fx.steps[0].exerciseId = "machine_chest_press"
+        fx.steps[0].title = "チェストプレス"
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(Self.ids(results) == ["bench_press", "bench_press", "bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス", "ベンチプレス", "ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func overwritingASetViaBackKeepsItsSnapshots() throws {
+        let fx = try Self.makeFixture(sets: [3])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        fx.steps[0].exerciseId = "machine_chest_press"
+        fx.steps[0].title = "チェストプレス"
+        fx.steps[0].sets = 5
+        fx.viewModel.handle(action: .back)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        fx.viewModel.adjustCurrentReps(by: -2)
+        try Self.complete(fx.viewModel)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.count == 1)
+        #expect(results.first?.actualReps == 8)
+        #expect(Self.ids(results) == ["bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス"])
+        #expect(results.first?.plannedSetsAtExecution == 3)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func duplicatedStepsKeepTheirOwnSnapshots() throws {
+        let fx = try Self.makeFixture(sets: [2, 2])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        // Only the second step changes before it starts.
+        fx.steps[1].exerciseId = "incline_bench_press"
+        fx.steps[1].title = "インクラインベンチ"
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        #expect(Self.ids(try Self.results(fx, fx.steps[0])) == ["bench_press", "bench_press"])
+        #expect(Self.ids(try Self.results(fx, fx.steps[1])) == ["incline_bench_press", "incline_bench_press"])
+        #expect(Self.titles(try Self.results(fx, fx.steps[1])) == ["インクラインベンチ", "インクラインベンチ"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aReplacedUnstartedStepSnapshotsTheReplacement() throws {
+        let fx = try Self.makeFixture(sets: [3, 3])
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        #expect(fx.viewModel.replaceExercise(fx.steps[1], with: Self.chestPress))
+        try Self.complete(fx.viewModel)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(Self.ids(results) == ["machine_chest_press"])
+        #expect(Self.titles(results) == ["チェストプレス"])
+        #expect(results.map(\.plannedSetsAtExecution) == [3])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aStepWithARecordedSetCannotBeReplacedMidSet() throws {
+        let fx = try Self.makeFixture(sets: [3, 3], restSeconds: 60)
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.phase == .rest)
+        #expect(!fx.viewModel.canReplaceCurrentExercise)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        fx.viewModel.handle(action: .skip)
+        #expect(fx.viewModel.currentStepIndex == 1)
+        // A step already behind the cursor is never rewritten.
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        #expect(fx.steps[0].exerciseId == "bench_press")
+        #expect(Self.ids(try Self.results(fx, fx.steps[0])) == ["bench_press"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func editingTheRoutineAfterTheSessionLeavesTheSnapshot() throws {
+        let fx = try Self.makeFixture(sets: [2])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.phase == .done)
+        fx.steps[0].exerciseId = "machine_chest_press"
+        fx.steps[0].title = "チェストプレス"
+        try fx.context.save()
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(Self.ids(results) == ["bench_press", "bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス", "ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aStepWithoutAnExerciseIdStillSnapshotsItsTitle() throws {
+        let fx = try Self.makeFixture(sets: [1], exerciseIds: [nil])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(Self.ids(results) == [nil])
+        #expect(Self.titles(results) == ["ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func guestAdoptionKeepsTheExercise() throws {
+        let fx = try Self.makeFixture(sets: [2])
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        try Self.complete(fx.viewModel)
+        try fx.context.save()
+        let account = UUID()
+        let summary = try AccountScopedSyncStore().adoptGuestWorkoutData(for: account, in: fx.context)
+        #expect(summary.adoptedStepResults == 2)
+        let results = try Self.results(fx, fx.steps[0])
+        #expect(results.map(\.ownerAccountID) == [account, account])
+        #expect(Self.ids(results) == ["bench_press", "bench_press"])
+        #expect(Self.titles(results) == ["ベンチプレス", "ベンチプレス"])
         #expect(results.map(\.plannedSetsAtExecution) == [2, 2])
         RunnerPersistence.clear()
     }

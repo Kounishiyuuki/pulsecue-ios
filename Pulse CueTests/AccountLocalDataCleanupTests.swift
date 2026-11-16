@@ -53,7 +53,7 @@ struct AccountLocalDataCleanupTests {
 
     /// A fresh container on `url` each call — a real reopen.
     private static func container(_ url: URL) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: PulseCueSchemaV13.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
         return try ModelContainer(
             for: schema,
             migrationPlan: PulseCueMigrationPlan.self,
