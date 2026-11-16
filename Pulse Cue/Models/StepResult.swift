@@ -38,6 +38,15 @@ final class StepResult {
     /// `step.sets`, later ones copy it. `nil` for every pre-V13 result —
     /// unknown, and never backfilled or guessed.
     var plannedSetsAtExecution: Int?
+    /// The exercise this step was when this session ran it (schema V14+):
+    /// `Step.exerciseId` / `Step.title` are live and change on a Runner
+    /// replacement or a Routine edit, so they cannot say what an earlier
+    /// session did. Same rule as `plannedSetsAtExecution`: the first result of
+    /// one (session, step) takes the step's values, later ones copy them, and
+    /// an existing result's values are never rewritten. `nil` for every
+    /// pre-V14 result — unknown, never backfilled from the live step.
+    var exerciseIdAtExecution: String?
+    var exerciseTitleAtExecution: String?
 
     init(
         id: UUID = UUID(),
@@ -49,7 +58,9 @@ final class StepResult {
         memo: String? = nil,
         ownerAccountID: UUID? = nil,
         weightKg: Double? = nil,
-        plannedSetsAtExecution: Int? = nil
+        plannedSetsAtExecution: Int? = nil,
+        exerciseIdAtExecution: String? = nil,
+        exerciseTitleAtExecution: String? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -61,6 +72,8 @@ final class StepResult {
         self.ownerAccountID = ownerAccountID
         self.weightKg = weightKg
         self.plannedSetsAtExecution = plannedSetsAtExecution
+        self.exerciseIdAtExecution = exerciseIdAtExecution
+        self.exerciseTitleAtExecution = exerciseTitleAtExecution
     }
 }
 
