@@ -1567,6 +1567,164 @@ struct RunnerExerciseSnapshotTests {
     }
 }
 
+/// Exercise replacement is refused for any step that already has a result in
+/// the current session — Back to set 0 does not make a started step unstarted.
+@MainActor
+struct RunnerReplacementGuardTests {
+
+    private struct Fixture {
+        let viewModel: RunnerViewModel
+        let routine: Routine
+        let steps: [Step]
+        let context: ModelContext
+    }
+
+    private static func makeFixture(sets: Int = 3, restSeconds: Int = 0) throws -> Fixture {
+        RunnerPersistence.clear()
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "Guard")
+        context.insert(routine)
+        let steps = (0..<3).map { index in
+            Step(routineId: routine.id, order: index, title: "ベンチプレス", sets: sets, repsTarget: 10, restSeconds: restSeconds, exerciseId: "bench_press")
+        }
+        steps.forEach(context.insert)
+        try context.save()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.replace.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context)
+        return Fixture(viewModel: viewModel, routine: routine, steps: steps, context: context)
+    }
+
+    private static func complete(_ vm: RunnerViewModel) throws {
+        vm.handle(action: .complete, context: try #require(vm.completeContext))
+    }
+
+    private static let chestPress = GeneratedExercise(machineId: "chest_press", exerciseName: "チェストプレス", sets: 3, reps: 10, restSeconds: 0, cue: "", exerciseId: "machine_chest_press")
+
+    private static func expectUnchanged(_ step: Step) {
+        #expect(step.exerciseId == "bench_press")
+        #expect(step.title == "ベンチプレス")
+    }
+
+    @Test
+    func aFreshCurrentStepCanBeReplaced() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.canReplaceCurrentExercise)
+        #expect(fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        #expect(fx.steps[0].exerciseId == "machine_chest_press")
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aCompletedSetBlocksReplacement() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.currentSetIndex == 1)
+        #expect(!fx.viewModel.canReplaceCurrentExercise)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[0])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func backToSetZeroAfterACompleteStillBlocksReplacement() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.handle(action: .back)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(!fx.viewModel.canReplaceCurrentExercise)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[0])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func backToSetZeroAfterASkipStillBlocksReplacement() throws {
+        // Skip jumps to the next step; Back lands on the skipped step's last
+        // set, which is set 0 for a one-set step.
+        let fx = try Self.makeFixture(sets: 1)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.handle(action: .skip)
+        #expect(fx.viewModel.currentStepIndex == 1)
+        let stepId = fx.steps[0].id
+        let results = try fx.context.fetch(FetchDescriptor<StepResult>(predicate: #Predicate { $0.stepId == stepId }))
+        #expect(results.map(\.done) == [false])
+        fx.viewModel.handle(action: .back)
+        #expect(fx.viewModel.currentStepIndex == 0)
+        #expect(fx.viewModel.currentSetIndex == 0)
+        #expect(fx.viewModel.phase == .exercise)
+        #expect(!fx.viewModel.canReplaceCurrentExercise)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[0])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func anUnstartedLaterStepCanBeReplaced() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.canReplaceNextExercise)
+        #expect(fx.viewModel.replaceExercise(fx.steps[1], with: Self.chestPress))
+        #expect(fx.viewModel.replaceExercise(fx.steps[2], with: Self.chestPress))
+        #expect(fx.steps[1].exerciseId == "machine_chest_press")
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aLaterStepWithAResultInThisSessionIsRefused() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        let sessionId = try #require(fx.viewModel.sessionId)
+        fx.context.insert(StepResult(sessionId: sessionId, stepId: fx.steps[1].id, setIndex: 0, done: true, actualReps: 10))
+        try fx.context.save()
+        #expect(!fx.viewModel.canReplaceNextExercise)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[1], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[1])
+        // Its untouched sibling is still replaceable.
+        #expect(fx.viewModel.replaceExercise(fx.steps[2], with: Self.chestPress))
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func restingBlocksReplacingTheCurrentStep() throws {
+        let fx = try Self.makeFixture(restSeconds: 60)
+        fx.viewModel.start(routine: fx.routine)
+        try Self.complete(fx.viewModel)
+        #expect(fx.viewModel.phase == .rest)
+        #expect(!fx.viewModel.canReplaceCurrentExercise)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[0])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func anotherSessionsResultsNeverBlockReplacement() throws {
+        let fx = try Self.makeFixture()
+        let past = Session(routineId: fx.routine.id, dayDate: Date().addingTimeInterval(-86_400))
+        past.status = .completed
+        fx.context.insert(past)
+        for step in fx.steps.prefix(2) {
+            fx.context.insert(StepResult(sessionId: past.id, stepId: step.id, setIndex: 0, done: true, actualReps: 10))
+        }
+        try fx.context.save()
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.sessionId != past.id)
+        #expect(fx.viewModel.canReplaceCurrentExercise)
+        #expect(fx.viewModel.canReplaceNextExercise)
+        #expect(fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        #expect(fx.viewModel.replaceExercise(fx.steps[1], with: Self.chestPress))
+        RunnerPersistence.clear()
+    }
+}
+
 /// 案F through the Runner: last time's planned-sets snapshot decides the
 /// suggestion after the routine's set count changed.
 @MainActor

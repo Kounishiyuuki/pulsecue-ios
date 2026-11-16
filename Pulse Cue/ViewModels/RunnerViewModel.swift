@@ -296,15 +296,32 @@ final class RunnerViewModel: ObservableObject {
     // MARK: - Exercise replacement
 
     /// The current exercise can be swapped only before any of its sets is
-    /// completed (and while actually exercising, not resting).
+    /// recorded (and while actually exercising, not resting). Set 0 alone is
+    /// not enough: Back after a Complete or Skip returns there too.
     var canReplaceCurrentExercise: Bool {
-        isRunning && phase == .exercise && currentSetIndex == 0 && currentStep != nil
+        guard isRunning, phase == .exercise, currentSetIndex == 0, let step = currentStep else { return false }
+        return !hasRecordedResult(for: step)
     }
 
-    /// The next exercise is always unstarted, so it can be swapped whenever a
-    /// workout is running and one exists.
+    /// The next exercise can be swapped whenever a workout is running and it
+    /// has no result in this session yet.
     var canReplaceNextExercise: Bool {
-        isRunning && nextStep != nil
+        guard isRunning, let step = nextStep else { return false }
+        return !hasRecordedResult(for: step)
+    }
+
+    /// Whether this session already holds any result — done or skipped — for
+    /// `step`. Replacing such a step would make the screen disagree with the
+    /// exercise snapshotted on its results. Other sessions' results do not
+    /// count: history alone never blocks a swap.
+    private func hasRecordedResult(for step: Step) -> Bool {
+        guard let modelContext, let sessionId else { return false }
+        let stepId = step.id
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.stepId == stepId }
+        )
+        // A failed fetch counts as recorded: refuse rather than risk a mismatch.
+        return ((try? modelContext.fetchCount(descriptor)) ?? 1) > 0
     }
 
     /// Ranked replacement candidates for `step`, from the active gym's
@@ -333,14 +350,14 @@ final class RunnerViewModel: ObservableObject {
     /// Replaces the exercise on `step` with `candidate`, keeping the original
     /// sets / reps / rest. Allowed only for the current exercise before any
     /// set is completed, or an as-yet-unstarted later exercise — a completed
-    /// or in-progress exercise is never rewritten, and no `StepResult` is
-    /// touched. Returns whether the replacement applied.
+    /// or in-progress exercise — any step with a result in this session — is
+    /// never rewritten, and no `StepResult` is touched. Returns whether the replacement applied.
     @discardableResult
     func replaceExercise(_ step: Step, with candidate: GeneratedExercise) -> Bool {
         guard let index = steps.firstIndex(where: { $0.id == step.id }) else { return false }
         let isCurrentUnstarted = index == currentStepIndex && phase == .exercise && currentSetIndex == 0
         let isFutureUnstarted = index > currentStepIndex
-        guard isCurrentUnstarted || isFutureUnstarted else { return false }
+        guard isCurrentUnstarted || isFutureUnstarted, !hasRecordedResult(for: step) else { return false }
 
         objectWillChange.send()
         step.title = candidate.exerciseName
