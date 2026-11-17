@@ -604,3 +604,118 @@ final class FirstLaunchSignInTests: XCTestCase {
         XCTAssertEqual(harness.gate.google.invocations, 0)
         XCTAssertEqual(harness.signedIn.count, 0)
     }}
+
+// MARK: - The Settings sign-in entry follows the server account
+
+/// `ServerAccountState.offersSignIn` is what Settings shows its
+/// 「ログイン・アカウント設定」 entry on. It used to be shown unconditionally, so
+/// after a successful sign-in the entry stayed and the user could open the
+/// login sheet again — the gate refused the second sign-in, but the screen
+/// read as "not signed in".
+@MainActor
+final class SignInEntryFollowsServerAccountTests: XCTestCase {
+
+    /// A fresh launch with no stored session: restore lands on guest.
+    private func guestGate() async -> Gate {
+        let gate = makeGate()
+        await gate.account.restore()
+        return gate
+    }
+
+    func testAGuestIsOfferedSignIn() async {
+        let gate = await guestGate()
+        XCTAssertEqual(gate.account.state, .guest)
+        XCTAssertTrue(gate.account.state.offersSignIn)
+    }
+
+    func testAppleSuccessAuthenticatesAndWithdrawsTheEntry() async {
+        let gate = await guestGate()
+
+        let outcome = await gate.coordinator.signInWithApple()
+
+        XCTAssertEqual(outcome, .signedIn)
+        XCTAssertTrue(gate.account.state.isAuthenticated)
+        XCTAssertEqual(gate.tokens.storedToken, "session-token-abc")
+        XCTAssertEqual(gate.links.recorded.map(\.provider), [.apple])
+        XCTAssertFalse(gate.account.state.offersSignIn)
+    }
+
+    func testGoogleSuccessReachesTheSameState() async {
+        let gate = await guestGate()
+
+        let outcome = await gate.coordinator.signInWithGoogle()
+
+        XCTAssertEqual(outcome, .signedIn)
+        XCTAssertTrue(gate.account.state.isAuthenticated)
+        XCTAssertEqual(gate.links.recorded.map(\.provider), [.google])
+        XCTAssertFalse(gate.account.state.offersSignIn)
+    }
+
+    func testASecondSignInAfterSuccessOpensNoSheetAndKeepsTheSession() async {
+        let gate = await guestGate()
+        _ = await gate.coordinator.signInWithApple()
+
+        let apple = await gate.coordinator.signInWithApple()
+        let google = await gate.coordinator.signInWithGoogle()
+
+        XCTAssertEqual(apple, .refused(.existingSession))
+        XCTAssertEqual(google, .refused(.existingSession))
+        XCTAssertEqual(gate.apple.invocations, 1, "only the first sign-in may open a sheet")
+        XCTAssertEqual(gate.google.invocations, 0)
+        XCTAssertTrue(gate.account.state.isAuthenticated)
+        XCTAssertFalse(gate.account.state.offersSignIn)
+    }
+
+    func testAStoredSessionRestoresSignedInWithoutTheEntry() async {
+        let gate = makeGate(tokens: InMemoryServerSessionTokenStore(token: "stored-session"))
+
+        await gate.account.restore()
+
+        XCTAssertTrue(gate.account.state.isAuthenticated)
+        XCTAssertFalse(gate.account.state.offersSignIn)
+    }
+
+    func testARejectedStoredSessionFallsBackToGuestAndOffersSignIn() async {
+        let gate = makeGate(tokens: InMemoryServerSessionTokenStore(token: "stale-session"))
+        gate.api.profileResult = .failure(AccountAPIError.invalidCredentials)
+
+        await gate.account.restore()
+
+        XCTAssertEqual(gate.account.state, .guest)
+        XCTAssertNil(gate.tokens.storedToken)
+        XCTAssertTrue(gate.account.state.offersSignIn)
+    }
+
+    func testAnOfflineRestoreKeepsTheSessionAndDoesNotOfferSignIn() async {
+        let gate = makeGate(tokens: InMemoryServerSessionTokenStore(token: "stored-session"))
+        gate.api.profileResult = .failure(AccountAPIError.unavailable)
+
+        await gate.account.restore()
+
+        XCTAssertEqual(gate.account.state, .unreachable)
+        XCTAssertEqual(gate.tokens.storedToken, "stored-session")
+        XCTAssertFalse(gate.account.state.offersSignIn)
+    }
+
+    func testLogoutBringsTheEntryBack() async {
+        let gate = await guestGate()
+        _ = await gate.coordinator.signInWithApple()
+
+        let result = await gate.account.logout()
+
+        XCTAssertEqual(result, .signedOut)
+        XCTAssertEqual(gate.account.state, .guest)
+        XCTAssertTrue(gate.account.state.offersSignIn)
+    }
+
+    /// Every state, so a new case cannot slip in without a decision here.
+    func testOffersSignInOnlyWhereNoSessionCanBeHeld() {
+        let offered: [ServerAccountState] = [.guest, .notConfigured]
+        let withheld: [ServerAccountState] = [
+            .unresolved, .restoring, .signingIn, .authenticated(gateProfile()),
+            .unreachable, .localCleanupFailed,
+        ]
+        for state in offered { XCTAssertTrue(state.offersSignIn, "\(state)") }
+        for state in withheld { XCTAssertFalse(state.offersSignIn, "\(state)") }
+    }
+}

@@ -89,6 +89,16 @@ enum ServerAccountState: Equatable {
         }
     }
 
+    /// Whether a sign-in entry point should be offered.
+    ///
+    /// Only when no session may be held and none is in flight — the states in
+    /// which `prepareProviderSignIn` could actually let one start. Offering it
+    /// anywhere else invites a sign-in the gate will refuse, and reads as
+    /// "not signed in" to someone who just signed in.
+    var offersSignIn: Bool {
+        !holdsSession && self != .signingIn
+    }
+
     /// A truthful Japanese status line.
     ///
     /// None of these say "同期済み" or "バックアップ済み". Nothing syncs yet,
