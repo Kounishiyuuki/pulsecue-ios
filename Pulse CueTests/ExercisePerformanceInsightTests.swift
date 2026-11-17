@@ -1173,9 +1173,10 @@ struct HistoricalExerciseIdentityTests {
         #expect(latest("bench_press", steps: [s], sessions: [past], results: results) == nil)
         #expect(latest("machine_chest_press", steps: [s], sessions: [past], results: results) == nil)
         #expect(WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [past], results: results).isEmpty)
-        // History still shows the sets, under the step's current title.
+        // History still shows the sets, but never under the step's current
+        // title — the step may be another exercise by now.
         let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [s])
-        #expect(groups.map(\.title) == ["ベンチプレス"])
+        #expect(groups.map(\.title) == [SessionHistoryPresentation.unidentifiableTitle])
         #expect(groups.first?.results.count == 2)
     }
 

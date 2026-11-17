@@ -315,7 +315,8 @@ final class RunnerViewModel: ObservableObject {
     /// exercise snapshotted on its results. Other sessions' results do not
     /// count: history alone never blocks a swap.
     private func hasRecordedResult(for step: Step) -> Bool {
-        guard let modelContext, let sessionId else { return false }
+        // Undeterminable counts as recorded (fail closed), like a failed fetch.
+        guard let modelContext, let sessionId else { return true }
         let stepId = step.id
         let descriptor = FetchDescriptor<StepResult>(
             predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.stepId == stepId }
@@ -354,6 +355,7 @@ final class RunnerViewModel: ObservableObject {
     /// never rewritten, and no `StepResult` is touched. Returns whether the replacement applied.
     @discardableResult
     func replaceExercise(_ step: Step, with candidate: GeneratedExercise) -> Bool {
+        guard isRunning else { return false }
         guard let index = steps.firstIndex(where: { $0.id == step.id }) else { return false }
         let isCurrentUnstarted = index == currentStepIndex && phase == .exercise && currentSetIndex == 0
         let isFutureUnstarted = index > currentStepIndex

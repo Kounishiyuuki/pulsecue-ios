@@ -21,6 +21,9 @@ enum SessionHistoryPresentation {
     /// Fallback heading when the original `Step` was deleted. No exercise name
     /// is persisted on `StepResult`, so we never guess one.
     static let orphanedTitle = "削除された種目"
+    /// Shown when a record's snapshots disagree: the exercise performed is
+    /// unknowable, and the live step may be a different exercise since.
+    static let unidentifiableTitle = "種目を特定できません"
 
     /// Right-hand text of a set row: "60 kg × 10 回" when a weight was
     /// recorded, otherwise exactly the pre-weight text ("10 回" / "記録なし").
@@ -81,9 +84,14 @@ enum SessionHistoryPresentation {
             let step = steps.first(where: { $0.id == stepId })
             // The exercise as performed (V14 snapshot), not the step's current
             // title — a step replaced since must not rename this session. The
-            // live title is only the legacy (and inconsistent) fallback.
+            // live title is only the legacy fallback; inconsistent snapshots
+            // never borrow it, since the step may now be another exercise.
             let identity = HistoricalExerciseIdentity.resolve(results: groupResults, step: step)
-            let title = identity.title ?? step?.title ?? orphanedTitle
+            let title: String
+            switch identity.source {
+            case .inconsistent: title = unidentifiableTitle
+            case .snapshot, .legacyFallback: title = identity.title ?? step?.title ?? orphanedTitle
+            }
             return ExerciseResultGroup(id: stepId, title: title, isOrphaned: step == nil, results: groupResults)
         }
     }
