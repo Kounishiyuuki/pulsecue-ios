@@ -58,26 +58,31 @@ struct AccountSettingsSection: View {
                     localDataCleanup: AccountLocalDataCleanup(container: modelContext.container, mainContext: modelContext)
                 )
 
-                Button {
-                    showLoginSheet = true
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("ログイン・アカウント設定")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("ゲストのまま使えます。Apple・Googleでサインインすることもできます。トレーニング記録は現在この端末に保存されます。")
-                                .font(.caption)
+                // Driven by the server account, the source of truth for
+                // "signed in": once a session is held, the section above shows
+                // it with サインアウト, and a second sign-in would be refused.
+                if serverAccount.state.offersSignIn {
+                    Button {
+                        showLoginSheet = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("ログイン・アカウント設定")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text("ゲストのまま使えます。Apple・Googleでサインインすることもできます。トレーニング記録は現在この端末に保存されます。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
                                 .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 // 「プロフィールとジムの設定」 used to sit here. It was not a
                 // profile screen: it registered gyms and opened MyGymHomeView,
