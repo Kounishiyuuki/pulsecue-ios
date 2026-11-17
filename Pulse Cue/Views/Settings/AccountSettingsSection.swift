@@ -34,34 +34,33 @@ struct AccountSettingsSection: View {
             VStack(alignment: .leading, spacing: 14) {
                 SettingsChrome.sectionHeader(icon: "person.crop.circle", title: "アカウント")
 
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("現在の利用状態")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        Text(authSession.statusLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    PulseStatusBadge("この端末のみ", kind: .info)
-                }
-
-                Divider().opacity(0.4)
-
-                // The PulseCue server account. Separate from the local link
-                // above on purpose: a local link means a provider was once
-                // attached to this device, never that a server account exists.
+                // The PulseCue server account: the one place that says whether
+                // this device is signed in (see `AccountSettingsPresentation`).
                 ServerAccountSettingsSection(
                     store: serverAccount,
                     authSession: authSession,
                     localDataCleanup: AccountLocalDataCleanup(container: modelContext.container, mainContext: modelContext)
                 )
 
+                // The local provider link, as its own fact and only when there
+                // is one. A link means a provider was attached to this device,
+                // never that a server account exists.
+                if let localLinkLabel = presentation.localLinkLabel {
+                    Divider().opacity(0.4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("この端末の連携")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(localLinkLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 // Driven by the server account, the source of truth for
                 // "signed in": once a session is held, the section above shows
                 // it with サインアウト, and a second sign-in would be refused.
-                if serverAccount.state.offersSignIn {
+                if presentation.showsSignInEntry {
                     Button {
                         showLoginSheet = true
                     } label: {
@@ -127,6 +126,10 @@ struct AccountSettingsSection: View {
         }
     }
 
+    private var presentation: AccountSettingsPresentation {
+        AccountSettingsPresentation(serverState: serverAccount.state, linkedProvider: authSession.session?.provider)
+    }
+
     /// The footnote under the local link card.
     ///
     /// Keyed to the *server* state, and deliberately not a two-way split. The
@@ -182,6 +185,32 @@ struct AccountSettingsSection: View {
                 + "サインアウトが完了しておらず、この端末にサインイン情報が残っている可能性があります。"
                 + "データが別端末と同期・バックアップされることはありません。"
                 + localData
+        }
+    }
+}
+
+/// What the account section shows, derived from the two stores without adding
+/// state of its own.
+///
+/// Whether this device is signed in comes from `ServerAccountState` alone —
+/// `ServerAccountSettingsSection` states it, with its own per-state badge. The
+/// local provider link (`AuthSessionStore`) is a different fact: which Apple or
+/// Google identity was attached here. It used to sit at the top as
+/// 「現在の利用状態」 with a fixed 「この端末のみ」 badge, which read as the
+/// sign-in state and contradicted a server sign-in. It is now shown only when a
+/// link exists, labelled as a link, with no badge.
+struct AccountSettingsPresentation: Equatable {
+    let serverState: ServerAccountState
+    let linkedProvider: AuthProviderKind?
+
+    var showsSignInEntry: Bool { serverState.offersSignIn }
+
+    /// nil when nothing is linked: the row is then not drawn at all.
+    var localLinkLabel: String? {
+        switch linkedProvider {
+        case .apple:  return "Appleと連携済み"
+        case .google: return "Googleと連携済み"
+        case .guest, nil: return nil
         }
     }
 }
