@@ -1725,6 +1725,70 @@ struct RunnerReplacementGuardTests {
     }
 }
 
+/// The original replacement bug end to end: a bench session is recorded, the
+/// step is replaced in the next workout, and every reader keeps the bench sets
+/// on bench — the replacement gets no bench-derived target.
+@MainActor
+struct RunnerReplacementHistoryTests {
+
+    @Test
+    func replacingAStepNeverMovesItsHistoryToTheReplacement() throws {
+        RunnerPersistence.clear()
+        let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let routine = Routine(name: "Push")
+        context.insert(routine)
+        let step = Step(routineId: routine.id, order: 0, title: "ベンチプレス", sets: 3, repsTarget: 10, restSeconds: 0, exerciseId: "bench_press")
+        context.insert(step)
+        try context.save()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.replhist.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+
+        // Session 1: bench 60 kg × 10 × 3, finished.
+        let first = RunnerViewModel(settings: settings)
+        first.configure(modelContext: context)
+        first.start(routine: routine)
+        let firstSession = try #require(first.sessionId)
+        for _ in 0..<3 {
+            first.setCurrentWeight(60)
+            first.handle(action: .complete, context: try #require(first.completeContext))
+        }
+        #expect(first.phase == .done)
+        try context.save()
+
+        // Session 2: the unstarted step is replaced with a chest press.
+        let second = RunnerViewModel(settings: settings)
+        second.configure(modelContext: context)
+        second.start(routine: routine)
+        second.refreshExerciseInsight() // the view does this on appear
+        #expect(second.previousPerformance?.setReps == [10, 10, 10]) // bench, before the swap
+        #expect(second.progression?.kind == .increaseWeight)
+        let chest = GeneratedExercise(machineId: "chest_press", exerciseName: "チェストプレス", sets: 3, reps: 10, restSeconds: 0, cue: "", exerciseId: "machine_chest_press")
+        #expect(second.replaceExercise(step, with: chest))
+        #expect(step.exerciseId == "machine_chest_press")
+        // No bench history, and so no bench-derived 62.5 kg target.
+        #expect(second.previousPerformance == nil)
+        #expect(second.progression?.suggestedWeightKg == nil)
+        #expect(second.progression?.isProgression != true)
+        second.endSessionEarly()
+
+        let steps = try context.fetch(FetchDescriptor<Step>())
+        let sessions = try context.fetch(FetchDescriptor<Session>())
+        let results = try context.fetch(FetchDescriptor<StepResult>())
+        let bench = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
+                                                    steps: steps, sessions: sessions, results: results)
+        #expect(bench?.setReps == [10, 10, 10])
+        #expect(bench?.sets.map(\.weightKg) == [60, 60, 60])
+        #expect(PreviousPerformanceQuery.latest(exerciseId: "machine_chest_press", excludingSessionId: nil, expectedSets: 3,
+                                                steps: steps, sessions: sessions, results: results) == nil)
+        #expect(WorkoutProgressQuery.exerciseInsights(steps: steps, sessions: sessions, results: results).map(\.exerciseId) == ["bench_press"])
+        let firstResults = results.filter { $0.sessionId == firstSession }
+        #expect(SessionHistoryPresentation.groupedResults(results: firstResults, steps: steps).map(\.title) == ["ベンチプレス"])
+        RunnerPersistence.clear()
+    }
+}
+
 /// 案F through the Runner: last time's planned-sets snapshot decides the
 /// suggestion after the routine's set count changed.
 @MainActor

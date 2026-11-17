@@ -78,11 +78,13 @@ enum SessionHistoryPresentation {
                     if $0.setIndex != $1.setIndex { return $0.setIndex < $1.setIndex }
                     return $0.id.uuidString < $1.id.uuidString
                 }
-            if let step = steps.first(where: { $0.id == stepId }) {
-                return ExerciseResultGroup(id: stepId, title: step.title, isOrphaned: false, results: groupResults)
-            } else {
-                return ExerciseResultGroup(id: stepId, title: orphanedTitle, isOrphaned: true, results: groupResults)
-            }
+            let step = steps.first(where: { $0.id == stepId })
+            // The exercise as performed (V14 snapshot), not the step's current
+            // title — a step replaced since must not rename this session. The
+            // live title is only the legacy (and inconsistent) fallback.
+            let identity = HistoricalExerciseIdentity.resolve(results: groupResults, step: step)
+            let title = identity.title ?? step?.title ?? orphanedTitle
+            return ExerciseResultGroup(id: stepId, title: title, isOrphaned: step == nil, results: groupResults)
         }
     }
 }
