@@ -110,3 +110,81 @@ struct AuthUILogicTests {
         #expect(store.statusLabel == "Googleと連携済み（この端末のみ）")
     }
 }
+
+/// The Settings account section, per server state and local link. Sign-in
+/// state comes from the server account only; the local link is shown as a
+/// link, and the old fixed 「この端末のみ」 badge is gone.
+@MainActor
+struct AccountSettingsPresentationTests {
+
+    private static let profile = ServerAccountProfile(
+        user: .init(id: "user-1", state: "active", displayName: "テスト", createdAt: 1),
+        linkedProviders: [.init(provider: "apple", linkedAt: 1)],
+        session: .init(expiresAt: 1_800_000_000)
+    )
+
+    private static let everyState: [ServerAccountState] = [
+        .guest, .unresolved, .restoring, .signingIn, .authenticated(profile),
+        .unreachable, .notConfigured, .localCleanupFailed,
+    ]
+
+    @Test func signInEntryFollowsTheServerStateOnly() {
+        for state in Self.everyState {
+            for link in [nil, AuthProviderKind.apple, .google] {
+                let presentation = AccountSettingsPresentation(serverState: state, linkedProvider: link)
+                #expect(presentation.showsSignInEntry == state.offersSignIn, "\(state) / \(String(describing: link))")
+            }
+        }
+        #expect(AccountSettingsPresentation(serverState: .guest, linkedProvider: nil).showsSignInEntry)
+        #expect(AccountSettingsPresentation(serverState: .notConfigured, linkedProvider: nil).showsSignInEntry)
+        for state: ServerAccountState in [.authenticated(Self.profile), .unresolved, .restoring, .unreachable, .localCleanupFailed] {
+            #expect(!AccountSettingsPresentation(serverState: state, linkedProvider: .apple).showsSignInEntry, "\(state)")
+        }
+    }
+
+    @Test func serverStatusTextPerState() {
+        #expect(ServerAccountState.guest.statusLabel == "ゲスト（この端末に保存）")
+        #expect(ServerAccountState.authenticated(Self.profile).statusLabel == "Appleでサインイン済み")
+        #expect(ServerAccountState.restoring.statusLabel == "アカウントを確認中…")
+        #expect(ServerAccountState.unresolved.statusLabel == "アカウントを確認中…")
+        #expect(ServerAccountState.unreachable.statusLabel == "オフラインのためアカウント状態を確認できません")
+        #expect(ServerAccountState.localCleanupFailed.statusLabel == "サインアウトは完了していません")
+        #expect(ServerAccountState.notConfigured.statusLabel == "アカウント機能は未設定です")
+        for state in Self.everyState where state != .guest {
+            #expect(!state.statusLabel.contains("ゲスト"), "\(state) must not read as guest")
+        }
+    }
+
+    @Test func authenticatedWithALocalLinkShowsTheLinkAsALinkOnly() {
+        let apple = AccountSettingsPresentation(serverState: .authenticated(Self.profile), linkedProvider: .apple)
+        #expect(apple.localLinkLabel == "Appleと連携済み")
+        #expect(!apple.showsSignInEntry)
+        let google = AccountSettingsPresentation(serverState: .authenticated(Self.profile), linkedProvider: .google)
+        #expect(google.localLinkLabel == "Googleと連携済み")
+    }
+
+    @Test func authenticatedWithoutALocalLinkIsStillSignedIn() {
+        let presentation = AccountSettingsPresentation(serverState: .authenticated(Self.profile), linkedProvider: nil)
+        #expect(presentation.localLinkLabel == nil)
+        #expect(!presentation.showsSignInEntry)
+        #expect(presentation.serverState.isAuthenticated)
+    }
+
+    @Test func guestWithALeftoverLinkIsNeverShownAsSignedIn() {
+        let presentation = AccountSettingsPresentation(serverState: .guest, linkedProvider: .apple)
+        #expect(presentation.localLinkLabel == "Appleと連携済み")
+        #expect(!presentation.serverState.isAuthenticated)
+        #expect(presentation.showsSignInEntry)
+    }
+
+    @Test func noLinkMeansNoLinkRowAndNoDeviceOnlyClaim() {
+        for state in Self.everyState {
+            #expect(AccountSettingsPresentation(serverState: state, linkedProvider: nil).localLinkLabel == nil)
+            #expect(AccountSettingsPresentation(serverState: state, linkedProvider: .guest).localLinkLabel == nil)
+            for link in [AuthProviderKind.apple, .google] {
+                let label = AccountSettingsPresentation(serverState: state, linkedProvider: link).localLinkLabel
+                #expect(label?.contains("この端末のみ") == false)
+            }
+        }
+    }
+}
