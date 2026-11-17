@@ -218,6 +218,8 @@ enum WorkoutProgressQuery {
         let sessionId: UUID
         let stepId: UUID
         let setIndex: Int
+        let exerciseIdAtExecution: String?
+        let exerciseTitleAtExecution: String?
     }
 
     /// A step reaches the insights only as "which exercise, called what".
@@ -242,7 +244,9 @@ enum WorkoutProgressQuery {
                     actualReps: $0.actualReps,
                     sessionId: $0.sessionId,
                     stepId: $0.stepId,
-                    setIndex: $0.setIndex
+                    setIndex: $0.setIndex,
+                    exerciseIdAtExecution: $0.exerciseIdAtExecution,
+                    exerciseTitleAtExecution: $0.exerciseTitleAtExecution
                 )
             },
             steps: steps.map {
@@ -263,30 +267,40 @@ enum WorkoutProgressQuery {
         let completed = Set(sessions.filter { $0.status == .completed }.map(\.id))
         let startedAt = Dictionary(sessions.map { ($0.id, $0.startedAt) }, uniquingKeysWith: { first, _ in first })
 
-        // stepId → exerciseId, and exerciseId → a display name (latest step wins
-        // is unnecessary; any step's title works).
-        var exerciseIdByStep: [UUID: String] = [:]
-        var nameByExercise: [String: String] = [:]
-        for step in steps {
-            guard let exerciseId = step.exerciseId else { continue }
-            exerciseIdByStep[step.id] = exerciseId
-            if nameByExercise[exerciseId] == nil { nameByExercise[exerciseId] = step.title }
+        // (session, step) → the exercise it was when it ran
+        // (`HistoricalExerciseIdentity`), never the step's current exercise.
+        // Records with no id — a custom machine, a title-only snapshot, or
+        // inconsistent snapshots — are skipped, as id-less steps always were.
+        let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        struct Record: Hashable { let sessionId: UUID; let stepId: UUID }
+        let byRecord = Dictionary(grouping: results.filter { completed.contains($0.sessionId) }) {
+            Record(sessionId: $0.sessionId, stepId: $0.stepId)
         }
 
         // exerciseId → [sessionId: [setIndex-ordered reps]]
-        struct Agg { var bySession: [UUID: [(set: Int, reps: Int)]] = [:]; var best = 0; var lastActivity = Date.distantPast }
+        struct Agg { var bySession: [UUID: [(set: Int, reps: Int)]] = [:]; var best = 0; var lastActivity = Date.distantPast; var name: String?; var nameDate = Date.distantPast }
         var byExercise: [String: Agg] = [:]
 
-        for result in results {
-            guard result.done, let reps = result.actualReps,
-                  completed.contains(result.sessionId),
-                  let exerciseId = exerciseIdByStep[result.stepId] else { continue }
+        for (record, recordResults) in byRecord {
+            let identity = HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId])
+            guard let exerciseId = identity.exerciseId else { continue }
+            let date = startedAt[record.sessionId] ?? .distantPast
             var agg = byExercise[exerciseId] ?? Agg()
-            agg.bySession[result.sessionId, default: []].append((result.setIndex, reps))
-            agg.best = max(agg.best, reps)
-            agg.lastActivity = max(agg.lastActivity, startedAt[result.sessionId] ?? .distantPast)
+            for result in recordResults {
+                guard result.done, let reps = result.actualReps else { continue }
+                agg.bySession[record.sessionId, default: []].append((result.setIndex, reps))
+                agg.best = max(agg.best, reps)
+                agg.lastActivity = max(agg.lastActivity, date)
+            }
+            // Name as most recently performed; a stable tie-break on the title.
+            if let title = identity.title,
+               agg.name == nil || date > agg.nameDate || (date == agg.nameDate && title < agg.name!) {
+                agg.name = title
+                agg.nameDate = date
+            }
             byExercise[exerciseId] = agg
         }
+        byExercise = byExercise.filter { !$0.value.bySession.isEmpty }
 
         let insights: [ExerciseProgressInsight] = byExercise.compactMap { exerciseId, agg in
             // Sessions for this exercise, newest first (date, then id tie-break).
@@ -301,7 +315,7 @@ enum WorkoutProgressQuery {
             let previous = orderedSessions.dropFirst().first.map { agg.bySession[$0]!.sorted { $0.set < $1.set }.map(\.reps) }
             return ExerciseProgressInsight(
                 exerciseId: exerciseId,
-                exerciseName: nameByExercise[exerciseId] ?? exerciseId,
+                exerciseName: agg.name ?? exerciseId,
                 latestReps: latest,
                 previousReps: previous,
                 personalBestReps: agg.best

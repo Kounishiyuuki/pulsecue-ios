@@ -89,6 +89,44 @@ struct PreviousPerformance: Equatable {
     }
 }
 
+/// Which exercise one recorded (session, step) was, as executed.
+///
+/// `Step.exerciseId` / `Step.title` are live and change on a Runner
+/// replacement or a Routine edit, so a past record must be read from the V14
+/// snapshot on its results (`exerciseIdAtExecution` /
+/// `exerciseTitleAtExecution`). The one place that decides between snapshot
+/// and live step, so History, Progress and previous performance cannot drift:
+///
+/// - every result carries the same non-empty snapshot → `.snapshot`. Its id may
+///   be nil (the step had no exercise id when it ran): that is a real "no id",
+///   never filled in from the live step;
+/// - every result is nil / nil (recorded before V14) → `.legacyFallback`: the
+///   live step's values, the pre-V14 behavior — the only case that reads it;
+/// - results disagree (two snapshots, or a snapshot next to nil / nil) →
+///   `.inconsistent`: no exercise id and no title, so the record is never
+///   counted toward any exercise — no first / latest / min pick.
+struct HistoricalExerciseIdentity: Equatable {
+    enum Source: Equatable { case snapshot, legacyFallback, inconsistent }
+
+    let exerciseId: String?
+    let title: String?
+    let source: Source
+
+    /// `results` are all results of one (session, step) — skipped ones too;
+    /// `step` is that step if it still exists.
+    static func resolve(results: [StepResult], step: Step?) -> HistoricalExerciseIdentity {
+        struct Pair: Hashable { let id: String?; let title: String? }
+        let pairs = Set(results.map { Pair(id: $0.exerciseIdAtExecution, title: $0.exerciseTitleAtExecution) })
+        if pairs.count > 1 {
+            return HistoricalExerciseIdentity(exerciseId: nil, title: nil, source: .inconsistent)
+        }
+        if let pair = pairs.first, pair.id != nil || pair.title != nil {
+            return HistoricalExerciseIdentity(exerciseId: pair.id, title: pair.title, source: .snapshot)
+        }
+        return HistoricalExerciseIdentity(exerciseId: step?.exerciseId, title: step?.title, source: .legacyFallback)
+    }
+}
+
 enum PreviousPerformanceQuery {
 
     /// The most recent performance of `exerciseId` worth calling "last time",
@@ -103,6 +141,9 @@ enum PreviousPerformanceQuery {
     ///   left behind), so they cannot hide an earlier record;
     /// - a record is one step's sets in one session — never the sets of two
     ///   steps that share this exercise (a routine can hold a duplicated step);
+    /// - a record is this exercise by what it was when it ran
+    ///   (`HistoricalExerciseIdentity`), not by what its step is now — a step
+    ///   replaced since keeps its old sets on the old exercise;
     /// - among `.completed` / `.abandoned` sessions, the newest complete
     ///   record wins (`PreviousPerformance.isComplete`: done count equals the
     ///   record's own planned-sets snapshot, or `expectedSets` for legacy
@@ -124,12 +165,8 @@ enum PreviousPerformanceQuery {
         sessions: [Session],
         results: [StepResult]
     ) -> PreviousPerformance? {
-        // Every step (across routines) that represents this exercise.
-        let orderByStep = Dictionary(
-            steps.filter { $0.exerciseId == exerciseId }.map { ($0.id, $0.order) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        guard !orderByStep.isEmpty else { return nil }
+        let orderByStep = Dictionary(steps.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
+        let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         // Finished (completed or ended early) sessions only.
         let finished = Dictionary(
@@ -137,22 +174,23 @@ enum PreviousPerformanceQuery {
             uniquingKeysWith: { first, _ in first }
         )
 
-        let relevant = results.filter { result in
-            result.done
-                && result.actualReps != nil
-                && result.sessionId != excludingSessionId
-                && finished[result.sessionId] != nil
-                && orderByStep[result.stepId] != nil
-        }
-        guard !relevant.isEmpty else { return nil }
-
         struct Record: Hashable { let sessionId: UUID; let stepId: UUID }
-        let byRecord = Dictionary(grouping: relevant) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
-        // Every result of a candidate record — skipped ones too — for the
-        // snapshot consistency check only; sets still come from `byRecord`.
-        let allByRecord = Dictionary(grouping: results.filter { byRecord[Record(sessionId: $0.sessionId, stepId: $0.stepId)] != nil }) {
-            Record(sessionId: $0.sessionId, stepId: $0.stepId)
+        // Every result of each finished record — skipped ones too — so the
+        // exercise identity and the planned-sets snapshot are each judged
+        // across the whole record.
+        let allByRecord = Dictionary(
+            grouping: results.filter { $0.sessionId != excludingSessionId && finished[$0.sessionId] != nil }
+        ) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
+        // A record belongs to this exercise only by what it was when it ran
+        // (`HistoricalExerciseIdentity`), never by what its step is now.
+        var byRecord: [Record: [StepResult]] = [:]
+        for (record, recordResults) in allByRecord {
+            let identity = HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId])
+            guard identity.exerciseId == exerciseId else { continue }
+            let sets = recordResults.filter { $0.done && $0.actualReps != nil }
+            if !sets.isEmpty { byRecord[record] = sets }
         }
+        guard !byRecord.isEmpty else { return nil }
 
         let ranked = byRecord.keys.sorted { lhs, rhs in
             let l = finished[lhs.sessionId] ?? .distantPast
@@ -167,7 +205,7 @@ enum PreviousPerformanceQuery {
             if lo != ro { return lo < ro }
             return lhs.stepId.uuidString < rhs.stepId.uuidString
         }
-        // `relevant` only holds results with a rep count; each set is built
+        // `byRecord` only holds results with a rep count; each set is built
         // from one result of one step, so reps and weight cannot misalign and
         // no other step's sets are mixed in.
         func performance(_ record: Record) -> PreviousPerformance? {

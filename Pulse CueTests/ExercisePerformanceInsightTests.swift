@@ -1004,3 +1004,224 @@ struct PlannedSetsHardeningTests {
         #expect(suggest(prev([10, 8], planned: 4)).flatMap(ProgressionPresentation.reasonText) == nil)
     }
 }
+
+// MARK: - Historical exercise identity (V14 snapshot)
+
+/// Past records resolve their exercise from the V14 snapshot on their results,
+/// never from the step's current exercise. States: A = id snapshot,
+/// B = title-only snapshot, C = legacy nil/nil (live-step fallback), plus
+/// inconsistent snapshots within one record (never counted).
+@MainActor
+struct HistoricalExerciseIdentityTests {
+
+    private static let bench = ("bench_press", "ベンチプレス")
+    private static let chest = ("machine_chest_press", "チェストプレス")
+
+    private func step(_ exerciseId: String?, title: String, order: Int = 0) -> Step {
+        Step(routineId: UUID(), order: order, title: title, sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
+    }
+
+    private func session(daysAgo: Int, status: SessionStatus = .completed) -> Session {
+        Session(routineId: UUID(), dayDate: .now, startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)), status: status)
+    }
+
+    /// `count` done sets of 10 reps at 60 kg, planned for `count`.
+    private func sets(_ session: Session, _ step: Step, count: Int = 3, id: String?, title: String?, reps: Int = 10) -> [StepResult] {
+        (0..<count).map {
+            StepResult(sessionId: session.id, stepId: step.id, setIndex: $0, done: true, actualReps: reps, weightKg: 60,
+                       plannedSetsAtExecution: count, exerciseIdAtExecution: id, exerciseTitleAtExecution: title)
+        }
+    }
+
+    private func latest(_ exerciseId: String, steps: [Step], sessions: [Session], results: [StepResult]) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(exerciseId: exerciseId, excludingSessionId: nil, expectedSets: 3,
+                                        steps: steps, sessions: sessions, results: results)
+    }
+
+    // MARK: Resolver
+
+    @Test
+    func resolverDistinguishesTheFourStates() {
+        let live = step("machine_chest_press", title: "チェストプレス")
+        let s = session(daysAgo: 1)
+        let a = HistoricalExerciseIdentity.resolve(results: sets(s, live, id: "bench_press", title: "ベンチプレス"), step: live)
+        #expect(a == HistoricalExerciseIdentity(exerciseId: "bench_press", title: "ベンチプレス", source: .snapshot))
+        let b = HistoricalExerciseIdentity.resolve(results: sets(s, live, id: nil, title: "ダンベルプレス"), step: live)
+        #expect(b == HistoricalExerciseIdentity(exerciseId: nil, title: "ダンベルプレス", source: .snapshot))
+        let c = HistoricalExerciseIdentity.resolve(results: sets(s, live, id: nil, title: nil), step: live)
+        #expect(c == HistoricalExerciseIdentity(exerciseId: "machine_chest_press", title: "チェストプレス", source: .legacyFallback))
+        let cOrphan = HistoricalExerciseIdentity.resolve(results: sets(s, live, id: nil, title: nil), step: nil)
+        #expect(cOrphan == HistoricalExerciseIdentity(exerciseId: nil, title: nil, source: .legacyFallback))
+        let mixed = sets(s, live, count: 1, id: "bench_press", title: "ベンチプレス")
+            + [StepResult(sessionId: s.id, stepId: live.id, setIndex: 1, done: true, actualReps: 10,
+                          exerciseIdAtExecution: "machine_chest_press", exerciseTitleAtExecution: "チェストプレス")]
+        #expect(HistoricalExerciseIdentity.resolve(results: mixed, step: live)
+                == HistoricalExerciseIdentity(exerciseId: nil, title: nil, source: .inconsistent))
+        let halfLegacy = sets(s, live, count: 1, id: "bench_press", title: "ベンチプレス")
+            + [StepResult(sessionId: s.id, stepId: live.id, setIndex: 1, done: false)]
+        #expect(HistoricalExerciseIdentity.resolve(results: halfLegacy, step: live).source == .inconsistent)
+    }
+
+    // MARK: Original bug: a replaced step keeps its old history
+
+    @Test
+    func aReplacedStepKeepsItsHistoryOnTheOriginalExercise() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let past = session(daysAgo: 2)
+        let results = sets(past, s, id: "bench_press", title: "ベンチプレス")
+        // The routine step is replaced after the session.
+        s.exerciseId = "machine_chest_press"
+        s.title = "チェストプレス"
+
+        let bench = latest("bench_press", steps: [s], sessions: [past], results: results)
+        #expect(bench?.setReps == [10, 10, 10])
+        #expect(bench?.sets.map(\.weightKg) == [60, 60, 60])
+        #expect(latest("machine_chest_press", steps: [s], sessions: [past], results: results) == nil)
+
+        let insights = WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [past], results: results)
+        #expect(insights.map(\.exerciseId) == ["bench_press"])
+        #expect(insights.map(\.exerciseName) == ["ベンチプレス"])
+
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [s])
+        #expect(groups.map(\.title) == ["ベンチプレス"])
+        #expect(groups.map(\.isOrphaned) == [false])
+    }
+
+    // MARK: Title-only snapshot (B)
+
+    @Test
+    func aTitleOnlySnapshotIsNeverMatchedToTheLiveStepsExercise() {
+        let s = step("machine_chest_press", title: "チェストプレス")
+        let past = session(daysAgo: 2)
+        let results = sets(past, s, id: nil, title: "ダンベルプレス")
+        #expect(latest("machine_chest_press", steps: [s], sessions: [past], results: results) == nil)
+        #expect(WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [past], results: results).isEmpty)
+        #expect(SessionHistoryPresentation.groupedResults(results: results, steps: [s]).map(\.title) == ["ダンベルプレス"])
+    }
+
+    // MARK: Legacy (C)
+
+    @Test
+    func legacyRecordsStillFallBackToTheLiveStep() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let past = session(daysAgo: 2)
+        let results = sets(past, s, id: nil, title: nil)
+        #expect(latest("bench_press", steps: [s], sessions: [past], results: results)?.setReps == [10, 10, 10])
+        let insights = WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [past], results: results)
+        #expect(insights.map(\.exerciseId) == ["bench_press"])
+        #expect(insights.map(\.exerciseName) == ["ベンチプレス"])
+        #expect(SessionHistoryPresentation.groupedResults(results: results, steps: [s]).map(\.title) == ["ベンチプレス"])
+        // A legacy record whose step is gone stays visible, as before.
+        let orphan = SessionHistoryPresentation.groupedResults(results: results, steps: [])
+        #expect(orphan.map(\.title) == [SessionHistoryPresentation.orphanedTitle])
+        #expect(orphan.map(\.isOrphaned) == [true])
+    }
+
+    @Test
+    func aSnapshotNamesAnOrphanedRecord() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let results = sets(session(daysAgo: 2), s, id: "bench_press", title: "ベンチプレス")
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [])
+        #expect(groups.map(\.title) == ["ベンチプレス"])
+        #expect(groups.map(\.isOrphaned) == [true])
+    }
+
+    // MARK: Legacy vs snapshot ranking
+
+    @Test
+    func aNewerSnapshotOutranksAnOlderLegacyRecord() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let old = session(daysAgo: 7), new = session(daysAgo: 1)
+        let results = sets(old, s, id: nil, title: nil, reps: 8) + sets(new, s, id: "bench_press", title: "ベンチプレス", reps: 10)
+        #expect(latest("bench_press", steps: [s], sessions: [old, new], results: results)?.setReps == [10, 10, 10])
+    }
+
+    @Test
+    func aNewerSnapshotOfAnotherExerciseLeavesTheLegacyRecord() {
+        // Legacy bench (step was bench then), later run as chest press; the
+        // step is bench again now, so the legacy record reads as bench.
+        let s = step("bench_press", title: "ベンチプレス")
+        let old = session(daysAgo: 7), new = session(daysAgo: 1)
+        let results = sets(old, s, id: nil, title: nil, reps: 8) + sets(new, s, id: "machine_chest_press", title: "チェストプレス", reps: 12)
+        #expect(latest("bench_press", steps: [s], sessions: [old, new], results: results)?.setReps == [8, 8, 8])
+        #expect(latest("machine_chest_press", steps: [s], sessions: [old, new], results: results)?.setReps == [12, 12, 12])
+    }
+
+    @Test
+    func aNewerTitleOnlySnapshotIsNotGuessedAsTheLiveExercise() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let old = session(daysAgo: 7), new = session(daysAgo: 1)
+        let results = sets(old, s, id: "bench_press", title: "ベンチプレス", reps: 8) + sets(new, s, id: nil, title: "ダンベルプレス", reps: 12)
+        #expect(latest("bench_press", steps: [s], sessions: [old, new], results: results)?.setReps == [8, 8, 8])
+        let insights = WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [old, new], results: results)
+        #expect(insights.map(\.exerciseId) == ["bench_press"])
+        #expect(insights.first?.latestReps == [8, 8, 8])
+    }
+
+    // MARK: Inconsistent snapshots
+
+    @Test
+    func anInconsistentRecordIsNeverCountedForEitherExercise() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let past = session(daysAgo: 2)
+        let results = [
+            StepResult(sessionId: past.id, stepId: s.id, setIndex: 0, done: true, actualReps: 10, weightKg: 60,
+                       exerciseIdAtExecution: "bench_press", exerciseTitleAtExecution: "ベンチプレス"),
+            StepResult(sessionId: past.id, stepId: s.id, setIndex: 1, done: true, actualReps: 10, weightKg: 60,
+                       exerciseIdAtExecution: "machine_chest_press", exerciseTitleAtExecution: "チェストプレス"),
+        ]
+        #expect(latest("bench_press", steps: [s], sessions: [past], results: results) == nil)
+        #expect(latest("machine_chest_press", steps: [s], sessions: [past], results: results) == nil)
+        #expect(WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [past], results: results).isEmpty)
+        // History still shows the sets, under the step's current title.
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [s])
+        #expect(groups.map(\.title) == ["ベンチプレス"])
+        #expect(groups.first?.results.count == 2)
+    }
+
+    @Test
+    func aSkippedSetWithAnotherSnapshotMakesTheRecordInconsistent() {
+        let s = step("bench_press", title: "ベンチプレス")
+        let past = session(daysAgo: 2)
+        let results = sets(past, s, count: 2, id: "bench_press", title: "ベンチプレス")
+            + [StepResult(sessionId: past.id, stepId: s.id, setIndex: 2, done: false,
+                          exerciseIdAtExecution: "machine_chest_press", exerciseTitleAtExecution: "チェストプレス")]
+        #expect(latest("bench_press", steps: [s], sessions: [past], results: results) == nil)
+    }
+
+    // MARK: Duplicated steps / scope
+
+    @Test
+    func duplicatedStepsStaySeparateRecords() {
+        let first = step("bench_press", title: "ベンチプレス", order: 0)
+        let second = step("bench_press", title: "ベンチプレス", order: 1)
+        let past = session(daysAgo: 2)
+        let results = sets(past, first, count: 3, id: "bench_press", title: "ベンチプレス", reps: 10)
+            + sets(past, second, count: 2, id: "bench_press", title: "ベンチプレス", reps: 6)
+        let perf = PreviousPerformanceQuery.latest(exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 2,
+                                                   currentStepOrder: 1, steps: [first, second], sessions: [past], results: results)
+        #expect(perf?.setReps == [6, 6])
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [first, second])
+        #expect(groups.map(\.results.count) == [3, 2])
+    }
+
+    @Test
+    func resultsOfSessionsOutsideTheScopeAreNeverMatched() {
+        // The caller passes only in-scope sessions; a snapshot never widens it.
+        let s = step("bench_press", title: "ベンチプレス")
+        let mine = session(daysAgo: 5), other = session(daysAgo: 1)
+        let results = sets(mine, s, id: "bench_press", title: "ベンチプレス", reps: 8)
+            + sets(other, s, id: "bench_press", title: "ベンチプレス", reps: 12)
+        #expect(latest("bench_press", steps: [s], sessions: [mine], results: results)?.setReps == [8, 8, 8])
+        #expect(WorkoutProgressQuery.exerciseInsights(steps: [s], sessions: [mine], results: results).first?.latestReps == [8, 8, 8])
+    }
+
+    @Test
+    func progressNamesAnExerciseAsMostRecentlyPerformed() {
+        let a = step("bench_press", title: "ベンチ（旧名）")
+        let old = session(daysAgo: 7), new = session(daysAgo: 1)
+        let results = sets(old, a, id: "bench_press", title: "ベンチ（旧名）") + sets(new, a, id: "bench_press", title: "ベンチプレス")
+        a.title = "全く別の名前"
+        #expect(WorkoutProgressQuery.exerciseInsights(steps: [a], sessions: [old, new], results: results).map(\.exerciseName) == ["ベンチプレス"])
+    }
+}
