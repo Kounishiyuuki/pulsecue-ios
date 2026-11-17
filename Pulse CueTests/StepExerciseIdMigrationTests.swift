@@ -20,6 +20,8 @@
 //      empty".
 //
 
+import CoreData
+import CryptoKit
 import Foundation
 import SwiftData
 import Testing
@@ -681,5 +683,167 @@ struct StepExerciseIdMigrationTests {
                 #expect(step.title == "未来の種目")
             }
         }
+    }
+}
+
+// MARK: - Schema history lock
+
+/// Locks the persisted shape of every schema version in `PulseCueMigrationPlan`.
+///
+/// Several historical versions list *live* model types (`Step.self`,
+/// `UserProfile.self`, …) rather than frozen copies. Adding a stored property
+/// to such a type silently changes every historical version that lists it, and
+/// a store written by the old shape is then recognised as no known version
+/// ("Cannot use staged migration with an unknown model version"). That is how a
+/// development V10 store from 2026-10-29 became unloadable: V10 lists the live
+/// `UserProfile`, which gained `profileOnboardingStepRaw` after the store was
+/// written.
+///
+/// IF A FINGERPRINT HERE FAILS, DO NOT JUST UPDATE THE EXPECTED VALUE. A store
+/// stamped with that version may already exist on a device. Instead:
+///   - add a new schema version (V15, …) for the new shape, and
+///   - freeze the old shape as a nested type of the historical version(s) that
+///     listed the live type (as `PulseCueSchemaV13.StepResult` does),
+/// so every historical fingerprint returns to its locked value. Only update an
+/// expected value for a version that has provably never been on `main`.
+/// V14 is locked too: it is on `main`, so stores stamped 14.0.0 can exist.
+@MainActor
+struct SchemaHistoryLockTests {
+
+    /// Canonical, order-independent text of one schema's persisted shape, built
+    /// from the public `NSManagedObjectModel` SwiftData derives for it. Includes
+    /// each entity's Core Data `versionHash` — the value a store's metadata is
+    /// matched against — plus the readable shape, so a failure says what moved.
+    static func canonicalShape(_ models: [any PersistentModel.Type]) -> String {
+        guard let model = NSManagedObjectModel.makeManagedObjectModel(for: models) else {
+            return "<makeManagedObjectModel failed>"
+        }
+        return model.entities
+            .sorted { ($0.name ?? "") < ($1.name ?? "") }
+            .map { entity -> String in
+                let hash = entity.versionHash.map { String(format: "%02x", $0) }.joined()
+                let attributes = entity.attributesByName.keys.sorted().map { name -> String in
+                    let a = entity.attributesByName[name]!
+                    return "  attr \(name) type=\(a.attributeType.rawValue) optional=\(a.isOptional) "
+                        + "transient=\(a.isTransient) default=\(a.defaultValue != nil) "
+                        + "external=\(a.allowsExternalBinaryDataStorage)"
+                }
+                let relationships = entity.relationshipsByName.keys.sorted().map { name -> String in
+                    let r = entity.relationshipsByName[name]!
+                    return "  rel \(name) -> \(r.destinationEntity?.name ?? "?") toMany=\(r.isToMany) "
+                        + "optional=\(r.isOptional) delete=\(r.deleteRule.rawValue) "
+                        + "inverse=\(r.inverseRelationship?.name ?? "-") min=\(r.minCount) max=\(r.maxCount)"
+                }
+                let unique = entity.uniquenessConstraints
+                    .map { $0.map { "\($0)" }.sorted().joined(separator: "+") }
+                    .sorted()
+                    .joined(separator: ",")
+                return (["entity \(entity.name ?? "?") hash=\(hash) unique=[\(unique)]"] + attributes + relationships)
+                    .joined(separator: "\n")
+            }
+            .joined(separator: "\n")
+    }
+
+    static func fingerprint(_ models: [any PersistentModel.Type]) -> String {
+        SHA256.hash(data: Data(canonicalShape(models).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Fingerprints taken from `main` 713e1cb. See the type comment before
+    /// changing any of these.
+    static let expectedFingerprints: [String: String] = [
+        "1.0.0": "73fc2f0eb4ddb81337c02df62abfba5fa6f82f384e7c0bc9c0b08bea56f41880",
+        "2.0.0": "c1150bffb926f085e5942fdfb9407f575c8b0b67e6f042a930ea2c1a4442a8c1",
+        "3.0.0": "b8329c9d3c9ca0525a34a8de38ab9062890ca7861337f2cbd8a9e15cb014fa30",
+        "4.0.0": "cd7b1f0acaebee399cbc96247b7d16eb71fc4f3caf71a87e754cdaf77b4416f6",
+        "5.0.0": "23158aa0a5705eb867cc50824ac3c796e6f8de307e0cffdd88509115bb909261",
+        "6.0.0": "076bed29abee084dbe1b4751b919803f0f5d3e1fdd642eff56314292ee5965d2",
+        "7.0.0": "7c6bb03847a3b53c4a059b9ff10aa563c9b56416a6ef9c4c827b4b6433f0fe98",
+        "8.0.0": "cf769af0edf72c6b66742a748f4f16986b2f2d9effe15e1d4da25db15cf87a9d",
+        "9.0.0": "28eef746f66d124ed1700abafd9f1d1be7634f4bdf97475b137726bd528e63bd",
+        "10.0.0": "7157d0e30681db9aa7faa0e801f3d992f868f7d006766d8ba754cb07c19b2e4d",
+        "11.0.0": "df6b46233e8cd47f1b9228a2be31ffb0c583a1d6aabac771ad6630168ccfb413",
+        "12.0.0": "9332d00f4ce56b3a0839b57474c1f248884919b5347a6b65ddeb66cc63b12dc1",
+        "13.0.0": "0478f6253031f2fbe4004cea3e45af86f518a01588af0569a5c4d0f007a1938a",
+        "14.0.0": "39d69eca8e26d96b54994ba33c4af536d080787d99ca862b43d4da5543eedbaa",
+    ]
+
+    private static let expectedVersions: [Schema.Version] = (1...14).map { Schema.Version($0, 0, 0) }
+
+    @Test func everyKnownSchemaFingerprintIsLocked() {
+        #expect(Set(Self.expectedFingerprints.keys) == Set(Self.expectedVersions.map { "\($0)" }))
+        for schema in PulseCueMigrationPlan.schemas {
+            let version = "\(schema.versionIdentifier)"
+            #expect(Self.expectedFingerprints[version] == Self.fingerprint(schema.models),
+                    "Schema \(version) changed shape:\n\(Self.canonicalShape(schema.models))")
+        }
+    }
+
+    @Test func fingerprintsAreDeterministic() {
+        for schema in PulseCueMigrationPlan.schemas {
+            let forward = Self.fingerprint(schema.models)
+            #expect(Self.fingerprint(schema.models.reversed()) == forward)
+            #expect(Self.fingerprint(schema.models) == forward)
+        }
+    }
+
+    @Test func everySchemaVersionIdentifierIsLocked() {
+        #expect(PulseCueSchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
+        #expect(PulseCueSchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
+        #expect(PulseCueSchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
+        #expect(PulseCueSchemaV4.versionIdentifier == Schema.Version(4, 0, 0))
+        #expect(PulseCueSchemaV5.versionIdentifier == Schema.Version(5, 0, 0))
+        #expect(PulseCueSchemaV6.versionIdentifier == Schema.Version(6, 0, 0))
+        #expect(PulseCueSchemaV7.versionIdentifier == Schema.Version(7, 0, 0))
+        #expect(PulseCueSchemaV8.versionIdentifier == Schema.Version(8, 0, 0))
+        #expect(PulseCueSchemaV9.versionIdentifier == Schema.Version(9, 0, 0))
+        #expect(PulseCueSchemaV10.versionIdentifier == Schema.Version(10, 0, 0))
+        #expect(PulseCueSchemaV11.versionIdentifier == Schema.Version(11, 0, 0))
+        #expect(PulseCueSchemaV12.versionIdentifier == Schema.Version(12, 0, 0))
+        #expect(PulseCueSchemaV13.versionIdentifier == Schema.Version(13, 0, 0))
+        #expect(PulseCueSchemaV14.versionIdentifier == Schema.Version(14, 0, 0))
+    }
+
+    @Test func migrationPlanListsEveryKnownSchemaInOrder() {
+        #expect(PulseCueMigrationPlan.schemas.map { $0.versionIdentifier } == Self.expectedVersions)
+    }
+
+    @Test func migrationStagesConnectEachAdjacentPair() {
+        let schemas = PulseCueMigrationPlan.schemas
+        let stages = PulseCueMigrationPlan.stages
+        #expect(stages.count == schemas.count - 1)
+        for (index, stage) in stages.enumerated() {
+            guard case let .lightweight(from, to) = stage else {
+                Issue.record("Stage \(index) is not lightweight")
+                continue
+            }
+            #expect(from.versionIdentifier == schemas[index].versionIdentifier)
+            #expect(to.versionIdentifier == schemas[index + 1].versionIdentifier)
+        }
+    }
+
+    /// The 2026-10-29 failure, conceptually: V10 lists the live `UserProfile`,
+    /// so any change to that type's stored shape changes V10's fingerprint.
+    /// Swapping in another `UserProfile` shape (V8's frozen one) stands in for
+    /// a property added to the live type.
+    @Test func aChangedLiveUserProfileWouldChangeTheV10Fingerprint() {
+        let v10 = PulseCueSchemaV10.models
+        #expect(v10.contains { ObjectIdentifier($0) == ObjectIdentifier(UserProfile.self) })
+        let altered = v10.map {
+            ObjectIdentifier($0) == ObjectIdentifier(UserProfile.self) ? PulseCueSchemaV8.UserProfile.self : $0
+        }
+        #expect(Self.fingerprint(altered) != Self.expectedFingerprints["10.0.0"])
+    }
+
+    /// V13 keeps its frozen `StepResult`. Pointing it back at the live
+    /// `StepResult` would make V13 the V14 shape, which this lock rejects.
+    @Test func v13KeepsItsFrozenStepResult() {
+        let v13 = PulseCueSchemaV13.models
+        #expect(v13.contains { ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV13.StepResult.self) })
+        #expect(!v13.contains { ObjectIdentifier($0) == ObjectIdentifier(StepResult.self) })
+        let unfrozen = v13.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV13.StepResult.self) ? StepResult.self : $0
+        }
+        #expect(Self.fingerprint(unfrozen) != Self.expectedFingerprints["13.0.0"])
+        #expect(Self.expectedFingerprints["13.0.0"] != Self.expectedFingerprints["14.0.0"])
     }
 }
