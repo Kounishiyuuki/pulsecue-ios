@@ -1723,6 +1723,33 @@ struct RunnerReplacementGuardTests {
         #expect(fx.viewModel.replaceExercise(fx.steps[1], with: Self.chestPress))
         RunnerPersistence.clear()
     }
+
+    @Test
+    func withoutAModelContextOrSessionReplacementIsRefused() throws {
+        let fx = try Self.makeFixture()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.replace.\(UUID().uuidString)")!)
+        let unconfigured = RunnerViewModel(settings: settings)
+        #expect(!unconfigured.canReplaceCurrentExercise)
+        #expect(!unconfigured.canReplaceNextExercise)
+        #expect(!unconfigured.replaceExercise(fx.steps[0], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[0])
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func replaceExerciseAfterTheSessionEndedIsRefused() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.endSessionEarly()
+        try fx.context.save()
+        #expect(!fx.viewModel.isRunning)
+        #expect(!fx.viewModel.replaceExercise(fx.steps[0], with: Self.chestPress))
+        #expect(!fx.viewModel.replaceExercise(fx.steps[1], with: Self.chestPress))
+        Self.expectUnchanged(fx.steps[0])
+        Self.expectUnchanged(fx.steps[1])
+        #expect(!fx.context.hasChanges)
+        RunnerPersistence.clear()
+    }
 }
 
 /// The original replacement bug end to end: a bench session is recorded, the

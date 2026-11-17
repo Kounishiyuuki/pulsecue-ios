@@ -286,14 +286,17 @@ enum WorkoutProgressQuery {
             guard let exerciseId = identity.exerciseId else { continue }
             let date = startedAt[record.sessionId] ?? .distantPast
             var agg = byExercise[exerciseId] ?? Agg()
+            var performed = false
             for result in recordResults {
                 guard result.done, let reps = result.actualReps else { continue }
+                performed = true
                 agg.bySession[record.sessionId, default: []].append((result.setIndex, reps))
                 agg.best = max(agg.best, reps)
                 agg.lastActivity = max(agg.lastActivity, date)
             }
             // Name as most recently performed; a stable tie-break on the title.
-            if let title = identity.title,
+            // A Skip-only record was not performed, so it never names it.
+            if performed, let title = identity.title,
                agg.name == nil || date > agg.nameDate || (date == agg.nameDate && title < agg.name!) {
                 agg.name = title
                 agg.nameDate = date

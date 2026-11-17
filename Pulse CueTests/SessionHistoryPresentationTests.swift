@@ -212,3 +212,61 @@ struct SessionHistoryWeightTextTests {
         #expect(SetWeight.validated(60.000000001) == 60)
     }
 }
+
+/// History titles per `HistoricalExerciseIdentity` source: snapshot wins,
+/// legacy may read the live step, inconsistent never does.
+@MainActor
+struct SessionHistoryIdentityTitleTests {
+
+    private let sessionId = UUID()
+
+    private func result(_ step: UUID, set: Int, id: String?, title: String?) -> StepResult {
+        StepResult(sessionId: sessionId, stepId: step, setIndex: set, done: true, actualReps: 10,
+                   exerciseIdAtExecution: id, exerciseTitleAtExecution: title)
+    }
+
+    @Test func inconsistentSnapshotNeverShowsTheCurrentStepTitle() {
+        let step = Step(routineId: UUID(), order: 0, title: "チェストプレス", sets: 2, repsTarget: 10, restSeconds: 60, exerciseId: "machine_chest_press")
+        let results = [
+            result(step.id, set: 0, id: "bench_press", title: "ベンチプレス"),
+            result(step.id, set: 1, id: nil, title: nil),
+        ]
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [step])
+        #expect(groups.map(\.title) == [SessionHistoryPresentation.unidentifiableTitle])
+        #expect(groups[0].title != step.title)
+        #expect(groups[0].isOrphaned == false)
+    }
+
+    @Test func inconsistentSnapshotOnADeletedStepUsesTheUnknownTitle() {
+        let stepId = UUID()
+        let results = [
+            result(stepId, set: 0, id: "bench_press", title: "ベンチプレス"),
+            result(stepId, set: 1, id: "squat", title: "スクワット"),
+        ]
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [])
+        #expect(groups.map(\.title) == [SessionHistoryPresentation.unidentifiableTitle])
+        #expect(groups[0].isOrphaned)
+    }
+
+    @Test func legacyResultsFallBackToTheCurrentStepTitle() {
+        let step = Step(routineId: UUID(), order: 0, title: "ベンチプレス", sets: 2, repsTarget: 10, restSeconds: 60, exerciseId: "bench_press")
+        let results = [result(step.id, set: 0, id: nil, title: nil), result(step.id, set: 1, id: nil, title: nil)]
+        let groups = SessionHistoryPresentation.groupedResults(results: results, steps: [step])
+        #expect(groups.map(\.title) == ["ベンチプレス"])
+    }
+
+    @Test func snapshotTitleWinsOverTheCurrentStepTitle() {
+        let step = Step(routineId: UUID(), order: 0, title: "チェストプレス", sets: 1, repsTarget: 10, restSeconds: 60, exerciseId: "machine_chest_press")
+        let groups = SessionHistoryPresentation.groupedResults(
+            results: [result(step.id, set: 0, id: "bench_press", title: "ベンチプレス")], steps: [step])
+        #expect(groups.map(\.title) == ["ベンチプレス"])
+    }
+
+    @Test func snapshotTitleSurvivesStepDeletion() {
+        let stepId = UUID()
+        let groups = SessionHistoryPresentation.groupedResults(
+            results: [result(stepId, set: 0, id: "bench_press", title: "ベンチプレス")], steps: [])
+        #expect(groups.map(\.title) == ["ベンチプレス"])
+        #expect(groups[0].isOrphaned)
+    }
+}

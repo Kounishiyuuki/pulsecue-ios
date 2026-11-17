@@ -321,3 +321,65 @@ struct WorkoutProgressTests {
         }
     }
 }
+
+/// Progress names an exercise after its latest *performed* record: a Skip-only
+/// record is not a performance, so it never renames the exercise.
+@MainActor
+struct WorkoutProgressTitleSelectionTests {
+
+    private let base = Date(timeIntervalSince1970: 1_780_000_000)
+
+    private func session(daysAgo: Int) -> Session {
+        let startedAt = base.addingTimeInterval(TimeInterval(-daysAgo * 86_400))
+        return Session(routineId: UUID(), dayDate: startedAt, startedAt: startedAt, status: .completed, totalSeconds: 1800)
+    }
+
+    private func snap(_ session: Session, _ stepId: UUID, set: Int, title: String, done: Bool, reps: Int?) -> StepResult {
+        StepResult(sessionId: session.id, stepId: stepId, setIndex: set, done: done, actualReps: reps,
+                   exerciseIdAtExecution: "bench_press", exerciseTitleAtExecution: title)
+    }
+
+    private func fixture(newerDone: Bool) -> (sessions: [Session], results: [StepResult]) {
+        let older = session(daysAgo: 3), newer = session(daysAgo: 1)
+        let results = [
+            snap(older, UUID(), set: 0, title: "ベンチプレス", done: true, reps: 10),
+            newerDone
+                ? snap(newer, UUID(), set: 0, title: "バーベルベンチプレス", done: true, reps: 8)
+                : snap(newer, UUID(), set: 0, title: "バーベルベンチプレス", done: false, reps: nil),
+        ]
+        return ([older, newer], results)
+    }
+
+    @Test func aNewerSkipOnlyRecordDoesNotRenameTheExercise() {
+        let fx = fixture(newerDone: false)
+        let insights = WorkoutProgressQuery.exerciseInsights(steps: [], sessions: fx.sessions, results: fx.results)
+        #expect(insights.map(\.exerciseName) == ["ベンチプレス"])
+    }
+
+    @Test func aDoneSetWithoutRepsIsNotAPerformanceEither() {
+        let older = session(daysAgo: 3), newer = session(daysAgo: 1)
+        let results = [
+            snap(older, UUID(), set: 0, title: "ベンチプレス", done: true, reps: 10),
+            snap(newer, UUID(), set: 0, title: "バーベルベンチプレス", done: true, reps: nil),
+        ]
+        let insights = WorkoutProgressQuery.exerciseInsights(steps: [], sessions: [older, newer], results: results)
+        #expect(insights.map(\.exerciseName) == ["ベンチプレス"])
+    }
+
+    @Test func aNewerPerformedRecordRenamesTheExercise() {
+        let fx = fixture(newerDone: true)
+        let insights = WorkoutProgressQuery.exerciseInsights(steps: [], sessions: fx.sessions, results: fx.results)
+        #expect(insights.map(\.exerciseName) == ["バーベルベンチプレス"])
+    }
+
+    @Test func titleSelectionDoesNotDependOnFetchOrder() {
+        for newerDone in [false, true] {
+            let fx = fixture(newerDone: newerDone)
+            let expected = newerDone ? "バーベルベンチプレス" : "ベンチプレス"
+            for (sessions, results) in [(fx.sessions, fx.results), (fx.sessions.reversed(), fx.results.reversed())] {
+                let insights = WorkoutProgressQuery.exerciseInsights(steps: [], sessions: Array(sessions), results: Array(results))
+                #expect(insights.map(\.exerciseName) == [expected])
+            }
+        }
+    }
+}
