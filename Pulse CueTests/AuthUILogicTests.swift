@@ -188,3 +188,101 @@ struct AccountSettingsPresentationTests {
         }
     }
 }
+
+/// 「連携を解除」 is local cleanup for a stale link only. While a server
+/// session may be held, サインアウト is the action.
+@MainActor
+struct LocalUnlinkActionTests {
+
+    private static let profile = ServerAccountProfile(
+        user: .init(id: "user-1", state: "active", displayName: "テスト", createdAt: 1),
+        linkedProviders: [.init(provider: "apple", linkedAt: 1)],
+        session: .init(expiresAt: 1_800_000_000)
+    )
+
+    private static func shows(_ state: ServerAccountState, _ link: AuthProviderKind?) -> Bool {
+        AccountSettingsPresentation(serverState: state, linkedProvider: link).showsLocalUnlinkAction
+    }
+
+    @Test func authenticatedNeverOffersLocalUnlink() {
+        #expect(!Self.shows(.authenticated(Self.profile), .apple))
+        #expect(!Self.shows(.authenticated(Self.profile), .google))
+    }
+
+    @Test func aGuestWithAStaleLinkMayUnlinkIt() {
+        #expect(Self.shows(.guest, .apple))
+        #expect(Self.shows(.guest, .google))
+    }
+
+    @Test func nothingToUnlinkWithoutALink() {
+        let every: [ServerAccountState] = [
+            .guest, .unresolved, .restoring, .signingIn, .authenticated(Self.profile),
+            .unreachable, .notConfigured, .localCleanupFailed,
+        ]
+        for state in every {
+            #expect(!Self.shows(state, nil), "\(state)")
+            #expect(!Self.shows(state, .guest), "\(state)")
+        }
+    }
+
+    @Test func noLocalUnlinkWhileASessionMayBeHeldOrASignInRuns() {
+        for state: ServerAccountState in [.unresolved, .restoring, .signingIn, .unreachable, .localCleanupFailed] {
+            #expect(!Self.shows(state, .apple), "\(state)")
+            #expect(!Self.shows(state, .google), "\(state)")
+        }
+    }
+
+    /// No account API means no session can exist, so a leftover link is stale.
+    @Test func notConfiguredTreatsALeftoverLinkAsStale() {
+        #expect(Self.shows(.notConfigured, .apple))
+        #expect(Self.shows(.notConfigured, .google))
+    }
+
+    private static func presentation(_ server: ServerAccountStore, _ auth: AuthSessionStore) -> AccountSettingsPresentation {
+        AccountSettingsPresentation(serverState: server.state, linkedProvider: auth.session?.provider)
+    }
+
+    /// Unlinking a stale link changes only the local link; the server stays guest.
+    @Test func unlinkingAStaleLinkLeavesTheServerAccountAlone() async {
+        let tokens = InMemoryServerSessionTokenStore()
+        let server = ServerAccountStore(api: StubAccountAPI(), tokenStore: tokens, deviceName: "iPhone")
+        await server.restore()
+        let links = InMemoryLinkedAccountStore(linkedAccount: nil)
+        let auth = AuthSessionStore(linkedAccountStore: links)
+        auth.completeAppleSignIn(userIdentifier: "apple-user-1", displayName: nil, email: nil)
+        #expect(server.state == .guest)
+        let before = Self.presentation(server, auth)
+        #expect(before.showsLocalUnlinkAction)
+
+        auth.unlinkAccount()
+
+        let after = Self.presentation(server, auth)
+        #expect(!auth.isSignedIn)
+        #expect(links.linkedAccount == nil)
+        #expect(server.state == .guest)
+        #expect(tokens.storedToken == nil)
+        #expect(!after.showsLocalUnlinkAction)
+    }
+
+    /// The UI no longer offers it, but `unlinkAccount()` is still callable while
+    /// authenticated. It must stay local: the session and token survive.
+    @Test func unlinkingWhileAuthenticatedNeverTouchesTheSession() async {
+        let api = StubAccountAPI()
+        api.profileResult = .success(Self.profile)
+        let tokens = InMemoryServerSessionTokenStore(token: "stored-session")
+        let server = ServerAccountStore(api: api, tokenStore: tokens, deviceName: "iPhone")
+        await server.restore()
+        let links = InMemoryLinkedAccountStore(linkedAccount: nil)
+        let auth = AuthSessionStore(linkedAccountStore: links)
+        auth.completeAppleSignIn(userIdentifier: "apple-user-1", displayName: nil, email: nil)
+        #expect(server.state.isAuthenticated)
+        let shown = Self.presentation(server, auth)
+        #expect(!shown.showsLocalUnlinkAction)
+
+        auth.unlinkAccount()
+
+        #expect(server.state.isAuthenticated)
+        #expect(tokens.storedToken == "stored-session")
+        #expect(api.logoutTokens.isEmpty)
+    }
+}

@@ -89,7 +89,7 @@ struct AccountSettingsSection: View {
                 // into gym management. Body fields live in 体と目標; gyms live
                 // under トレーニング → その他の機能, and only there.
 
-                if authSession.isSignedIn {
+                if presentation.showsLocalUnlinkAction {
                     Divider().opacity(0.4)
                     Button(role: .destructive) {
                         authSession.unlinkAccount()
@@ -204,6 +204,18 @@ struct AccountSettingsPresentation: Equatable {
     let linkedProvider: AuthProviderKind?
 
     var showsSignInEntry: Bool { serverState.offersSignIn }
+
+    /// 「連携を解除」: forgets only the local link, never the server session.
+    ///
+    /// Offered only for a stale link — one left on a device that holds no
+    /// server session and has no sign-in in flight (guest, or a build with no
+    /// account API). While a session may be held (authenticated, unreachable,
+    /// restoring, localCleanupFailed) the way out is サインアウト, which ends
+    /// the session and then clears the link itself; dropping just the link
+    /// there would leave the user signed in with nothing visibly changed.
+    var showsLocalUnlinkAction: Bool {
+        localLinkLabel != nil && !serverState.holdsSession && serverState != .signingIn
+    }
 
     /// nil when nothing is linked: the row is then not drawn at all.
     var localLinkLabel: String? {
