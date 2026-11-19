@@ -133,14 +133,15 @@ struct FreeWorkoutSessionTests {
 
     /// A routine workout recorded through the Runner's own write path.
     private func routineWorkout(_ context: ModelContext, exerciseId: String, sets: [(reps: Int, kg: Double)],
-                                plannedSets: Int, at date: Date) {
+                                plannedSets: Int, at date: Date, owner: UUID? = nil) {
         let routine = Routine(name: "胸の日")
         let step = Step(routineId: routine.id, order: 0, title: "ベンチプレス", sets: plannedSets, repsTarget: 10,
                         restSeconds: 90, exerciseId: exerciseId)
-        let session = Session(routineId: routine.id, dayDate: date, startedAt: date, endedAt: date, status: .completed)
+        let session = Session(routineId: routine.id, dayDate: date, startedAt: date, endedAt: date, status: .completed,
+                              ownerAccountID: owner)
         context.insert(routine); context.insert(step); context.insert(session)
         for (index, set) in sets.enumerated() {
-            StepResultWriter.record(in: context, sessionId: session.id, ownerAccountID: nil, step: step,
+            StepResultWriter.record(in: context, sessionId: session.id, ownerAccountID: owner, step: step,
                                     setIndex: index, done: true, actualReps: set.reps, weightKg: set.kg)
         }
     }
@@ -387,25 +388,101 @@ struct FreeWorkoutSessionTests {
                        at: day1.addingTimeInterval(86_400))
         let next = try start(context, at: day1.addingTimeInterval(2 * 86_400))
         let step = try #require(next.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
-        let fromRoutine = try #require(next.previousPerformance(exerciseId: "bench_press", expectedSets: 2, scope: .guest))
+        step.sets = 2
+        let fromRoutine = try #require(next.previousPerformance(for: step))
         #expect(fromRoutine.sets.map(\.weightKg) == [85, 85])
-        #expect(next.initialEntry(forSetAt: 0, of: step, scope: .guest) == (8, 85))
+        #expect(next.initialEntry(forSetAt: 0, of: step) == (8, 85))
     }
 
-    @Test func previousPerformanceStaysInsideTheScope() throws {
+    // MARK: history scope = the session's own owner
+
+    private func mixedOwnerHistory(_ context: ModelContext, accountB: UUID) {
+        let day = Date(timeIntervalSince1970: 500_000)
+        routineWorkout(context, exerciseId: "bench_press", sets: [(10, 60)], plannedSets: 1, at: day)
+        routineWorkout(context, exerciseId: "bench_press", sets: [(10, 100)], plannedSets: 1,
+                       at: day.addingTimeInterval(60), owner: account)
+        routineWorkout(context, exerciseId: "bench_press", sets: [(10, 120)], plannedSets: 1,
+                       at: day.addingTimeInterval(120), owner: accountB)
+    }
+
+    @Test func aGuestFreeWorkoutReadsOnlyGuestHistory() throws {
         let context = try makeContext()
-        routineWorkout(context, exerciseId: "bench_press", sets: [(10, 80)], plannedSets: 1, at: Date())   // guest
+        mixedOwnerHistory(context, accountB: UUID())
+        let free = try start(context, scope: .guest)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        #expect(free.previousPerformance(for: step)?.sets.map(\.weightKg) == [60])
+        #expect(free.initialEntry(forSetAt: 0, of: step) == (10, 60))
+    }
+
+    @Test func anAccountFreeWorkoutReadsOnlyItsOwnersHistory() throws {
+        let context = try makeContext()
+        mixedOwnerHistory(context, accountB: UUID())
         let free = try start(context, scope: .account(account))
-        #expect(free.previousPerformance(exerciseId: "bench_press", expectedSets: 1, scope: .account(account)) == nil)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        #expect(free.previousPerformance(for: step)?.sets.map(\.weightKg) == [100])
+        #expect(free.initialEntry(forSetAt: 0, of: step) == (10, 100))
+    }
+
+    /// The scope comes from the session, so a later change of the current
+    /// account (here: re-attaching the handle while the app is a guest is
+    /// refused, and the original handle keeps reading account A).
+    @Test func theHistoryScopeIsFixedByTheSessionOwnerNotTheCurrentAccount() throws {
+        let context = try makeContext()
+        mixedOwnerHistory(context, accountB: UUID())
+        let free = try start(context, scope: .account(account))
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        #expect(FreeWorkoutSession.resume(free.session, in: context, scope: .guest) == nil)
+        let reattached = try #require(FreeWorkoutSession.resume(free.session, in: context, scope: .account(account)))
+        #expect(reattached.previousPerformance(for: step)?.sets.map(\.weightKg) == [100])
+        #expect(free.previousPerformance(for: step)?.sets.map(\.weightKg) == [100])
+    }
+
+    @Test func noOwnHistoryNeverFallsBackToAnotherOwner() throws {
+        let context = try makeContext()
+        routineWorkout(context, exerciseId: "bench_press", sets: [(10, 60)], plannedSets: 1, at: Date())   // guest
+        let free = try start(context, scope: .account(account))
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        #expect(free.previousPerformance(for: step) == nil)
+        #expect(free.initialEntry(forSetAt: 0, of: step) == (FreeWorkoutSession.defaultRepsTarget, nil))
+    }
+
+    // MARK: blank rows vs skips (P2-1)
+
+    @Test func blankRowsAreDraftsNotPlannedSets() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 4))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.completeSet(at: 1, of: step, reps: 10, weightKg: 80)
+        #expect(free.finish() == .saved)
+        #expect(free.results(for: step).count == 2)
+        #expect(free.results(for: step).map(\.plannedSetsAtExecution) == [2, 2])
+        #expect(step.sets == 2)
+    }
+
+    @Test func aSkipIsAPlannedSetThatWasNotPerformed() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 3))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.completeSet(at: 1, of: step, reps: 10, weightKg: 80)
+        free.skipSet(at: 2, of: step)
+        #expect(free.finish() == .saved)
+        #expect(free.results(for: step).count == 3)
+        #expect(free.results(for: step).map(\.plannedSetsAtExecution) == [3, 3, 3])
+        let previous = try #require(PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
+            steps: all(Step.self, context), sessions: all(Session.self, context), results: all(StepResult.self, context)))
+        #expect(!previous.isComplete(expectedSets: 3))
     }
 
     @Test func initialEntryPrefersTheSetAboveThenThePreviousWorkout() throws {
         let context = try makeContext()
         let free = try start(context)
         let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
-        #expect(free.initialEntry(forSetAt: 0, of: step, scope: .guest) == (10, nil))
+        #expect(free.initialEntry(forSetAt: 0, of: step) == (10, nil))
         free.completeSet(at: 0, of: step, reps: 9, weightKg: 77.5)
-        #expect(free.initialEntry(forSetAt: 1, of: step, scope: .guest) == (9, 77.5))
+        #expect(free.initialEntry(forSetAt: 1, of: step) == (9, 77.5))
     }
 
     /// The case `nil` would get wrong: a set added mid-workout makes four,

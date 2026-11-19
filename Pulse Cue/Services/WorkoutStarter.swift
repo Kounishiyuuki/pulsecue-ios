@@ -270,32 +270,42 @@ final class FreeWorkoutSession {
 
     /// Starting weight / reps for set row `setIndex`: the nearest recorded set
     /// above it in this workout; otherwise the matching set of this exercise's
-    /// most recent performance in this scope; otherwise the step's target with
-    /// no weight. Nothing is persisted — it is a suggestion for the editor.
-    func initialEntry(forSetAt setIndex: Int, of step: Step, scope: WorkoutDataScope) -> (reps: Int, weightKg: Double?) {
+    /// most recent performance by the same owner; otherwise the step's target
+    /// with no weight. Nothing is persisted — it is a suggestion for the editor.
+    func initialEntry(forSetAt setIndex: Int, of step: Step) -> (reps: Int, weightKg: Double?) {
         if let earlier = results(for: step).last(where: { $0.setIndex < setIndex && $0.actualReps != nil }) {
             return (earlier.actualReps ?? step.repsTarget, earlier.weightKg)
         }
-        guard let exerciseId = step.exerciseId,
-              let previous = previousPerformance(exerciseId: exerciseId, expectedSets: step.sets, scope: scope),
-              !previous.sets.isEmpty
+        guard let previous = previousPerformance(for: step), !previous.sets.isEmpty
         else { return (step.repsTarget, nil) }
         let set = previous.sets[min(setIndex, previous.sets.count - 1)]
         return (set.reps, set.weightKg)
     }
 
-    func previousPerformance(exerciseId: String, expectedSets: Int, scope: WorkoutDataScope) -> PreviousPerformance? {
+    /// The most recent finished performance of `step`'s exercise, from this
+    /// workout's owner's history only. Nil for an exercise with no id.
+    func previousPerformance(for step: Step) -> PreviousPerformance? {
+        guard let exerciseId = step.exerciseId else { return nil }
+        let scope = historyScope
         let sessions = scope.visible((try? context.fetch(FetchDescriptor<Session>())) ?? [])
         let results = scope.visible((try? context.fetch(FetchDescriptor<StepResult>())) ?? [])
         let steps = (try? context.fetch(FetchDescriptor<Step>())) ?? []
         return PreviousPerformanceQuery.latest(
             exerciseId: exerciseId,
             excludingSessionId: session.id,
-            expectedSets: expectedSets,
+            expectedSets: step.sets,
             steps: steps,
             sessions: sessions,
             results: results
         )
+    }
+
+    /// Whose history this workout may read: its own session's owner, fixed
+    /// when it was created. Deliberately not a caller argument and not the
+    /// live account state — a sign-in change mid-workout must not let this
+    /// session read another owner's history.
+    private var historyScope: WorkoutDataScope {
+        session.ownerAccountID.map(WorkoutDataScope.account) ?? .guest
     }
 
     // MARK: Finish / discard
@@ -312,7 +322,9 @@ final class FreeWorkoutSession {
     /// Ends the workout. With at least one performed set (done with a rep
     /// count) it is saved as completed: unlogged rows are dropped, each
     /// exercise's results are compacted to `0..<n` with `n` as its planned set
-    /// count, and exercises with nothing logged are removed. Skip-only or
+    /// count, and exercises with nothing logged are removed. A blank row is an
+    /// input field, not a planned set; a skip is a planned set not performed
+    /// (so the record stays honestly incomplete). Skip-only or
     /// empty workouts are discarded — a skip is logged, not performed.
     @discardableResult
     func finish(now: Date = Date()) -> FinishOutcome {
