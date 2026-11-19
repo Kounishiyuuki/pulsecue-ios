@@ -858,3 +858,229 @@ struct FreeWorkoutRecoveryTests {
         #expect(resumed.completeSet(at: 3, of: bench, reps: 8, weightKg: 75) != nil)
     }
 }
+
+// MARK: - Free Workout UI state
+
+@MainActor
+struct FreeWorkoutViewModelTests {
+
+    private func makeContainer() throws -> ModelContainer {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+    }
+
+    private func all<T: PersistentModel>(_ type: T.Type, _ context: ModelContext) -> [T] {
+        (try? context.fetch(FetchDescriptor<T>())) ?? []
+    }
+
+    private func launcher(_ context: ModelContext, scope: WorkoutDataScope = .guest) -> FreeWorkoutLauncher {
+        let launcher = FreeWorkoutLauncher()
+        launcher.configure(context: context, scope: scope)
+        return launcher
+    }
+
+    private func open(_ context: ModelContext) throws -> FreeWorkoutViewModel {
+        let launcher = launcher(context)
+        launcher.start()
+        return try #require(launcher.presented)
+    }
+
+    private func key(_ model: FreeWorkoutViewModel, card: Int, set: Int) -> FreeWorkoutViewModel.RowKey {
+        model.cards[card].rows[set].key
+    }
+
+    // MARK: launcher
+
+    @Test func startOpensAWorkoutAndADoubleTapCreatesNothingMore() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context)
+        launcher.start()
+        let first = try #require(launcher.presented)
+        launcher.start()
+        #expect(launcher.presented === first)
+        #expect(launcher.candidates.map(\.id) == [first.id])
+        #expect(all(Session.self, context).count == 1)
+    }
+
+    @Test func anUnknownScopeStartsNothingAndSaysWhy() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context, scope: .undetermined)
+        launcher.start()
+        #expect(launcher.presented == nil)
+        #expect(launcher.notice == .scopeUndetermined)
+        #expect(all(Session.self, context).isEmpty)
+    }
+
+    @Test func leavingTheScreenKeepsTheWorkoutForResumeOrDiscard() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context)
+        launcher.start()
+        let model = try #require(launcher.presented)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        launcher.workoutScreenClosed()
+        #expect(launcher.presented == nil)
+        let candidate = try #require(launcher.candidates.first)
+        #expect(candidate.stepCount == 1)
+
+        launcher.resume(candidate)
+        #expect(launcher.presented?.cards.map(\.title) == ["ベンチプレス"])
+        launcher.workoutScreenClosed()
+        launcher.discard(candidate)
+        #expect(launcher.candidates.isEmpty)
+        #expect(all(Session.self, context).isEmpty)
+    }
+
+    // MARK: rows
+
+    @Test func rowsAreTheStepsSetsWithDraftsForUnloggedOnes() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let bench = model.cards[0].id
+        for _ in 0..<3 { model.addSet(to: bench) }
+        model.setWeight(80, for: key(model, card: 0, set: 0))
+        model.complete(key(model, card: 0, set: 0))
+        model.complete(key(model, card: 0, set: 1))
+        #expect(model.cards[0].rows.map(\.state) == [.done, .done, .draft, .draft])
+        #expect(model.cards[0].rows.map(\.number) == [1, 2, 3, 4])
+        // An untouched draft takes the set above it.
+        #expect(model.cards[0].rows[2].weightKg == 80)
+        #expect(model.selected == key(model, card: 0, set: 2))
+    }
+
+    @Test func editingDraftsPersistsNothingUntilCompleteAndSkipIsLogged() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.addSet(to: model.cards[0].id)
+        let first = key(model, card: 0, set: 0)
+        model.setWeight(60, for: first)
+        model.adjustWeight(by: 2.5, for: first)
+        model.adjustReps(by: -2, for: first)
+        model.setWeight(-5, for: first)          // ignored
+        #expect(all(StepResult.self, context).isEmpty)
+        #expect(model.row(first)?.weightKg == 62.5)
+        #expect(model.row(first)?.reps == 8)
+
+        model.complete(first)
+        model.skip(key(model, card: 0, set: 1))
+        let results = all(StepResult.self, context).sorted { $0.setIndex < $1.setIndex }
+        #expect(results.map(\.done) == [true, false])
+        #expect(results.first?.weightKg == 62.5)
+        #expect(model.cards[0].rows.map(\.state) == [.done, .skipped])
+    }
+
+    @Test func editingALoggedSetOverwritesItInPlace() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let first = key(model, card: 0, set: 0)
+        model.setWeight(80, for: first)
+        model.complete(first)
+        let id = try #require(all(StepResult.self, context).first?.id)
+        model.adjustWeight(by: -2.5, for: first)
+        model.setReps(9, for: first)
+        let results = all(StepResult.self, context)
+        #expect(results.map(\.id) == [id])
+        #expect(results.first?.weightKg == 77.5)
+        #expect(results.first?.actualReps == 9)
+        #expect(results.first?.exerciseIdAtExecution == "bench_press")
+    }
+
+    @Test func setsAndExercisesAreAddedRemovedAndReorderedThroughTheDomain() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.addExercise(exerciseId: "incline_chest_press", title: "インクライン")
+        model.addExercise(exerciseId: "pec_deck_fly", title: "フライ")
+        let bench = model.cards[0].id
+        model.addSet(to: bench); model.addSet(to: bench)
+        model.complete(key(model, card: 0, set: 0))
+        model.complete(key(model, card: 0, set: 2))
+        model.removeSet(key(model, card: 0, set: 1))   // a draft between two logged
+        #expect(model.cards[0].rows.map(\.state) == [.done, .done])
+
+        #expect(!model.cards[0].canRemove)
+        model.removeExercise(bench)
+        #expect(model.cards.count == 3)                // refused: it has results
+        model.removeExercise(model.cards[1].id)
+        #expect(model.cards.map(\.title) == ["ベンチプレス", "フライ"])
+
+        model.moveExercises(fromOffsets: IndexSet(integer: 0), toOffset: 2)   // List onMove: bench to the end
+        #expect(model.cards.map(\.title) == ["フライ", "ベンチプレス"])
+    }
+
+    @Test func elapsedTimeIsReadFromTheSessionsStart() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        #expect(model.elapsedText(now: model.startedAt.addingTimeInterval(65)) == "01:05")
+        #expect(model.elapsedText(now: model.startedAt.addingTimeInterval(3725)) == "1:02:05")
+        #expect(model.elapsedText(now: model.startedAt.addingTimeInterval(-30)) == "00:00")
+    }
+
+    // MARK: finish
+
+    @Test func aBenchWorkoutIsSavedAndReachesProgress() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let bench = model.cards[0].id
+        model.addSet(to: bench); model.addSet(to: bench)
+        for (index, set) in [(80.0, 10), (80.0, 9), (75.0, 10)].enumerated() {
+            let row = key(model, card: 0, set: index)
+            model.setWeight(set.0, for: row)
+            model.setReps(set.1, for: row)
+            model.complete(row)
+        }
+        model.finish()
+        #expect(model.finishOutcome == .saved)
+        #expect(model.completion?.completedSetCount == 3)
+        #expect(model.completion?.completedExerciseCount == 1)
+        #expect(all(Session.self, context).first?.status == .completed)
+        let results = all(StepResult.self, context).sorted { $0.setIndex < $1.setIndex }
+        #expect(results.map(\.weightKg) == [80, 80, 75])
+        #expect(results.map(\.actualReps) == [10, 9, 10])
+        let insights = WorkoutProgressQuery.exerciseInsights(
+            steps: all(Step.self, context), sessions: all(Session.self, context), results: results)
+        #expect(insights.first?.latestReps == [10, 9, 10])
+    }
+
+    @Test func finishingWithNothingPerformedSavesNothing() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context)
+        launcher.start()
+        let model = try #require(launcher.presented)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.skip(key(model, card: 0, set: 0))
+        model.finish()
+        #expect(model.finishOutcome == .discarded)
+        #expect(model.completion == nil)
+        launcher.workoutScreenClosed()
+        #expect(launcher.notice == .nothingSaved)
+        #expect(all(Session.self, context).isEmpty)
+    }
+
+    // MARK: recovery
+
+    @Test func aRelaunchedAppResumesTheWorkoutWithItsRows() throws {
+        let container = try makeContainer()
+        do {
+            let model = try open(ModelContext(container))
+            model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            for _ in 0..<3 { model.addSet(to: model.cards[0].id) }
+            model.setWeight(80, for: key(model, card: 0, set: 0))
+            model.complete(key(model, card: 0, set: 0))
+            model.complete(key(model, card: 0, set: 1))
+        }
+        let context = ModelContext(container)
+        let launcher = launcher(context)
+        let candidate = try #require(launcher.candidates.first)
+        launcher.resume(candidate)
+        let model = try #require(launcher.presented)
+        #expect(model.cards[0].rows.map(\.state) == [.done, .done, .draft, .draft])
+        model.complete(key(model, card: 0, set: 2))
+        model.finish()
+        #expect(model.completion?.completedSetCount == 3)
+        #expect(all(StepResult.self, context).count == 3)
+    }
+}

@@ -192,6 +192,9 @@ struct TodayView: View {
                         onPrimaryAction: workoutAction
                     )
 
+                    // Start, or resume / discard one left in progress.
+                    FreeWorkoutEntryCard()
+
                     TodayNutritionCard(
                         summary: nutritionSummary,
                         onRecordMeal: onOpenNutrition
