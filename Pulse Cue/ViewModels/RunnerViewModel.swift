@@ -661,53 +661,20 @@ final class RunnerViewModel: ObservableObject {
 
     private func recordStepResult(done: Bool, actualReps: Int?, weightKg: Double?) {
         guard let modelContext, let sessionId, let step = currentStep else { return }
-        let stepId = step.id
-        let setIndex = currentSetIndex
-        let descriptor = FetchDescriptor<StepResult>(
-            predicate: #Predicate<StepResult> {
-                $0.sessionId == sessionId && $0.stepId == stepId && $0.setIndex == setIndex
-            }
-        )
-        if let existing = try? modelContext.fetch(descriptor).first {
-            // The `…AtExecution` snapshots are deliberately left as first written.
-            existing.done = done
-            existing.actualReps = actualReps
-            existing.weightKg = weightKg
-            return
-        }
-        // The step's planned set count as this session runs it. The first
-        // result of (session, step) snapshots `step.sets`; later ones copy that
-        // value, so editing the routine mid-session (before a resume) can never
-        // split one step's results across two plans. A sibling's `nil` (a
-        // session begun before V13) is copied as is, never filled in.
-        let siblings = FetchDescriptor<StepResult>(
-            predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.stepId == stepId }
-        )
-        let firstSibling = ((try? modelContext.fetch(siblings)) ?? []).min { $0.setIndex < $1.setIndex }
-        let plannedSets = firstSibling.map(\.plannedSetsAtExecution) ?? step.sets
-        // Same rule for the exercise identity: a Runner replacement or Routine
-        // edit rewrites the live step, so only the first result may read it.
-        // A sibling's nil/nil (a session begun before V14) is copied as is —
-        // the live step may already be a different exercise.
-        let exerciseId = firstSibling.map(\.exerciseIdAtExecution) ?? step.exerciseId
-        let exerciseTitle = firstSibling.map(\.exerciseTitleAtExecution) ?? step.title
-        // Owner comes from the parent session, never from the current account.
-        // Reading the account here would let a result be written under a
-        // different owner than the workout it belongs to — the one pair the
-        // server's composite foreign key refuses.
-        let result = StepResult(
+        // Snapshot rules (first-written planned sets, first-sibling exercise
+        // identity, owner from the parent session) live in `StepResultWriter`,
+        // shared with Free Workout.
+        StepResultWriter.record(
+            in: modelContext,
             sessionId: sessionId,
-            stepId: step.id,
+            ownerAccountID: session?.ownerAccountID,
+            step: step,
             setIndex: currentSetIndex,
             done: done,
             actualReps: actualReps,
-            ownerAccountID: session?.ownerAccountID,
             weightKg: weightKg,
-            plannedSetsAtExecution: plannedSets,
-            exerciseIdAtExecution: exerciseId,
-            exerciseTitleAtExecution: exerciseTitle
+            plannedSets: .firstWritten
         )
-        modelContext.insert(result)
     }
 
     private func restoredRepsForCurrentPosition() -> Int {

@@ -11,10 +11,16 @@ import SwiftData
 /// Why a `Routine` exists. Only `userSaved` routines appear in the routine
 /// library; `workoutGenerated` ones are materialized solely to run a workout
 /// (Quick Plan "この内容で開始") and stay out of the list, while remaining a
-/// valid persistent target for the Runner / Session / History.
+/// valid persistent target for the Runner / Session / History. `freeWorkout`
+/// is the hidden routine a Free Workout builds while it runs (see
+/// `FreeWorkoutSession`); it stays out of the library for the same reason.
+///
+/// Adding a case does not change the persisted shape — the value is stored as
+/// its raw string — which `SchemaHistoryLockTests` verifies for V1–V14.
 enum RoutineOrigin: String, Codable, CaseIterable, Sendable {
     case userSaved
     case workoutGenerated
+    case freeWorkout
 }
 
 @Model

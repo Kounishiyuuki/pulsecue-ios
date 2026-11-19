@@ -107,3 +107,90 @@ enum SetWeight {
         return validated(value)
     }
 }
+
+/// The one place a set's `StepResult` is written, so the Runner and Free
+/// Workout cannot drift on the execution snapshots.
+///
+/// Rules (V12–V14, unchanged from the Runner):
+/// - re-recording a (session, step, setIndex) overwrites done / reps / weight
+///   only; the `…AtExecution` snapshots stay as first written;
+/// - a new result copies the exercise id / title snapshot from the step's
+///   first sibling in this session — so one record never carries two
+///   identities — and reads the live step only when it is the first;
+/// - the owner comes from the parent session, never the current account.
+///
+/// The planned set count is the one rule that differs by caller, see
+/// `PlannedSets`.
+enum StepResultWriter {
+
+    enum PlannedSets {
+        /// Routine Runner: the first result snapshots `step.sets`, later ones
+        /// copy it, so a mid-session routine edit cannot split one record
+        /// across two plans.
+        case firstWritten
+        /// Free Workout: the plan *is* the live set list, which changes while
+        /// the workout runs. Every result of the record is kept equal to
+        /// `step.sets`, so the record can never be inconsistent or stale.
+        case currentStepSets
+    }
+
+    @discardableResult
+    static func record(
+        in context: ModelContext,
+        sessionId: UUID,
+        ownerAccountID: UUID?,
+        step: Step,
+        setIndex: Int,
+        done: Bool,
+        actualReps: Int?,
+        weightKg: Double?,
+        plannedSets: PlannedSets = .firstWritten
+    ) -> StepResult {
+        let siblings = results(in: context, sessionId: sessionId, stepId: step.id)
+        defer {
+            if case .currentStepSets = plannedSets {
+                for result in self.results(in: context, sessionId: sessionId, stepId: step.id) {
+                    result.plannedSetsAtExecution = step.sets
+                }
+            }
+        }
+        if let existing = siblings.first(where: { $0.setIndex == setIndex }) {
+            existing.done = done
+            existing.actualReps = actualReps
+            existing.weightKg = weightKg
+            return existing
+        }
+        let firstSibling = siblings.min { $0.setIndex < $1.setIndex }
+        // A sibling's nil (a session begun before V13 / V14) is copied as is,
+        // never filled in from the live step.
+        let planned: Int?
+        switch plannedSets {
+        case .firstWritten: planned = firstSibling.map(\.plannedSetsAtExecution) ?? step.sets
+        case .currentStepSets: planned = step.sets
+        }
+        let exerciseId = firstSibling.map(\.exerciseIdAtExecution) ?? step.exerciseId
+        let exerciseTitle = firstSibling.map(\.exerciseTitleAtExecution) ?? step.title
+        let result = StepResult(
+            sessionId: sessionId,
+            stepId: step.id,
+            setIndex: setIndex,
+            done: done,
+            actualReps: actualReps,
+            ownerAccountID: ownerAccountID,
+            weightKg: weightKg,
+            plannedSetsAtExecution: planned,
+            exerciseIdAtExecution: exerciseId,
+            exerciseTitleAtExecution: exerciseTitle
+        )
+        context.insert(result)
+        return result
+    }
+
+    /// Every result of one (session, step) record, pending inserts included.
+    static func results(in context: ModelContext, sessionId: UUID, stepId: UUID) -> [StepResult] {
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.stepId == stepId }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+}
