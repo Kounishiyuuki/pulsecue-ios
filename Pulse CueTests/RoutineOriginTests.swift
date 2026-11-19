@@ -128,7 +128,7 @@ struct FreeWorkoutSessionTests {
     }
 
     private func start(_ context: ModelContext, scope: WorkoutDataScope = .guest, at date: Date = Date()) throws -> FreeWorkoutSession {
-        try #require(FreeWorkoutSession.start(in: context, scope: scope, now: date))
+        try #require(FreeWorkoutSession.start(in: context, scope: scope, now: date).session)
     }
 
     /// A routine workout recorded through the Runner's own write path.
@@ -165,7 +165,7 @@ struct FreeWorkoutSessionTests {
         let context = try makeContext()
         #expect(try start(context, scope: .guest).session.ownerAccountID == nil)
         #expect(try start(context, scope: .account(account)).session.ownerAccountID == account)
-        #expect(FreeWorkoutSession.start(in: context, scope: .undetermined) == nil)
+        #expect(FreeWorkoutSession.start(in: context, scope: .undetermined).session == nil)
         #expect(all(Session.self, context).count == 2)
         #expect(all(Routine.self, context).count == 2)
     }
@@ -556,5 +556,305 @@ struct FreeWorkoutSessionTests {
         #expect(RoutineLibrary.startable(from: [saved, generated, free]).map(\.id) == [saved.id])
         #expect(!RoutineLibrary.hasStartable([generated, free]))
         #expect(RoutineLibrary.hasStartable([free, saved]))
+    }
+}
+
+// MARK: - Free Workout recovery
+
+@MainActor
+struct FreeWorkoutRecoveryTests {
+
+    private let account = UUID()
+
+    private func makeContainer() throws -> ModelContainer {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+    }
+
+    private func all<T: PersistentModel>(_ type: T.Type, _ context: ModelContext) -> [T] {
+        (try? context.fetch(FetchDescriptor<T>())) ?? []
+    }
+
+    private func start(_ context: ModelContext, scope: WorkoutDataScope = .guest, at date: Date = Date()) throws -> FreeWorkoutSession {
+        try #require(FreeWorkoutSession.start(in: context, scope: scope, now: date).session)
+    }
+
+    /// An in-progress session on a routine of the given origin, as the Runner
+    /// or Quick Plan would leave it — or a leftover second Free Workout, which
+    /// `start` itself would now refuse to create.
+    @discardableResult
+    private func leftover(_ context: ModelContext, origin: RoutineOrigin, owner: UUID? = nil, at date: Date) -> Session {
+        let routine = Routine(name: "x", origin: origin)
+        let session = Session(routineId: routine.id, dayDate: date, startedAt: date, ownerAccountID: owner)
+        context.insert(routine); context.insert(session)
+        return session
+    }
+
+    // MARK: discovery
+
+    @Test func findsOnlyInProgressFreeWorkoutsOfThisScope() throws {
+        let context = ModelContext(try makeContainer())
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .guest).isEmpty)
+
+        leftover(context, origin: .userSaved, at: Date())
+        leftover(context, origin: .workoutGenerated, at: Date())
+        leftover(context, origin: .freeWorkout, owner: account, at: Date())
+        let finished = try start(context)
+        let step = try #require(finished.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        finished.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        finished.finish()
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .guest).isEmpty)
+        #expect(!FreeWorkoutRecovery.hasActiveFreeWorkout(in: context, scope: .guest))
+
+        let active = try start(context)
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .guest).map(\.id) == [active.session.id])
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .account(account)).count == 1)
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .undetermined).isEmpty)   // fail closed
+    }
+
+    @Test func aSessionWhoseRoutineIsGoneIsNotClaimed() throws {
+        let context = ModelContext(try makeContainer())
+        context.insert(Session(routineId: UUID(), dayDate: Date()))
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .guest).isEmpty)
+    }
+
+    @Test func severalLeftoversAreAllListedNewestFirstAndNoneDeleted() throws {
+        let context = ModelContext(try makeContainer())
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let old = leftover(context, origin: .freeWorkout, at: base)
+        let newer = leftover(context, origin: .freeWorkout, at: base.addingTimeInterval(86_400))
+        let candidates = FreeWorkoutRecovery.candidates(in: context, scope: .guest)
+        #expect(candidates.map(\.id) == [newer.id, old.id])
+        #expect(FreeWorkoutRecovery.latest(in: context, scope: .guest)?.id == newer.id)
+        #expect(candidates.last?.startedAt == base)   // a day-old one is still offered, with its start time
+        #expect(all(Session.self, context).count == 2)
+    }
+
+    // MARK: start guard
+
+    @Test func aSecondStartInTheSameScopeCreatesNothing() throws {
+        let context = ModelContext(try makeContainer())
+        let first = try start(context)
+        guard case let .activeWorkoutExists(existing) = FreeWorkoutSession.start(in: context, scope: .guest) else {
+            Issue.record("expected the existing workout"); return
+        }
+        #expect(existing.map(\.id) == [first.session.id])
+        #expect(all(Session.self, context).count == 1)
+        #expect(all(Routine.self, context).count == 1)
+        // Another owner is not blocked by it.
+        #expect(FreeWorkoutSession.start(in: context, scope: .account(account)).session != nil)
+        if case .scopeUndetermined = FreeWorkoutSession.start(in: context, scope: .undetermined) {} else {
+            Issue.record("expected scopeUndetermined")
+        }
+    }
+
+    // MARK: resume
+
+    @Test func resumeRefusesWhatItMustNotReattachTo() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context, scope: .account(account))
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .account(account)))
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .account(account)) != nil)
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+
+        #expect(FreeWorkoutSession.resume(leftover(context, origin: .userSaved, at: Date()), in: context, scope: .guest) == nil)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.finish()
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .account(account)) == nil)
+    }
+
+    @Test func partiallyWrittenDataIsListedNotResumableButDiscardable() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        context.delete(step)   // a result now points at a step that is gone
+
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        #expect(!candidate.isResumable)
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+        #expect(FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))
+        #expect(all(Session.self, context).isEmpty)
+        #expect(all(Routine.self, context).isEmpty)
+        #expect(all(StepResult.self, context).isEmpty)
+    }
+
+    // MARK: discard
+
+    @Test func discardRemovesOnlyThatWorkoutAndNeverAFinishedOne() throws {
+        let context = ModelContext(try makeContainer())
+        let done = try start(context, scope: .account(account))
+        let doneStep = try #require(done.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        done.completeSet(at: 0, of: doneStep, reps: 10, weightKg: 80)
+        let staleCandidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .account(account)))
+        done.finish()
+        let runner = leftover(context, origin: .userSaved, at: Date())
+
+        let active = try start(context)
+        let step = try #require(active.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        active.completeSet(at: 0, of: step, reps: 8, weightKg: 60)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+
+        #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: .account(account)))   // wrong scope
+        #expect(FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))
+        #expect(Set(all(Session.self, context).map(\.id)) == [done.session.id, runner.id])
+        #expect(Set(all(Routine.self, context).map(\.origin)) == [.freeWorkout, .userSaved])
+        #expect(all(StepResult.self, context).map(\.sessionId) == [done.session.id])
+        #expect(all(Step.self, context).map(\.id) == [doneStep.id])
+
+        #expect(!FreeWorkoutRecovery.discard(staleCandidate, in: context, scope: .account(account)))   // finished
+        #expect(done.session.status == .completed)
+    }
+
+    // MARK: relaunch
+
+    /// Handles dropped, a fresh context on the same store: the workout is
+    /// found again, resumed with its data, and stays fully editable.
+    @Test func aRelaunchRediscoversResumesAndContinuesTheWorkout() throws {
+        let container = try makeContainer()
+        let startedAt = Date(timeIntervalSince1970: 1_000_000)
+        do {
+            let context = ModelContext(container)
+            let free = try start(context, at: startedAt)
+            let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
+            free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+            try context.save()
+        }
+
+        let context = ModelContext(container)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        #expect(candidate.stepCount == 1 && candidate.loggedResultCount == 1 && candidate.isResumable)
+        let resumed = try #require(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest))
+        let bench = try #require(resumed.steps.first)
+        #expect(resumed.results(for: bench).map(\.weightKg) == [80])
+        #expect(resumed.elapsedSeconds(now: startedAt.addingTimeInterval(5400)) == 5400)   // closed time counts
+
+        #expect(resumed.addSet(to: bench))
+        resumed.completeSet(at: 1, of: bench, reps: 9, weightKg: 80)
+        resumed.completeSet(at: 2, of: bench, reps: 8, weightKg: 80)
+        let fly = try #require(resumed.addExercise(exerciseId: "pec_deck_fly", title: "フライ"))
+        resumed.completeSet(at: 0, of: fly, reps: 12, weightKg: 20)
+        #expect(resumed.finish(now: startedAt.addingTimeInterval(5400)) == .saved)
+        #expect(resumed.session.totalSeconds == 5400)
+        #expect(resumed.results(for: bench).map(\.plannedSetsAtExecution) == [3, 3, 3])
+        #expect(FreeWorkoutRecovery.candidates(in: context, scope: .guest).isEmpty)
+    }
+
+    // MARK: stale candidates
+
+    @Test func discardingTheSameCandidateTwiceIsASafeNoOp() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let other = try start(context, scope: .account(account))
+        let free = try start(context)
+        free.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+
+        #expect(FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))
+        try context.save()
+        #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))   // second tap
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+        #expect(all(Session.self, context).map(\.id) == [other.session.id])
+        #expect(all(Routine.self, context).map(\.id) == [other.routine.id])
+    }
+
+    @Test func aStaleCandidateCannotResumeOrDiscardAFinishedWorkout() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        free.finish()
+        try context.save()
+
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+        #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))
+        #expect(free.session.status == .completed)
+        #expect(all(StepResult.self, context).count == 1)
+    }
+
+    @Test func aCandidateTakenUnderOneAccountIsRefusedUnderAnother() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context, scope: .account(account))
+        free.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .account(account)))
+        for scope in [WorkoutDataScope.guest, .account(UUID()), .undetermined] {
+            #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: scope) == nil)
+            #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: scope))
+        }
+        #expect(free.isActive)
+        #expect(free.steps.count == 1)
+    }
+
+    @Test func resumeJudgesTheStoreNowNotTheCandidatesSnapshot() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        #expect(candidate.isResumable)
+        context.delete(step)   // damaged after the card was built
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+    }
+
+    // MARK: normal drafts survive a relaunch
+
+    private func relaunch(_ container: ModelContainer) throws -> FreeWorkoutSession {
+        let context = ModelContext(container)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        #expect(candidate.isResumable)
+        return try #require(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest))
+    }
+
+    @Test func anExerciseWithNothingLoggedResumesAfterARelaunch() throws {
+        let container = try makeContainer()
+        do {
+            let context = ModelContext(container)
+            let free = try start(context)
+            free.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            try context.save()
+        }
+        let resumed = try relaunch(container)
+        let bench = try #require(resumed.steps.first)
+        #expect(bench.exerciseId == "bench_press")
+        #expect(resumed.results(for: bench).isEmpty)
+        #expect(resumed.completeSet(at: 0, of: bench, reps: 10, weightKg: 80) != nil)
+    }
+
+    @Test func aLoggedExerciseNextToABlankOneResumesAfterARelaunch() throws {
+        let container = try makeContainer()
+        do {
+            let context = ModelContext(container)
+            let free = try start(context)
+            let bench = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+            free.completeSet(at: 0, of: bench, reps: 10, weightKg: 80)
+            free.addExercise(exerciseId: "incline_chest_press", title: "インクライン")
+            try context.save()
+        }
+        let resumed = try relaunch(container)
+        let steps = resumed.steps
+        #expect(steps.map(\.exerciseId) == ["bench_press", "incline_chest_press"])
+        #expect(resumed.results(for: steps[0]).map(\.weightKg) == [80])
+        #expect(resumed.results(for: steps[1]).isEmpty)
+        #expect(resumed.completeSet(at: 0, of: steps[1], reps: 10, weightKg: 30) != nil)
+        #expect(resumed.results(for: steps[1]).map(\.plannedSetsAtExecution) == [1])
+    }
+
+    @Test func draftRowsBeyondTheLoggedSetsSurviveARelaunch() throws {
+        let container = try makeContainer()
+        do {
+            let context = ModelContext(container)
+            let free = try start(context)
+            let bench = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 4))
+            free.completeSet(at: 0, of: bench, reps: 10, weightKg: 80)
+            free.completeSet(at: 1, of: bench, reps: 9, weightKg: 80)
+            try context.save()
+        }
+        let resumed = try relaunch(container)
+        let bench = try #require(resumed.steps.first)
+        #expect(bench.sets == 4)                                   // rows 0..<4
+        #expect(resumed.results(for: bench).map(\.setIndex) == [0, 1])   // rows 2, 3 are drafts
+        #expect(resumed.completeSet(at: 3, of: bench, reps: 8, weightKg: 75) != nil)
     }
 }

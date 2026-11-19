@@ -94,10 +94,28 @@ final class FreeWorkoutSession {
 
     // MARK: Start / resume
 
-    /// Starts an empty Free Workout. Nil while the data scope is unknown — the
-    /// same rule as the Runner: no workout is created under a guessed owner.
-    static func start(in context: ModelContext, scope: WorkoutDataScope, now: Date = Date()) -> FreeWorkoutSession? {
-        guard scope.canCreateWorkouts else { return nil }
+    enum StartOutcome {
+        case started(FreeWorkoutSession)
+        /// This scope already has an in-progress Free Workout. Nothing was
+        /// created; the caller offers resume / discard for these instead.
+        case activeWorkoutExists([FreeWorkoutRecovery.Candidate])
+        /// The data scope is unknown — the Runner's rule: no workout is
+        /// created under a guessed owner.
+        case scopeUndetermined
+
+        var session: FreeWorkoutSession? {
+            if case let .started(session) = self { return session }
+            return nil
+        }
+    }
+
+    /// Starts an empty Free Workout — unless this scope already has one in
+    /// progress, so a double tap or a forgotten workout can never quietly
+    /// become two. Existing ones are never deleted here.
+    static func start(in context: ModelContext, scope: WorkoutDataScope, now: Date = Date()) -> StartOutcome {
+        guard scope.canCreateWorkouts else { return .scopeUndetermined }
+        let active = FreeWorkoutRecovery.candidates(in: context, scope: scope)
+        guard active.isEmpty else { return .activeWorkoutExists(active) }
         let routine = Routine(name: routineName, createdAt: now, updatedAt: now, origin: .freeWorkout)
         let session = Session(
             routineId: routine.id,
@@ -107,7 +125,7 @@ final class FreeWorkoutSession {
         )
         context.insert(routine)
         context.insert(session)
-        return FreeWorkoutSession(context: context, session: session, routine: routine)
+        return .started(FreeWorkoutSession(context: context, session: session, routine: routine))
     }
 
     /// Re-attaches to an in-progress Free Workout of this scope.
@@ -120,6 +138,13 @@ final class FreeWorkoutSession {
     }
 
     var isActive: Bool { session.status == .inProgress }
+
+    /// Wall-clock time since the workout began, time spent backgrounded or
+    /// with the app closed included — the same `endedAt − startedAt` the
+    /// Runner and `finish()` record, so no separate timer state is needed.
+    func elapsedSeconds(now: Date = Date()) -> Int {
+        max(0, Int(now.timeIntervalSince(session.startedAt)))
+    }
 
     /// The exercises in display order.
     var steps: [Step] {
@@ -373,5 +398,125 @@ final class FreeWorkoutSession {
         context.delete(routine)
         session.status = .abandoned   // marks this handle inactive
         context.delete(session)
+    }
+}
+
+// MARK: - Free Workout recovery
+
+/// Finds Free Workouts left in progress — the app was closed, the screen was
+/// left, a crash — so they can be resumed or discarded instead of lingering.
+///
+/// Deciding *which* workouts there are lives here; re-attaching to one is
+/// `FreeWorkoutSession.resume`, and throwing one away is its `discard()`.
+/// Views ask this type and never query SwiftData themselves.
+///
+/// What counts: an in-progress session, in the current scope, whose routine
+/// exists and is `.freeWorkout`. An in-progress session alone is not enough —
+/// the Runner's and Quick Plan's look the same — and a session whose routine
+/// is gone cannot be told apart from theirs, so it is left alone.
+///
+/// Nothing here deletes, finishes or repairs on its own. Several leftovers
+/// (an old crash) are all listed, newest first, and a day-old one is still
+/// offered: only the person holding the phone decides.
+@MainActor
+enum FreeWorkoutRecovery {
+
+    /// What a recovery card shows, as values only. It deliberately holds no
+    /// SwiftData object: a card can outlive its workout (a double tap on
+    /// 破棄, a stale sheet), and a deleted model must never be read. Every
+    /// operation re-fetches the session by `id` and re-validates it.
+    struct Candidate: Identifiable, Equatable, Sendable {
+        /// The session's id.
+        let id: UUID
+        /// For "昨日 21:10開始".
+        let startedAt: Date
+        /// Exercises added, logged or not.
+        let stepCount: Int
+        /// Results written — done and skipped alike.
+        let loggedResultCount: Int
+        /// As of listing, for display. `resume` re-evaluates it.
+        let isResumable: Bool
+    }
+
+    /// In-progress Free Workouts of `scope`, newest first (session id breaks
+    /// ties). Empty while the scope is unknown: fail closed.
+    static func candidates(in context: ModelContext, scope: WorkoutDataScope) -> [Candidate] {
+        guard scope.canCreateWorkouts else { return [] }
+        // Filtered in memory: predicates over a Codable enum attribute are not
+        // reliably supported by SwiftData.
+        let sessions = scope.visible((try? context.fetch(FetchDescriptor<Session>())) ?? [])
+            .filter { $0.status == .inProgress }
+        guard !sessions.isEmpty else { return [] }
+        let routineIds = Set(sessions.map(\.routineId))
+        let routines = ((try? context.fetch(FetchDescriptor<Routine>())) ?? [])
+            .filter { routineIds.contains($0.id) && $0.origin == .freeWorkout }
+        let routineById = Dictionary(routines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        return sessions
+            .compactMap { session -> Candidate? in
+                guard routineById[session.routineId] != nil else { return nil }
+                let structure = Structure(sessionId: session.id, routineId: session.routineId, in: context)
+                return Candidate(
+                    id: session.id,
+                    startedAt: session.startedAt,
+                    stepCount: structure.stepIds.count,
+                    loggedResultCount: structure.resultStepIds.count,
+                    isResumable: structure.isIntact
+                )
+            }
+            .sorted {
+                $0.startedAt != $1.startedAt ? $0.startedAt > $1.startedAt : $0.id.uuidString > $1.id.uuidString
+            }
+    }
+
+    static func hasActiveFreeWorkout(in context: ModelContext, scope: WorkoutDataScope) -> Bool {
+        !candidates(in: context, scope: scope).isEmpty
+    }
+
+    /// The one a single "再開" card offers: the newest. The others stay listed.
+    static func latest(in context: ModelContext, scope: WorkoutDataScope) -> Candidate? {
+        candidates(in: context, scope: scope).first
+    }
+
+    /// Re-attaches to `candidate`, judged on the store as it is now — nothing
+    /// the candidate captured is trusted. Nil when the session is gone, when
+    /// `FreeWorkoutSession.resume` (the authority on status, scope and
+    /// origin) refuses it, or when a result points at a step that no longer
+    /// exists. Unlogged exercises or rows are a normal draft, not damage.
+    static func resume(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope) -> FreeWorkoutSession? {
+        guard let session = currentSession(id: candidate.id, in: context),
+              let handle = FreeWorkoutSession.resume(session, in: context, scope: scope),
+              Structure(sessionId: session.id, routineId: handle.routine.id, in: context).isIntact
+        else { return nil }
+        return handle
+    }
+
+    /// Throws `candidate` away — its session, routine, steps and results only.
+    /// Works for a non-resumable one too. False, touching nothing, when the
+    /// session is already gone (a second tap), finished, or not in this scope.
+    @discardableResult
+    static func discard(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope) -> Bool {
+        guard let session = currentSession(id: candidate.id, in: context) else { return false }
+        return FreeWorkoutSession.resume(session, in: context, scope: scope)?.discard() ?? false
+    }
+
+    private static func currentSession(id: UUID, in context: ModelContext) -> Session? {
+        try? context.fetch(FetchDescriptor<Session>(predicate: #Predicate<Session> { $0.id == id })).first
+    }
+
+    /// Whether a workout's results still belong to its steps. The only
+    /// structural damage recovery looks for; it is reported, never repaired.
+    private struct Structure {
+        let stepIds: Set<UUID>
+        let resultStepIds: [UUID]
+
+        init(sessionId: UUID, routineId: UUID, in context: ModelContext) {
+            stepIds = Set(((try? context.fetch(FetchDescriptor<Step>(
+                predicate: #Predicate<Step> { $0.routineId == routineId }))) ?? []).map(\.id))
+            resultStepIds = ((try? context.fetch(FetchDescriptor<StepResult>(
+                predicate: #Predicate<StepResult> { $0.sessionId == sessionId }))) ?? []).map(\.stepId)
+        }
+
+        var isIntact: Bool { resultStepIds.allSatisfy(stepIds.contains) }
     }
 }
