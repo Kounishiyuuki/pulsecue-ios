@@ -724,7 +724,7 @@ struct FreeWorkoutRecoveryTests {
 
         let context = ModelContext(container)
         let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
-        #expect(candidate.exerciseCount == 1 && candidate.recordedSetCount == 1 && candidate.isResumable)
+        #expect(candidate.stepCount == 1 && candidate.loggedResultCount == 1 && candidate.isResumable)
         let resumed = try #require(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest))
         let bench = try #require(resumed.steps.first)
         #expect(resumed.results(for: bench).map(\.weightKg) == [80])
@@ -739,5 +739,122 @@ struct FreeWorkoutRecoveryTests {
         #expect(resumed.session.totalSeconds == 5400)
         #expect(resumed.results(for: bench).map(\.plannedSetsAtExecution) == [3, 3, 3])
         #expect(FreeWorkoutRecovery.candidates(in: context, scope: .guest).isEmpty)
+    }
+
+    // MARK: stale candidates
+
+    @Test func discardingTheSameCandidateTwiceIsASafeNoOp() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let other = try start(context, scope: .account(account))
+        let free = try start(context)
+        free.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+
+        #expect(FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))
+        try context.save()
+        #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))   // second tap
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+        #expect(all(Session.self, context).map(\.id) == [other.session.id])
+        #expect(all(Routine.self, context).map(\.id) == [other.routine.id])
+    }
+
+    @Test func aStaleCandidateCannotResumeOrDiscardAFinishedWorkout() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        free.finish()
+        try context.save()
+
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+        #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: .guest))
+        #expect(free.session.status == .completed)
+        #expect(all(StepResult.self, context).count == 1)
+    }
+
+    @Test func aCandidateTakenUnderOneAccountIsRefusedUnderAnother() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context, scope: .account(account))
+        free.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .account(account)))
+        for scope in [WorkoutDataScope.guest, .account(UUID()), .undetermined] {
+            #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: scope) == nil)
+            #expect(!FreeWorkoutRecovery.discard(candidate, in: context, scope: scope))
+        }
+        #expect(free.isActive)
+        #expect(free.steps.count == 1)
+    }
+
+    @Test func resumeJudgesTheStoreNowNotTheCandidatesSnapshot() throws {
+        let context = ModelContext(try makeContainer())
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        #expect(candidate.isResumable)
+        context.delete(step)   // damaged after the card was built
+        #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
+    }
+
+    // MARK: normal drafts survive a relaunch
+
+    private func relaunch(_ container: ModelContainer) throws -> FreeWorkoutSession {
+        let context = ModelContext(container)
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        #expect(candidate.isResumable)
+        return try #require(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest))
+    }
+
+    @Test func anExerciseWithNothingLoggedResumesAfterARelaunch() throws {
+        let container = try makeContainer()
+        do {
+            let context = ModelContext(container)
+            let free = try start(context)
+            free.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            try context.save()
+        }
+        let resumed = try relaunch(container)
+        let bench = try #require(resumed.steps.first)
+        #expect(bench.exerciseId == "bench_press")
+        #expect(resumed.results(for: bench).isEmpty)
+        #expect(resumed.completeSet(at: 0, of: bench, reps: 10, weightKg: 80) != nil)
+    }
+
+    @Test func aLoggedExerciseNextToABlankOneResumesAfterARelaunch() throws {
+        let container = try makeContainer()
+        do {
+            let context = ModelContext(container)
+            let free = try start(context)
+            let bench = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+            free.completeSet(at: 0, of: bench, reps: 10, weightKg: 80)
+            free.addExercise(exerciseId: "incline_chest_press", title: "インクライン")
+            try context.save()
+        }
+        let resumed = try relaunch(container)
+        let steps = resumed.steps
+        #expect(steps.map(\.exerciseId) == ["bench_press", "incline_chest_press"])
+        #expect(resumed.results(for: steps[0]).map(\.weightKg) == [80])
+        #expect(resumed.results(for: steps[1]).isEmpty)
+        #expect(resumed.completeSet(at: 0, of: steps[1], reps: 10, weightKg: 30) != nil)
+        #expect(resumed.results(for: steps[1]).map(\.plannedSetsAtExecution) == [1])
+    }
+
+    @Test func draftRowsBeyondTheLoggedSetsSurviveARelaunch() throws {
+        let container = try makeContainer()
+        do {
+            let context = ModelContext(container)
+            let free = try start(context)
+            let bench = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 4))
+            free.completeSet(at: 0, of: bench, reps: 10, weightKg: 80)
+            free.completeSet(at: 1, of: bench, reps: 9, weightKg: 80)
+            try context.save()
+        }
+        let resumed = try relaunch(container)
+        let bench = try #require(resumed.steps.first)
+        #expect(bench.sets == 4)                                   // rows 0..<4
+        #expect(resumed.results(for: bench).map(\.setIndex) == [0, 1])   // rows 2, 3 are drafts
+        #expect(resumed.completeSet(at: 3, of: bench, reps: 8, weightKg: 75) != nil)
     }
 }

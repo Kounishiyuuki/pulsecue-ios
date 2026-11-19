@@ -421,22 +421,21 @@ final class FreeWorkoutSession {
 @MainActor
 enum FreeWorkoutRecovery {
 
-    struct Candidate: Identifiable, Equatable {
-        let session: Session
-        let routine: Routine
-        var id: UUID { session.id }
+    /// What a recovery card shows, as values only. It deliberately holds no
+    /// SwiftData object: a card can outlive its workout (a double tap on
+    /// 破棄, a stale sheet), and a deleted model must never be read. Every
+    /// operation re-fetches the session by `id` and re-validates it.
+    struct Candidate: Identifiable, Equatable, Sendable {
+        /// The session's id.
+        let id: UUID
         /// For "昨日 21:10開始".
-        var startedAt: Date { session.startedAt }
-        let exerciseCount: Int
-        let recordedSetCount: Int
-        /// False when its results point at steps that are no longer there —
-        /// partially written data. It is still discardable, never auto-fixed.
+        let startedAt: Date
+        /// Exercises added, logged or not.
+        let stepCount: Int
+        /// Results written — done and skipped alike.
+        let loggedResultCount: Int
+        /// As of listing, for display. `resume` re-evaluates it.
         let isResumable: Bool
-
-        static func == (lhs: Candidate, rhs: Candidate) -> Bool {
-            lhs.id == rhs.id && lhs.exerciseCount == rhs.exerciseCount
-                && lhs.recordedSetCount == rhs.recordedSetCount && lhs.isResumable == rhs.isResumable
-        }
     }
 
     /// In-progress Free Workouts of `scope`, newest first (session id breaks
@@ -455,19 +454,14 @@ enum FreeWorkoutRecovery {
 
         return sessions
             .compactMap { session -> Candidate? in
-                guard let routine = routineById[session.routineId] else { return nil }
-                let routineId = routine.id
-                let stepIds = Set(((try? context.fetch(FetchDescriptor<Step>(
-                    predicate: #Predicate<Step> { $0.routineId == routineId }))) ?? []).map(\.id))
-                let sessionId = session.id
-                let results = (try? context.fetch(FetchDescriptor<StepResult>(
-                    predicate: #Predicate<StepResult> { $0.sessionId == sessionId }))) ?? []
+                guard routineById[session.routineId] != nil else { return nil }
+                let structure = Structure(sessionId: session.id, routineId: session.routineId, in: context)
                 return Candidate(
-                    session: session,
-                    routine: routine,
-                    exerciseCount: stepIds.count,
-                    recordedSetCount: results.count,
-                    isResumable: results.allSatisfy { stepIds.contains($0.stepId) }
+                    id: session.id,
+                    startedAt: session.startedAt,
+                    stepCount: structure.stepIds.count,
+                    loggedResultCount: structure.resultStepIds.count,
+                    isResumable: structure.isIntact
                 )
             }
             .sorted {
@@ -484,18 +478,45 @@ enum FreeWorkoutRecovery {
         candidates(in: context, scope: scope).first
     }
 
-    /// Re-attaches to `candidate`. Nil if it is not resumable, or no longer
-    /// in progress / in this scope (checked again by `FreeWorkoutSession`).
+    /// Re-attaches to `candidate`, judged on the store as it is now — nothing
+    /// the candidate captured is trusted. Nil when the session is gone, when
+    /// `FreeWorkoutSession.resume` (the authority on status, scope and
+    /// origin) refuses it, or when a result points at a step that no longer
+    /// exists. Unlogged exercises or rows are a normal draft, not damage.
     static func resume(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope) -> FreeWorkoutSession? {
-        guard candidate.isResumable else { return nil }
-        return FreeWorkoutSession.resume(candidate.session, in: context, scope: scope)
+        guard let session = currentSession(id: candidate.id, in: context),
+              let handle = FreeWorkoutSession.resume(session, in: context, scope: scope),
+              Structure(sessionId: session.id, routineId: handle.routine.id, in: context).isIntact
+        else { return nil }
+        return handle
     }
 
     /// Throws `candidate` away — its session, routine, steps and results only.
-    /// Works for a non-resumable one too. Refused once it is no longer in
-    /// progress or not in this scope, so a finished workout cannot be lost.
+    /// Works for a non-resumable one too. False, touching nothing, when the
+    /// session is already gone (a second tap), finished, or not in this scope.
     @discardableResult
     static func discard(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope) -> Bool {
-        FreeWorkoutSession.resume(candidate.session, in: context, scope: scope)?.discard() ?? false
+        guard let session = currentSession(id: candidate.id, in: context) else { return false }
+        return FreeWorkoutSession.resume(session, in: context, scope: scope)?.discard() ?? false
+    }
+
+    private static func currentSession(id: UUID, in context: ModelContext) -> Session? {
+        try? context.fetch(FetchDescriptor<Session>(predicate: #Predicate<Session> { $0.id == id })).first
+    }
+
+    /// Whether a workout's results still belong to its steps. The only
+    /// structural damage recovery looks for; it is reported, never repaired.
+    private struct Structure {
+        let stepIds: Set<UUID>
+        let resultStepIds: [UUID]
+
+        init(sessionId: UUID, routineId: UUID, in context: ModelContext) {
+            stepIds = Set(((try? context.fetch(FetchDescriptor<Step>(
+                predicate: #Predicate<Step> { $0.routineId == routineId }))) ?? []).map(\.id))
+            resultStepIds = ((try? context.fetch(FetchDescriptor<StepResult>(
+                predicate: #Predicate<StepResult> { $0.sessionId == sessionId }))) ?? []).map(\.stepId)
+        }
+
+        var isIntact: Bool { resultStepIds.allSatisfy(stepIds.contains) }
     }
 }
