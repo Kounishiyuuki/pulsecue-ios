@@ -75,6 +75,13 @@ final class FreeWorkoutLauncher: ObservableObject {
 
     private var context: ModelContext?
     private var scope: WorkoutDataScope = .undetermined
+    private let drafts: FreeWorkoutDraftStore
+
+    /// `drafts` is shared by Home's and Training's cards so a workout left
+    /// from one and resumed from the other keeps its typed values.
+    init(drafts: FreeWorkoutDraftStore? = nil) {
+        self.drafts = drafts ?? .shared
+    }
 
     func configure(context: ModelContext, scope: WorkoutDataScope) {
         self.context = context
@@ -85,6 +92,10 @@ final class FreeWorkoutLauncher: ObservableObject {
     func refresh() {
         guard let context else { return }
         candidates = FreeWorkoutRecovery.candidates(in: context, scope: scope)
+        // Drafts of this scope's workouts that are no longer in progress —
+        // finished or discarded elsewhere — are dropped; the open one always
+        // stays, and other owners' drafts are not this scope's to judge.
+        drafts.prune(in: scope, keeping: Set(candidates.map(\.id)).union(presented.map { [$0.id] } ?? []))
     }
 
     func start(now: Date = Date()) {
@@ -118,6 +129,7 @@ final class FreeWorkoutLauncher: ObservableObject {
         isBusy = true
         defer { isBusy = false }
         if FreeWorkoutRecovery.discard(candidate, in: context, scope: scope) {
+            drafts.clear(candidate.id)
             try? context.save()
         }
         refresh()
@@ -131,7 +143,55 @@ final class FreeWorkoutLauncher: ObservableObject {
     }
 
     private func open(_ session: FreeWorkoutSession, context: ModelContext) {
-        presented = FreeWorkoutViewModel(session: session, context: context)
+        presented = FreeWorkoutViewModel(session: session, context: context, drafts: drafts)
+    }
+}
+
+/// Values typed into set rows not yet logged, per workout, for the life of
+/// the process only.
+///
+/// Closing the workout screen and resuming it keeps them; a relaunch loses
+/// them by design — they are never persisted (a blank row is an input field,
+/// not a set), and the row count and logged sets come back from the store.
+/// Keyed by session so two leftover workouts never share a draft.
+@MainActor
+final class FreeWorkoutDraftStore {
+    static let shared = FreeWorkoutDraftStore()
+
+    struct Draft: Equatable {
+        var weightKg: Double?
+        var reps: Int
+        /// Touched by the user: never replaced by a fresher default.
+        var edited: Bool
+    }
+
+    private struct Entry {
+        let ownerAccountID: UUID?
+        var drafts: [FreeWorkoutViewModel.RowKey: Draft]
+    }
+
+    private var bySession: [UUID: Entry] = [:]
+
+    var sessionIds: Set<UUID> { Set(bySession.keys) }
+
+    func drafts(for sessionId: UUID) -> [FreeWorkoutViewModel.RowKey: Draft] {
+        bySession[sessionId]?.drafts ?? [:]
+    }
+
+    func set(_ drafts: [FreeWorkoutViewModel.RowKey: Draft], for sessionId: UUID, ownerAccountID: UUID?) {
+        bySession[sessionId] = drafts.isEmpty ? nil : Entry(ownerAccountID: ownerAccountID, drafts: drafts)
+    }
+
+    func clear(_ sessionId: UUID) {
+        bySession[sessionId] = nil
+    }
+
+    /// Drops `scope`'s entries not in `sessionIds`. Entries of other owners
+    /// are left alone — an account switch must not erase their drafts.
+    func prune(in scope: WorkoutDataScope, keeping sessionIds: Set<UUID>) {
+        bySession = bySession.filter { id, entry in
+            sessionIds.contains(id) || !scope.matches(ownerAccountID: entry.ownerAccountID)
+        }
     }
 }
 
@@ -167,12 +227,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         let canAddSet: Bool
     }
 
-    private struct Draft {
-        var weightKg: Double?
-        var reps: Int
-        /// Touched by the user: never replaced by a fresher default.
-        var edited: Bool
-    }
+    private typealias Draft = FreeWorkoutDraftStore.Draft
 
     let session: FreeWorkoutSession
     nonisolated let id: UUID
@@ -184,13 +239,23 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     @Published private(set) var finishOutcome: FreeWorkoutSession.FinishOutcome?
     @Published private(set) var completion: WorkoutCompletionSummary?
 
-    private var drafts: [RowKey: Draft] = [:]
+    private let draftStore: FreeWorkoutDraftStore
+    /// This workout's drafts, kept in the process-wide store so they outlive
+    /// this screen (see `FreeWorkoutDraftStore`).
+    private var drafts: [RowKey: Draft] {
+        get { draftStore.drafts(for: id) }
+        set { draftStore.set(newValue, for: id, ownerAccountID: session.session.ownerAccountID) }
+    }
     private var previousTextByStep: [UUID: String?] = [:]
 
-    init(session: FreeWorkoutSession, context: ModelContext) {
+    init(session: FreeWorkoutSession, context: ModelContext, drafts: FreeWorkoutDraftStore) {
         self.session = session
         self.id = session.session.id
         self.context = context
+        self.draftStore = drafts
+        // Only what the user typed survives a reopen; untouched defaults are
+        // recomputed from the store as it is now.
+        self.drafts = self.drafts.filter(\.value.edited)
         rebuild()
         selected = firstOpenRow()
     }
@@ -321,6 +386,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     func finish(now: Date = Date()) {
         let outcome = session.finish(now: now)
         finishOutcome = outcome
+        if outcome != .notActive { draftStore.clear(id) }
         guard outcome == .saved else { try? context.save(); return }
         let done = session.steps.flatMap { session.results(for: $0) }.filter(\.done)
         completion = WorkoutCompletionSummary(
@@ -333,7 +399,10 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     }
 
     func discard() {
-        if session.discard() { finishOutcome = .discarded }
+        if session.discard() {
+            finishOutcome = .discarded
+            draftStore.clear(id)
+        }
         try? context.save()
     }
 

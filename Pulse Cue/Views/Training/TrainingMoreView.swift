@@ -183,6 +183,11 @@ struct FreeWorkoutEntryCard: View {
 struct FreeWorkoutView: View {
     @ObservedObject var model: FreeWorkoutViewModel
     let onClose: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// Accessibility sizes stack what sits side by side at normal sizes, the
+    /// pattern `SessionDetailView` uses, so nothing is squeezed or shrunk.
+    private var stacks: Bool { dynamicTypeSize.isAccessibilitySize }
 
     @State private var showPicker = false
     @State private var showFinish = false
@@ -268,11 +273,22 @@ struct FreeWorkoutView: View {
     private var workoutList: some View {
         List {
             if model.cards.isEmpty {
-                ContentUnavailableView(
-                    "種目を追加して始めましょう",
-                    systemImage: "dumbbell",
-                    description: Text("「種目を追加」から、今日やる種目を選べます。")
-                )
+                // Not ContentUnavailableView: in a list row it truncated its
+                // title at accessibility sizes.
+                VStack(spacing: 10) {
+                    Image(systemName: "dumbbell")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text("種目を追加して始めましょう")
+                        .font(.title3.weight(.bold))
+                    Text("「種目を追加」から、今日やる種目を選べます。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             }
@@ -354,6 +370,7 @@ struct FreeWorkoutView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if !stacks {
             HStack {
                 Text("セット").frame(width: 44, alignment: .leading)
                 if card.acceptsWeight { Text("kg").frame(maxWidth: .infinity) }
@@ -363,6 +380,7 @@ struct FreeWorkoutView: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .accessibilityHidden(true)
+            }
 
             ForEach(card.rows) { row in
                 setRow(row, card: card)
@@ -387,29 +405,21 @@ struct FreeWorkoutView: View {
     }
 
     private func setRow(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
-        HStack {
-            Text("\(row.number)")
-                .font(.body.weight(.semibold).monospacedDigit())
-                .frame(width: 44, alignment: .leading)
-            if card.acceptsWeight {
-                Text(row.weightKg.map(SetWeight.number) ?? "–")
-                    .font(.body.monospacedDigit())
-                    .frame(maxWidth: .infinity)
+        Group {
+            if stacks {
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("セット \(row.number)").font(.body.weight(.semibold))
+                        Text(compactValues(row, card: card))
+                            .font(.body.monospacedDigit())
+                    }
+                    Spacer(minLength: 4)
+                    completionButton(row)
+                }
+            } else {
+                wideSetRow(row, card: card)
             }
-            Text("\(row.reps)")
-                .font(.body.monospacedDigit())
-                .frame(maxWidth: .infinity)
-            Button {
-                row.state == .done ? model.select(row.key) : model.complete(row.key)
-            } label: {
-                Image(systemName: icon(for: row.state))
-                    .font(.title2)
-                    .foregroundStyle(row.state == .done ? AppTheme.success : .secondary)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel(row.state == .done ? "セット\(row.number)は完了済み" : "セット\(row.number)を完了")
         }
-        .frame(minHeight: 44)
         .padding(.horizontal, 6)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -426,6 +436,42 @@ struct FreeWorkoutView: View {
         .accessibilityAction(named: "編集") { model.select(row.key) }
         .accessibilityAction(named: "スキップ") { model.skip(row.key) }
         .accessibilityAction(named: "セットを削除") { model.removeSet(row.key) }
+    }
+
+    private func compactValues(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String {
+        let reps = "\(row.reps) 回"
+        guard card.acceptsWeight else { return reps }
+        return "\(row.weightKg.map { "\(SetWeight.number($0)) kg" } ?? "– kg") × \(reps)"
+    }
+
+    private func completionButton(_ row: FreeWorkoutViewModel.SetRow) -> some View {
+        Button {
+            row.state == .done ? model.select(row.key) : model.complete(row.key)
+        } label: {
+            Image(systemName: icon(for: row.state))
+                .font(.title2)
+                .foregroundStyle(row.state == .done ? AppTheme.success : .secondary)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .accessibilityLabel(row.state == .done ? "セット\(row.number)は完了済み" : "セット\(row.number)を完了")
+    }
+
+    private func wideSetRow(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
+        HStack {
+            Text("\(row.number)")
+                .font(.body.weight(.semibold).monospacedDigit())
+                .frame(width: 44, alignment: .leading)
+            if card.acceptsWeight {
+                Text(row.weightKg.map(SetWeight.number) ?? "–")
+                    .font(.body.monospacedDigit())
+                    .frame(maxWidth: .infinity)
+            }
+            Text("\(row.reps)")
+                .font(.body.monospacedDigit())
+                .frame(maxWidth: .infinity)
+            completionButton(row)
+        }
+        .frame(minHeight: 44)
     }
 
     private func editor(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
@@ -452,7 +498,10 @@ struct FreeWorkoutView: View {
                     repsEntry = row.key
                 }
             )
-            HStack(spacing: 10) {
+            let actions = stacks
+                ? AnyLayout(VStackLayout(spacing: 8))
+                : AnyLayout(HStackLayout(spacing: 10))
+            actions {
                 if row.state != .done {
                     Button {
                         model.complete(row.key)
@@ -465,14 +514,21 @@ struct FreeWorkoutView: View {
                     .accessibilityLabel("セット\(row.number)を完了")
                 }
                 if row.state == .draft {
-                    Button("スキップ") { model.skip(row.key) }
-                        .frame(minHeight: 44)
-                        .buttonStyle(.bordered)
+                    Button {
+                        model.skip(row.key)
+                    } label: {
+                        Text("スキップ").frame(maxWidth: stacks ? .infinity : nil, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
                 }
                 Button(role: .destructive) {
                     model.removeSet(row.key)
                 } label: {
-                    Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
+                    Group {
+                        if stacks { Label("セットを削除", systemImage: "trash") } else { Image(systemName: "trash") }
+                    }
+                    .frame(maxWidth: stacks ? .infinity : nil, minHeight: 44)
+                    .frame(minWidth: 44)
                 }
                 .buttonStyle(.bordered)
                 .accessibilityLabel("セット\(row.number)を削除")
@@ -489,19 +545,32 @@ struct FreeWorkoutView: View {
         valueLabel: String,
         onTapValue: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 10) {
-            stepButton(minus.0, label: minus.1, action: minus.2)
-            Button(action: onTapValue) {
-                Text(value)
-                    .font(.title3.weight(.bold).monospacedDigit())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
+        let valueButton = Button(action: onTapValue) {
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .lineLimit(stacks ? nil : 1)
+                .minimumScaleFactor(stacks ? 1 : 0.6)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(valueLabel)
+        .accessibilityHint("タップして入力")
+        return Group {
+            if stacks {
+                VStack(spacing: 8) {
+                    valueButton
+                    HStack(spacing: 10) {
+                        stepButton(minus.0, label: minus.1, action: minus.2)
+                        stepButton(plus.0, label: plus.1, action: plus.2)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    stepButton(minus.0, label: minus.1, action: minus.2)
+                    valueButton
+                    stepButton(plus.0, label: plus.1, action: plus.2)
+                }
             }
-            .accessibilityLabel(valueLabel)
-            .accessibilityHint("タップして入力")
-            stepButton(plus.0, label: plus.1, action: plus.2)
         }
     }
 
@@ -509,7 +578,9 @@ struct FreeWorkoutView: View {
         Button(action: action) {
             Text(title)
                 .font(.subheadline.weight(.semibold).monospacedDigit())
-                .frame(minWidth: 64, minHeight: 44)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: stacks ? .infinity : nil, minHeight: 44)
+                .frame(minWidth: 64)
                 .foregroundStyle(AppTheme.accent)
                 .background(Capsule().fill(Color.white.opacity(0.055)))
                 .overlay(Capsule().strokeBorder(AppTheme.separator.opacity(0.45), lineWidth: 1))
