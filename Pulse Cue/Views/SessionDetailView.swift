@@ -129,6 +129,10 @@ struct SessionDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     identity
 
+                    if let summary {
+                        summaryMetrics(summary)
+                    }
+
                     if resultGroups.isEmpty {
                         emptyState
                     } else {
@@ -177,6 +181,40 @@ struct SessionDetailView: View {
                 }
             }
         }
+        .pulseGlass(level: .subtle, padding: 20)
+    }
+
+    /// A finished workout's totals — the same calculation as the Completion
+    /// screen. Not shown for a workout still in progress.
+    private var summary: WorkoutCompletionSummary? {
+        guard session.status == .completed, results.contains(where: \.done) else { return nil }
+        return WorkoutCompletionSummary.make(
+            sessionId: session.id,
+            duration: TimeInterval(session.totalSeconds),
+            results: results,
+            steps: steps
+        )
+    }
+
+    private func summaryMetrics(_ summary: WorkoutCompletionSummary) -> some View {
+        let items: [(label: String, value: String, spoken: String)] = [
+            ("種目", "\(summary.completedExerciseCount)", "\(summary.completedExerciseCount)種目"),
+            ("セット", "\(summary.completedSetCount)", "\(summary.completedSetCount)セット"),
+            ("総レップ数", "\(summary.totalReps)", "\(summary.totalReps)回"),
+            ("総ボリューム", WorkoutCompletionSummary.volumeText(summary.totalVolumeKg),
+             "\(SetWeight.number(summary.totalVolumeKg))キログラム"),
+        ]
+        let columns = dynamicTypeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), alignment: .leading)]
+            : [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)]
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+            ForEach(items, id: \.label) { item in
+                summaryItem(item.value, label: item.label)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(item.label)、\(item.spoken)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .pulseGlass(level: .subtle, padding: 20)
     }
 

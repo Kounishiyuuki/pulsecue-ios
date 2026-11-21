@@ -403,12 +403,11 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         finishOutcome = outcome
         if outcome != .notActive { draftStore.clear(id) }
         guard outcome == .saved else { try? context.save(); return }
-        let done = session.steps.flatMap { session.results(for: $0) }.filter(\.done)
-        completion = WorkoutCompletionSummary(
+        completion = WorkoutCompletionSummary.make(
             sessionId: session.session.id,
             duration: TimeInterval(session.session.totalSeconds),
-            completedExerciseCount: Set(done.map(\.stepId)).count,
-            completedSetCount: done.count
+            results: session.steps.flatMap { session.results(for: $0) },
+            steps: session.steps
         )
         try? context.save()
     }

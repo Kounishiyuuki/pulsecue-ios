@@ -626,16 +626,14 @@ final class RunnerViewModel: ObservableObject {
     private func completionSummary(for session: Session) -> WorkoutCompletionSummary? {
         guard let modelContext else { return nil }
         let sessionId = session.id
-        let descriptor = FetchDescriptor<StepResult>(
-            predicate: #Predicate<StepResult> { $0.sessionId == sessionId && $0.done == true }
-        )
-        let doneResults = (try? modelContext.fetch(descriptor)) ?? []
-        let endedAt = session.endedAt ?? Date()
-        return WorkoutCompletionSummary(
+        let results = (try? modelContext.fetch(FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> { $0.sessionId == sessionId }
+        ))) ?? []
+        return WorkoutCompletionSummary.make(
             sessionId: sessionId,
-            duration: max(0, endedAt.timeIntervalSince(session.startedAt)),
-            completedExerciseCount: Set(doneResults.map(\.stepId)).count,
-            completedSetCount: doneResults.count
+            duration: (session.endedAt ?? Date()).timeIntervalSince(session.startedAt),
+            results: results,
+            steps: steps
         )
     }
 

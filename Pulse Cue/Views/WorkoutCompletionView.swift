@@ -3,7 +3,7 @@
 //  Pulse Cue
 //
 //  The screen a finished workout ends on. Its whole job is to say clearly
-//  that the workout is over and show the three numbers the user just earned,
+//  that the workout is over and show the numbers the user just earned,
 //  so the Runner never collapses straight back onto the routine list with a
 //  "このまま開始" button under the finger.
 //
@@ -66,6 +66,14 @@ struct WorkoutCompletionView: View {
             metricRow(label: "完了した種目", value: "\(summary.completedExerciseCount)")
             divider
             metricRow(label: "完了したセット", value: "\(summary.completedSetCount)")
+            divider
+            metricRow(label: "総レップ数", value: "\(summary.totalReps)", spokenValue: "\(summary.totalReps)回")
+            divider
+            metricRow(
+                label: "総ボリューム",
+                value: WorkoutCompletionSummary.volumeText(summary.totalVolumeKg),
+                spokenValue: "\(SetWeight.number(summary.totalVolumeKg))キログラム"
+            )
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 6)
@@ -85,7 +93,7 @@ struct WorkoutCompletionView: View {
     }
 
     @ViewBuilder
-    private func metricRow(label: String, value: String) -> some View {
+    private func metricRow(label: String, value: String, spokenValue: String? = nil) -> some View {
         let text = Text(label)
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -111,7 +119,7 @@ struct WorkoutCompletionView: View {
         }
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(value)")
+        .accessibilityLabel("\(label)、\(spokenValue ?? value)")
     }
 
     /// Whole minutes and seconds, matching the History row's duration format.
