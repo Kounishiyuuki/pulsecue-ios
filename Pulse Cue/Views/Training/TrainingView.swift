@@ -82,6 +82,9 @@ struct TrainingView: View {
                         onPrimaryAction: primaryAction
                     )
 
+                    // Start, or resume / discard one left in progress.
+                    FreeWorkoutEntryCard()
+
                     moreEntry
 
                     planSection

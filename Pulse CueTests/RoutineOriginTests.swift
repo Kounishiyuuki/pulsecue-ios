@@ -858,3 +858,411 @@ struct FreeWorkoutRecoveryTests {
         #expect(resumed.completeSet(at: 3, of: bench, reps: 8, weightKg: 75) != nil)
     }
 }
+
+// MARK: - Free Workout UI state
+
+@MainActor
+struct FreeWorkoutViewModelTests {
+
+    private func makeContainer() throws -> ModelContainer {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+    }
+
+    private func all<T: PersistentModel>(_ type: T.Type, _ context: ModelContext) -> [T] {
+        (try? context.fetch(FetchDescriptor<T>())) ?? []
+    }
+
+    private func launcher(_ context: ModelContext, scope: WorkoutDataScope = .guest,
+                          drafts: FreeWorkoutDraftStore? = nil) -> FreeWorkoutLauncher {
+        // A fresh store per test unless one is shared on purpose.
+        let launcher = FreeWorkoutLauncher(drafts: drafts ?? FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: scope)
+        return launcher
+    }
+
+    private func open(_ context: ModelContext) throws -> FreeWorkoutViewModel {
+        let launcher = launcher(context)
+        launcher.start()
+        return try #require(launcher.presented)
+    }
+
+    private func key(_ model: FreeWorkoutViewModel, card: Int, set: Int) -> FreeWorkoutViewModel.RowKey {
+        model.cards[card].rows[set].key
+    }
+
+    // MARK: launcher
+
+    @Test func startOpensAWorkoutAndADoubleTapCreatesNothingMore() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context)
+        launcher.start()
+        let first = try #require(launcher.presented)
+        launcher.start()
+        #expect(launcher.presented === first)
+        #expect(launcher.candidates.map(\.id) == [first.id])
+        #expect(all(Session.self, context).count == 1)
+    }
+
+    @Test func anUnknownScopeStartsNothingAndSaysWhy() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context, scope: .undetermined)
+        launcher.start()
+        #expect(launcher.presented == nil)
+        #expect(launcher.notice == .scopeUndetermined)
+        #expect(all(Session.self, context).isEmpty)
+    }
+
+    @Test func leavingTheScreenKeepsTheWorkoutForResumeOrDiscard() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context)
+        launcher.start()
+        let model = try #require(launcher.presented)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        launcher.workoutScreenClosed()
+        #expect(launcher.presented == nil)
+        let candidate = try #require(launcher.candidates.first)
+        #expect(candidate.stepCount == 1)
+
+        launcher.resume(candidate)
+        #expect(launcher.presented?.cards.map(\.title) == ["ベンチプレス"])
+        launcher.workoutScreenClosed()
+        launcher.discard(candidate)
+        #expect(launcher.candidates.isEmpty)
+        #expect(all(Session.self, context).isEmpty)
+    }
+
+    // MARK: rows
+
+    @Test func rowsAreTheStepsSetsWithDraftsForUnloggedOnes() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let bench = model.cards[0].id
+        for _ in 0..<3 { model.addSet(to: bench) }
+        model.setWeight(80, for: key(model, card: 0, set: 0))
+        model.complete(key(model, card: 0, set: 0))
+        model.complete(key(model, card: 0, set: 1))
+        #expect(model.cards[0].rows.map(\.state) == [.done, .done, .draft, .draft])
+        #expect(model.cards[0].rows.map(\.number) == [1, 2, 3, 4])
+        // An untouched draft takes the set above it.
+        #expect(model.cards[0].rows[2].weightKg == 80)
+        #expect(model.selected == key(model, card: 0, set: 2))
+    }
+
+    @Test func editingDraftsPersistsNothingUntilCompleteAndSkipIsLogged() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.addSet(to: model.cards[0].id)
+        let first = key(model, card: 0, set: 0)
+        model.setWeight(60, for: first)
+        model.adjustWeight(by: 2.5, for: first)
+        model.adjustReps(by: -2, for: first)
+        model.setWeight(-5, for: first)          // ignored
+        #expect(all(StepResult.self, context).isEmpty)
+        #expect(model.row(first)?.weightKg == 62.5)
+        #expect(model.row(first)?.reps == 8)
+
+        model.complete(first)
+        model.skip(key(model, card: 0, set: 1))
+        let results = all(StepResult.self, context).sorted { $0.setIndex < $1.setIndex }
+        #expect(results.map(\.done) == [true, false])
+        #expect(results.first?.weightKg == 62.5)
+        #expect(model.cards[0].rows.map(\.state) == [.done, .skipped])
+    }
+
+    @Test func editingALoggedSetOverwritesItInPlace() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let first = key(model, card: 0, set: 0)
+        model.setWeight(80, for: first)
+        model.complete(first)
+        let id = try #require(all(StepResult.self, context).first?.id)
+        model.adjustWeight(by: -2.5, for: first)
+        model.setReps(9, for: first)
+        let results = all(StepResult.self, context)
+        #expect(results.map(\.id) == [id])
+        #expect(results.first?.weightKg == 77.5)
+        #expect(results.first?.actualReps == 9)
+        #expect(results.first?.exerciseIdAtExecution == "bench_press")
+    }
+
+    @Test func setsAndExercisesAreAddedRemovedAndReorderedThroughTheDomain() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.addExercise(exerciseId: "incline_chest_press", title: "インクライン")
+        model.addExercise(exerciseId: "pec_deck_fly", title: "フライ")
+        let bench = model.cards[0].id
+        model.addSet(to: bench); model.addSet(to: bench)
+        model.complete(key(model, card: 0, set: 0))
+        model.complete(key(model, card: 0, set: 2))
+        model.removeSet(key(model, card: 0, set: 1))   // a draft between two logged
+        #expect(model.cards[0].rows.map(\.state) == [.done, .done])
+
+        #expect(!model.cards[0].canRemove)
+        model.removeExercise(bench)
+        #expect(model.cards.count == 3)                // refused: it has results
+        model.removeExercise(model.cards[1].id)
+        #expect(model.cards.map(\.title) == ["ベンチプレス", "フライ"])
+
+        model.moveExercises(fromOffsets: IndexSet(integer: 0), toOffset: 2)   // List onMove: bench to the end
+        #expect(model.cards.map(\.title) == ["フライ", "ベンチプレス"])
+    }
+
+    @Test func elapsedTimeIsReadFromTheSessionsStart() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        #expect(model.elapsedText(now: model.startedAt.addingTimeInterval(65)) == "01:05")
+        #expect(model.elapsedText(now: model.startedAt.addingTimeInterval(3725)) == "1:02:05")
+        #expect(model.elapsedText(now: model.startedAt.addingTimeInterval(-30)) == "00:00")
+    }
+
+    // MARK: finish
+
+    @Test func aBenchWorkoutIsSavedAndReachesProgress() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let bench = model.cards[0].id
+        model.addSet(to: bench); model.addSet(to: bench)
+        for (index, set) in [(80.0, 10), (80.0, 9), (75.0, 10)].enumerated() {
+            let row = key(model, card: 0, set: index)
+            model.setWeight(set.0, for: row)
+            model.setReps(set.1, for: row)
+            model.complete(row)
+        }
+        model.finish()
+        #expect(model.finishOutcome == .saved)
+        #expect(model.completion?.completedSetCount == 3)
+        #expect(model.completion?.completedExerciseCount == 1)
+        #expect(all(Session.self, context).first?.status == .completed)
+        let results = all(StepResult.self, context).sorted { $0.setIndex < $1.setIndex }
+        #expect(results.map(\.weightKg) == [80, 80, 75])
+        #expect(results.map(\.actualReps) == [10, 9, 10])
+        let insights = WorkoutProgressQuery.exerciseInsights(
+            steps: all(Step.self, context), sessions: all(Session.self, context), results: results)
+        #expect(insights.first?.latestReps == [10, 9, 10])
+    }
+
+    @Test func finishingWithNothingPerformedSavesNothing() throws {
+        let context = ModelContext(try makeContainer())
+        let launcher = launcher(context)
+        launcher.start()
+        let model = try #require(launcher.presented)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.skip(key(model, card: 0, set: 0))
+        model.finish()
+        #expect(model.finishOutcome == .discarded)
+        #expect(model.completion == nil)
+        launcher.workoutScreenClosed()
+        #expect(launcher.notice == .nothingSaved)
+        #expect(all(Session.self, context).isEmpty)
+    }
+
+    // MARK: recovery
+
+    @Test func aRelaunchedAppResumesTheWorkoutWithItsRows() throws {
+        let container = try makeContainer()
+        do {
+            let model = try open(ModelContext(container))
+            model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            for _ in 0..<3 { model.addSet(to: model.cards[0].id) }
+            model.setWeight(80, for: key(model, card: 0, set: 0))
+            model.complete(key(model, card: 0, set: 0))
+            model.complete(key(model, card: 0, set: 1))
+        }
+        let context = ModelContext(container)
+        let launcher = launcher(context)
+        let candidate = try #require(launcher.candidates.first)
+        launcher.resume(candidate)
+        let model = try #require(launcher.presented)
+        #expect(model.cards[0].rows.map(\.state) == [.done, .done, .draft, .draft])
+        model.complete(key(model, card: 0, set: 2))
+        model.finish()
+        #expect(model.completion?.completedSetCount == 3)
+        #expect(all(StepResult.self, context).count == 3)
+    }
+
+    // MARK: drafts across close / resume (same process)
+
+    /// Opens a workout through a launcher sharing `store`, and a way to close
+    /// and resume it as the card does.
+    @MainActor
+    private struct Flow {
+        let launcher: FreeWorkoutLauncher
+        var model: FreeWorkoutViewModel { launcher.presented! }
+        func closeAndResume() throws {
+            launcher.workoutScreenClosed()
+            let candidate = try #require(launcher.candidates.first)
+            launcher.resume(candidate)
+        }
+    }
+
+    private func flow(_ context: ModelContext, _ store: FreeWorkoutDraftStore) throws -> Flow {
+        let launcher = launcher(context, drafts: store)
+        launcher.start()
+        _ = try #require(launcher.presented)
+        return Flow(launcher: launcher)
+    }
+
+    @Test func typedDraftsSurviveCloseAndResume() throws {
+        let context = ModelContext(try makeContainer())
+        let flow = try flow(context, FreeWorkoutDraftStore())
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        flow.model.addSet(to: flow.model.cards[0].id)
+        let first = key(flow.model, card: 0, set: 0), second = key(flow.model, card: 0, set: 1)
+        flow.model.setWeight(70, for: first); flow.model.setReps(10, for: first)
+        flow.model.setWeight(65, for: second); flow.model.setReps(12, for: second)
+
+        try flow.closeAndResume()
+        #expect(flow.model.row(first)?.weightKg == 70 && flow.model.row(first)?.reps == 10)
+        #expect(flow.model.row(second)?.weightKg == 65 && flow.model.row(second)?.reps == 12)
+        #expect(all(StepResult.self, context).isEmpty)   // still drafts, never persisted
+    }
+
+    @Test func aLoggedSetAndADraftBesideItBothComeBack() throws {
+        let context = ModelContext(try makeContainer())
+        let flow = try flow(context, FreeWorkoutDraftStore())
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        flow.model.addSet(to: flow.model.cards[0].id)
+        let first = key(flow.model, card: 0, set: 0), second = key(flow.model, card: 0, set: 1)
+        flow.model.setWeight(80, for: first); flow.model.complete(first)
+        flow.model.setWeight(70, for: second); flow.model.setReps(10, for: second)
+
+        try flow.closeAndResume()
+        #expect(flow.model.row(first)?.state == .done && flow.model.row(first)?.weightKg == 80)
+        #expect(flow.model.row(second)?.state == .draft && flow.model.row(second)?.weightKg == 70)
+    }
+
+    @Test func aCompletedDraftLeavesNoStaleValueBehind() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let first = key(flow.model, card: 0, set: 0)
+        flow.model.setWeight(70, for: first); flow.model.setReps(10, for: first)
+        flow.model.complete(first)
+        #expect(store.drafts(for: flow.model.id)[first] == nil)
+        // Re-record it lighter, then reopen: the persisted value wins.
+        flow.model.setWeight(67.5, for: first)
+        try flow.closeAndResume()
+        #expect(flow.model.row(first)?.state == .done)
+        #expect(flow.model.row(first)?.weightKg == 67.5)
+        #expect(all(StepResult.self, context).map(\.weightKg) == [67.5])
+    }
+
+    @Test func draftsFollowTheirRowThroughAReindexAndTheirExerciseThroughAReorder() throws {
+        let context = ModelContext(try makeContainer())
+        let flow = try flow(context, FreeWorkoutDraftStore())
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        flow.model.addExercise(exerciseId: "pec_deck_fly", title: "フライ")
+        let bench = flow.model.cards[0].id, fly = flow.model.cards[1].id
+        flow.model.addSet(to: bench); flow.model.addSet(to: bench)
+        flow.model.complete(key(flow.model, card: 0, set: 0))
+        flow.model.setWeight(70, for: key(flow.model, card: 0, set: 1)); flow.model.setReps(10, for: key(flow.model, card: 0, set: 1))
+        flow.model.setWeight(65, for: key(flow.model, card: 0, set: 2)); flow.model.setReps(12, for: key(flow.model, card: 0, set: 2))
+        flow.model.setWeight(20, for: key(flow.model, card: 1, set: 0))
+
+        flow.model.removeSet(key(flow.model, card: 0, set: 0))     // the logged set
+        flow.model.moveExercises(fromOffsets: IndexSet(integer: 1), toOffset: 0)
+        try flow.closeAndResume()
+
+        #expect(flow.model.cards.map(\.id) == [fly, bench])
+        let benchRows = try #require(flow.model.cards.first { $0.id == bench }).rows
+        #expect(benchRows.map(\.weightKg) == [70, 65])
+        #expect(benchRows.map(\.reps) == [10, 12])
+        #expect(flow.model.cards.first { $0.id == fly }?.rows.first?.weightKg == 20)
+    }
+
+    @Test func removingAnExerciseDropsOnlyItsDrafts() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        flow.model.addExercise(exerciseId: "pec_deck_fly", title: "フライ")
+        let bench = flow.model.cards[0].id, fly = flow.model.cards[1].id
+        flow.model.setWeight(70, for: key(flow.model, card: 0, set: 0))
+        flow.model.setWeight(20, for: key(flow.model, card: 1, set: 0))
+        flow.model.removeExercise(bench)
+        let remaining = store.drafts(for: flow.model.id)
+        #expect(remaining.keys.allSatisfy { $0.stepId == fly })
+        #expect(remaining[FreeWorkoutViewModel.RowKey(stepId: fly, setIndex: 0)]?.weightKg == 20)
+    }
+
+    @Test func finishingOrDiscardingClearsThatWorkoutsDrafts() throws {
+        for ending in ["finish", "discardInScreen", "discardFromCard", "emptyFinish"] {
+            let context = ModelContext(try makeContainer())
+            let store = FreeWorkoutDraftStore()
+            let flow = try flow(context, store)
+            let id = flow.model.id
+            flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            flow.model.addSet(to: flow.model.cards[0].id)
+            if ending != "emptyFinish" { flow.model.complete(key(flow.model, card: 0, set: 0)) }
+            flow.model.setWeight(70, for: key(flow.model, card: 0, set: 1))
+            #expect(store.sessionIds.contains(id))
+
+            switch ending {
+            case "finish", "emptyFinish": flow.model.finish()
+            case "discardInScreen": flow.model.discard()
+            default:
+                flow.launcher.workoutScreenClosed()
+                flow.launcher.discard(try #require(flow.launcher.candidates.first))
+            }
+            #expect(!store.sessionIds.contains(id), "\(ending)")
+        }
+    }
+
+    @Test func draftsOfSeparateWorkoutsNeverMix() throws {
+        let store = FreeWorkoutDraftStore()
+        let guestContext = ModelContext(try makeContainer())
+        let guest = try flow(guestContext, store)
+        guest.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        guest.model.setWeight(60, for: key(guest.model, card: 0, set: 0))
+
+        let other = launcher(guestContext, scope: .account(UUID()), drafts: store)
+        other.start()
+        let account = try #require(other.presented)
+        account.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        account.setWeight(100, for: key(account, card: 0, set: 0))
+
+        #expect(store.drafts(for: guest.model.id).values.map(\.weightKg) == [60])
+        #expect(store.drafts(for: account.id).values.map(\.weightKg) == [100])
+        #expect(guest.model.row(key(guest.model, card: 0, set: 0))?.weightKg == 60)
+    }
+
+    @Test func draftsOfAWorkoutGoneElsewhereAreDroppedOnRefresh() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        let id = flow.model.id
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        flow.model.setWeight(70, for: key(flow.model, card: 0, set: 0))
+        flow.launcher.workoutScreenClosed()
+        // Discarded through another card (another launcher on the same store).
+        let elsewhere = launcher(context, drafts: FreeWorkoutDraftStore())
+        _ = FreeWorkoutRecovery.discard(try #require(elsewhere.candidates.first), in: context, scope: .guest)
+        flow.launcher.refresh()
+        #expect(!store.sessionIds.contains(id))
+    }
+
+    /// A relaunch has no store left: rows and logged sets come back from
+    /// SwiftData, typed values go back to their defaults — by design.
+    @Test func aRelaunchKeepsRowsButNotTypedValues() throws {
+        let container = try makeContainer()
+        do {
+            let flow = try flow(ModelContext(container), FreeWorkoutDraftStore())
+            flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            flow.model.addSet(to: flow.model.cards[0].id)
+            flow.model.setWeight(70, for: key(flow.model, card: 0, set: 1))
+        }
+        let context = ModelContext(container)
+        let relaunched = launcher(context, drafts: FreeWorkoutDraftStore())
+        relaunched.resume(try #require(relaunched.candidates.first))
+        let model = try #require(relaunched.presented)
+        #expect(model.cards[0].rows.count == 2)
+        #expect(model.cards[0].rows[1].weightKg == nil)
+    }
+}
