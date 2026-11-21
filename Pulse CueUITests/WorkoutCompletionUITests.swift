@@ -89,6 +89,42 @@ final class WorkoutCompletionUITests: XCTestCase {
         XCTAssertEqual(rows.count, 1, "expected exactly one History entry")
     }
 
+    /// A Free Workout left open shows in History as 進行中, and tapping it
+    /// reopens that workout rather than the ordinary detail.
+    @MainActor
+    func testHistoryReopensAnInProgressFreeWorkout() throws {
+        let app = launchCompletionFixture()
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20), "training tab not found")
+        trainingTab.tap()
+
+        // The card combines its title and subtitle into one label.
+        let start = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "フリーワークアウトを開始")
+        ).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15), "Free Workout start not found")
+        for _ in 0..<6 where !start.isHittable { app.swipeUp() }
+        start.tap()
+
+        let close = app.buttons["閉じる"]
+        XCTAssertTrue(close.waitForExistence(timeout: 15), "Free Workout screen did not open")
+        close.tap()
+
+        let historyEntry = app.buttons["履歴"].firstMatch
+        XCTAssertTrue(historyEntry.waitForExistence(timeout: 15), "History entry not found in Training")
+        for _ in 0..<6 where !historyEntry.isHittable { app.swipeUp() }
+        historyEntry.tap()
+
+        let row = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "フリーワークアウト", "進行中")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "in-progress Free Workout row not in History")
+        row.tap()
+
+        XCTAssertTrue(app.buttons["閉じる"].waitForExistence(timeout: 15), "History did not reopen the Free Workout")
+        XCTAssertTrue(app.buttons["終了"].exists, "Free Workout finish action missing")
+    }
+
     @MainActor
     func testSkippingFinalExerciseShowsCompletion() throws {
         let app = launchCompletionFixture()

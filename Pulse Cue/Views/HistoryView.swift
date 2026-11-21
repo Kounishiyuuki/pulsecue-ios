@@ -5,7 +5,13 @@ import SwiftUI
 /// available through navigation instead of an analytics-style overview.
 struct HistoryView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
+    /// Opens an in-progress Free Workout the same way Home / Training do.
+    @StateObject private var freeWorkout = FreeWorkoutLauncher()
+    /// A 進行中 Free Workout row that could not be resumed falls back to its
+    /// ordinary detail, so the tap is never a dead end.
+    @State private var detailSessionId: UUID?
 
     @Query(sort: [SortDescriptor(\Session.startedAt, order: .reverse)])
     private var allSessions: [Session]
@@ -60,6 +66,39 @@ struct HistoryView: View {
         }
         .navigationTitle("履歴")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { freeWorkout.configure(context: modelContext, scope: dataScope.scope) }
+        .onChange(of: dataScope.scope) { _, scope in freeWorkout.configure(context: modelContext, scope: scope) }
+        .fullScreenCover(item: $freeWorkout.presented) { model in
+            FreeWorkoutView(model: model, onClose: freeWorkout.workoutScreenClosed)
+        }
+        .navigationDestination(item: $detailSessionId) { id in
+            if let session = sessions.first(where: { $0.id == id }) {
+                SessionDetailView(session: session)
+            }
+        }
+        .alert(
+            "記録されたセットがないため保存されませんでした",
+            isPresented: Binding(
+                get: { freeWorkout.notice == .nothingSaved },
+                set: { if !$0 { freeWorkout.notice = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private func isResumableFreeWorkout(_ session: Session) -> Bool {
+        session.status == .inProgress
+            && routines.first(where: { $0.id == session.routineId })?.origin == .freeWorkout
+    }
+
+    /// Whether to resume is decided at tap time by the launcher, against the
+    /// store and scope as they are then — never by this row's snapshot.
+    private func resumeFreeWorkout(_ session: Session) {
+        let id = session.id
+        if !freeWorkout.resume(sessionId: id) {
+            detailSessionId = id
+        }
     }
 
     private var header: some View {
@@ -73,25 +112,45 @@ struct HistoryView: View {
         }
     }
 
+    @ViewBuilder
     private func sessionRow(_ session: Session) -> some View {
-        NavigationLink {
-            SessionDetailView(session: session)
-        } label: {
-            Group {
-                if dynamicTypeSize.isAccessibilitySize {
-                    accessibilitySessionRow(session)
-                } else {
-                    standardSessionRow(session)
-                }
+        if isResumableFreeWorkout(session) {
+            Button {
+                resumeFreeWorkout(session)
+            } label: {
+                sessionRowLabel(session)
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(freeWorkout.isBusy)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(rowAccessibilityLabel(session))
+            .accessibilityHint("進行中のフリーワークアウトを再開")
+        } else {
+            NavigationLink {
+                SessionDetailView(session: session)
+            } label: {
+                sessionRowLabel(session)
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(rowAccessibilityLabel(session))
+            .accessibilityHint("トレーニング内容を表示")
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(routineName(for: session))、\(formatDate(session.startedAt))、\(formatDuration(session.totalSeconds))、\(statusLabel(session.status))"
-        )
-        .accessibilityHint("トレーニング内容を表示")
+    }
+
+    private func sessionRowLabel(_ session: Session) -> some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                accessibilitySessionRow(session)
+            } else {
+                standardSessionRow(session)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func rowAccessibilityLabel(_ session: Session) -> String {
+        "\(routineName(for: session))、\(formatDate(session.startedAt))、\(formatDuration(session.totalSeconds))、\(statusLabel(session.status))"
     }
 
     private func standardSessionRow(_ session: Session) -> some View {
