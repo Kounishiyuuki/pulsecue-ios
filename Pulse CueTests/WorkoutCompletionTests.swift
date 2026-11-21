@@ -266,3 +266,149 @@ struct WorkoutCompletionTests {
         #expect(try Self.sessions(fx.context).count == 2)
     }
 }
+
+// MARK: - Summary metrics
+
+/// The totals shown on the Completion screen and in History detail, from a
+/// session's results alone.
+@MainActor
+struct WorkoutSummaryMetricsTests {
+
+    private let context: ModelContext
+    private let sessionId = UUID()
+    private let routineId = UUID()
+
+    init() throws {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        context = ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]))
+    }
+
+    private func step(_ exerciseId: String?, order: Int = 0) -> Step {
+        let step = Step(routineId: routineId, order: order, title: exerciseId ?? "カスタム", sets: 3,
+                        repsTarget: 10, restSeconds: 0, exerciseId: exerciseId)
+        context.insert(step)
+        return step
+    }
+
+    private func result(_ step: Step, _ index: Int, kg: Double?, reps: Int?, done: Bool = true) -> StepResult {
+        let result = StepResult(sessionId: sessionId, stepId: step.id, setIndex: index, done: done,
+                                actualReps: reps, weightKg: kg, exerciseIdAtExecution: step.exerciseId)
+        context.insert(result)
+        return result
+    }
+
+    private func summary(_ results: [StepResult], _ steps: [Step], duration: TimeInterval = 0) -> WorkoutCompletionSummary {
+        WorkoutCompletionSummary.make(sessionId: sessionId, duration: duration, results: results, steps: steps)
+    }
+
+    @Test func aBenchPressOfThreeSets() {
+        let bench = step("bench_press")
+        let s = summary([result(bench, 0, kg: 80, reps: 10), result(bench, 1, kg: 80, reps: 9),
+                         result(bench, 2, kg: 75, reps: 10)], [bench])
+        #expect(s.completedExerciseCount == 1)
+        #expect(s.completedSetCount == 3)
+        #expect(s.totalReps == 29)
+        #expect(s.totalVolumeKg == 2270)
+    }
+
+    @Test func twoExercisesAddUp() {
+        let bench = step("bench_press"), squat = step("smith_bench_press", order: 1)
+        let s = summary([result(bench, 0, kg: 80, reps: 10), result(bench, 1, kg: 80, reps: 9),
+                         result(squat, 0, kg: 100, reps: 5), result(squat, 1, kg: 100, reps: 5)], [bench, squat])
+        #expect(s.completedExerciseCount == 2)
+        #expect(s.completedSetCount == 4)
+        #expect(s.totalReps == 29)
+        #expect(s.totalVolumeKg == 800 + 720 + 500 + 500)
+    }
+
+    @Test func skippedSetsAddNothing() {
+        let bench = step("bench_press"), skippedOnly = step("smith_bench_press", order: 1)
+        let s = summary([result(bench, 0, kg: 80, reps: 10),
+                         result(bench, 1, kg: nil, reps: nil, done: false),
+                         result(bench, 2, kg: 75, reps: 10),
+                         result(skippedOnly, 0, kg: nil, reps: nil, done: false)], [bench, skippedOnly])
+        #expect(s.completedExerciseCount == 1)   // an exercise only skipped is not performed
+        #expect(s.completedSetCount == 2)
+        #expect(s.totalReps == 20)
+        #expect(s.totalVolumeKg == 1550)
+    }
+
+    @Test func theSameExerciseAddedTwiceCountsAsTwo() {
+        let first = step("bench_press"), second = step("bench_press", order: 1)
+        let s = summary([result(first, 0, kg: 80, reps: 10), result(second, 0, kg: 60, reps: 12)], [first, second])
+        #expect(s.completedExerciseCount == 2)
+        #expect(s.totalReps == 22)
+        #expect(s.totalVolumeKg == 800 + 720)
+    }
+
+    @Test func repsWithoutAWeightAddNoVolume() {
+        let bench = step("bench_press"), custom = step(nil, order: 1)
+        let s = summary([result(bench, 0, kg: nil, reps: 10), result(custom, 0, kg: nil, reps: 15)], [bench, custom])
+        #expect(s.totalReps == 25)
+        #expect(s.totalVolumeKg == 0)
+    }
+
+    @Test func bodyweightExercisesCountRepsButNoVolume() {
+        let pullUp = step("pull_up")
+        let s = summary([result(pullUp, 0, kg: 10, reps: 8), result(pullUp, 1, kg: nil, reps: 6)], [pullUp])
+        #expect(s.completedSetCount == 2)
+        #expect(s.totalReps == 14)
+        #expect(s.totalVolumeKg == 0)   // no body weight is ever guessed in
+    }
+
+    @Test func timedExercisesAddNoVolume() {
+        let treadmill = step("treadmill_warmup")
+        let s = summary([result(treadmill, 0, kg: 5, reps: 1)], [treadmill])
+        #expect(s.completedSetCount == 1)
+        #expect(s.totalVolumeKg == 0)
+    }
+
+    @Test func aCustomExerciseCountsTheWeightItRecorded() {
+        let custom = step(nil)
+        let s = summary([result(custom, 0, kg: 20, reps: 10)], [custom])
+        #expect(s.totalVolumeKg == 200)
+    }
+
+    @Test func durationIsTheOneSuppliedNeverTheClock() {
+        let bench = step("bench_press")
+        let s = summary([result(bench, 0, kg: 80, reps: 10)], [bench], duration: 2_732)
+        #expect(s.duration == 2_732)
+    }
+
+    @Test func otherSessionsResultsAreIgnored() {
+        let bench = step("bench_press")
+        let stray = StepResult(sessionId: UUID(), stepId: bench.id, setIndex: 0, done: true, actualReps: 10, weightKg: 100)
+        let s = summary([result(bench, 0, kg: 80, reps: 10), stray], [bench])
+        #expect(s.completedSetCount == 1 && s.totalVolumeKg == 800)
+    }
+
+    @Test func volumeReadsGroupedWithoutATrailingZero() {
+        #expect(WorkoutCompletionSummary.volumeText(6420) == "6,420 kg")
+        #expect(WorkoutCompletionSummary.volumeText(6420.5) == "6,420.5 kg")
+        #expect(WorkoutCompletionSummary.volumeText(0) == "0 kg")
+    }
+
+    @Test func aRoutineWorkoutUsesTheSameTotals() throws {
+        // The Runner's completion screen goes through the same calculation.
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]))
+        let routine = Routine(name: "胸の日")
+        context.insert(routine)
+        context.insert(Step(routineId: routine.id, order: 0, title: "ベンチプレス", sets: 1, repsTarget: 10,
+                            restSeconds: 0, exerciseId: "bench_press"))
+        try context.save()
+        RunnerPersistence.clear()
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.summary.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let runner = RunnerViewModel(settings: settings)
+        runner.configure(modelContext: context)
+        runner.start(routine: routine)
+        runner.handle(action: .complete, context: try #require(runner.completeContext))
+
+        let summary = try #require(runner.completion)
+        let result = try #require(try context.fetch(FetchDescriptor<StepResult>()).first)
+        #expect(summary.completedSetCount == 1)
+        #expect(summary.totalReps == (result.actualReps ?? 0))
+        #expect(summary.totalVolumeKg == (result.weightKg ?? 0) * Double(result.actualReps ?? 0))
+    }
+}

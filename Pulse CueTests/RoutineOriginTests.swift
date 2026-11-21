@@ -1393,4 +1393,83 @@ struct FreeWorkoutViewModelTests {
         // its default, which follows the set logged above it.
         #expect(model.cards[0].rows[1].weightKg != 70)
     }
+
+    // MARK: Summary metrics
+
+    /// What History detail computes for a session: the same calculation over
+    /// what the store holds.
+    private func historySummary(_ context: ModelContext) throws -> WorkoutCompletionSummary {
+        let session = try #require(all(Session.self, context).first)
+        let steps = all(Step.self, context).filter { $0.routineId == session.routineId }
+        let results = all(StepResult.self, context).filter { $0.sessionId == session.id }
+        return WorkoutCompletionSummary.make(sessionId: session.id, duration: TimeInterval(session.totalSeconds),
+                                             results: results, steps: steps)
+    }
+
+    private func logBench(_ model: FreeWorkoutViewModel, _ sets: [(Double, Int)]) {
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let card = model.cards.count - 1
+        for _ in 1..<sets.count { model.addSet(to: model.cards[card].id) }
+        for (index, set) in sets.enumerated() {
+            let row = key(model, card: card, set: index)
+            model.setWeight(set.0, for: row); model.setReps(set.1, for: row)
+            model.complete(row)
+        }
+    }
+
+    @Test func finishingShowsTheTotalsHistoryShowsToo() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        logBench(model, [(80, 10), (80, 9), (75, 10)])
+        model.finish(now: model.startedAt.addingTimeInterval(1_832))
+
+        let summary = try #require(model.completion)
+        #expect(summary.duration == 1_832)
+        #expect(summary.completedExerciseCount == 1)
+        #expect(summary.completedSetCount == 3)
+        #expect(summary.totalReps == 29)
+        #expect(summary.totalVolumeKg == 2270)
+        #expect(try historySummary(context) == summary)
+    }
+
+    @Test func draftRowsAndUnloggedExercisesAddNothing() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        logBench(model, [(80, 10)])
+        model.addSet(to: model.cards[0].id)
+        model.setWeight(100, for: key(model, card: 0, set: 1))   // typed, never logged
+        model.addExercise(exerciseId: "smith_bench_press", title: "スミスマシンベンチプレス")
+        model.finish()
+
+        let summary = try #require(model.completion)
+        #expect(summary.completedExerciseCount == 1)
+        #expect(summary.completedSetCount == 1)
+        #expect(summary.totalVolumeKg == 800)
+    }
+
+    @Test func anOverwrittenSetCountsWithItsNewValuesOnly() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        logBench(model, [(80, 10)])
+        let row = key(model, card: 0, set: 0)
+        model.setWeight(85, for: row); model.setReps(8, for: row)
+        model.finish()
+
+        #expect(model.completion?.totalVolumeKg == 680)
+        #expect(model.completion?.totalReps == 8)
+        #expect(try historySummary(context).totalVolumeKg == 680)
+    }
+
+    @Test func aDeletedSetIsNotCounted() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        logBench(model, [(80, 10), (60, 5)])
+        model.removeSet(key(model, card: 0, set: 1))
+        model.finish()
+
+        let summary = try #require(model.completion)
+        #expect(summary.completedSetCount == 1)
+        #expect(summary.totalReps == 10)
+        #expect(summary.totalVolumeKg == 800)
+    }
 }
