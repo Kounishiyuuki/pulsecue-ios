@@ -1265,4 +1265,132 @@ struct FreeWorkoutViewModelTests {
         #expect(model.cards[0].rows.count == 2)
         #expect(model.cards[0].rows[1].weightKg == nil)
     }
+    // MARK: History resume
+    //
+    // History only knows a session id from a list it drew earlier; the
+    // launcher re-checks it against the store and scope at tap time.
+
+    @Test func historyResumesTheSameInProgressFreeWorkout() throws {
+        let context = ModelContext(try makeContainer())
+        let started = launcher(context)
+        started.start()
+        let id = try #require(started.presented).id
+        started.workoutScreenClosed()
+
+        let history = launcher(context)
+        #expect(history.resume(sessionId: id))
+        #expect(history.presented?.id == id)
+        #expect(all(Session.self, context).count == 1)   // reopened, not restarted
+    }
+
+    @Test func historyDoesNotResumeACompletedFreeWorkout() throws {
+        let context = ModelContext(try makeContainer())
+        let flow = try flow(context, FreeWorkoutDraftStore())
+        let id = flow.model.id
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        flow.model.complete(key(flow.model, card: 0, set: 0))
+        flow.model.finish()
+        flow.launcher.workoutScreenClosed()
+        #expect(all(Session.self, context).first?.status == .completed)
+
+        let history = launcher(context)
+        #expect(!history.resume(sessionId: id))
+        #expect(history.presented == nil)
+        #expect(all(Session.self, context).first?.status == .completed)
+    }
+
+    @Test func historyDoesNotTreatARoutineInProgressAsAFreeWorkout() throws {
+        let context = ModelContext(try makeContainer())
+        let routine = Routine(name: "胸の日")
+        let session = Session(routineId: routine.id, dayDate: Date())
+        context.insert(routine); context.insert(session)
+        try context.save()
+
+        let history = launcher(context)
+        #expect(!history.resume(sessionId: session.id))
+        #expect(history.presented == nil)
+        #expect(session.status == .inProgress)
+    }
+
+    @Test func historyRefusesAWorkoutFinishedOrDiscardedAfterTheListWasDrawn() throws {
+        for discards in [false, true] {
+            let context = ModelContext(try makeContainer())
+            let history = launcher(context)
+            let flow = try flow(context, FreeWorkoutDraftStore())
+            let id = flow.model.id
+            flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            history.refresh()   // the row is drawn while it is in progress
+            #expect(history.candidates.map(\.id) == [id])
+
+            if discards {
+                flow.model.discard()
+            } else {
+                flow.model.complete(key(flow.model, card: 0, set: 0))
+                flow.model.finish()
+            }
+            flow.launcher.workoutScreenClosed()
+
+            #expect(!history.resume(sessionId: id))
+            #expect(history.presented == nil)
+        }
+    }
+
+    @Test func historyNeverResumesAnotherOwnersWorkout() throws {
+        let context = ModelContext(try makeContainer())
+        let accountA = UUID()
+        let started = launcher(context, scope: .account(accountA))
+        started.start()
+        let id = try #require(started.presented).id
+        started.workoutScreenClosed()
+
+        for scope in [WorkoutDataScope.account(UUID()), .guest, .undetermined] {
+            let history = launcher(context, scope: .account(accountA))
+            history.configure(context: context, scope: scope)   // the scope changed under the list
+            #expect(!history.resume(sessionId: id))
+            #expect(history.presented == nil)
+        }
+        let session = try #require(all(Session.self, context).first)
+        #expect(session.status == .inProgress && session.ownerAccountID == accountA)
+    }
+
+    @Test func historyResumeKeepsTheDraftsTypedBeforeClosing() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        let id = flow.model.id
+        flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let row = key(flow.model, card: 0, set: 0)
+        flow.model.setWeight(72.5, for: row); flow.model.setReps(8, for: row)
+        flow.launcher.workoutScreenClosed()
+
+        // History has its own launcher, but the same process-wide store.
+        let history = launcher(context, drafts: store)
+        #expect(history.resume(sessionId: id))
+        let model = try #require(history.presented)
+        #expect(model.row(row)?.weightKg == 72.5 && model.row(row)?.reps == 8)
+    }
+
+    @Test func historyResumesAfterARelaunchFromTheStoreAlone() throws {
+        let container = try makeContainer()
+        let id: UUID
+        do {
+            let flow = try flow(ModelContext(container), FreeWorkoutDraftStore())
+            id = flow.model.id
+            flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+            flow.model.addSet(to: flow.model.cards[0].id)
+            let first = key(flow.model, card: 0, set: 0)
+            flow.model.setWeight(80, for: first); flow.model.setReps(5, for: first)
+            flow.model.complete(first)
+            flow.model.setWeight(70, for: key(flow.model, card: 0, set: 1))
+        }
+        let context = ModelContext(container)
+        let history = launcher(context, drafts: FreeWorkoutDraftStore())
+        #expect(history.resume(sessionId: id))
+        let model = try #require(history.presented)
+        #expect(model.cards[0].rows.count == 2)
+        #expect(model.cards[0].rows[0].weightKg == 80 && model.cards[0].rows[0].reps == 5)
+        // The typed 70 does not outlive the process; the row falls back to
+        // its default, which follows the set logged above it.
+        #expect(model.cards[0].rows[1].weightKg != 70)
+    }
 }

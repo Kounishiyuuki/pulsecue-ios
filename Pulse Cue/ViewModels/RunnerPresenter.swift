@@ -124,6 +124,21 @@ final class FreeWorkoutLauncher: ObservableObject {
         refresh()
     }
 
+    /// History's 進行中 row. The row only knows a session id it listed some
+    /// time ago, so the candidate is looked up afresh in the current scope:
+    /// a workout finished, discarded or owned by someone else since then is
+    /// simply not found. False when nothing was opened.
+    @discardableResult
+    func resume(sessionId: UUID) -> Bool {
+        guard context != nil, !isBusy else { return false }
+        refresh()
+        guard let candidate = candidates.first(where: { $0.id == sessionId }),
+              candidate.isResumable
+        else { return false }
+        resume(candidate)
+        return presented?.id == sessionId
+    }
+
     func discard(_ candidate: FreeWorkoutRecovery.Candidate) {
         guard let context, !isBusy else { return }
         isBusy = true
