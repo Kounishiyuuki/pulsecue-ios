@@ -13,6 +13,15 @@
 
 import Foundation
 
+/// What the weight recorded for a set stands for.
+enum ExerciseLoadSemantics: Hashable, Sendable {
+    /// The load moved (a barbell, a stack, or weight added to a bodyweight
+    /// movement).
+    case lifted
+    /// Assistance subtracted from body weight (assisted pull-up machine).
+    case assistance
+}
+
 /// A single standard exercise the app knows how to name and place in a
 /// plan. Reuses the existing `BodyPart`, `EquipmentType`,
 /// `MovementPattern`, and `MachineDifficulty` types rather than
@@ -42,6 +51,11 @@ struct Exercise: Identifiable, Hashable, Sendable {
     /// rep count.
     let workSecondsPerSet: Int?
 
+    /// What a recorded weight means for this movement. Almost always the
+    /// load lifted; for an assisted machine it is the counterweight that
+    /// *helps*, so it is not work done.
+    let loadSemantics: ExerciseLoadSemantics
+
     /// Whether one set is measured in time instead of repetitions.
     var isDurationBased: Bool { workSecondsPerSet != nil }
 
@@ -55,7 +69,8 @@ struct Exercise: Identifiable, Hashable, Sendable {
         movementPattern: MovementPattern? = nil,
         difficulty: MachineDifficulty? = nil,
         beginnerFriendly: Bool? = nil,
-        workSecondsPerSet: Int? = nil
+        workSecondsPerSet: Int? = nil,
+        loadSemantics: ExerciseLoadSemantics = .lifted
     ) {
         self.id = id
         self.displayName = displayName
@@ -71,6 +86,7 @@ struct Exercise: Identifiable, Hashable, Sendable {
         self.difficulty = difficulty
         self.beginnerFriendly = beginnerFriendly
         self.workSecondsPerSet = workSecondsPerSet.map { max(0, $0) }
+        self.loadSemantics = loadSemantics
     }
 
     /// Body parts (primary first) in canonical order, for display.

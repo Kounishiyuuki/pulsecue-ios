@@ -39,6 +39,8 @@ final class RunnerViewModel: ObservableObject {
     /// reps target, derived read-only from History. Recomputed only on
     /// exercise change (see `refreshExerciseInsight`), never per rest tick.
     @Published private(set) var previousPerformance: PreviousPerformance?
+    /// For a timed exercise: when it was last done. Shown as "実施済み".
+    @Published private(set) var previousPerformedDate: Date?
     @Published private(set) var progression: ProgressionSuggestion?
     /// Non-nil only between a *completed* finish and the user dismissing the
     /// Workout Completion screen. Purely presentational: the session it
@@ -127,6 +129,7 @@ final class RunnerViewModel: ObservableObject {
         restDeadline = nil
         remainingSeconds = 0
         previousPerformance = nil
+        previousPerformedDate = nil
         progression = nil
     }
 
@@ -239,6 +242,13 @@ final class RunnerViewModel: ObservableObject {
         guard let step = currentStep else { return false }
         guard let exercise = resolvedExercise(for: step) else { return true }
         return !exercise.isDurationBased && exercise.movementPattern != .cardio
+    }
+
+    /// False for a timed movement: the rep counter is hidden and no rep count
+    /// is recorded.
+    var currentStepTracksReps: Bool {
+        guard let step = currentStep else { return true }
+        return WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId)
     }
 
     /// Sets the current set's load. Invalid values (negative, non-finite, over
@@ -389,6 +399,7 @@ final class RunnerViewModel: ObservableObject {
     func refreshExerciseInsight() {
         guard let modelContext, let step = currentStep, let exerciseId = step.exerciseId else {
             previousPerformance = nil
+            previousPerformedDate = nil
             progression = nil
             return
         }
@@ -412,6 +423,10 @@ final class RunnerViewModel: ObservableObject {
         // resolvable exercise) are treated as rep-trainable.
         let isCardio = resolvedExercise(for: step)?.movementPattern == .cardio
         previousPerformance = previous
+        previousPerformedDate = currentStepTracksReps ? nil : PreviousPerformanceQuery.lastPerformedDate(
+            exerciseId: exerciseId, excludingSessionId: sessionId,
+            steps: allSteps, sessions: allSessions, results: allResults
+        )
         progression = ProgressionRule.suggest(
             previous: previous,
             baselineReps: step.repsTarget,
@@ -464,7 +479,7 @@ final class RunnerViewModel: ObservableObject {
 
         recordStepResult(
             done: true,
-            actualReps: currentReps,
+            actualReps: currentStepTracksReps ? currentReps : nil,
             weightKg: currentStepAcceptsWeight ? currentWeightKg : nil
         )
         startRest(for: step)
@@ -631,7 +646,8 @@ final class RunnerViewModel: ObservableObject {
         ))) ?? []
         return WorkoutCompletionSummary.make(
             sessionId: sessionId,
-            duration: (session.endedAt ?? Date()).timeIntervalSince(session.startedAt),
+            // The stored, truncated `totalSeconds` — what History shows too.
+            duration: TimeInterval(session.totalSeconds),
             results: results,
             steps: steps
         )

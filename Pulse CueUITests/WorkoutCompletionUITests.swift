@@ -49,8 +49,8 @@ final class WorkoutCompletionUITests: XCTestCase {
             "completion screen not shown"
         )
         XCTAssertTrue(app.staticTexts["実施時間"].exists, "duration metric missing")
-        XCTAssertTrue(app.staticTexts["完了した種目"].exists, "exercise count metric missing")
-        XCTAssertTrue(app.staticTexts["完了したセット"].exists, "set count metric missing")
+        XCTAssertTrue(app.staticTexts["種目"].exists, "exercise count metric missing")
+        XCTAssertTrue(app.staticTexts["セット"].exists, "set count metric missing")
     }
 
     @MainActor

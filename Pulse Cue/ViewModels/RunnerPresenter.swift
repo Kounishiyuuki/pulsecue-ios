@@ -236,6 +236,8 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         let id: UUID
         let title: String
         let acceptsWeight: Bool
+        /// False for timed movements: no rep editor, and no reps are recorded.
+        let tracksReps: Bool
         let previousText: String?
         let rows: [SetRow]
         let canRemove: Bool
@@ -370,7 +372,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
             rebuild()
         case .done:
             guard let step = step(key.stepId) else { return }
-            session.completeSet(at: key.setIndex, of: step, reps: draft.reps, weightKg: weight(draft.weightKg, step: step))
+            session.completeSet(at: key.setIndex, of: step, reps: reps(draft.reps, step: step), weightKg: weight(draft.weightKg, step: step))
             saveAndRebuild(select: key)
         case .skipped:
             drafts[key] = draft
@@ -380,7 +382,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
 
     func complete(_ key: RowKey) {
         guard let step = step(key.stepId), let row = row(key) else { return }
-        guard session.completeSet(at: key.setIndex, of: step, reps: row.reps, weightKg: weight(row.weightKg, step: step)) != nil
+        guard session.completeSet(at: key.setIndex, of: step, reps: reps(row.reps, step: step), weightKg: weight(row.weightKg, step: step)) != nil
         else { return }
         drafts[key] = nil
         // Untouched drafts below now default from this set.
@@ -450,6 +452,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
                 id: step.id,
                 title: step.title,
                 acceptsWeight: acceptsWeight(step),
+                tracksReps: tracksReps(step),
                 previousText: previousText(for: step),
                 rows: rows,
                 canRemove: session.canRemoveExercise(step),
@@ -477,7 +480,9 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
 
     private func previousText(for step: Step) -> String? {
         if let cached = previousTextByStep[step.id] { return cached }
-        let text = session.previousPerformance(for: step).map(ProgressionPresentation.previousText)
+        let text = tracksReps(step)
+            ? session.previousPerformance(for: step).map(ProgressionPresentation.previousText)
+            : session.lastPerformedDate(for: step).map { _ in ProgressionPresentation.performedText }
         previousTextByStep[step.id] = text
         return text
     }
@@ -491,5 +496,14 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
 
     private func weight(_ kg: Double?, step: Step) -> Double? {
         acceptsWeight(step) ? kg : nil
+    }
+
+    /// Same rule as the Runner: a timed movement records no rep count.
+    private func tracksReps(_ step: Step) -> Bool {
+        WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId)
+    }
+
+    private func reps(_ value: Int, step: Step) -> Int? {
+        tracksReps(step) ? value : nil
     }
 }

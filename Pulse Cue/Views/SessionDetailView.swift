@@ -28,15 +28,23 @@ enum SessionHistoryPresentation {
     /// Right-hand text of a set row: "60 kg × 10 回" when a weight was
     /// recorded, otherwise exactly the pre-weight text ("10 回" / "記録なし").
     static func setValueText(_ result: StepResult) -> String {
+        if isTimedPerformance(result) { return ProgressionPresentation.performedText }
         let reps = result.actualReps.map { "\($0) 回" }
         guard let weight = result.weightKg else { return reps ?? "記録なし" }
         return reps.map { "\(SetWeight.display(weight)) × \($0)" } ?? SetWeight.display(weight)
+    }
+
+    /// A done set of a timed movement: shown as done, never as the rep count
+    /// an older record may still carry.
+    static func isTimedPerformance(_ result: StepResult) -> Bool {
+        result.done && !WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution)
     }
 
     /// VoiceOver label of a set row. Without a weight it reads exactly as
     /// before ("セット 1、完了、10回").
     static func setAccessibilityLabel(_ result: StepResult) -> String {
         var parts = ["セット \(result.setIndex + 1)", result.done ? "完了" : "未完了"]
+        if isTimedPerformance(result) { return parts.joined(separator: "、") }
         if let weight = result.weightKg { parts.append("\(SetWeight.number(weight))キログラム") }
         parts.append(result.actualReps.map { "\($0)回" } ?? "回数記録なし")
         return parts.joined(separator: "、")
@@ -198,8 +206,8 @@ struct SessionDetailView: View {
 
     private func summaryMetrics(_ summary: WorkoutCompletionSummary) -> some View {
         let items: [(label: String, value: String, spoken: String)] = [
-            ("種目", "\(summary.completedExerciseCount)", "\(summary.completedExerciseCount)種目"),
-            ("セット", "\(summary.completedSetCount)", "\(summary.completedSetCount)セット"),
+            ("種目", "\(summary.completedExerciseCount)", "\(summary.completedExerciseCount)"),
+            ("セット", "\(summary.completedSetCount)", "\(summary.completedSetCount)"),
             ("総レップ数", "\(summary.totalReps)", "\(summary.totalReps)回"),
             ("総ボリューム", WorkoutCompletionSummary.volumeText(summary.totalVolumeKg),
              "\(SetWeight.number(summary.totalVolumeKg))キログラム"),
@@ -275,7 +283,8 @@ struct SessionDetailView: View {
     private func resultRepetitions(_ result: StepResult) -> some View {
         Text(SessionHistoryPresentation.setValueText(result))
             .font(.subheadline.monospacedDigit())
-            .foregroundStyle(result.actualReps == nil && result.weightKg == nil ? .secondary : .primary)
+            .foregroundStyle(result.actualReps == nil && result.weightKg == nil
+                             && !SessionHistoryPresentation.isTimedPerformance(result) ? .secondary : .primary)
     }
 
     private var emptyState: some View {

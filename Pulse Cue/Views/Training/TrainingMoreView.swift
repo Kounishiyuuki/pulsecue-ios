@@ -374,7 +374,7 @@ struct FreeWorkoutView: View {
             HStack {
                 Text("セット").frame(width: 44, alignment: .leading)
                 if card.acceptsWeight { Text("kg").frame(maxWidth: .infinity) }
-                Text("回").frame(maxWidth: .infinity)
+                if card.tracksReps { Text("回").frame(maxWidth: .infinity) }
                 Color.clear.frame(width: 44)
             }
             .font(.caption.weight(.semibold))
@@ -410,8 +410,10 @@ struct FreeWorkoutView: View {
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("セット \(row.number)").font(.body.weight(.semibold))
-                        Text(compactValues(row, card: card))
-                            .font(.body.monospacedDigit())
+                        if let values = compactValues(row, card: card) {
+                            Text(values)
+                                .font(.body.monospacedDigit())
+                        }
                     }
                     Spacer(minLength: 4)
                     completionButton(row)
@@ -438,10 +440,11 @@ struct FreeWorkoutView: View {
         .accessibilityAction(named: "セットを削除") { model.removeSet(row.key) }
     }
 
-    private func compactValues(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String {
-        let reps = "\(row.reps) 回"
+    private func compactValues(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String? {
+        let reps = card.tracksReps ? "\(row.reps) 回" : nil
         guard card.acceptsWeight else { return reps }
-        return "\(row.weightKg.map { "\(SetWeight.number($0)) kg" } ?? "– kg") × \(reps)"
+        let weight = row.weightKg.map { "\(SetWeight.number($0)) kg" } ?? "– kg"
+        return reps.map { "\(weight) × \($0)" } ?? weight
     }
 
     private func completionButton(_ row: FreeWorkoutViewModel.SetRow) -> some View {
@@ -466,9 +469,13 @@ struct FreeWorkoutView: View {
                     .font(.body.monospacedDigit())
                     .frame(maxWidth: .infinity)
             }
-            Text("\(row.reps)")
-                .font(.body.monospacedDigit())
-                .frame(maxWidth: .infinity)
+            if card.tracksReps {
+                Text("\(row.reps)")
+                    .font(.body.monospacedDigit())
+                    .frame(maxWidth: .infinity)
+            } else {
+                Spacer()
+            }
             completionButton(row)
         }
         .frame(minHeight: 44)
@@ -488,16 +495,18 @@ struct FreeWorkoutView: View {
                     }
                 )
             }
-            stepper(
-                value: "\(row.reps) 回",
-                minus: ("−1", "1回減らす", { model.adjustReps(by: -1, for: row.key) }),
-                plus: ("+1", "1回増やす", { model.adjustReps(by: 1, for: row.key) }),
-                valueLabel: "回数 \(row.reps)回",
-                onTapValue: {
-                    entryText = "\(row.reps)"
-                    repsEntry = row.key
-                }
-            )
+            if card.tracksReps {
+                stepper(
+                    value: "\(row.reps) 回",
+                    minus: ("−1", "1回減らす", { model.adjustReps(by: -1, for: row.key) }),
+                    plus: ("+1", "1回増やす", { model.adjustReps(by: 1, for: row.key) }),
+                    valueLabel: "回数 \(row.reps)回",
+                    onTapValue: {
+                        entryText = "\(row.reps)"
+                        repsEntry = row.key
+                    }
+                )
+            }
             let actions = stacks
                 ? AnyLayout(VStackLayout(spacing: 8))
                 : AnyLayout(HStackLayout(spacing: 10))
@@ -599,7 +608,7 @@ struct FreeWorkoutView: View {
     private func rowLabel(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String {
         var parts = ["セット \(row.number)"]
         if card.acceptsWeight { parts.append(row.weightKg.map { "\(SetWeight.number($0))キログラム" } ?? "重量未入力") }
-        parts.append("\(row.reps)回")
+        if card.tracksReps { parts.append("\(row.reps)回") }
         switch row.state {
         case .done: parts.append("完了")
         case .skipped: parts.append("スキップ")
