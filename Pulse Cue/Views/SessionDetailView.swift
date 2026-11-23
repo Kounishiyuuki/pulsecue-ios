@@ -28,14 +28,17 @@ enum SessionHistoryPresentation {
     /// Right-hand text of a set row: "60 kg × 10 回" when a weight was
     /// recorded, otherwise exactly the pre-weight text ("10 回" / "記録なし").
     static func setValueText(_ result: StepResult) -> String {
-        if isTimedPerformance(result) { return ProgressionPresentation.performedText }
+        if isTimedPerformance(result) {
+            return result.actualDurationSeconds.map(SetDuration.text) ?? ProgressionPresentation.performedText
+        }
         let reps = result.actualReps.map { "\($0) 回" }
         guard let weight = result.weightKg else { return reps ?? "記録なし" }
         return reps.map { "\(SetWeight.display(weight)) × \($0)" } ?? SetWeight.display(weight)
     }
 
-    /// A done set of a timed movement: shown as done, never as the rep count
-    /// an older record may still carry.
+    /// A done set of a timed movement: shown with its duration, or — recorded
+    /// without one — as done, never as the rep count an older record may
+    /// still carry.
     static func isTimedPerformance(_ result: StepResult) -> Bool {
         result.done && !WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution)
     }
@@ -44,7 +47,10 @@ enum SessionHistoryPresentation {
     /// before ("セット 1、完了、10回").
     static func setAccessibilityLabel(_ result: StepResult) -> String {
         var parts = ["セット \(result.setIndex + 1)", result.done ? "完了" : "未完了"]
-        if isTimedPerformance(result) { return parts.joined(separator: "、") }
+        if isTimedPerformance(result) {
+            if let seconds = result.actualDurationSeconds { parts.append(SetDuration.text(seconds)) }
+            return parts.joined(separator: "、")
+        }
         if let weight = result.weightKg { parts.append("\(SetWeight.number(weight))キログラム") }
         parts.append(result.actualReps.map { "\($0)回" } ?? "回数記録なし")
         return parts.joined(separator: "、")

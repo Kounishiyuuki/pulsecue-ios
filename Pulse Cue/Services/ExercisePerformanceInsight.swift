@@ -166,7 +166,7 @@ enum PreviousPerformanceQuery {
         results: [StepResult]
     ) -> PreviousPerformance? {
         // A timed set has no rep count to show; an older one that still
-        // carries reps is not shown as reps either (see `lastPerformedDate`).
+        // carries reps is not shown as reps either (see `lastTimedPerformance`).
         guard WorkoutSetSemantics.countsReps(exerciseId: exerciseId) else { return nil }
         let orderByStep = Dictionary(steps.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
         let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -238,18 +238,28 @@ enum PreviousPerformanceQuery {
     }
 }
 
+/// Last time a timed exercise was done: when, and for how long if known.
+struct PreviousTimedPerformance: Equatable {
+    let date: Date
+    /// Sum of that record's done-set durations; `nil` when none of them
+    /// recorded one (before V15, or completed without a duration).
+    let totalSeconds: Int?
+}
+
 extension PreviousPerformanceQuery {
-    /// When `exerciseId` was last performed (a done set in a finished
-    /// session), with no claim about how much. Used for timed movements,
-    /// whose duration is not recorded yet, so the UI can say "実施済み"
-    /// without inventing reps, time, or load.
-    static func lastPerformedDate(
+    /// The newest record of `exerciseId` with a done set in a finished
+    /// session, for timed movements. Its duration is the sum of the record's
+    /// recorded set durations; with none recorded it says only that it was
+    /// done ("実施済み") — never a time or reps made up from older data.
+    /// Same record rules as `latest`: one step's sets in one session, matched
+    /// by what the step was when it ran.
+    static func lastTimedPerformance(
         exerciseId: String,
         excludingSessionId: UUID?,
         steps: [Step],
         sessions: [Session],
         results: [StepResult]
-    ) -> Date? {
+    ) -> PreviousTimedPerformance? {
         let finished = Dictionary(
             sessions.filter { $0.status != .inProgress }.map { ($0.id, $0.startedAt) },
             uniquingKeysWith: { first, _ in first }
@@ -259,12 +269,23 @@ extension PreviousPerformanceQuery {
         let byRecord = Dictionary(
             grouping: results.filter { $0.sessionId != excludingSessionId && finished[$0.sessionId] != nil }
         ) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
-        return byRecord.compactMap { record, recordResults -> Date? in
-            guard recordResults.contains(where: \.done),
-                  HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId]).exerciseId == exerciseId
+        let candidates = byRecord.compactMap { record, recordResults -> (Record, Date, [StepResult])? in
+            let done = recordResults.filter(\.done)
+            guard !done.isEmpty,
+                  HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId]).exerciseId == exerciseId,
+                  let date = finished[record.sessionId]
             else { return nil }
-            return finished[record.sessionId]
-        }.max()
+            return (record, date, done)
+        }
+        // Newest session first; ties resolved by id so the same data always
+        // yields the same record.
+        guard let newest = candidates.max(by: { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+            if lhs.0.sessionId != rhs.0.sessionId { return lhs.0.sessionId.uuidString < rhs.0.sessionId.uuidString }
+            return lhs.0.stepId.uuidString > rhs.0.stepId.uuidString
+        }) else { return nil }
+        let durations = newest.2.compactMap(\.actualDurationSeconds).filter { $0 > 0 }
+        return PreviousTimedPerformance(date: newest.1, totalSeconds: durations.isEmpty ? nil : durations.reduce(0, +))
     }
 }
 
@@ -407,8 +428,14 @@ enum ProgressionPresentation {
     /// "60 kg × 10 / 10 / 10 回" for one load, "60 kg×10 / 57.5 kg×9" for
     /// mixed loads (a set without a load shows reps only), "10 / 10 回" when
     /// no load was recorded.
-    /// Previous-performance line of a timed movement: that it was done, only.
+    /// Previous-performance line of a timed movement with no recorded time:
+    /// that it was done, only.
     static let performedText = "実施済み"
+
+    /// "12分30秒" when last time's duration is known, otherwise "実施済み".
+    static func previousText(_ previous: PreviousTimedPerformance) -> String {
+        previous.totalSeconds.map(SetDuration.text) ?? performedText
+    }
 
     static func previousText(_ previous: PreviousPerformance) -> String {
         let reps = previous.setReps.map(String.init).joined(separator: " / ")

@@ -47,6 +47,11 @@ final class StepResult {
     /// pre-V14 result — unknown, never backfilled from the live step.
     var exerciseIdAtExecution: String?
     var exerciseTitleAtExecution: String?
+    /// How long a done set of a timed exercise actually ran, in seconds
+    /// (schema V15+). Always > 0 when present; `nil` for every other set, and
+    /// for every timed set recorded before V15 or without a duration — such a
+    /// set still reads as "実施済み", never as a guessed time.
+    var actualDurationSeconds: Int?
 
     init(
         id: UUID = UUID(),
@@ -60,7 +65,8 @@ final class StepResult {
         weightKg: Double? = nil,
         plannedSetsAtExecution: Int? = nil,
         exerciseIdAtExecution: String? = nil,
-        exerciseTitleAtExecution: String? = nil
+        exerciseTitleAtExecution: String? = nil,
+        actualDurationSeconds: Int? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -74,6 +80,30 @@ final class StepResult {
         self.plannedSetsAtExecution = plannedSetsAtExecution
         self.exerciseIdAtExecution = exerciseIdAtExecution
         self.exerciseTitleAtExecution = exerciseTitleAtExecution
+        self.actualDurationSeconds = actualDurationSeconds
+    }
+}
+
+/// Validation and display for a timed set's actual duration.
+enum SetDuration {
+    /// Only a positive number of seconds is a duration; 0 or less is no
+    /// recording at all.
+    static func validated(_ seconds: Int?) -> Int? {
+        guard let seconds, seconds > 0 else { return nil }
+        return seconds
+    }
+
+    /// "30秒", "1分", "1分30秒", "12分30秒", "1時間", "1時間1分5秒" — zero
+    /// parts omitted. Also read as is by VoiceOver. Not `DateUtils.formatDuration`
+    /// ("12:30"), which is the session clock: a set's time reads as an amount.
+    static func text(_ seconds: Int) -> String {
+        let total = max(0, seconds)
+        let hours = total / 3600, minutes = (total % 3600) / 60, secs = total % 60
+        var parts: [String] = []
+        if hours > 0 { parts.append("\(hours)時間") }
+        if minutes > 0 { parts.append("\(minutes)分") }
+        if secs > 0 || parts.isEmpty { parts.append("\(secs)秒") }
+        return parts.joined()
     }
 }
 
@@ -144,9 +174,18 @@ enum StepResultWriter {
         done: Bool,
         actualReps: Int?,
         weightKg: Double?,
+        actualDurationSeconds: Int? = nil,
         plannedSets: PlannedSets = .firstWritten
     ) -> StepResult {
         let siblings = results(in: context, sessionId: sessionId, stepId: step.id)
+        // What the set was when it ran decides what it can carry: a timed set
+        // has no reps, any other set has no duration, and a duration is kept
+        // only on a done set and only when positive.
+        let existingSet = siblings.first(where: { $0.setIndex == setIndex })
+        let recordExerciseId = (existingSet ?? siblings.first).map(\.exerciseIdAtExecution) ?? step.exerciseId
+        let isTimed = !WorkoutSetSemantics.countsReps(exerciseId: recordExerciseId ?? step.exerciseId)
+        let reps = isTimed ? nil : actualReps
+        let duration = (isTimed && done) ? SetDuration.validated(actualDurationSeconds) : nil
         defer {
             if case .currentStepSets = plannedSets {
                 for result in self.results(in: context, sessionId: sessionId, stepId: step.id) {
@@ -154,10 +193,11 @@ enum StepResultWriter {
                 }
             }
         }
-        if let existing = siblings.first(where: { $0.setIndex == setIndex }) {
+        if let existing = existingSet {
             existing.done = done
-            existing.actualReps = actualReps
+            existing.actualReps = reps
             existing.weightKg = weightKg
+            existing.actualDurationSeconds = duration
             return existing
         }
         let firstSibling = siblings.min { $0.setIndex < $1.setIndex }
@@ -175,12 +215,13 @@ enum StepResultWriter {
             stepId: step.id,
             setIndex: setIndex,
             done: done,
-            actualReps: actualReps,
+            actualReps: reps,
             ownerAccountID: ownerAccountID,
             weightKg: weightKg,
             plannedSetsAtExecution: planned,
             exerciseIdAtExecution: exerciseId,
-            exerciseTitleAtExecution: exerciseTitle
+            exerciseTitleAtExecution: exerciseTitle,
+            actualDurationSeconds: duration
         )
         context.insert(result)
         return result

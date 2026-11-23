@@ -516,13 +516,13 @@ struct RunnerView: View {
             .background(glassBackground)
             .overlay(glassStroke)
             .accessibilityElement(children: .combine)
-        } else if runnerViewModel.phase == .exercise, let date = runnerViewModel.previousPerformedDate {
+        } else if runnerViewModel.phase == .exercise, let previous = runnerViewModel.previousTimedPerformance {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 previousCaption
-                Text(ProgressionPresentation.performedText)
+                Text(ProgressionPresentation.previousText(previous))
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
-                Text(Self.previousDateFormatter.string(from: date))
+                Text(Self.previousDateFormatter.string(from: previous.date))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

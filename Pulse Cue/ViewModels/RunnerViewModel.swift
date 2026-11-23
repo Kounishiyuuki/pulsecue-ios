@@ -40,7 +40,7 @@ final class RunnerViewModel: ObservableObject {
     /// exercise change (see `refreshExerciseInsight`), never per rest tick.
     @Published private(set) var previousPerformance: PreviousPerformance?
     /// For a timed exercise: when it was last done. Shown as "実施済み".
-    @Published private(set) var previousPerformedDate: Date?
+    @Published private(set) var previousTimedPerformance: PreviousTimedPerformance?
     @Published private(set) var progression: ProgressionSuggestion?
     /// Non-nil only between a *completed* finish and the user dismissing the
     /// Workout Completion screen. Purely presentational: the session it
@@ -129,7 +129,7 @@ final class RunnerViewModel: ObservableObject {
         restDeadline = nil
         remainingSeconds = 0
         previousPerformance = nil
-        previousPerformedDate = nil
+        previousTimedPerformance = nil
         progression = nil
     }
 
@@ -399,7 +399,7 @@ final class RunnerViewModel: ObservableObject {
     func refreshExerciseInsight() {
         guard let modelContext, let step = currentStep, let exerciseId = step.exerciseId else {
             previousPerformance = nil
-            previousPerformedDate = nil
+            previousTimedPerformance = nil
             progression = nil
             return
         }
@@ -423,7 +423,7 @@ final class RunnerViewModel: ObservableObject {
         // resolvable exercise) are treated as rep-trainable.
         let isCardio = resolvedExercise(for: step)?.movementPattern == .cardio
         previousPerformance = previous
-        previousPerformedDate = currentStepTracksReps ? nil : PreviousPerformanceQuery.lastPerformedDate(
+        previousTimedPerformance = currentStepTracksReps ? nil : PreviousPerformanceQuery.lastTimedPerformance(
             exerciseId: exerciseId, excludingSessionId: sessionId,
             steps: allSteps, sessions: allSessions, results: allResults
         )
