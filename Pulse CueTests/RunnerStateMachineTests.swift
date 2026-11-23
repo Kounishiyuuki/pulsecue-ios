@@ -857,8 +857,10 @@ struct RunnerSetWeightTests {
         #expect(!fx.viewModel.currentStepAcceptsWeight)
         fx.viewModel.setCurrentWeight(20)
         #expect(fx.viewModel.currentWeightKg == nil)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "5"))
         try Self.complete(fx.viewModel)
         #expect(try Self.results(fx).first?.weightKg == nil)
+        #expect(fx.viewModel.currentDuration == DurationEntry())   // the next set starts empty
         // Custom / unresolved exercise accepts a weight.
         #expect(fx.viewModel.currentStepAcceptsWeight)
     }

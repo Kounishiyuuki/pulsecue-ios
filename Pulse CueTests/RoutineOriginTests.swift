@@ -1452,6 +1452,7 @@ struct FreeWorkoutViewModelTests {
         let context = ModelContext(try makeContainer())
         let model = try open(context)
         model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        model.setDuration(DurationEntry(minutes: "10"), for: key(model, card: 0, set: 0))
         model.complete(key(model, card: 0, set: 0))
         model.finish(now: model.startedAt.addingTimeInterval(600))
         #expect(try #require(model.completion).estimatedCalories == nil)
@@ -1462,6 +1463,7 @@ struct FreeWorkoutViewModelTests {
         context.insert(DayLog(date: DateUtils.startOfDay(Date().addingTimeInterval(-86_400)), weightKg: 80))
         let model = try open(context)
         model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        model.setDuration(DurationEntry(minutes: "10"), for: key(model, card: 0, set: 0))
         model.complete(key(model, card: 0, set: 0))
         model.finish(now: model.startedAt.addingTimeInterval(600))
         let summary = try #require(model.completion)
@@ -1478,6 +1480,7 @@ struct FreeWorkoutViewModelTests {
         #expect(card.tracksReps == false)
         #expect(card.acceptsWeight == false)
         model.setReps(12, for: key(model, card: 0, set: 0))   // ignored for a timed set
+        model.setDuration(DurationEntry(minutes: "10"), for: key(model, card: 0, set: 0))
         model.complete(key(model, card: 0, set: 0))
 
         let result = try #require(all(StepResult.self, context).first)
@@ -1491,12 +1494,15 @@ struct FreeWorkoutViewModelTests {
         #expect(summary.totalVolumeKg == 0)
     }
 
-    /// Logs one done treadmill set in a finished Free Workout; `legacyReps`
-    /// stands in for an older record that still stored a rep count.
+    /// Logs one done treadmill set with no duration in a finished Free
+    /// Workout — a record from before durations were entered, written through
+    /// the domain's duration-free path the screen no longer reaches.
+    /// `legacyReps` stands in for an older record that still stored a rep count.
     private func logPastTreadmill(_ context: ModelContext, legacyReps: Int? = nil) throws {
         let past = try open(context)
         past.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
-        past.complete(key(past, card: 0, set: 0))
+        let step = try #require(past.session.steps.first)
+        try #require(past.session.completeSet(at: 0, of: step, reps: nil, weightKg: nil))
         if let legacyReps { all(StepResult.self, context).first?.actualReps = legacyReps }
         past.finish(now: past.startedAt.addingTimeInterval(600))
         #expect(past.finishOutcome == .saved)
@@ -1518,6 +1524,181 @@ struct FreeWorkoutViewModelTests {
         #expect(past.session.completeTimedSet(at: 0, of: step, durationSeconds: seconds) != nil)
         past.finish(now: past.startedAt.addingTimeInterval(900))
         #expect(past.finishOutcome == .saved)
+    }
+
+    // MARK: timed duration input (PR-B)
+
+    private func addTreadmill(_ model: FreeWorkoutViewModel) -> FreeWorkoutViewModel.RowKey {
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        return key(model, card: 0, set: 0)
+    }
+
+    @Test func aTypedDurationCompletesTheTimedSet() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        let row = addTreadmill(model)
+        #expect(model.row(row)?.duration == DurationEntry())          // no fake default
+        model.setDuration(DurationEntry(minutes: "12", seconds: "30"), for: row)
+        #expect(model.row(row)?.durationIssue(tracksReps: false) == nil)
+        model.complete(row)
+        let result = try #require(all(StepResult.self, context).first)
+        #expect(result.done)
+        #expect(result.actualDurationSeconds == 750)
+        #expect(result.actualReps == nil)
+        #expect(model.row(row)?.state == .done)
+        #expect(model.row(row)?.duration == DurationEntry(minutes: "12", seconds: "30"))
+    }
+
+    @Test func aTimedSetCannotBeCompletedWithoutAValidDuration() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        let row = addTreadmill(model)
+        let cases: [(DurationEntry, DurationEntry.Issue)] = [
+            (DurationEntry(), .empty),
+            (DurationEntry(minutes: "0", seconds: "0"), .zero),
+            (DurationEntry(minutes: "1", seconds: "60"), .invalidSeconds),
+            (DurationEntry(seconds: "90"), .invalidSeconds),
+        ]
+        for (entry, issue) in cases {
+            model.setDuration(entry, for: row)
+            #expect(model.row(row)?.duration == entry)               // kept as typed: 90 is not 59 or 1:30
+            #expect(model.row(row)?.durationIssue(tracksReps: false) == issue)
+            model.complete(row)
+            #expect(all(StepResult.self, context).isEmpty)
+            #expect(model.row(row)?.state == .draft)
+        }
+    }
+
+    @Test func aTypedDurationSurvivesCloseAndResume() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        let row = addTreadmill(flow.model)
+        flow.model.setDuration(DurationEntry(minutes: "12", seconds: "30"), for: row)
+        try flow.closeAndResume()
+        #expect(flow.model.row(row)?.duration == DurationEntry(minutes: "12", seconds: "30"))
+        // Resumed from History's in-progress entry, too.
+        let id = flow.model.id
+        flow.launcher.workoutScreenClosed()
+        #expect(flow.launcher.resume(sessionId: id))
+        #expect(flow.model.row(row)?.duration == DurationEntry(minutes: "12", seconds: "30"))
+        #expect(all(StepResult.self, context).isEmpty)               // still a draft
+
+        flow.model.complete(row)
+        #expect(store.drafts(for: id)[row] == nil)
+        #expect(all(StepResult.self, context).first?.actualDurationSeconds == 750)
+    }
+
+    @Test func skippingATimedSetStoresNoDurationAndDropsTheDraft() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        let row = addTreadmill(flow.model)
+        flow.model.setDuration(DurationEntry(minutes: "5"), for: row)
+        flow.model.skip(row)
+        let result = try #require(all(StepResult.self, context).first)
+        #expect(!result.done)
+        #expect(result.actualDurationSeconds == nil)
+        #expect(store.drafts(for: flow.model.id)[row] == nil)
+        #expect(!SessionHistoryPresentation.isTimedPerformance(result))   // shown as a skip, as before
+    }
+
+    @Test func durationDraftsFollowSetDeletionAndExerciseRemoval() throws {
+        let context = ModelContext(try makeContainer())
+        let store = FreeWorkoutDraftStore()
+        let flow = try flow(context, store)
+        let first = addTreadmill(flow.model)
+        flow.model.addSet(to: first.stepId)
+        let second = key(flow.model, card: 0, set: 1)
+        flow.model.setDuration(DurationEntry(minutes: "3"), for: first)
+        flow.model.setDuration(DurationEntry(minutes: "7", seconds: "30"), for: second)
+
+        flow.model.removeSet(first)
+        #expect(flow.model.row(first)?.duration == DurationEntry(minutes: "7", seconds: "30"))
+        #expect(flow.model.row(second) == nil)
+
+        flow.model.removeExercise(first.stepId)
+        #expect(store.drafts(for: flow.model.id).isEmpty)
+    }
+
+    @Test func editingADoneTimedSetReplacesItsDuration() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        let row = addTreadmill(model)
+        model.setDuration(DurationEntry(minutes: "12", seconds: "30"), for: row)
+        model.complete(row)
+
+        // An invalid edit is shown with its reason and the record is untouched.
+        model.setDuration(DurationEntry(minutes: "15", seconds: "75"), for: row)
+        #expect(model.row(row)?.durationIssue(tracksReps: false) == .invalidSeconds)
+        #expect(all(StepResult.self, context).first?.actualDurationSeconds == 750)
+
+        model.setDuration(DurationEntry(minutes: "15"), for: row)
+        let results = all(StepResult.self, context)
+        #expect(results.count == 1)
+        #expect(results.first?.actualDurationSeconds == 900)
+        #expect(model.row(row)?.durationIssue(tracksReps: false) == nil)
+    }
+
+    @Test func aDurationTypedInTheScreenReachesHistoryAndPrevious() throws {
+        let context = ModelContext(try makeContainer())
+        let past = try open(context)
+        let row = addTreadmill(past)
+        past.setDuration(DurationEntry(minutes: "12", seconds: "30"), for: row)
+        past.complete(row)
+        past.finish(now: past.startedAt.addingTimeInterval(900))
+        #expect(past.finishOutcome == .saved)
+        let stored = try #require(all(StepResult.self, context).first)
+        #expect(SessionHistoryPresentation.setValueText(stored) == "12分30秒")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(stored) == "セット 1、完了、12分30秒")
+
+        let next = try open(context)
+        _ = addTreadmill(next)
+        #expect(next.cards.first?.previousText == "12分30秒")
+    }
+
+    @Test func aRepExerciseTakesNoDurationFromTheScreen() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let row = key(model, card: 0, set: 0)
+        model.setDuration(DurationEntry(minutes: "5"), for: row)     // ignored
+        #expect(model.row(row)?.duration == DurationEntry())
+        #expect(model.row(row)?.durationIssue(tracksReps: true) == nil)
+        model.setWeight(80, for: row); model.setReps(10, for: row)
+        model.complete(row)
+        let result = try #require(all(StepResult.self, context).first)
+        #expect(result.weightKg == 80 && result.actualReps == 10)
+        #expect(result.actualDurationSeconds == nil)
+        #expect(SessionHistoryPresentation.setValueText(result) == "80 kg × 10 回")
+    }
+
+    @Test func durationEntryParsesWithoutCorrecting() {
+        #expect(DurationEntry(minutes: "12", seconds: "30").totalSeconds == 750)
+        #expect(DurationEntry(minutes: "5").totalSeconds == 300)
+        #expect(DurationEntry(seconds: "45").totalSeconds == 45)
+        #expect(DurationEntry(minutes: " 2 ", seconds: "05").totalSeconds == 125)
+        #expect(DurationEntry().issue == .empty)
+        #expect(DurationEntry(minutes: "0").issue == .zero)
+        #expect(DurationEntry(seconds: "60").issue == .invalidSeconds)
+        #expect(DurationEntry(seconds: "-5").issue == .invalidSeconds)
+        #expect(DurationEntry(minutes: "1.5").issue == .invalidMinutes)
+        #expect(DurationEntry(minutes: "abc").issue == .invalidMinutes)
+        #expect(DurationEntry(minutes: "\(DurationEntry.maximumMinutes + 1)").issue == .invalidMinutes)
+        #expect(DurationEntry(minutes: "１２").issue == .invalidMinutes)  // full-width digits are not read as 12
+
+        #expect(DurationEntry(totalSeconds: 750) == DurationEntry(minutes: "12", seconds: "30"))
+        #expect(DurationEntry(totalSeconds: 900) == DurationEntry(minutes: "15"))
+        #expect(DurationEntry(totalSeconds: nil) == DurationEntry())
+        #expect(DurationEntry(totalSeconds: 0) == DurationEntry())
+
+        #expect(DurationEntry().adjustingMinutes(by: 1) == DurationEntry(minutes: "1"))
+        #expect(DurationEntry(minutes: "0", seconds: "30").adjustingMinutes(by: -1) == DurationEntry(minutes: "0", seconds: "30"))
+        #expect(DurationEntry(minutes: "12", seconds: "30").adjustingMinutes(by: 1).totalSeconds == 810)
+
+        #expect(DurationEntry().displayText == "未入力")
+        #expect(DurationEntry(minutes: "12", seconds: "30").displayText == "12 分 30 秒")
+        #expect(DurationEntry(minutes: "5").displayText == "5 分")
     }
 
     @Test func aTimedSetStoresItsDurationAndNoReps() throws {

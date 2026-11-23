@@ -107,6 +107,85 @@ enum SetDuration {
     }
 }
 
+/// A timed set's duration as typed: minutes and seconds kept as entered, so
+/// an out-of-range value is shown back with its reason instead of being
+/// silently corrected — 90 seconds is never turned into 59 or into 1:30.
+/// Both empty is "not entered yet": a new set has no fake default.
+struct DurationEntry: Equatable {
+    /// 24 hours: anything longer is a typo, not a set.
+    static let maximumMinutes = 24 * 60
+
+    enum Issue: Equatable {
+        case empty, invalidMinutes, invalidSeconds, zero
+
+        /// Why the set cannot be completed yet, in one line.
+        var message: String {
+            switch self {
+            case .empty: return "時間を入力してください"
+            case .invalidMinutes: return "分は0〜\(DurationEntry.maximumMinutes)で入力してください"
+            case .invalidSeconds: return "秒は0〜59で入力してください"
+            case .zero: return "0秒より長い時間を入力してください"
+            }
+        }
+    }
+
+    var minutes: String = ""
+    var seconds: String = ""
+
+    init(minutes: String = "", seconds: String = "") {
+        self.minutes = minutes
+        self.seconds = seconds
+    }
+
+    /// A recorded duration, shown as whole minutes and remaining seconds.
+    init(totalSeconds: Int?) {
+        guard let total = SetDuration.validated(totalSeconds) else { return }
+        minutes = "\(total / 60)"
+        seconds = total % 60 == 0 ? "" : "\(total % 60)"
+    }
+
+    var issue: Issue? {
+        let m = minutes.trimmingCharacters(in: .whitespaces)
+        let s = seconds.trimmingCharacters(in: .whitespaces)
+        if m.isEmpty && s.isEmpty { return .empty }
+        guard let mins = m.isEmpty ? 0 : Self.number(m), mins <= Self.maximumMinutes else { return .invalidMinutes }
+        guard let secs = s.isEmpty ? 0 : Self.number(s), secs <= 59 else { return .invalidSeconds }
+        return mins * 60 + secs > 0 ? nil : .zero
+    }
+
+    /// The duration in seconds, or nil while `issue` is not nil.
+    var totalSeconds: Int? {
+        guard issue == nil else { return nil }
+        let m = minutes.trimmingCharacters(in: .whitespaces), s = seconds.trimmingCharacters(in: .whitespaces)
+        return (Self.number(m) ?? 0) * 60 + (Self.number(s) ?? 0)
+    }
+
+    /// −1分 / +1分: whole minutes, never below 0, seconds untouched. An
+    /// unreadable minutes value counts as 0.
+    func adjustingMinutes(by delta: Int) -> DurationEntry {
+        let current = Self.number(minutes.trimmingCharacters(in: .whitespaces)) ?? 0
+        let next = min(Self.maximumMinutes, max(0, current + delta))
+        return DurationEntry(minutes: "\(next)", seconds: seconds)
+    }
+
+    /// "12 分 30 秒", "12 分", "30 秒"; "未入力" when nothing was typed.
+    var displayText: String {
+        if issue == .empty { return "未入力" }
+        let m = minutes.trimmingCharacters(in: .whitespaces), s = seconds.trimmingCharacters(in: .whitespaces)
+        return [m.isEmpty ? nil : "\(m) 分", s.isEmpty ? nil : "\(s) 秒"].compactMap { $0 }.joined(separator: " ")
+    }
+
+    /// Plain digits only: no sign, no decimals.
+    private static func number(_ text: String) -> Int? {
+        guard !text.isEmpty, text.count <= 6, text.allSatisfy(\.isASCIIDigit) else { return nil }
+        return Int(text)
+    }
+}
+
+private extension Character {
+    var isASCIIDigit: Bool { isASCII && isNumber }
+}
+
 /// Validation and display for a per-set load in kilograms. One place so the
 /// Runner, History, and tests agree on what is storable and how it reads.
 enum SetWeight {
