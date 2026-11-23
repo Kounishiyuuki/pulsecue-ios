@@ -4,7 +4,8 @@
 //
 //  The "進捗" detail screen reached from Home. Read-only over History: this
 //  week's volume, and per-exercise recent progress (latest vs previous reps
-//  and a reps-only personal best). All figures come from the pure
+//  and a reps-only personal best; for timed exercises, latest / previous /
+//  best workout duration). All figures come from the pure
 //  `WorkoutProgress` derivations, recomputed on appear / History change — not
 //  per body render. No chart, no invented metrics.
 //
@@ -27,6 +28,7 @@ struct WorkoutProgressView: View {
 
     @State private var summary: HomeProgressSummary = .empty
     @State private var insights: [ExerciseProgressInsight] = []
+    @State private var durationInsights: [ExerciseDurationProgressInsight] = []
 
     var body: some View {
         ZStack {
@@ -71,6 +73,7 @@ struct WorkoutProgressView: View {
     private func recompute() {
         summary = HomeProgressSummary.make(sessions: sessions, results: stepResults, routines: routines)
         insights = WorkoutProgressQuery.exerciseInsights(steps: allSteps, sessions: sessions, results: stepResults, limit: 8)
+        durationInsights = WorkoutProgressQuery.durationInsights(steps: allSteps, sessions: sessions, results: stepResults, limit: 8)
     }
 
     // MARK: - Weekly
@@ -108,6 +111,9 @@ struct WorkoutProgressView: View {
                 ForEach(insights) { insight in
                     exerciseRow(insight)
                 }
+                ForEach(durationInsights) { insight in
+                    durationRow(insight)
+                }
             }
         }
     }
@@ -128,6 +134,35 @@ struct WorkoutProgressView: View {
                 }
                 Spacer(minLength: 8)
                 Text("最多 \(insight.personalBestReps) 回")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(AppTheme.accentSoft))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .pulseCard()
+    }
+
+    /// A timed exercise: per-workout totals instead of rep lists, laid out
+    /// like `exerciseRow`.
+    private func durationRow(_ insight: ExerciseDurationProgressInsight) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(insight.exerciseName)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                trendTag(insight.trend)
+            }
+            HStack(spacing: 8) {
+                metaLabel("最新", SetDuration.text(insight.latestSeconds))
+                if let previous = insight.previousSeconds {
+                    metaLabel("前回", SetDuration.text(previous))
+                }
+                Spacer(minLength: 8)
+                Text("ベスト \(SetDuration.text(insight.bestSeconds))")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.accent)
                     .padding(.horizontal, 8).padding(.vertical, 3)

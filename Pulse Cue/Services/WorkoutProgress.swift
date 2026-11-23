@@ -187,6 +187,33 @@ struct ExerciseProgressInsight: Equatable, Identifiable {
     }
 }
 
+/// Recent progress for one timed exercise: how long it ran per workout.
+/// A workout's figure is the sum of `actualDurationSeconds` over the done
+/// sets of every step of that exercise in that session — the same "one
+/// workout's total" the set editor's 前回 line reads. Only recorded
+/// durations count: a done timed set from before durations were entered
+/// reads as "実施済み" elsewhere and is never turned into a time here.
+struct ExerciseDurationProgressInsight: Equatable, Identifiable {
+    let exerciseId: String
+    let exerciseName: String
+    /// The most recent workout with a recorded duration, in seconds.
+    let latestSeconds: Int
+    /// The one before that, if any.
+    let previousSeconds: Int?
+    /// The longest workout total ever.
+    let bestSeconds: Int
+
+    var id: String { exerciseId }
+
+    /// Longer than last time reads as up.
+    var trend: ExerciseProgressInsight.Trend {
+        guard let previousSeconds else { return .unknown }
+        if latestSeconds > previousSeconds { return .up }
+        if latestSeconds < previousSeconds { return .down }
+        return .flat
+    }
+}
+
 enum WorkoutProgressQuery {
 
     /// A value that changes whenever `exerciseInsights` would return something
@@ -215,6 +242,7 @@ enum WorkoutProgressQuery {
         let id: UUID
         let done: Bool
         let actualReps: Int?
+        let actualDurationSeconds: Int?
         let sessionId: UUID
         let stepId: UUID
         let setIndex: Int
@@ -242,6 +270,7 @@ enum WorkoutProgressQuery {
                     id: $0.id,
                     done: $0.done,
                     actualReps: $0.actualReps,
+                    actualDurationSeconds: $0.actualDurationSeconds,
                     sessionId: $0.sessionId,
                     stepId: $0.stepId,
                     setIndex: $0.setIndex,
@@ -283,7 +312,7 @@ enum WorkoutProgressQuery {
 
         for (record, recordResults) in byRecord {
             let identity = HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId])
-            // Timed movements have no reps to chart (duration is not recorded yet).
+            // Timed movements have no reps; see `durationInsights`.
             guard let exerciseId = identity.exerciseId,
                   WorkoutSetSemantics.countsReps(exerciseId: exerciseId) else { continue }
             let date = startedAt[record.sessionId] ?? .distantPast
@@ -328,6 +357,77 @@ enum WorkoutProgressQuery {
         }
 
         // Most recently trained first; exercise id as a stable tie-break.
+        return insights.sorted { lhs, rhs in
+            let l = byExercise[lhs.exerciseId]?.lastActivity ?? .distantPast
+            let r = byExercise[rhs.exerciseId]?.lastActivity ?? .distantPast
+            if l != r { return l > r }
+            return lhs.exerciseId < rhs.exerciseId
+        }
+        .prefix(limit)
+        .map { $0 }
+    }
+
+    /// Per-timed-exercise insights, most-recently-trained first, limited to
+    /// `limit`. Same inputs, identity and session rules as `exerciseInsights`
+    /// (completed sessions only, the exercise a set was when it ran); timed is
+    /// `WorkoutSetSemantics`' call, never a list kept here. Deterministic.
+    static func durationInsights(
+        steps: [Step],
+        sessions: [Session],
+        results: [StepResult],
+        limit: Int = 5
+    ) -> [ExerciseDurationProgressInsight] {
+        let completed = Set(sessions.filter { $0.status == .completed }.map(\.id))
+        let startedAt = Dictionary(sessions.map { ($0.id, $0.startedAt) }, uniquingKeysWith: { first, _ in first })
+        let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        struct Record: Hashable { let sessionId: UUID; let stepId: UUID }
+        let byRecord = Dictionary(grouping: results.filter { completed.contains($0.sessionId) }) {
+            Record(sessionId: $0.sessionId, stepId: $0.stepId)
+        }
+
+        // exerciseId → [sessionId: total seconds]; two steps of the same
+        // exercise in one workout add up.
+        struct Agg { var bySession: [UUID: Int] = [:]; var lastActivity = Date.distantPast; var name: String?; var nameDate = Date.distantPast }
+        var byExercise: [String: Agg] = [:]
+
+        for (record, recordResults) in byRecord {
+            let identity = HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId])
+            guard let exerciseId = identity.exerciseId,
+                  !WorkoutSetSemantics.countsReps(exerciseId: exerciseId) else { continue }
+            let seconds = recordResults
+                .filter(\.done)
+                .compactMap { SetDuration.validated($0.actualDurationSeconds) }
+            guard !seconds.isEmpty else { continue }
+            let date = startedAt[record.sessionId] ?? .distantPast
+            var agg = byExercise[exerciseId] ?? Agg()
+            agg.bySession[record.sessionId, default: 0] += seconds.reduce(0, +)
+            agg.lastActivity = max(agg.lastActivity, date)
+            if let title = identity.title,
+               agg.name == nil || date > agg.nameDate || (date == agg.nameDate && title < agg.name!) {
+                agg.name = title
+                agg.nameDate = date
+            }
+            byExercise[exerciseId] = agg
+        }
+
+        let insights: [ExerciseDurationProgressInsight] = byExercise.compactMap { exerciseId, agg in
+            let ordered = agg.bySession.keys.sorted { lhs, rhs in
+                let l = startedAt[lhs] ?? .distantPast
+                let r = startedAt[rhs] ?? .distantPast
+                if l != r { return l > r }
+                return lhs.uuidString > rhs.uuidString
+            }
+            guard let latestId = ordered.first, let latest = agg.bySession[latestId],
+                  let best = agg.bySession.values.max() else { return nil }
+            return ExerciseDurationProgressInsight(
+                exerciseId: exerciseId,
+                exerciseName: agg.name ?? exerciseId,
+                latestSeconds: latest,
+                previousSeconds: ordered.dropFirst().first.flatMap { agg.bySession[$0] },
+                bestSeconds: best
+            )
+        }
+
         return insights.sorted { lhs, rhs in
             let l = byExercise[lhs.exerciseId]?.lastActivity ?? .distantPast
             let r = byExercise[rhs.exerciseId]?.lastActivity ?? .distantPast
