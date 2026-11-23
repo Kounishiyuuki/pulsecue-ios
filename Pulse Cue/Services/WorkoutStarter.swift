@@ -264,13 +264,29 @@ final class FreeWorkoutSession {
         write(setIndex: setIndex, of: step, done: true, reps: reps.map { max(0, $0) }, weightKg: SetWeight.validated(weightKg))
     }
 
+    /// Records set row `setIndex` of a timed exercise as done with how long it
+    /// actually ran. Refused (nil, nothing written) unless the step is timed
+    /// and `durationSeconds` is positive — this path never stores a timed set
+    /// without a duration.
+    ///
+    /// Transitional: the set editor cannot enter a duration yet, so a timed
+    /// set may still be completed through `completeSet` (no duration, read as
+    /// "実施済み"). Once the editor sends durations, that path is closed for
+    /// timed steps and this one becomes the only way to complete them.
+    @discardableResult
+    func completeTimedSet(at setIndex: Int, of step: Step, durationSeconds: Int?) -> StepResult? {
+        guard !WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId),
+              let duration = SetDuration.validated(durationSeconds) else { return nil }
+        return write(setIndex: setIndex, of: step, done: true, reps: nil, weightKg: nil, durationSeconds: duration)
+    }
+
     /// Records set row `setIndex` as skipped — logged, not performed.
     @discardableResult
     func skipSet(at setIndex: Int, of step: Step) -> StepResult? {
         write(setIndex: setIndex, of: step, done: false, reps: nil, weightKg: nil)
     }
 
-    private func write(setIndex: Int, of step: Step, done: Bool, reps: Int?, weightKg: Double?) -> StepResult? {
+    private func write(setIndex: Int, of step: Step, done: Bool, reps: Int?, weightKg: Double?, durationSeconds: Int? = nil) -> StepResult? {
         guard isActive, owns(step), (0..<step.sets).contains(setIndex) else { return nil }
         return StepResultWriter.record(
             in: context,
@@ -281,6 +297,7 @@ final class FreeWorkoutSession {
             done: done,
             actualReps: reps,
             weightKg: weightKg,
+            actualDurationSeconds: durationSeconds,
             plannedSets: .currentStepSets
         )
     }
@@ -326,10 +343,10 @@ final class FreeWorkoutSession {
     }
 
     /// When `step`'s exercise was last performed, from the same history.
-    func lastPerformedDate(for step: Step) -> Date? {
+    func lastTimedPerformance(for step: Step) -> PreviousTimedPerformance? {
         guard let exerciseId = step.exerciseId else { return nil }
         let scope = historyScope
-        return PreviousPerformanceQuery.lastPerformedDate(
+        return PreviousPerformanceQuery.lastTimedPerformance(
             exerciseId: exerciseId,
             excludingSessionId: session.id,
             steps: (try? context.fetch(FetchDescriptor<Step>())) ?? [],
@@ -401,10 +418,16 @@ final class FreeWorkoutSession {
         return true
     }
 
-    /// A timed set is performed without a rep count.
+    /// A rep-counted set is performed with a rep count; a timed set with a
+    /// positive duration. A done timed set with no duration (recorded before
+    /// V15, or before the editor sends durations) still counts: it was done,
+    /// and dropping it would erase a real workout.
     static func isPerformance(_ result: StepResult) -> Bool {
-        result.done && (result.actualReps != nil
-            || !WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution))
+        guard result.done else { return false }
+        if WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution) {
+            return result.actualReps != nil
+        }
+        return result.actualDurationSeconds.map { $0 > 0 } ?? true
     }
 
     private func deleteEverything() {

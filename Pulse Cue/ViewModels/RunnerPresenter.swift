@@ -483,7 +483,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         if let cached = previousTextByStep[step.id] { return cached }
         let text = tracksReps(step)
             ? session.previousPerformance(for: step).map(ProgressionPresentation.previousText)
-            : session.lastPerformedDate(for: step).map { _ in ProgressionPresentation.performedText }
+            : session.lastTimedPerformance(for: step).map(ProgressionPresentation.previousText)
         previousTextByStep[step.id] = text
         return text
     }

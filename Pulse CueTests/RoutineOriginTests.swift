@@ -1502,6 +1502,168 @@ struct FreeWorkoutViewModelTests {
         #expect(past.finishOutcome == .saved)
     }
 
+    // MARK: timed duration (V15)
+
+    private func openIn(_ context: ModelContext, scope: WorkoutDataScope) throws -> FreeWorkoutViewModel {
+        let launcher = launcher(context, scope: scope)
+        launcher.start()
+        return try #require(launcher.presented)
+    }
+
+    /// Finishes a Free Workout of one treadmill set of `seconds` in `scope`.
+    private func logPastTimedTreadmill(_ context: ModelContext, seconds: Int, scope: WorkoutDataScope = .guest) throws {
+        let past = try openIn(context, scope: scope)
+        past.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        let step = try #require(past.session.steps.first)
+        #expect(past.session.completeTimedSet(at: 0, of: step, durationSeconds: seconds) != nil)
+        past.finish(now: past.startedAt.addingTimeInterval(900))
+        #expect(past.finishOutcome == .saved)
+    }
+
+    @Test func aTimedSetStoresItsDurationAndNoReps() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        let step = try #require(model.session.steps.first)
+        let result = try #require(model.session.completeTimedSet(at: 0, of: step, durationSeconds: 750))
+        #expect(result.done)
+        #expect(result.actualDurationSeconds == 750)
+        #expect(result.actualReps == nil)
+        #expect(result.exerciseIdAtExecution == "treadmill_warmup")
+        #expect(result.plannedSetsAtExecution == step.sets)
+    }
+
+    @Test func aTimedSetWithoutAPositiveDurationIsRefused() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        let step = try #require(model.session.steps.first)
+        #expect(model.session.completeTimedSet(at: 0, of: step, durationSeconds: nil) == nil)
+        #expect(model.session.completeTimedSet(at: 0, of: step, durationSeconds: 0) == nil)
+        #expect(model.session.completeTimedSet(at: 0, of: step, durationSeconds: -30) == nil)
+        #expect(all(StepResult.self, context).isEmpty)
+    }
+
+    @Test func aRepExerciseNeverTakesADuration() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let step = try #require(model.session.steps.first)
+        #expect(model.session.completeTimedSet(at: 0, of: step, durationSeconds: 600) == nil)
+        let bench = try #require(model.session.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        #expect(bench.actualReps == 10)
+        #expect(bench.weightKg == 80)
+        #expect(bench.actualDurationSeconds == nil)
+        // Even handed one directly, the writer keeps a rep set duration-free.
+        let direct = StepResultWriter.record(in: context, sessionId: model.session.session.id, ownerAccountID: nil, step: step,
+                                             setIndex: 0, done: true, actualReps: 10, weightKg: 80, actualDurationSeconds: 600)
+        #expect(direct.actualDurationSeconds == nil)
+        #expect(direct.actualReps == 10)
+    }
+
+    @Test func overwritingATimedSetReplacesItsDuration() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        let step = try #require(model.session.steps.first)
+        model.session.completeTimedSet(at: 0, of: step, durationSeconds: 750)
+        model.session.completeTimedSet(at: 0, of: step, durationSeconds: 600)
+        #expect(all(StepResult.self, context).map(\.actualDurationSeconds) == [600])
+        // Skipped afterwards: no duration left behind.
+        model.session.skipSet(at: 0, of: step)
+        #expect(all(StepResult.self, context).map(\.actualDurationSeconds) == [nil])
+    }
+
+    @Test func aTimedSetIsPerformedWithADurationOrAsAnOlderRecordWithout() {
+        let timedNew = StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: true,
+                                  exerciseIdAtExecution: "treadmill_warmup", actualDurationSeconds: 750)
+        let timedOld = StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: true,
+                                  exerciseIdAtExecution: "treadmill_warmup")
+        let timedSkipped = StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: false,
+                                      exerciseIdAtExecution: "treadmill_warmup")
+        let benchNoReps = StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: true,
+                                     exerciseIdAtExecution: "bench_press")
+        #expect(FreeWorkoutSession.isPerformance(timedNew))
+        #expect(FreeWorkoutSession.isPerformance(timedOld))
+        #expect(!FreeWorkoutSession.isPerformance(timedSkipped))
+        #expect(!FreeWorkoutSession.isPerformance(benchNoReps))
+    }
+
+    @Test func durationTextReadsAsAnAmountOfTime() {
+        #expect(SetDuration.text(30) == "30秒")
+        #expect(SetDuration.text(60) == "1分")
+        #expect(SetDuration.text(90) == "1分30秒")
+        #expect(SetDuration.text(750) == "12分30秒")
+        #expect(SetDuration.text(3_600) == "1時間")
+        #expect(SetDuration.text(3_665) == "1時間1分5秒")
+        #expect(SetDuration.validated(0) == nil)
+        #expect(SetDuration.validated(-1) == nil)
+        #expect(SetDuration.validated(nil) == nil)
+        #expect(SetDuration.validated(1) == 1)
+    }
+
+    @Test func historyShowsATimedSetsDuration() throws {
+        let context = ModelContext(try makeContainer())
+        try logPastTimedTreadmill(context, seconds: 750)
+        let stored = try #require(all(StepResult.self, context).first)
+        #expect(SessionHistoryPresentation.setValueText(stored) == "12分30秒")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(stored) == "セット 1、完了、12分30秒")
+        #expect(all(Session.self, context).first?.status == .completed)
+    }
+
+    @Test func previousShowsLastTimesDuration() throws {
+        let context = ModelContext(try makeContainer())
+        try logPastTimedTreadmill(context, seconds: 750)
+        let next = try open(context)
+        next.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(next.cards.first?.previousText == "12分30秒")
+    }
+
+    @Test func previousTimedPerformanceStaysWithItsOwner() throws {
+        let context = ModelContext(try makeContainer())
+        let accountA = UUID(), accountB = UUID()
+        try logPastTimedTreadmill(context, seconds: 750, scope: .account(accountA))
+
+        let asB = try openIn(context, scope: .account(accountB))
+        asB.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(asB.cards.first?.previousText == nil)
+        asB.discard()
+
+        let asGuest = try openIn(context, scope: .guest)
+        asGuest.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(asGuest.cards.first?.previousText == nil)
+        asGuest.discard()
+
+        let asA = try openIn(context, scope: .account(accountA))
+        asA.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(asA.cards.first?.previousText == "12分30秒")
+    }
+
+    @Test func guestTimedHistoryIsReadOnlyByGuest() throws {
+        let context = ModelContext(try makeContainer())
+        try logPastTimedTreadmill(context, seconds: 600)
+        let asA = try openIn(context, scope: .account(UUID()))
+        asA.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(asA.cards.first?.previousText == nil)
+        asA.discard()
+        let asGuest = try open(context)
+        asGuest.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(asGuest.cards.first?.previousText == "10分")
+    }
+
+    @Test func aTimedDurationChangesNeitherTheSummaryNorTheCalories() throws {
+        let context = ModelContext(try makeContainer())
+        context.insert(DayLog(date: DateUtils.startOfDay(Date().addingTimeInterval(-86_400)), weightKg: 80))
+        try logPastTimedTreadmill(context, seconds: 750)
+        let summary = try historySummary(context)
+        #expect(summary.duration == 900)               // the session's, not the set's 750
+        #expect(summary.completedExerciseCount == 1)
+        #expect(summary.completedSetCount == 1)
+        #expect(summary.totalReps == 0)
+        #expect(summary.totalVolumeKg == 0)
+        #expect(summary.estimatedCalories == WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 80, duration: 900))
+    }
+
     @Test func aTimedExercisesPreviousPerformanceSaysOnlyThatItWasDone() throws {
         let context = ModelContext(try makeContainer())
         try logPastTreadmill(context)
