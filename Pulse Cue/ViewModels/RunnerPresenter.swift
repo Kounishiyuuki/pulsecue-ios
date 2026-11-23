@@ -409,7 +409,8 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
             sessionId: session.session.id,
             duration: TimeInterval(session.session.totalSeconds),
             results: session.steps.flatMap { session.results(for: $0) },
-            steps: session.steps
+            steps: session.steps,
+            bodyWeightKg: WorkoutCalorieEstimator.bodyWeightKg(for: session.session, modelContext: context)
         )
         try? context.save()
     }

@@ -108,6 +108,7 @@ enum SessionHistoryPresentation {
 /// One completed workout, ordered as identity → exercises → performed sets.
 struct SessionDetailView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.modelContext) private var modelContext
 
     @Bindable var session: Session
     @Query private var results: [StepResult]
@@ -200,18 +201,22 @@ struct SessionDetailView: View {
             sessionId: session.id,
             duration: TimeInterval(session.totalSeconds),
             results: results,
-            steps: steps
+            steps: steps,
+            bodyWeightKg: WorkoutCalorieEstimator.bodyWeightKg(for: session, modelContext: modelContext)
         )
     }
 
     private func summaryMetrics(_ summary: WorkoutCompletionSummary) -> some View {
-        let items: [(label: String, value: String, spoken: String)] = [
+        var items: [(label: String, value: String, spoken: String)] = [
             ("種目", "\(summary.completedExerciseCount)", "\(summary.completedExerciseCount)"),
             ("セット", "\(summary.completedSetCount)", "\(summary.completedSetCount)"),
             ("総レップ数", "\(summary.totalReps)", "\(summary.totalReps)回"),
             ("総ボリューム", WorkoutCompletionSummary.volumeText(summary.totalVolumeKg),
              "\(SetWeight.number(summary.totalVolumeKg))キログラム"),
         ]
+        if let kcal = summary.estimatedCalories {
+            items.append(("推定消費カロリー", WorkoutCalorieEstimator.text(kcal), "\(kcal)キロカロリー"))
+        }
         let columns = dynamicTypeSize.isAccessibilitySize
             ? [GridItem(.flexible(), alignment: .leading)]
             : [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)]

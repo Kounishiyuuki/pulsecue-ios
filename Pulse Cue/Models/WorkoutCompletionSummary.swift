@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import SwiftData
 
 struct WorkoutCompletionSummary: Equatable {
     let sessionId: UUID
@@ -28,6 +29,10 @@ struct WorkoutCompletionSummary: Equatable {
     /// Sum of weight × reps, in kg, over done sets of load-bearing exercises
     /// that recorded both (see `WorkoutSetSemantics`).
     let totalVolumeKg: Double
+    /// Estimated energy burned, whole kcal (see `WorkoutCalorieEstimator`);
+    /// `nil` when no body weight was logged by the workout's day or the
+    /// duration is not positive — never a guess.
+    let estimatedCalories: Int?
 
     init(
         sessionId: UUID,
@@ -35,7 +40,8 @@ struct WorkoutCompletionSummary: Equatable {
         completedExerciseCount: Int,
         completedSetCount: Int,
         totalReps: Int = 0,
-        totalVolumeKg: Double = 0
+        totalVolumeKg: Double = 0,
+        estimatedCalories: Int? = nil
     ) {
         self.sessionId = sessionId
         self.duration = duration
@@ -43,6 +49,7 @@ struct WorkoutCompletionSummary: Equatable {
         self.completedSetCount = completedSetCount
         self.totalReps = totalReps
         self.totalVolumeKg = totalVolumeKg
+        self.estimatedCalories = estimatedCalories
     }
 
     /// The one calculation behind the Completion screen and History detail,
@@ -50,8 +57,15 @@ struct WorkoutCompletionSummary: Equatable {
     /// finalized session's, supplied by the caller. `results` are the
     /// session's current results — an overwritten set counts with its new
     /// values, a deleted one not at all. `steps` only resolve the exercise of
-    /// results that predate the V14 snapshot.
-    static func make(sessionId: UUID, duration: TimeInterval, results: [StepResult], steps: [Step]) -> WorkoutCompletionSummary {
+    /// results that predate the V14 snapshot. `bodyWeightKg` comes from
+    /// `WorkoutCalorieEstimator.bodyWeightKg(for:modelContext:)`.
+    static func make(
+        sessionId: UUID,
+        duration: TimeInterval,
+        results: [StepResult],
+        steps: [Step],
+        bodyWeightKg: Double? = nil
+    ) -> WorkoutCompletionSummary {
         let done = results.filter { $0.sessionId == sessionId && $0.done }
         let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var reps = 0
@@ -72,7 +86,8 @@ struct WorkoutCompletionSummary: Equatable {
             completedSetCount: done.count,
             totalReps: reps,
             // Weights are stored to 0.01 kg; rounding the sum drops float noise.
-            totalVolumeKg: (volume * 100).rounded() / 100
+            totalVolumeKg: (volume * 100).rounded() / 100,
+            estimatedCalories: WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: bodyWeightKg, duration: duration)
         )
     }
 
@@ -80,6 +95,46 @@ struct WorkoutCompletionSummary: Equatable {
     static func volumeText(_ kg: Double) -> String {
         "\(kg.formatted(.number.precision(.fractionLength(0...2)).grouping(.automatic).locale(Locale(identifier: "en_US")))) kg"
     }
+}
+
+/// Estimated energy of a finished workout, from body weight and duration.
+///
+/// One workout-level MET for every session, whatever its exercises: sets do
+/// not record how long a timed exercise actually ran, so a per-exercise MET
+/// (running for a treadmill, say) would be a guess dressed up as precision.
+/// 3.5 is the Compendium of Physical Activities value for resistance training,
+/// multiple exercises, 8–15 repetitions at varied resistance (code 02054).
+/// It is the conservative v1 choice over 6.0 for power lifting / body
+/// building at vigorous effort (code 02050), since a session includes rest.
+/// Derived, never stored, so it can be recalculated if the inputs change.
+enum WorkoutCalorieEstimator {
+    static let met = 3.5
+
+    /// `MET × 3.5 × kg / 200 × minutes`, rounded to whole kcal (half away
+    /// from zero). `nil` without a positive weight and duration.
+    static func estimatedCalories(bodyWeightKg: Double?, duration: TimeInterval) -> Int? {
+        guard let bodyWeightKg, bodyWeightKg > 0, duration > 0 else { return nil }
+        let kcal = met * 3.5 * bodyWeightKg / 200 * (duration / 60)
+        return Int(kcal.rounded())
+    }
+
+    /// The weight the workout was done at: the session owner's newest
+    /// weigh-in on or before its start — never the target weight, another
+    /// owner's log, or one from a later day. Keyed by the session's owner,
+    /// not whoever is signed in now, so History reads what Completion did.
+    @MainActor
+    static func bodyWeightKg(for session: Session, modelContext: ModelContext) -> Double? {
+        LatestBodyWeightResolver.latestWeightKg(
+            scope: .owning(session.ownerAccountID),
+            onOrBefore: session.startedAt,
+            modelContext: modelContext
+        )
+    }
+
+    static let disclaimer = "体重と運動時間から算出した推定値です"
+
+    /// "245 kcal".
+    static func text(_ kcal: Int) -> String { "\(kcal) kcal" }
 }
 
 /// What a done set of an exercise contributes to the summary. Read from

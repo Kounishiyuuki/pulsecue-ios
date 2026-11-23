@@ -498,3 +498,155 @@ struct WorkoutSummaryMetricsTests {
         #expect(summary.totalVolumeKg == (result.weightKg ?? 0) * Double(result.actualReps ?? 0))
     }
 }
+
+// MARK: - Estimated calories
+
+/// The estimated-calorie figure: one workout-level MET, the owner's weight
+/// at the time of the workout, and nothing shown when either input is missing.
+@MainActor
+struct WorkoutEstimatedCaloriesTests {
+
+    private let context: ModelContext
+    private let accountA = UUID()
+    private let accountB = UUID()
+
+    init() throws {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self, UserProfile.self])
+        context = ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]))
+    }
+
+    private func day(_ month: Int, _ day: Int, hour: Int = 0) -> Date {
+        let start = DateUtils.startOfDay(Calendar.current.date(from: DateComponents(year: 2026, month: month, day: day))!)
+        return start.addingTimeInterval(TimeInterval(hour * 3600))
+    }
+
+    private func weigh(_ date: Date, _ kg: Double?, owner: UUID? = nil) {
+        context.insert(DayLog(date: DateUtils.startOfDay(date), weightKg: kg, ownerAccountID: owner))
+    }
+
+    private func session(at start: Date, owner: UUID? = nil) -> Session {
+        let session = Session(routineId: UUID(), dayDate: DateUtils.startOfDay(start), startedAt: start, ownerAccountID: owner)
+        context.insert(session)
+        return session
+    }
+
+    private func weight(_ session: Session) -> Double? {
+        WorkoutCalorieEstimator.bodyWeightKg(for: session, modelContext: context)
+    }
+
+    // MARK: formula
+
+    @Test func metIsTheConservativeResistanceTrainingValue() {
+        #expect(WorkoutCalorieEstimator.met == 3.5)
+    }
+
+    @Test func eightyKilogramsForAnHourIs294Kcal() {
+        // 3.5 × 3.5 × 80 / 200 × 60 = 294
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 80, duration: 3_600) == 294)
+    }
+
+    @Test func fractionalKcalRoundToTheNearestWholeNumber() {
+        // 3.5 × 3.5 × 61 / 200 × 10 = 37.3625 → 37
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 61, duration: 600) == 37)
+        // 3.5 × 3.5 × 70 / 200 × 31 = 132.90625 → 133
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 70, duration: 1_860) == 133)
+    }
+
+    @Test func noWeightOrNoDurationGivesNoEstimate() {
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: nil, duration: 3_600) == nil)
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 0, duration: 3_600) == nil)
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 80, duration: 0) == nil)
+        #expect(WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 80, duration: -60) == nil)
+    }
+
+    @Test func textAndSummaryCarryTheEstimate() {
+        #expect(WorkoutCalorieEstimator.text(245) == "245 kcal")
+        let none = WorkoutCompletionSummary.make(sessionId: UUID(), duration: 3_600, results: [], steps: [])
+        #expect(none.estimatedCalories == nil)
+        let some = WorkoutCompletionSummary.make(sessionId: UUID(), duration: 3_600, results: [], steps: [], bodyWeightKg: 80)
+        #expect(some.estimatedCalories == 294)
+    }
+
+    @Test func zeroVolumeStillHasAnEstimate() {
+        // A bodyweight / timed workout lifts nothing, yet it took time.
+        let summary = WorkoutCompletionSummary.make(sessionId: UUID(), duration: 1_800, results: [], steps: [], bodyWeightKg: 80)
+        #expect(summary.totalVolumeKg == 0)
+        #expect(summary.estimatedCalories == 147)
+    }
+
+    // MARK: body weight lookup
+
+    @Test func usesTheNewestWeighInOnOrBeforeTheWorkout() {
+        weigh(day(11, 1), 82); weigh(day(11, 8), 80); weigh(day(11, 12), 79)
+        #expect(weight(session(at: day(11, 10, hour: 18))) == 80)
+    }
+
+    @Test func aLaterWeighInIsNeverUsed() {
+        weigh(day(11, 2), 80)
+        #expect(weight(session(at: day(11, 1, hour: 18))) == nil)
+    }
+
+    @Test func aWeighInFromTheWorkoutsOwnDayCounts() {
+        weigh(day(11, 1), 82); weigh(day(11, 10), 78)
+        #expect(weight(session(at: day(11, 10, hour: 6))) == 78)
+    }
+
+    @Test func aGoalWeightIsNotABodyWeight() {
+        weigh(day(11, 1), nil)   // a log with no weight in it
+        let profile = UserProfile()
+        profile.goalWeightKg = 65
+        context.insert(profile)
+        let summary = WorkoutCompletionSummary.make(sessionId: UUID(), duration: 3_600, results: [], steps: [],
+                                                    bodyWeightKg: weight(session(at: day(11, 10))))
+        #expect(summary.estimatedCalories == nil)
+    }
+
+    @Test func anAccountsWorkoutUsesOnlyThatAccountsWeight() {
+        weigh(day(11, 1), 80, owner: accountA)
+        weigh(day(11, 1), 60, owner: accountB)
+        weigh(day(11, 1), 70)
+        #expect(weight(session(at: day(11, 10), owner: accountA)) == 80)
+        #expect(weight(session(at: day(11, 10), owner: accountB)) == 60)
+    }
+
+    @Test func aGuestWorkoutUsesOnlyGuestWeight() {
+        weigh(day(11, 1), 90, owner: accountA)
+        #expect(weight(session(at: day(11, 10))) == nil)
+        weigh(day(11, 2), 70)
+        #expect(weight(session(at: day(11, 10))) == 70)
+    }
+
+    // MARK: Runner
+
+    @Test func runnerCompletionShowsTheSameEstimateAsHistory() throws {
+        RunnerPersistence.clear()
+        let routine = Routine(name: "Calorie Routine")
+        context.insert(routine)
+        context.insert(Step(routineId: routine.id, order: 0, title: "Squat", sets: 1, repsTarget: 10, restSeconds: 0))
+        weigh(Date().addingTimeInterval(-3 * 86_400), 80)
+        try context.save()
+
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.calories.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let viewModel = RunnerViewModel(settings: settings)
+        viewModel.configure(modelContext: context)
+        viewModel.start(routine: routine)
+        let running = try #require(try context.fetch(FetchDescriptor<Session>()).first)
+        running.startedAt = running.startedAt.addingTimeInterval(-1_800)
+        viewModel.handle(action: .complete, context: try #require(viewModel.completeContext))
+
+        let summary = try #require(viewModel.completion)
+        let finished = try #require(try context.fetch(FetchDescriptor<Session>()).first)
+        #expect(summary.estimatedCalories == WorkoutCalorieEstimator.estimatedCalories(
+            bodyWeightKg: 80, duration: TimeInterval(finished.totalSeconds)))
+        #expect(summary.estimatedCalories != nil)
+
+        let history = WorkoutCompletionSummary.make(
+            sessionId: finished.id, duration: TimeInterval(finished.totalSeconds),
+            results: try context.fetch(FetchDescriptor<StepResult>()),
+            steps: try context.fetch(FetchDescriptor<Step>()),
+            bodyWeightKg: weight(finished)
+        )
+        #expect(history == summary)
+    }
+}
