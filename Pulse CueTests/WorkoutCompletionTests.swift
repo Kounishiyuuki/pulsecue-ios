@@ -140,12 +140,52 @@ struct WorkoutCompletionTests {
         try fx.context.save()
         fx.viewModel.start(routine: fx.routine)
         #expect(fx.viewModel.currentStepTracksReps == false)
+        // No duration yet: nothing to complete, and the reason is known.
+        #expect(fx.viewModel.currentDurationIssue == .empty)
+        #expect(fx.viewModel.completeContext == nil)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "5"))
+        #expect(fx.viewModel.currentDurationIssue == nil)
         try Self.complete(fx.viewModel)
 
         let result = try #require(try fx.context.fetch(FetchDescriptor<StepResult>()).first)
         #expect(result.done)
         #expect(result.actualReps == nil)
+        #expect(result.actualDurationSeconds == 300)
         #expect(fx.viewModel.completion?.totalReps == 0)
+    }
+
+    @Test
+    func aTimedRunnerSetCannotCompleteWithAnInvalidDuration() throws {
+        let fx = try Self.makeFixture()
+        let step = try #require(try fx.context.fetch(FetchDescriptor<Step>()).first)
+        step.exerciseId = "treadmill_warmup"
+        try fx.context.save()
+        fx.viewModel.start(routine: fx.routine)
+        for (entry, issue) in [
+            (DurationEntry(minutes: "0", seconds: "0"), DurationEntry.Issue.zero),
+            (DurationEntry(minutes: "1", seconds: "60"), .invalidSeconds),
+            (DurationEntry(minutes: "-1"), .invalidMinutes),
+        ] {
+            fx.viewModel.setCurrentDuration(entry)
+            #expect(fx.viewModel.currentDuration == entry)          // kept as typed, never clamped
+            #expect(fx.viewModel.currentDurationIssue == issue)
+            #expect(fx.viewModel.completeContext == nil)
+        }
+        #expect(try fx.context.fetch(FetchDescriptor<StepResult>()).isEmpty)
+    }
+
+    @Test
+    func aRepRunnerSetIsUnchangedByDurations() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.currentStepTracksReps)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "5"))   // ignored
+        #expect(fx.viewModel.currentDuration == DurationEntry())
+        #expect(fx.viewModel.currentDurationIssue == nil)
+        try Self.complete(fx.viewModel)
+        let result = try #require(try fx.context.fetch(FetchDescriptor<StepResult>()).first)
+        #expect(result.actualReps != nil)
+        #expect(result.actualDurationSeconds == nil)
     }
 
     @Test

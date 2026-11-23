@@ -178,6 +178,8 @@ final class FreeWorkoutDraftStore {
         var reps: Int
         /// Touched by the user: never replaced by a fresher default.
         var edited: Bool
+        /// A timed set's duration as typed; empty until entered.
+        var duration = DurationEntry()
     }
 
     private struct Entry {
@@ -230,6 +232,14 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         let state: State
         let weightKg: Double?
         let reps: Int
+        /// A timed set's duration: as typed on an open row, as recorded on a
+        /// done one (or the edit that could not be saved yet).
+        var duration = DurationEntry()
+
+        /// A timed row completes only with a valid duration.
+        func durationIssue(tracksReps: Bool) -> DurationEntry.Issue? {
+            tracksReps ? nil : duration.issue
+        }
     }
 
     struct ExerciseCard: Identifiable, Equatable {
@@ -360,10 +370,17 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         edit(key, row: row) { $0.reps = max(0, reps) }
     }
 
+    /// Kept as typed — an invalid value shows its reason on the row and the
+    /// set cannot be completed until it is fixed.
+    func setDuration(_ entry: DurationEntry, for key: RowKey) {
+        guard let row = row(key), let step = step(key.stepId), !tracksReps(step) else { return }
+        edit(key, row: row) { $0.duration = entry }
+    }
+
     /// A logged row is re-recorded at once — the writer overwrites in place,
     /// keeping its snapshots. A draft row only changes its draft.
     private func edit(_ key: RowKey, row: SetRow, _ change: (inout Draft) -> Void) {
-        var draft = drafts[key] ?? Draft(weightKg: row.weightKg, reps: row.reps, edited: false)
+        var draft = drafts[key] ?? Draft(weightKg: row.weightKg, reps: row.reps, edited: false, duration: row.duration)
         change(&draft)
         draft.edited = true
         switch row.state {
@@ -372,6 +389,18 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
             rebuild()
         case .done:
             guard let step = step(key.stepId) else { return }
+            if !tracksReps(step) {
+                // Re-recorded only once the edit is a valid duration; until
+                // then the record keeps its value and the row shows why.
+                if session.completeTimedSet(at: key.setIndex, of: step, durationSeconds: draft.duration.totalSeconds) != nil {
+                    drafts[key] = nil
+                    saveAndRebuild(select: key)
+                } else {
+                    drafts[key] = draft
+                    rebuild()
+                }
+                return
+            }
             session.completeSet(at: key.setIndex, of: step, reps: reps(draft.reps, step: step), weightKg: weight(draft.weightKg, step: step))
             saveAndRebuild(select: key)
         case .skipped:
@@ -382,8 +411,12 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
 
     func complete(_ key: RowKey) {
         guard let step = step(key.stepId), let row = row(key) else { return }
-        guard session.completeSet(at: key.setIndex, of: step, reps: reps(row.reps, step: step), weightKg: weight(row.weightKg, step: step)) != nil
-        else { return }
+        // A timed set is completed only with its duration: the duration-free
+        // path is not reachable from this screen.
+        let recorded = tracksReps(step)
+            ? session.completeSet(at: key.setIndex, of: step, reps: reps(row.reps, step: step), weightKg: weight(row.weightKg, step: step))
+            : session.completeTimedSet(at: key.setIndex, of: step, durationSeconds: row.duration.totalSeconds)
+        guard recorded != nil else { return }
         drafts[key] = nil
         // Untouched drafts below now default from this set.
         drafts = drafts.filter { !($0.key.stepId == key.stepId && $0.key.setIndex > key.setIndex && !$0.value.edited) }
@@ -437,17 +470,22 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
                 if let result = results[index] {
                     // An edited skip keeps its typed values until ✓.
                     if !result.done, let draft = drafts[key] {
-                        return SetRow(key: key, state: .skipped, weightKg: draft.weightKg, reps: draft.reps)
+                        return SetRow(key: key, state: .skipped, weightKg: draft.weightKg, reps: draft.reps, duration: draft.duration)
                     }
+                    // A done timed row shows an edit that could not be saved
+                    // yet over the recorded value.
+                    let duration = result.done
+                        ? drafts[key].map(\.duration) ?? DurationEntry(totalSeconds: result.actualDurationSeconds)
+                        : DurationEntry()
                     return SetRow(key: key, state: result.done ? .done : .skipped,
-                                  weightKg: result.weightKg, reps: result.actualReps ?? step.repsTarget)
+                                  weightKg: result.weightKg, reps: result.actualReps ?? step.repsTarget, duration: duration)
                 }
                 let draft = drafts[key] ?? {
                     let entry = session.initialEntry(forSetAt: index, of: step)
                     return Draft(weightKg: entry.weightKg, reps: entry.reps, edited: false)
                 }()
                 drafts[key] = draft
-                return SetRow(key: key, state: .draft, weightKg: draft.weightKg, reps: draft.reps)
+                return SetRow(key: key, state: .draft, weightKg: draft.weightKg, reps: draft.reps, duration: draft.duration)
             }
             return ExerciseCard(
                 id: step.id,

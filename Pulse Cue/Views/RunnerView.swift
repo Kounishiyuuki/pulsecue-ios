@@ -244,6 +244,12 @@ struct RunnerView: View {
                     .monospacedDigit()
             }
 
+            if runnerViewModel.isRunning, runnerViewModel.phase == .exercise, !runnerViewModel.currentStepTracksReps {
+                SetDurationEditor(entry: runnerViewModel.currentDuration) {
+                    runnerViewModel.setCurrentDuration($0)
+                }
+            }
+
             if runnerViewModel.isRunning, runnerViewModel.phase == .exercise, runnerViewModel.currentStepAcceptsWeight {
                 weightRow
             }

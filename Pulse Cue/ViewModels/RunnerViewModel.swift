@@ -29,6 +29,11 @@ final class RunnerViewModel: ObservableObject {
     /// Complete writes it to that set's `StepResult.weightKg`, which is the
     /// truth. Carried to the next set of the same exercise as a starting value.
     @Published private(set) var currentWeightKg: Double?
+    /// Duration typed for the timed set on screen. Transient like the load:
+    /// empty for every new set (no fake default), written to
+    /// `StepResult.actualDurationSeconds` by Complete, and not kept across a
+    /// relaunch.
+    @Published private(set) var currentDuration = DurationEntry()
     @Published private(set) var restDeadline: Date?
     @Published private(set) var remainingSeconds: Int = 0
     @Published var needsAttention: Bool = false
@@ -125,6 +130,7 @@ final class RunnerViewModel: ObservableObject {
         currentSetIndex = 0
         currentReps = 0
         currentWeightKg = nil
+        currentDuration = DurationEntry()
         phase = .done
         restDeadline = nil
         remainingSeconds = 0
@@ -152,6 +158,7 @@ final class RunnerViewModel: ObservableObject {
         self.currentSetIndex = 0
         self.currentReps = steps.first?.repsTarget ?? 0
         self.currentWeightKg = nil
+        self.currentDuration = DurationEntry()
         self.phase = .exercise
         self.restDeadline = nil
         self.remainingSeconds = 0
@@ -176,6 +183,9 @@ final class RunnerViewModel: ObservableObject {
 
     var completeContext: CompleteContext? {
         guard let sessionId, let stepId = currentStep?.id, phase != .done else { return nil }
+        // A timed set completes only with a valid duration typed in; until
+        // then there is nothing to complete, so the button is disabled.
+        if phase == .exercise, currentDurationIssue != nil { return nil }
         return CompleteContext(
             sessionId: sessionId,
             phase: phase,
@@ -249,6 +259,20 @@ final class RunnerViewModel: ObservableObject {
     var currentStepTracksReps: Bool {
         guard let step = currentStep else { return true }
         return WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId)
+    }
+
+    /// Why the timed set on screen cannot be completed yet; nil when it can,
+    /// and always nil for a rep-counted set.
+    var currentDurationIssue: DurationEntry.Issue? {
+        guard !currentStepTracksReps else { return nil }
+        return currentDuration.issue
+    }
+
+    /// The duration typed for the timed set on screen, kept as entered —
+    /// an out-of-range value shows its reason rather than being corrected.
+    func setCurrentDuration(_ entry: DurationEntry) {
+        guard phase == .exercise, isRunning, !currentStepTracksReps else { return }
+        currentDuration = entry
     }
 
     /// Sets the current set's load. Invalid values (negative, non-finite, over
@@ -383,6 +407,7 @@ final class RunnerViewModel: ObservableObject {
         if index == currentStepIndex {
             currentReps = step.repsTarget
             currentWeightKg = nil
+            currentDuration = DurationEntry()
         }
         try? modelContext?.save()
         saveState()
@@ -477,10 +502,18 @@ final class RunnerViewModel: ObservableObject {
             return
         }
 
+        let duration: Int?
+        if currentStepTracksReps {
+            duration = nil
+        } else {
+            guard let seconds = currentDuration.totalSeconds else { return }
+            duration = seconds
+        }
         recordStepResult(
             done: true,
             actualReps: currentStepTracksReps ? currentReps : nil,
-            weightKg: currentStepAcceptsWeight ? currentWeightKg : nil
+            weightKg: currentStepAcceptsWeight ? currentWeightKg : nil,
+            actualDurationSeconds: duration
         )
         startRest(for: step)
     }
@@ -596,6 +629,7 @@ final class RunnerViewModel: ObservableObject {
 
         phase = .exercise
         currentReps = currentStep?.repsTarget ?? 0
+        currentDuration = DurationEntry()
         saveState()
     }
 
@@ -611,6 +645,7 @@ final class RunnerViewModel: ObservableObject {
 
         phase = .exercise
         currentReps = currentStep?.repsTarget ?? 0
+        currentDuration = DurationEntry()
         saveState()
     }
 
@@ -663,6 +698,7 @@ final class RunnerViewModel: ObservableObject {
         currentSetIndex = 0
         currentReps = 0
         currentWeightKg = nil
+        currentDuration = DurationEntry()
         restDeadline = nil
         remainingSeconds = 0
         needsAttention = false
@@ -674,7 +710,7 @@ final class RunnerViewModel: ObservableObject {
         RunnerPersistence.clear(scope: scope)
     }
 
-    private func recordStepResult(done: Bool, actualReps: Int?, weightKg: Double?) {
+    private func recordStepResult(done: Bool, actualReps: Int?, weightKg: Double?, actualDurationSeconds: Int? = nil) {
         guard let modelContext, let sessionId, let step = currentStep else { return }
         // Snapshot rules (first-written planned sets, first-sibling exercise
         // identity, owner from the parent session) live in `StepResultWriter`,
@@ -688,6 +724,7 @@ final class RunnerViewModel: ObservableObject {
             done: done,
             actualReps: actualReps,
             weightKg: weightKg,
+            actualDurationSeconds: actualDurationSeconds,
             plannedSets: .firstWritten
         )
     }
@@ -721,6 +758,9 @@ final class RunnerViewModel: ObservableObject {
         )
         if let recorded = try? modelContext.fetch(descriptor).first {
             currentWeightKg = recorded.weightKg
+            currentDuration = DurationEntry(totalSeconds: recorded.actualDurationSeconds)
+        } else {
+            currentDuration = DurationEntry()
         }
     }
 

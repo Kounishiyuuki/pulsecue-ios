@@ -374,7 +374,7 @@ struct FreeWorkoutView: View {
             HStack {
                 Text("セット").frame(width: 44, alignment: .leading)
                 if card.acceptsWeight { Text("kg").frame(maxWidth: .infinity) }
-                if card.tracksReps { Text("回").frame(maxWidth: .infinity) }
+                if card.tracksReps { Text("回").frame(maxWidth: .infinity) } else { Text("時間").frame(maxWidth: .infinity) }
                 Color.clear.frame(width: 44)
             }
             .font(.caption.weight(.semibold))
@@ -416,7 +416,7 @@ struct FreeWorkoutView: View {
                         }
                     }
                     Spacer(minLength: 4)
-                    completionButton(row)
+                    completionButton(row, card: card)
                 }
             } else {
                 wideSetRow(row, card: card)
@@ -441,15 +441,21 @@ struct FreeWorkoutView: View {
     }
 
     private func compactValues(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String? {
-        let reps = card.tracksReps ? "\(row.reps) 回" : nil
+        let reps: String? = card.tracksReps ? "\(row.reps) 回" : row.duration.displayText
         guard card.acceptsWeight else { return reps }
         let weight = row.weightKg.map { "\(SetWeight.number($0)) kg" } ?? "– kg"
         return reps.map { "\(weight) × \($0)" } ?? weight
     }
 
-    private func completionButton(_ row: FreeWorkoutViewModel.SetRow) -> some View {
+    private func completionButton(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
         Button {
-            row.state == .done ? model.select(row.key) : model.complete(row.key)
+            // A timed row without a valid duration opens its editor, where
+            // the reason is shown, instead of doing nothing.
+            if row.state == .done || row.durationIssue(tracksReps: card.tracksReps) != nil {
+                if model.selected != row.key { model.select(row.key) }
+            } else {
+                model.complete(row.key)
+            }
         } label: {
             Image(systemName: icon(for: row.state))
                 .font(.title2)
@@ -474,9 +480,13 @@ struct FreeWorkoutView: View {
                     .font(.body.monospacedDigit())
                     .frame(maxWidth: .infinity)
             } else {
-                Spacer()
+                Text(row.duration.issue == .empty ? "–" : row.duration.displayText)
+                    .font(.body.monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity)
             }
-            completionButton(row)
+            completionButton(row, card: card)
         }
         .frame(minHeight: 44)
     }
@@ -507,6 +517,9 @@ struct FreeWorkoutView: View {
                     }
                 )
             }
+            if !card.tracksReps {
+                SetDurationEditor(entry: row.duration) { model.setDuration($0, for: row.key) }
+            }
             let actions = stacks
                 ? AnyLayout(VStackLayout(spacing: 8))
                 : AnyLayout(HStackLayout(spacing: 10))
@@ -520,6 +533,7 @@ struct FreeWorkoutView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(AppTheme.accentFilled)
+                    .disabled(row.durationIssue(tracksReps: card.tracksReps) != nil)
                     .accessibilityLabel("セット\(row.number)を完了")
                 }
                 if row.state == .draft {
@@ -608,7 +622,11 @@ struct FreeWorkoutView: View {
     private func rowLabel(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String {
         var parts = ["セット \(row.number)"]
         if card.acceptsWeight { parts.append(row.weightKg.map { "\(SetWeight.number($0))キログラム" } ?? "重量未入力") }
-        if card.tracksReps { parts.append("\(row.reps)回") }
+        if card.tracksReps {
+            parts.append("\(row.reps)回")
+        } else {
+            parts.append(row.duration.issue == .empty ? "時間未入力" : row.duration.displayText)
+        }
         switch row.state {
         case .done: parts.append("完了")
         case .skipped: parts.append("スキップ")
@@ -619,6 +637,90 @@ struct FreeWorkoutView: View {
 
     private func entryBinding(_ key: Binding<FreeWorkoutViewModel.RowKey?>) -> Binding<Bool> {
         Binding(get: { key.wrappedValue != nil }, set: { if !$0 { key.wrappedValue = nil } })
+    }
+}
+
+/// Minutes-and-seconds editor for a timed set, shared by the Runner and Free
+/// Workout: −1分 / value / +1分, the value tappable for exact entry. The
+/// entry is passed back as typed; when it cannot be completed the reason is
+/// shown under it, so a disabled Complete is never unexplained.
+struct SetDurationEditor: View {
+    let entry: DurationEntry
+    let onChange: (DurationEntry) -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var isEntering = false
+    @State private var minutesText = ""
+    @State private var secondsText = ""
+
+    var body: some View {
+        let stacks = dynamicTypeSize.isAccessibilitySize
+        VStack(spacing: 6) {
+            if stacks {
+                VStack(spacing: 8) {
+                    valueButton(stacks: true)
+                    HStack(spacing: 10) {
+                        stepButton(-1, stacks: true)
+                        stepButton(1, stacks: true)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    stepButton(-1, stacks: false)
+                    valueButton(stacks: false)
+                    stepButton(1, stacks: false)
+                }
+            }
+            if let issue = entry.issue {
+                Text(issue.message)
+                    .font(.caption)
+                    .foregroundStyle(issue == .empty ? AnyShapeStyle(.secondary) : AnyShapeStyle(AppTheme.warning))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .alert("時間", isPresented: $isEntering) {
+            TextField("分", text: $minutesText).keyboardType(.numberPad)
+            TextField("秒（0〜59）", text: $secondsText).keyboardType(.numberPad)
+            Button("設定") { onChange(DurationEntry(minutes: minutesText, seconds: secondsText)) }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("このセットを行った時間です。秒は0〜59で入力します。")
+        }
+    }
+
+    private func valueButton(stacks: Bool) -> some View {
+        Button {
+            minutesText = entry.minutes
+            secondsText = entry.seconds
+            isEntering = true
+        } label: {
+            Text(entry.displayText)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .lineLimit(stacks ? nil : 1)
+                .minimumScaleFactor(stacks ? 1 : 0.6)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.issue == .empty ? "時間 未入力" : "時間 \(entry.displayText)")
+        .accessibilityHint("タップして分と秒を入力")
+    }
+
+    private func stepButton(_ delta: Int, stacks: Bool) -> some View {
+        Button {
+            onChange(entry.adjustingMinutes(by: delta))
+        } label: {
+            Text(delta < 0 ? "−1分" : "+1分")
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .padding(.horizontal, 12)
+                .frame(maxWidth: stacks ? .infinity : nil, minHeight: 44)
+                .frame(minWidth: 64)
+                .foregroundStyle(AppTheme.accent)
+                .background(Capsule().fill(Color.white.opacity(0.055)))
+                .overlay(Capsule().strokeBorder(AppTheme.separator.opacity(0.45), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(delta < 0 ? "1分減らす" : "1分増やす")
     }
 }
 
