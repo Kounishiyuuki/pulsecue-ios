@@ -259,6 +259,11 @@ final class FreeWorkoutSession {
     }
 
     /// Records set row `setIndex` as done (or overwrites it).
+    ///
+    /// For rep-counted sets. Do not use it to complete a timed set: it writes
+    /// no duration, so the set would be stored as done without one. Timed
+    /// sets go through `completeTimedSet`. The writer still accepts a
+    /// duration-free timed set only so historical data stays compatible.
     @discardableResult
     func completeSet(at setIndex: Int, of step: Step, reps: Int?, weightKg: Double?) -> StepResult? {
         write(setIndex: setIndex, of: step, done: true, reps: reps.map { max(0, $0) }, weightKg: SetWeight.validated(weightKg))
@@ -269,10 +274,11 @@ final class FreeWorkoutSession {
     /// and `durationSeconds` is positive — this path never stores a timed set
     /// without a duration.
     ///
-    /// Transitional: the set editor cannot enter a duration yet, so a timed
-    /// set may still be completed through `completeSet` (no duration, read as
-    /// "実施済み"). Once the editor sends durations, that path is closed for
-    /// timed steps and this one becomes the only way to complete them.
+    /// How a Free Workout completes a timed set. Runner and Free Workout both
+    /// take the duration in their set editors and need it to be > 0 (the
+    /// Runner writes through `StepResultWriter`, same validation). A timed
+    /// set stored without a duration exists only from before durations were
+    /// entered; it still reads as "実施済み" for compatibility.
     @discardableResult
     func completeTimedSet(at setIndex: Int, of step: Step, durationSeconds: Int?) -> StepResult? {
         guard !WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId),
