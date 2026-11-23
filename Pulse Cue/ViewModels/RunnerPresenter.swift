@@ -458,6 +458,14 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
 
     // MARK: Rows
 
+    /// Done timed sets edited to a duration that could not be saved. Valid
+    /// edits of a done set are written at once, like weight and reps, so
+    /// these are the only edits finishing would drop — the record keeps its
+    /// old value. Finish asks before dropping them.
+    var unsavedDurationEdits: [RowKey] {
+        cards.flatMap(\.rows).filter { $0.state == .done && drafts[$0.key] != nil }.map(\.key)
+    }
+
     func row(_ key: RowKey) -> SetRow? {
         cards.first { $0.id == key.stepId }?.rows.first { $0.key == key }
     }

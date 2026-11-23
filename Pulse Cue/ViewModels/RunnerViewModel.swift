@@ -29,10 +29,10 @@ final class RunnerViewModel: ObservableObject {
     /// Complete writes it to that set's `StepResult.weightKg`, which is the
     /// truth. Carried to the next set of the same exercise as a starting value.
     @Published private(set) var currentWeightKg: Double?
-    /// Duration typed for the timed set on screen. Transient like the load:
-    /// empty for every new set (no fake default), written to
-    /// `StepResult.actualDurationSeconds` by Complete, and not kept across a
-    /// relaunch.
+    /// Duration typed for the timed set on screen. Like the load: empty for
+    /// every new set (no fake default), written to
+    /// `StepResult.actualDurationSeconds` by Complete, and restored after a
+    /// relaunch onto the same step and set, invalid entries included.
     @Published private(set) var currentDuration = DurationEntry()
     @Published private(set) var restDeadline: Date?
     @Published private(set) var remainingSeconds: Int = 0
@@ -273,6 +273,7 @@ final class RunnerViewModel: ObservableObject {
     func setCurrentDuration(_ entry: DurationEntry) {
         guard phase == .exercise, isRunning, !currentStepTracksReps else { return }
         currentDuration = entry
+        saveState()
     }
 
     /// Sets the current set's load. Invalid values (negative, non-finite, over
@@ -921,6 +922,9 @@ final class RunnerViewModel: ObservableObject {
             setIndex: currentSetIndex,
             currentReps: currentReps,
             currentWeightKg: currentWeightKg,
+            durationStepId: currentDuration == DurationEntry() ? nil : currentStep?.id,
+            durationMinutes: currentDuration == DurationEntry() ? nil : currentDuration.minutes,
+            durationSeconds: currentDuration == DurationEntry() ? nil : currentDuration.seconds,
             restDeadline: restDeadline,
             lastUpdatedAt: Date()
         )
@@ -961,6 +965,13 @@ final class RunnerViewModel: ObservableObject {
         self.currentSetIndex = max(0, state.setIndex)
         self.currentReps = max(0, state.currentReps ?? currentStep?.repsTarget ?? 0)
         self.currentWeightKg = SetWeight.validated(state.currentWeightKg)
+        // Only onto the step it was typed for: the saved position is the set
+        // index, the step id guards against the steps having changed.
+        if let stepId = state.durationStepId, stepId == currentStep?.id {
+            self.currentDuration = DurationEntry(minutes: state.durationMinutes ?? "", seconds: state.durationSeconds ?? "")
+        } else {
+            self.currentDuration = DurationEntry()
+        }
         self.phase = state.phase
         self.restDeadline = state.restDeadline
         self.remainingSeconds = 0

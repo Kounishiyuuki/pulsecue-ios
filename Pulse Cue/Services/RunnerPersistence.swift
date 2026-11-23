@@ -32,6 +32,12 @@ struct RunnerPersistentState: Codable {
     var currentReps: Int? = nil
     /// Optional so state saved before weights existed still decodes (as nil).
     var currentWeightKg: Double? = nil
+    /// The timed set's duration as typed and not yet completed, kept as text
+    /// so an invalid entry comes back as it was. Bound to the step it was
+    /// typed for; optional so older saved state still decodes (as none).
+    var durationStepId: UUID? = nil
+    var durationMinutes: String? = nil
+    var durationSeconds: String? = nil
     var restDeadline: Date?
     var lastUpdatedAt: Date
 }

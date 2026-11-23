@@ -160,10 +160,20 @@ struct DurationEntry: Equatable {
         return (Self.number(m) ?? 0) * 60 + (Self.number(s) ?? 0)
     }
 
-    /// −1分 / +1分: whole minutes, never below 0, seconds untouched. An
-    /// unreadable minutes value counts as 0.
+    /// −1分 / +1分: whole minutes, never below 0, seconds untouched. Empty
+    /// minutes count as 0. Minutes that cannot be read, or are already past
+    /// the maximum, are left exactly as typed — the step does nothing rather
+    /// than replace them, so the validation message stays true.
     func adjustingMinutes(by delta: Int) -> DurationEntry {
-        let current = Self.number(minutes.trimmingCharacters(in: .whitespaces)) ?? 0
+        let typed = minutes.trimmingCharacters(in: .whitespaces)
+        let current: Int
+        if typed.isEmpty {
+            current = 0
+        } else if let value = Self.number(typed), value <= Self.maximumMinutes {
+            current = value
+        } else {
+            return self
+        }
         let next = min(Self.maximumMinutes, max(0, current + delta))
         return DurationEntry(minutes: "\(next)", seconds: seconds)
     }

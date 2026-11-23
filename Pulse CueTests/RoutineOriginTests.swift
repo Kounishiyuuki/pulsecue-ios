@@ -1673,6 +1673,79 @@ struct FreeWorkoutViewModelTests {
         #expect(SessionHistoryPresentation.setValueText(result) == "80 kg × 10 回")
     }
 
+    @Test func finishingAsksAboutAnUnsavedDurationEditAndCanDropIt() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        let row = addTreadmill(model)
+        model.setDuration(DurationEntry(minutes: "12", seconds: "30"), for: row)
+        model.complete(row)
+        #expect(model.unsavedDurationEdits.isEmpty)
+
+        // A valid edit of a done set is written at once — nothing unsaved.
+        model.setDuration(DurationEntry(minutes: "15"), for: row)
+        #expect(model.unsavedDurationEdits.isEmpty)
+        #expect(all(StepResult.self, context).first?.actualDurationSeconds == 900)
+
+        // An invalid one is held, and Finish has to ask.
+        model.setDuration(DurationEntry(minutes: "12", seconds: "90"), for: row)
+        #expect(model.unsavedDurationEdits == [row])
+        // "編集に戻る": opens the row (as the dialog does), nothing finished,
+        // the edit and its reason still there.
+        if model.selected != row { model.select(row) }
+        #expect(model.selected == row)
+        #expect(model.finishOutcome == nil)
+        #expect(model.row(row)?.duration == DurationEntry(minutes: "12", seconds: "90"))
+        #expect(model.row(row)?.durationIssue(tracksReps: false) == .invalidSeconds)
+
+        // "変更を破棄して終了": the record keeps its value, the edit is gone.
+        model.finish(now: model.startedAt.addingTimeInterval(1_200))
+        #expect(model.finishOutcome == .saved)
+        let stored = try #require(all(StepResult.self, context).first)
+        #expect(stored.actualDurationSeconds == 900)
+        #expect(SessionHistoryPresentation.setValueText(stored) == "15分")
+    }
+
+    @Test func repSetEditsNeverCountAsUnsavedDurations() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let row = key(model, card: 0, set: 0)
+        model.setWeight(80, for: row); model.setReps(10, for: row)
+        model.complete(row)
+        model.setReps(8, for: row)
+        #expect(model.unsavedDurationEdits.isEmpty)
+        #expect(all(StepResult.self, context).first?.actualReps == 8)
+    }
+
+    @Test func stepsLeaveUnreadableMinutesAsTyped() {
+        let unreadable = DurationEntry(minutes: "abc", seconds: "30")
+        #expect(unreadable.adjustingMinutes(by: 1) == unreadable)
+        #expect(unreadable.adjustingMinutes(by: -1) == unreadable)
+        #expect(unreadable.adjustingMinutes(by: 1).issue == .invalidMinutes)
+        let tooLong = DurationEntry(minutes: "2000")
+        #expect(tooLong.adjustingMinutes(by: 1) == tooLong)        // not pulled back to 1440
+        #expect(tooLong.adjustingMinutes(by: -1) == tooLong)
+
+        #expect(DurationEntry(minutes: "12", seconds: "30").adjustingMinutes(by: 1) == DurationEntry(minutes: "13", seconds: "30"))
+        #expect(DurationEntry(minutes: "12", seconds: "30").adjustingMinutes(by: -1) == DurationEntry(minutes: "11", seconds: "30"))
+        #expect(DurationEntry(minutes: "0", seconds: "30").adjustingMinutes(by: -1) == DurationEntry(minutes: "0", seconds: "30"))
+        let badSeconds = DurationEntry(minutes: "12", seconds: "90")
+        #expect(badSeconds.adjustingMinutes(by: 1) == DurationEntry(minutes: "13", seconds: "90"))
+        #expect(badSeconds.adjustingMinutes(by: 1).issue == .invalidSeconds)
+        #expect(DurationEntry(minutes: "1440").adjustingMinutes(by: 1) == DurationEntry(minutes: "1440"))
+    }
+
+    @Test func stepsOnAnUnreadableRowLeaveTheFreeWorkoutDraftAlone() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        let row = addTreadmill(model)
+        model.setDuration(DurationEntry(minutes: "abc"), for: row)
+        let current = try #require(model.row(row)?.duration)
+        model.setDuration(current.adjustingMinutes(by: 1), for: row)   // what +1分 sends
+        #expect(model.row(row)?.duration == DurationEntry(minutes: "abc"))
+        #expect(model.row(row)?.durationIssue(tracksReps: false) == .invalidMinutes)
+    }
+
     @Test func durationEntryParsesWithoutCorrecting() {
         #expect(DurationEntry(minutes: "12", seconds: "30").totalSeconds == 750)
         #expect(DurationEntry(minutes: "5").totalSeconds == 300)

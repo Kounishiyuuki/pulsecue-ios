@@ -191,6 +191,7 @@ struct FreeWorkoutView: View {
 
     @State private var showPicker = false
     @State private var showFinish = false
+    @State private var showUnsavedDuration = false
     @State private var isReordering = false
     @State private var weightEntry: FreeWorkoutViewModel.RowKey?
     @State private var repsEntry: FreeWorkoutViewModel.RowKey?
@@ -209,6 +210,19 @@ struct FreeWorkoutView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .preferredColorScheme(.dark)
+        .confirmationDialog("保存されていない時間の変更があります", isPresented: $showUnsavedDuration, titleVisibility: .visible) {
+            Button("編集に戻る") {
+                if let key = model.unsavedDurationEdits.first, model.selected != key { model.select(key) }
+            }
+            // Finishes as 「終了して保存」 does; only the unsaved edits are dropped.
+            Button("変更を破棄して終了", role: .destructive) {
+                model.finish()
+                if model.finishOutcome == .discarded { onClose() }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("記録済みのセットの時間が正しく入力されていません。終了すると、変更は破棄され元の時間が残ります。記録していないセットは保存されません。")
+        }
         .confirmationDialog("トレーニングを終了しますか？", isPresented: $showFinish, titleVisibility: .visible) {
             Button("終了して保存") {
                 model.finish()
@@ -264,7 +278,9 @@ struct FreeWorkoutView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("終了") { showFinish = true }
+                Button("終了") {
+                    if model.unsavedDurationEdits.isEmpty { showFinish = true } else { showUnsavedDuration = true }
+                }
                     .fontWeight(.semibold)
             }
         }
