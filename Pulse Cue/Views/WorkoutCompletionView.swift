@@ -74,6 +74,15 @@ struct WorkoutCompletionView: View {
                 value: WorkoutCompletionSummary.volumeText(summary.totalVolumeKg),
                 spokenValue: "\(SetWeight.number(summary.totalVolumeKg))キログラム"
             )
+            if let kcal = summary.estimatedCalories {
+                divider
+                metricRow(
+                    label: "推定消費カロリー",
+                    value: WorkoutCalorieEstimator.text(kcal),
+                    spokenValue: "\(kcal)キロカロリー",
+                    hint: WorkoutCalorieEstimator.disclaimer
+                )
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 6)
@@ -93,7 +102,7 @@ struct WorkoutCompletionView: View {
     }
 
     @ViewBuilder
-    private func metricRow(label: String, value: String, spokenValue: String? = nil) -> some View {
+    private func metricRow(label: String, value: String, spokenValue: String? = nil, hint: String? = nil) -> some View {
         let text = Text(label)
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -120,6 +129,7 @@ struct WorkoutCompletionView: View {
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label)、\(spokenValue ?? value)")
+        .accessibilityHint(hint ?? "")
     }
 
     /// Whole minutes and seconds, matching the History row's duration format.

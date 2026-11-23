@@ -57,6 +57,32 @@ enum LatestBodyWeightResolver {
         return (try? modelContext.fetch(descriptor))?.first?.weightKg
     }
 
+    /// The newest weight logged on or before `date` — the weight a past
+    /// workout was done at. A weigh-in from a later day is never used: it
+    /// would describe the person after the workout, not during it. Logs are
+    /// stored at the start of their day, so a weigh-in from the workout's own
+    /// day always qualifies. Same scope rule as `latestWeightKg`.
+    @MainActor
+    static func latestWeightKg(scope: HealthDataScope, onOrBefore date: Date, modelContext: ModelContext) -> Double? {
+        var descriptor: FetchDescriptor<DayLog>
+        switch scope {
+        case .undetermined:
+            return nil
+        case .guest:
+            descriptor = FetchDescriptor<DayLog>(
+                predicate: #Predicate<DayLog> { $0.weightKg != nil && $0.ownerAccountID == nil && $0.date <= date },
+                sortBy: [SortDescriptor(\DayLog.date, order: .reverse)]
+            )
+        case let .account(id):
+            descriptor = FetchDescriptor<DayLog>(
+                predicate: #Predicate<DayLog> { $0.weightKg != nil && $0.ownerAccountID == id && $0.date <= date },
+                sortBy: [SortDescriptor(\DayLog.date, order: .reverse)]
+            )
+        }
+        descriptor.fetchLimit = 1
+        return (try? modelContext.fetch(descriptor))?.first?.weightKg
+    }
+
     /// A value that changes whenever the latest weigh-in does.
     ///
     /// `onChange(of: someDayLogArray)` compares `@Model` elements by identity,

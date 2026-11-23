@@ -865,7 +865,7 @@ struct FreeWorkoutRecoveryTests {
 struct FreeWorkoutViewModelTests {
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
         return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
     }
 
@@ -1403,7 +1403,8 @@ struct FreeWorkoutViewModelTests {
         let steps = all(Step.self, context).filter { $0.routineId == session.routineId }
         let results = all(StepResult.self, context).filter { $0.sessionId == session.id }
         return WorkoutCompletionSummary.make(sessionId: session.id, duration: TimeInterval(session.totalSeconds),
-                                             results: results, steps: steps)
+                                             results: results, steps: steps,
+                                             bodyWeightKg: WorkoutCalorieEstimator.bodyWeightKg(for: session, modelContext: context))
     }
 
     private func logBench(_ model: FreeWorkoutViewModel, _ sets: [(Double, Int)]) {
@@ -1430,6 +1431,43 @@ struct FreeWorkoutViewModelTests {
         #expect(summary.totalReps == 29)
         #expect(summary.totalVolumeKg == 2270)
         #expect(try historySummary(context) == summary)
+    }
+
+    @Test func finishingEstimatesCaloriesFromTheOwnersWeightAsHistoryDoes() throws {
+        let context = ModelContext(try makeContainer())
+        context.insert(DayLog(date: DateUtils.startOfDay(Date().addingTimeInterval(-86_400)), weightKg: 80))
+        let model = try open(context)
+        logBench(model, [(80, 10)])
+        model.finish(now: model.startedAt.addingTimeInterval(1_832))
+
+        let summary = try #require(model.completion)
+        // Same weight and duration as a Runner workout → the same kcal,
+        // whatever the exercises: 3.5 × 3.5 × 80 / 200 × 1832/60 ≈ 149.6
+        #expect(summary.estimatedCalories == 150)
+        #expect(summary.estimatedCalories == WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 80, duration: 1_832))
+        #expect(try historySummary(context) == summary)
+    }
+
+    @Test func finishingWithoutAWeighInShowsNoCalories() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        model.complete(key(model, card: 0, set: 0))
+        model.finish(now: model.startedAt.addingTimeInterval(600))
+        #expect(try #require(model.completion).estimatedCalories == nil)
+    }
+
+    @Test func aTimedOnlyWorkoutStillGetsTheWorkoutLevelEstimate() throws {
+        let context = ModelContext(try makeContainer())
+        context.insert(DayLog(date: DateUtils.startOfDay(Date().addingTimeInterval(-86_400)), weightKg: 80))
+        let model = try open(context)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        model.complete(key(model, card: 0, set: 0))
+        model.finish(now: model.startedAt.addingTimeInterval(600))
+        let summary = try #require(model.completion)
+        #expect(summary.totalVolumeKg == 0)
+        // No running MET for a treadmill: the same 3.5 as any workout.
+        #expect(summary.estimatedCalories == WorkoutCalorieEstimator.estimatedCalories(bodyWeightKg: 80, duration: 600))
     }
 
     @Test func aTimedExerciseRecordsNoRepsYetStillCountsAsPerformed() throws {

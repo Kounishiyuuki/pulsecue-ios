@@ -649,7 +649,8 @@ final class RunnerViewModel: ObservableObject {
             // The stored, truncated `totalSeconds` — what History shows too.
             duration: TimeInterval(session.totalSeconds),
             results: results,
-            steps: steps
+            steps: steps,
+            bodyWeightKg: WorkoutCalorieEstimator.bodyWeightKg(for: session, modelContext: modelContext)
         )
     }
 
