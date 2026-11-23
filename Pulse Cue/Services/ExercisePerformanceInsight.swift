@@ -247,12 +247,11 @@ struct PreviousTimedPerformance: Equatable {
 }
 
 extension PreviousPerformanceQuery {
-    /// The newest record of `exerciseId` with a done set in a finished
-    /// session, for timed movements. Its duration is the sum of the record's
-    /// recorded set durations; with none recorded it says only that it was
-    /// done ("実施済み") — never a time or reps made up from older data.
-    /// Same record rules as `latest`: one step's sets in one session, matched
-    /// by what the step was when it ran.
+    /// The newest finished session with a done set of `exerciseId`, for timed
+    /// movements. Its duration is the sum of that session's recorded set
+    /// durations over every step of the exercise; with none recorded it says
+    /// only that it was done ("実施済み") — never a time or reps made up from
+    /// older data. Steps are matched by what they were when they ran.
     static func lastTimedPerformance(
         exerciseId: String,
         excludingSessionId: UUID?,
@@ -269,22 +268,27 @@ extension PreviousPerformanceQuery {
         let byRecord = Dictionary(
             grouping: results.filter { $0.sessionId != excludingSessionId && finished[$0.sessionId] != nil }
         ) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
-        let candidates = byRecord.compactMap { record, recordResults -> (Record, Date, [StepResult])? in
+        // Done sets of this exercise per session, across every step that ran
+        // it: one workout's total, the same unit as Progress
+        // (`WorkoutProgressQuery.durationInsights`), so two treadmill steps in
+        // one workout add up rather than one of them standing for it.
+        var doneBySession: [UUID: [StepResult]] = [:]
+        for (record, recordResults) in byRecord {
             let done = recordResults.filter(\.done)
             guard !done.isEmpty,
-                  HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId]).exerciseId == exerciseId,
-                  let date = finished[record.sessionId]
-            else { return nil }
-            return (record, date, done)
+                  HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId]).exerciseId == exerciseId
+            else { continue }
+            doneBySession[record.sessionId, default: []] += done
         }
         // Newest session first; ties resolved by id so the same data always
-        // yields the same record.
-        guard let newest = candidates.max(by: { lhs, rhs in
+        // yields the same session. A newest session with no recorded duration
+        // still wins and reads as "実施済み" — an older timed one is not
+        // reached for.
+        guard let newest = doneBySession.keys.compactMap({ id in finished[id].map { (id, $0) } }).max(by: { lhs, rhs in
             if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-            if lhs.0.sessionId != rhs.0.sessionId { return lhs.0.sessionId.uuidString < rhs.0.sessionId.uuidString }
-            return lhs.0.stepId.uuidString > rhs.0.stepId.uuidString
+            return lhs.0.uuidString < rhs.0.uuidString
         }) else { return nil }
-        let durations = newest.2.compactMap(\.actualDurationSeconds).filter { $0 > 0 }
+        let durations = (doneBySession[newest.0] ?? []).compactMap { SetDuration.validated($0.actualDurationSeconds) }
         return PreviousTimedPerformance(date: newest.1, totalSeconds: durations.isEmpty ? nil : durations.reduce(0, +))
     }
 }

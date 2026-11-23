@@ -503,6 +503,67 @@ struct WorkoutDurationProgressTests {
         #expect(durations.map(\.exerciseId) == ["treadmill_warmup"])
     }
 
+    private func previous(_ steps: [Step], _ sessions: [Session], _ results: [StepResult]) -> PreviousTimedPerformance? {
+        PreviousPerformanceQuery.lastTimedPerformance(
+            exerciseId: "treadmill_warmup", excludingSessionId: nil, steps: steps, sessions: sessions, results: results
+        )
+    }
+
+    @Test func previousAddsUpTwoStepsOfTheExerciseInOneWorkout() throws {
+        let a = step("treadmill_warmup"), b = step("treadmill_warmup"), s = session(daysAgo: 1)
+        let results = [timed(s, a, seconds: 600), timed(s, b, seconds: 300)]
+        let prev = try #require(previous([a, b], [s], results))
+        #expect(prev.totalSeconds == 900)
+        #expect(ProgressionPresentation.previousText(prev) == "15分")
+        #expect(try #require(insight([a, b], [s], results)).latestSeconds == prev.totalSeconds)
+    }
+
+    @Test func previousAndProgressAgreeAcrossWorkoutsWithDuplicateSteps() throws {
+        let a = step("treadmill_warmup"), b = step("treadmill_warmup")
+        let s1 = session(daysAgo: 2), s2 = session(daysAgo: 1)
+        let results = [
+            timed(s1, a, seconds: 300), timed(s1, b, seconds: 300),
+            timed(s2, a, seconds: 600), timed(s2, b, seconds: 300),
+        ]
+        #expect(try #require(previous([a, b], [s1, s2], results)).totalSeconds == 900)
+        let progress = try #require(insight([a, b], [s1, s2], results))
+        #expect(progress.latestSeconds == 900 && progress.previousSeconds == 600 && progress.bestSeconds == 900)
+    }
+
+    @Test func aDurationlessStepBesideATimedOneAddsNothing() throws {
+        let a = step("treadmill_warmup"), b = step("treadmill_warmup"), s = session(daysAgo: 1)
+        let results = [timed(s, a, seconds: 600), timed(s, b, seconds: nil)]
+        let prev = try #require(previous([a, b], [s], results))
+        #expect(prev.totalSeconds == 600)
+        #expect(ProgressionPresentation.previousText(prev) == "10分")
+        #expect(try #require(insight([a, b], [s], results)).latestSeconds == 600)
+    }
+
+    @Test func aNewestWorkoutWithoutDurationsStillReadsAsDone() throws {
+        let a = step("treadmill_warmup"), b = step("treadmill_warmup")
+        let older = session(daysAgo: 2), newest = session(daysAgo: 1)
+        let results = [timed(older, a, seconds: 900), timed(newest, a, seconds: nil), timed(newest, b, seconds: nil)]
+        let prev = try #require(previous([a, b], [older, newest], results))
+        #expect(prev.date == newest.startedAt)                     // not the older timed workout
+        #expect(prev.totalSeconds == nil)
+        #expect(ProgressionPresentation.previousText(prev) == "実施済み")
+        // Progress has no duration point for it; its latest is the older one.
+        #expect(try #require(insight([a, b], [older, newest], results)).latestSeconds == 900)
+    }
+
+    @Test func duplicateStepsNeverMixOwners() throws {
+        let owner = UUID(), other = UUID(), a = step("treadmill_warmup"), b = step("treadmill_warmup")
+        let mine = session(daysAgo: 2, owner: owner), guestSession = session(daysAgo: 1)
+        let sessions = [mine, guestSession]
+        let results = [timed(mine, a, seconds: 600), timed(mine, b, seconds: 300), timed(guestSession, a, seconds: 120)]
+        func seen(_ scope: WorkoutDataScope) -> PreviousTimedPerformance? {
+            previous([a, b], scope.visible(sessions), scope.visible(results))
+        }
+        #expect(seen(.account(owner))?.totalSeconds == 900)
+        #expect(seen(.account(other)) == nil)
+        #expect(seen(.guest)?.totalSeconds == 120)
+    }
+
     @Test func latestMatchesTheEditorsPreviousLine() throws {
         let tread = step("treadmill_warmup"), s1 = session(daysAgo: 2), s2 = session(daysAgo: 1)
         let results = [timed(s1, tread, seconds: 600), timed(s2, tread, set: 0, seconds: 300), timed(s2, tread, set: 1, seconds: 450)]
