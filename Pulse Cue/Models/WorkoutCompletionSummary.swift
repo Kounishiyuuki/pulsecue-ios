@@ -102,9 +102,10 @@ struct WorkoutCompletionSummary: Equatable {
 /// One workout-level MET for every session, whatever its exercises: sets do
 /// not record how long a timed exercise actually ran, so a per-exercise MET
 /// (running for a treadmill, say) would be a guess dressed up as precision.
-/// 3.5 is the Compendium of Physical Activities value for resistance training
-/// with multiple exercises, 8–15 reps (code 02050) — the conservative choice
-/// over 6.0 for vigorous power lifting, since a session includes rest.
+/// 3.5 is the Compendium of Physical Activities value for resistance training,
+/// multiple exercises, 8–15 repetitions at varied resistance (code 02054).
+/// It is the conservative v1 choice over 6.0 for power lifting / body
+/// building at vigorous effort (code 02050), since a session includes rest.
 /// Derived, never stored, so it can be recalculated if the inputs change.
 enum WorkoutCalorieEstimator {
     static let met = 3.5
