@@ -325,6 +325,19 @@ final class FreeWorkoutSession {
         )
     }
 
+    /// When `step`'s exercise was last performed, from the same history.
+    func lastPerformedDate(for step: Step) -> Date? {
+        guard let exerciseId = step.exerciseId else { return nil }
+        let scope = historyScope
+        return PreviousPerformanceQuery.lastPerformedDate(
+            exerciseId: exerciseId,
+            excludingSessionId: session.id,
+            steps: (try? context.fetch(FetchDescriptor<Step>())) ?? [],
+            sessions: scope.visible((try? context.fetch(FetchDescriptor<Session>())) ?? []),
+            results: scope.visible((try? context.fetch(FetchDescriptor<StepResult>())) ?? [])
+        )
+    }
+
     /// Whose history this workout may read: its own session's owner, fixed
     /// when it was created. Deliberately not a caller argument and not the
     /// live account state — a sign-in change mid-workout must not let this
@@ -388,8 +401,10 @@ final class FreeWorkoutSession {
         return true
     }
 
+    /// A timed set is performed without a rep count.
     static func isPerformance(_ result: StepResult) -> Bool {
-        result.done && result.actualReps != nil
+        result.done && (result.actualReps != nil
+            || !WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution))
     }
 
     private func deleteEverything() {

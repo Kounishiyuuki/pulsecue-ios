@@ -63,9 +63,9 @@ struct WorkoutCompletionView: View {
         VStack(spacing: 0) {
             metricRow(label: "実施時間", value: durationText)
             divider
-            metricRow(label: "完了した種目", value: "\(summary.completedExerciseCount)")
+            metricRow(label: "種目", value: "\(summary.completedExerciseCount)")
             divider
-            metricRow(label: "完了したセット", value: "\(summary.completedSetCount)")
+            metricRow(label: "セット", value: "\(summary.completedSetCount)")
             divider
             metricRow(label: "総レップ数", value: "\(summary.totalReps)", spokenValue: "\(summary.totalReps)回")
             divider

@@ -22,10 +22,11 @@ struct WorkoutCompletionSummary: Equatable {
     let completedExerciseCount: Int
     /// `StepResult`s actually marked done. Skipped sets are not counted.
     let completedSetCount: Int
-    /// Sum of `actualReps` over done sets; a set with no reps adds 0.
+    /// Sum of `actualReps` over done sets of rep-counted exercises (see
+    /// `WorkoutSetSemantics`); a set with no reps adds 0.
     let totalReps: Int
     /// Sum of weight × reps, in kg, over done sets of load-bearing exercises
-    /// that recorded both (see `WorkoutVolume`).
+    /// that recorded both (see `WorkoutSetSemantics`).
     let totalVolumeKg: Double
 
     init(
@@ -53,19 +54,23 @@ struct WorkoutCompletionSummary: Equatable {
     static func make(sessionId: UUID, duration: TimeInterval, results: [StepResult], steps: [Step]) -> WorkoutCompletionSummary {
         let done = results.filter { $0.sessionId == sessionId && $0.done }
         let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let volume = done.reduce(0.0) { total, result in
+        var reps = 0
+        var volume = 0.0
+        for result in done {
             let exerciseId = result.exerciseIdAtExecution ?? stepById[result.stepId]?.exerciseId
-            guard WorkoutVolume.countsLoad(exerciseId: exerciseId),
-                  let weight = result.weightKg, let reps = result.actualReps
-            else { return total }
-            return total + weight * Double(reps)
+            guard WorkoutSetSemantics.countsReps(exerciseId: exerciseId), let setReps = result.actualReps
+            else { continue }
+            reps += max(0, setReps)
+            if let weight = WorkoutSetSemantics.volumeWeight(exerciseId: exerciseId, weightKg: result.weightKg) {
+                volume += weight * Double(max(0, setReps))
+            }
         }
         return WorkoutCompletionSummary(
             sessionId: sessionId,
             duration: max(0, duration),
             completedExerciseCount: Set(done.map(\.stepId)).count,
             completedSetCount: done.count,
-            totalReps: done.reduce(0) { $0 + max(0, $1.actualReps ?? 0) },
+            totalReps: reps,
             // Weights are stored to 0.01 kg; rounding the sum drops float noise.
             totalVolumeKg: (volume * 100).rounded() / 100
         )
@@ -77,21 +82,31 @@ struct WorkoutCompletionSummary: Equatable {
     }
 }
 
-/// Which exercises add to total volume. Only an added load counts: timed
-/// exercises and bodyweight-only ones add 0 — a body weight is never
-/// guessed in. An unknown or custom exercise counts whatever weight it
-/// recorded.
-enum WorkoutVolume {
-    static func countsLoad(exerciseId: String?) -> Bool {
-        guard let exerciseId, let exercise = ExerciseLibrary.exercise(for: ExerciseID(rawValue: exerciseId))
-        else { return true }
-        if exercise.isDurationBased { return false }
-        let types = exercise.compatibleEquipment.compactMap { equipment -> EquipmentType? in
-            switch equipment {
-            case let .machine(id): return MachineCatalog.entry(for: id)?.equipmentType
-            case let .anyOfType(type): return type
-            }
-        }
-        return types.isEmpty || !types.allSatisfy { $0 == .bodyweight }
+/// What a done set of an exercise contributes to the summary. Read from
+/// catalog metadata keyed by the persisted exercise id, so stored results
+/// are never rewritten — an older timed set that still carries reps, or an
+/// assisted set that carries its assistance weight, is simply not counted.
+enum WorkoutSetSemantics {
+    /// Timed movements have no repetitions; any stored count is ignored.
+    /// Custom / unknown exercises count what they recorded.
+    static func countsReps(exerciseId: String?) -> Bool {
+        guard let exercise = exercise(exerciseId) else { return true }
+        return !exercise.isDurationBased
+    }
+
+    /// The weight that counts toward volume, or `nil` when the set adds none.
+    /// Only external load counts: a body weight is never guessed in, so a
+    /// bodyweight movement contributes just the weight added to it (none
+    /// recorded → 0). Assistance helps rather than loads, and timed sets have
+    /// no reps. Custom / unknown exercises count whatever weight they recorded.
+    static func volumeWeight(exerciseId: String?, weightKg: Double?) -> Double? {
+        guard let weightKg else { return nil }
+        guard let exercise = exercise(exerciseId) else { return weightKg }
+        if exercise.isDurationBased || exercise.loadSemantics == .assistance { return nil }
+        return weightKg
+    }
+
+    private static func exercise(_ id: String?) -> Exercise? {
+        id.flatMap { ExerciseLibrary.exercise(for: ExerciseID(rawValue: $0)) }
     }
 }

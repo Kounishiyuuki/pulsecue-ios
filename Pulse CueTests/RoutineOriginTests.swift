@@ -1432,6 +1432,102 @@ struct FreeWorkoutViewModelTests {
         #expect(try historySummary(context) == summary)
     }
 
+    @Test func aTimedExerciseRecordsNoRepsYetStillCountsAsPerformed() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        let card = try #require(model.cards.first)
+        #expect(card.tracksReps == false)
+        #expect(card.acceptsWeight == false)
+        model.setReps(12, for: key(model, card: 0, set: 0))   // ignored for a timed set
+        model.complete(key(model, card: 0, set: 0))
+
+        let result = try #require(all(StepResult.self, context).first)
+        #expect(result.done)
+        #expect(result.actualReps == nil)
+        model.finish(now: model.startedAt.addingTimeInterval(600))
+        #expect(model.finishOutcome == .saved)
+        let summary = try #require(model.completion)
+        #expect(summary.completedSetCount == 1)
+        #expect(summary.totalReps == 0)
+        #expect(summary.totalVolumeKg == 0)
+    }
+
+    /// Logs one done treadmill set in a finished Free Workout; `legacyReps`
+    /// stands in for an older record that still stored a rep count.
+    private func logPastTreadmill(_ context: ModelContext, legacyReps: Int? = nil) throws {
+        let past = try open(context)
+        past.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        past.complete(key(past, card: 0, set: 0))
+        if let legacyReps { all(StepResult.self, context).first?.actualReps = legacyReps }
+        past.finish(now: past.startedAt.addingTimeInterval(600))
+        #expect(past.finishOutcome == .saved)
+    }
+
+    @Test func aTimedExercisesPreviousPerformanceSaysOnlyThatItWasDone() throws {
+        let context = ModelContext(try makeContainer())
+        try logPastTreadmill(context)
+        let next = try open(context)
+        next.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(next.cards.first?.previousText == "実施済み")
+    }
+
+    @Test func anOlderTimedRecordWithRepsNeverShowsThem() throws {
+        let context = ModelContext(try makeContainer())
+        try logPastTreadmill(context, legacyReps: 10)
+        let stored = try #require(all(StepResult.self, context).first)
+        #expect(stored.actualReps == 10)   // the data itself is left alone
+        #expect(try historySummary(context).totalReps == 0)
+        #expect(SessionHistoryPresentation.setValueText(stored) == "実施済み")
+        #expect(!SessionHistoryPresentation.setAccessibilityLabel(stored).contains("10回"))
+
+        let next = try open(context)
+        next.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        #expect(next.cards.first?.previousText == "実施済み")
+    }
+
+    @Test func aDoneTimedSetReadsAsDoneInHistory() throws {
+        let context = ModelContext(try makeContainer())
+        try logPastTreadmill(context)
+        let stored = try #require(all(StepResult.self, context).first)
+        #expect(stored.actualReps == nil)
+        #expect(SessionHistoryPresentation.setValueText(stored) == "実施済み")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(stored) == "セット 1、完了")
+        #expect(all(Session.self, context).first?.status == .completed)
+    }
+
+    @Test func aRepExercisesPreviousAndHistoryTextAreUnchanged() throws {
+        let context = ModelContext(try makeContainer())
+        let past = try open(context)
+        logBench(past, [(80, 10)])
+        past.finish(now: past.startedAt.addingTimeInterval(60))
+        let stored = try #require(all(StepResult.self, context).first)
+        #expect(SessionHistoryPresentation.setValueText(stored) == "\(SetWeight.display(80)) × 10 回")
+
+        let next = try open(context)
+        next.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let previous = try #require(next.cards.first?.previousText)
+        #expect(previous != "実施済み" && previous.contains("10"))
+    }
+
+    @Test func aRepCountedExerciseStillTracksReps() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        model.addExercise(exerciseId: "pull_up", title: "プルアップ")
+        #expect(model.cards.first?.tracksReps == true)
+        #expect(model.cards.first?.acceptsWeight == true)   // added weight can be entered
+    }
+
+    @Test func aFractionalFreeWorkoutDurationMatchesHistory() throws {
+        let context = ModelContext(try makeContainer())
+        let model = try open(context)
+        logBench(model, [(80, 10)])
+        model.finish(now: model.startedAt.addingTimeInterval(1_832.7))
+        let summary = try #require(model.completion)
+        #expect(summary.duration == 1_832)
+        #expect(try historySummary(context).duration == summary.duration)
+    }
+
     @Test func draftRowsAndUnloggedExercisesAddNothing() throws {
         let context = ModelContext(try makeContainer())
         let model = try open(context)

@@ -191,7 +191,7 @@ struct RunnerView: View {
     private var activeExerciseCard: some View {
         VStack(spacing: 18) {
             VStack(spacing: 5) {
-                Text(runnerViewModel.isRunning ? "現在の回数" : "準備")
+                Text(runnerViewModel.isRunning ? (runnerViewModel.currentStepTracksReps ? "現在の回数" : "時間で行う種目") : "準備")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Text(runnerViewModel.currentStep?.title ?? "ルーティンを選択")
@@ -199,42 +199,46 @@ struct RunnerView: View {
                     .multilineTextAlignment(.center)
             }
 
-            HStack(spacing: 12) {
-                adjustmentButton(
-                    label: "1 回減らす",
-                    systemImage: "minus",
-                    disabled: !runnerViewModel.isRunning || runnerViewModel.currentReps == 0
-                ) {
-                    runnerViewModel.adjustCurrentReps(by: -1)
-                }
+            if runnerViewModel.currentStepTracksReps {
+                HStack(spacing: 12) {
+                    adjustmentButton(
+                        label: "1 回減らす",
+                        systemImage: "minus",
+                        disabled: !runnerViewModel.isRunning || runnerViewModel.currentReps == 0
+                    ) {
+                        runnerViewModel.adjustCurrentReps(by: -1)
+                    }
 
-                VStack(spacing: 0) {
-                    Text(runnerViewModel.isRunning ? "\(runnerViewModel.currentReps)" : "—")
-                        .font(.system(size: repNumberSize, weight: .bold, design: .rounded))
-                        .minimumScaleFactor(0.55)
-                        .lineLimit(1)
-                        .monospacedDigit()
-                        .foregroundStyle(AppTheme.accent)
-                        .contentTransition(reduceMotion ? .identity : .numericText())
-                    Text("回")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("現在 \(runnerViewModel.currentReps) 回")
+                    VStack(spacing: 0) {
+                        Text(runnerViewModel.isRunning ? "\(runnerViewModel.currentReps)" : "—")
+                            .font(.system(size: repNumberSize, weight: .bold, design: .rounded))
+                            .minimumScaleFactor(0.55)
+                            .lineLimit(1)
+                            .monospacedDigit()
+                            .foregroundStyle(AppTheme.accent)
+                            .contentTransition(reduceMotion ? .identity : .numericText())
+                        Text("回")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("現在 \(runnerViewModel.currentReps) 回")
 
-                adjustmentButton(
-                    label: "1 回増やす",
-                    systemImage: "plus",
-                    disabled: !runnerViewModel.isRunning
-                ) {
-                    runnerViewModel.adjustCurrentReps(by: 1)
+                    adjustmentButton(
+                        label: "1 回増やす",
+                        systemImage: "plus",
+                        disabled: !runnerViewModel.isRunning
+                    ) {
+                        runnerViewModel.adjustCurrentReps(by: 1)
+                    }
                 }
             }
 
             if let step = runnerViewModel.currentStep {
-                Text("セット \(runnerViewModel.currentSetIndex + 1) / \(step.sets)   •   目標 \(step.repsTarget) 回")
+                Text(runnerViewModel.currentStepTracksReps
+                     ? "セット \(runnerViewModel.currentSetIndex + 1) / \(step.sets)   •   目標 \(step.repsTarget) 回"
+                     : "セット \(runnerViewModel.currentSetIndex + 1) / \(step.sets)")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -506,6 +510,21 @@ struct RunnerView: View {
                         VStack(alignment: .leading, spacing: 8) { suggestionLabel(suggestion); applySuggestionButton }
                     }
                 }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(glassBackground)
+            .overlay(glassStroke)
+            .accessibilityElement(children: .combine)
+        } else if runnerViewModel.phase == .exercise, let date = runnerViewModel.previousPerformedDate {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                previousCaption
+                Text(ProgressionPresentation.performedText)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                Text(Self.previousDateFormatter.string(from: date))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)

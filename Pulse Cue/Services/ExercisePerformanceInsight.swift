@@ -165,6 +165,9 @@ enum PreviousPerformanceQuery {
         sessions: [Session],
         results: [StepResult]
     ) -> PreviousPerformance? {
+        // A timed set has no rep count to show; an older one that still
+        // carries reps is not shown as reps either (see `lastPerformedDate`).
+        guard WorkoutSetSemantics.countsReps(exerciseId: exerciseId) else { return nil }
         let orderByStep = Dictionary(steps.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
         let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -232,6 +235,36 @@ enum PreviousPerformanceQuery {
 
         let candidates = ranked.compactMap(performance)
         return candidates.first { $0.isComplete(expectedSets: expectedSets) } ?? candidates.first
+    }
+}
+
+extension PreviousPerformanceQuery {
+    /// When `exerciseId` was last performed (a done set in a finished
+    /// session), with no claim about how much. Used for timed movements,
+    /// whose duration is not recorded yet, so the UI can say "実施済み"
+    /// without inventing reps, time, or load.
+    static func lastPerformedDate(
+        exerciseId: String,
+        excludingSessionId: UUID?,
+        steps: [Step],
+        sessions: [Session],
+        results: [StepResult]
+    ) -> Date? {
+        let finished = Dictionary(
+            sessions.filter { $0.status != .inProgress }.map { ($0.id, $0.startedAt) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let stepById = Dictionary(steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        struct Record: Hashable { let sessionId: UUID; let stepId: UUID }
+        let byRecord = Dictionary(
+            grouping: results.filter { $0.sessionId != excludingSessionId && finished[$0.sessionId] != nil }
+        ) { Record(sessionId: $0.sessionId, stepId: $0.stepId) }
+        return byRecord.compactMap { record, recordResults -> Date? in
+            guard recordResults.contains(where: \.done),
+                  HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId]).exerciseId == exerciseId
+            else { return nil }
+            return finished[record.sessionId]
+        }.max()
     }
 }
 
@@ -374,6 +407,9 @@ enum ProgressionPresentation {
     /// "60 kg × 10 / 10 / 10 回" for one load, "60 kg×10 / 57.5 kg×9" for
     /// mixed loads (a set without a load shows reps only), "10 / 10 回" when
     /// no load was recorded.
+    /// Previous-performance line of a timed movement: that it was done, only.
+    static let performedText = "実施済み"
+
     static func previousText(_ previous: PreviousPerformance) -> String {
         let reps = previous.setReps.map(String.init).joined(separator: " / ")
         if let weight = previous.uniformWeightKg {

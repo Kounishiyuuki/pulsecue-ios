@@ -283,7 +283,9 @@ enum WorkoutProgressQuery {
 
         for (record, recordResults) in byRecord {
             let identity = HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId])
-            guard let exerciseId = identity.exerciseId else { continue }
+            // Timed movements have no reps to chart (duration is not recorded yet).
+            guard let exerciseId = identity.exerciseId,
+                  WorkoutSetSemantics.countsReps(exerciseId: exerciseId) else { continue }
             let date = startedAt[record.sessionId] ?? .distantPast
             var agg = byExercise[exerciseId] ?? Agg()
             var performed = false

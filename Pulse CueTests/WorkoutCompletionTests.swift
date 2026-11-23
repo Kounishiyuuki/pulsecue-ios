@@ -110,7 +110,42 @@ struct WorkoutCompletionTests {
         let session = try #require(try Self.sessions(fx.context).first)
         let endedAt = try #require(session.endedAt)
         let summary = try #require(fx.viewModel.completion)
-        #expect(abs(summary.duration - endedAt.timeIntervalSince(session.startedAt)) < 0.001)
+        #expect(session.totalSeconds == Int(endedAt.timeIntervalSince(session.startedAt)))
+        // Completion reads the stored seconds, the same value History shows.
+        #expect(summary.duration == TimeInterval(session.totalSeconds))
+    }
+
+    @Test
+    func aFractionalRunnerDurationReadsTheSameAsHistory() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        let session = try #require(try Self.sessions(fx.context).first)
+        session.startedAt = Date().addingTimeInterval(-20.6)
+        try Self.complete(fx.viewModel)
+
+        let summary = try #require(fx.viewModel.completion)
+        #expect(session.totalSeconds == 20)
+        #expect(summary.duration == 20)
+        let history = WorkoutCompletionSummary.make(
+            sessionId: session.id, duration: TimeInterval(session.totalSeconds),
+            results: try fx.context.fetch(FetchDescriptor<StepResult>()), steps: try fx.context.fetch(FetchDescriptor<Step>()))
+        #expect(history == summary)
+    }
+
+    @Test
+    func aTimedRunnerSetRecordsNoReps() throws {
+        let fx = try Self.makeFixture()
+        let step = try #require(try fx.context.fetch(FetchDescriptor<Step>()).first)
+        step.exerciseId = "treadmill_warmup"
+        try fx.context.save()
+        fx.viewModel.start(routine: fx.routine)
+        #expect(fx.viewModel.currentStepTracksReps == false)
+        try Self.complete(fx.viewModel)
+
+        let result = try #require(try fx.context.fetch(FetchDescriptor<StepResult>()).first)
+        #expect(result.done)
+        #expect(result.actualReps == nil)
+        #expect(fx.viewModel.completion?.totalReps == 0)
     }
 
     @Test
@@ -348,12 +383,63 @@ struct WorkoutSummaryMetricsTests {
         #expect(s.totalVolumeKg == 0)
     }
 
-    @Test func bodyweightExercisesCountRepsButNoVolume() {
+    @Test func aBodyweightExerciseWithoutAddedWeightAddsNoVolume() {
         let pullUp = step("pull_up")
-        let s = summary([result(pullUp, 0, kg: 10, reps: 8), result(pullUp, 1, kg: nil, reps: 6)], [pullUp])
-        #expect(s.completedSetCount == 2)
-        #expect(s.totalReps == 14)
+        let s = summary([result(pullUp, 0, kg: nil, reps: 10)], [pullUp])
+        #expect(s.totalReps == 10)
         #expect(s.totalVolumeKg == 0)   // no body weight is ever guessed in
+    }
+
+    @Test func aBodyweightExerciseCountsOnlyItsAddedWeight() {
+        let pullUp = step("pull_up"), chinUp = step("chin_up", order: 1)
+        let s = summary([result(pullUp, 0, kg: 20, reps: 10), result(pullUp, 1, kg: nil, reps: 6),
+                         result(chinUp, 0, kg: 0, reps: 8)], [pullUp, chinUp])
+        #expect(s.completedSetCount == 3)
+        #expect(s.totalReps == 24)
+        #expect(s.totalVolumeKg == 200)   // +20 kg × 10; body weight not added
+    }
+
+    @Test func timedExercisesCountNoReps() {
+        let treadmill = step("treadmill_warmup")
+        // An older timed set may still carry a rep count; it is kept but not summed.
+        let s = summary([result(treadmill, 0, kg: nil, reps: 10)], [treadmill])
+        #expect(s.completedSetCount == 1)
+        #expect(s.totalReps == 0)
+    }
+
+    @Test func timedAndRepExercisesMixed() {
+        let rower = step("rowing_machine"), bench = step("bench_press", order: 1), bike = step("bike_finisher", order: 2)
+        let s = summary([result(rower, 0, kg: nil, reps: 10), result(bench, 0, kg: 80, reps: 10),
+                         result(bike, 0, kg: nil, reps: nil)], [rower, bench, bike])
+        #expect(s.completedExerciseCount == 3)
+        #expect(s.completedSetCount == 3)
+        #expect(s.totalReps == 10)
+        #expect(s.totalVolumeKg == 800)
+    }
+
+    @Test func assistedPullUpAssistanceIsNotVolume() {
+        let assisted = step("assisted_pull_up")
+        let s = summary([result(assisted, 0, kg: 40, reps: 10)], [assisted])
+        #expect(s.totalReps == 10)
+        #expect(s.totalVolumeKg == 0)
+    }
+
+    @Test func assistedChinUpAssistanceIsNotVolume() {
+        let assisted = step("assisted_chin_up")
+        let s = summary([result(assisted, 0, kg: 40, reps: 10)], [assisted])
+        #expect(s.totalReps == 10)
+        #expect(s.totalVolumeKg == 0)
+    }
+
+    @Test func aNormalWeightedSetIsUnchanged() {
+        let bench = step("bench_press")
+        let s = summary([result(bench, 0, kg: 80, reps: 10)], [bench])
+        #expect(s.totalReps == 10 && s.totalVolumeKg == 800)
+    }
+
+    @Test func onlyTheAssistedMachineMovementsCarryAssistance() {
+        let assisted = ExerciseLibrary.all.filter { $0.loadSemantics == .assistance }.map(\.id.rawValue).sorted()
+        #expect(assisted == ["assisted_chin_up", "assisted_pull_up"])
     }
 
     @Test func timedExercisesAddNoVolume() {
