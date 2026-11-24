@@ -270,3 +270,58 @@ struct SessionHistoryIdentityTitleTests {
         #expect(groups[0].isOrphaned)
     }
 }
+
+// MARK: - Reps in reserve (RIR PR-C)
+
+struct SessionHistoryRIRTests {
+    private func result(_ exerciseId: String? = "bench_press", reps: Int? = 10, weight: Double? = 80,
+                        done: Bool = true, seconds: Int? = nil, rir: Int?) -> StepResult {
+        StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: done, actualReps: reps, weightKg: weight,
+                   exerciseIdAtExecution: exerciseId, actualDurationSeconds: seconds, repsInReserve: rir)
+    }
+
+    @Test func aRecordedRIRReadsBesideTheSet() {
+        let set = result(rir: 2)
+        #expect(SessionHistoryPresentation.setValueText(set) == "80 kg × 10 回")   // the main text is untouched
+        #expect(SessionHistoryPresentation.setRIRText(set) == "RIR 2")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(set) == "セット 1、完了、80キログラム、10回、RIR 2")
+        #expect(SessionHistoryPresentation.setRIRText(result(rir: 0)) == "RIR 0")
+    }
+
+    @Test func theTopValueReadsAsFourPlus() {
+        let set = result(rir: 4)
+        #expect(SessionHistoryPresentation.setRIRText(set) == "RIR 4+")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(set) == "セット 1、完了、80キログラム、10回、RIR 4以上")
+    }
+
+    @Test func noRIRReadsExactlyAsBefore() {
+        // Unrecorded, and every pre-V16 record (nil): no placeholder at all.
+        let set = result(rir: nil)
+        #expect(SessionHistoryPresentation.setRIRText(set) == nil)
+        #expect(SessionHistoryPresentation.setValueText(set) == "80 kg × 10 回")
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(set) == "セット 1、完了、80キログラム、10回")
+        let legacy = result(nil, weight: nil, rir: nil)
+        #expect(SessionHistoryPresentation.setRIRText(legacy) == nil)
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(legacy) == "セット 1、完了、10回")
+    }
+
+    @Test func aTimedSetNeverShowsRIREvenIfOneWasStored() {
+        let timed = result("treadmill_warmup", reps: nil, weight: nil, seconds: 750, rir: nil)
+        #expect(SessionHistoryPresentation.setValueText(timed) == "12分30秒")
+        #expect(SessionHistoryPresentation.setRIRText(timed) == nil)
+        let corrupt = result("treadmill_warmup", reps: nil, weight: nil, seconds: 750, rir: 2)
+        #expect(SessionHistoryPresentation.setRIRText(corrupt) == nil)
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(corrupt) == "セット 1、完了、12分30秒")
+    }
+
+    @Test func aSkippedSetShowsNoRIR() {
+        let skipped = result(reps: nil, weight: nil, done: false, rir: 2)
+        #expect(SessionHistoryPresentation.setRIRText(skipped) == nil)
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(skipped) == "セット 1、未完了、回数記録なし")
+    }
+
+    @Test func bodyweightAndAssistedSetsShowTheirRIR() {
+        #expect(SessionHistoryPresentation.setRIRText(result("pull_up", weight: nil, rir: 1)) == "RIR 1")
+        #expect(SessionHistoryPresentation.setRIRText(result("assisted_pull_up", weight: 20, rir: 3)) == "RIR 3")
+    }
+}

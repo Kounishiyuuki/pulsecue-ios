@@ -2194,6 +2194,45 @@ struct FreeWorkoutRepsInReserveTests {
         #expect(stored.repsInReserve == nil && stored.done && stored.actualReps == 10 && stored.weightKg == 80)
     }
 
+    private func logPastBench(_ context: ModelContext, scope: WorkoutDataScope, rir: Int?) throws {
+        let launcher = FreeWorkoutLauncher(drafts: FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: scope)
+        launcher.start()
+        let past = try #require(launcher.presented)
+        past.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let row = past.cards[0].rows[0].key
+        past.adjustWeight(by: 80, for: row)
+        past.complete(row)
+        past.setRepsInReserve(rir, for: row)
+        past.finish(now: past.startedAt.addingTimeInterval(900))
+        #expect(past.finishOutcome == .saved)
+    }
+
+    private func previousLine(_ context: ModelContext, scope: WorkoutDataScope) throws -> String? {
+        let launcher = FreeWorkoutLauncher(drafts: FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: scope)
+        launcher.start()
+        let next = try #require(launcher.presented)
+        next.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        defer { next.discard() }
+        return next.cards.first?.previousText
+    }
+
+    @Test func previousShowsLastTimesRIROnlyToItsOwner() throws {
+        let context = try makeContext()
+        let accountA = UUID()
+        try logPastBench(context, scope: .account(accountA), rir: 4)
+        #expect(try previousLine(context, scope: .account(accountA)) == "80\u{00A0}kg × 10 回 · RIR 4+")
+        #expect(try previousLine(context, scope: .account(UUID())) == nil)
+        #expect(try previousLine(context, scope: .guest) == nil)
+    }
+
+    @Test func previousWithoutRIRReadsAsBefore() throws {
+        let context = try makeContext()
+        try logPastBench(context, scope: .guest, rir: nil)
+        #expect(try previousLine(context, scope: .guest) == "80\u{00A0}kg × 10 回")
+    }
+
     @Test func reRecordingWeightAndRepsKeepsTheRIR() throws {
         let context = try makeContext()
         let model = try open(context)

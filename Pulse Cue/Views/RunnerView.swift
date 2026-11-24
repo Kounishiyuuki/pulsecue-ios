@@ -558,9 +558,18 @@ struct RunnerView: View {
     }
 
     private func previousValue(_ previous: PreviousPerformance) -> some View {
-        Text(ProgressionPresentation.previousText(previous))
-            .font(.subheadline.weight(.semibold))
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(ProgressionPresentation.previousText(previous))
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            if let rir = ProgressionPresentation.previousRIRText(previous) {
+                Text(rir)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(ProgressionPresentation.previousRIRAccessibilityText(previous) ?? rir)
+            }
+        }
     }
 
     private func previousDate(_ previous: PreviousPerformance) -> some View {

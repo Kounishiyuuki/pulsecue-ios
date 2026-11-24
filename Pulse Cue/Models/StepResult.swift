@@ -103,6 +103,22 @@ enum RepsInReserve {
         guard let value else { return true }
         return range.contains(value)
     }
+
+    /// A stored value as shown: "2", and the top of the range as "4+".
+    static func valueText(_ value: Int) -> String {
+        value >= range.upperBound ? "\(range.upperBound)+" : "\(value)"
+    }
+
+    /// A stored value as read by VoiceOver: "2", and the top as "4以上".
+    static func spokenValueText(_ value: Int) -> String {
+        value >= range.upperBound ? "\(range.upperBound)以上" : "\(value)"
+    }
+
+    /// "RIR 2" / "RIR 4+" for one set.
+    static func displayText(_ value: Int) -> String { "RIR \(valueText(value))" }
+
+    /// "RIR 2" / "RIR 4以上" for one set.
+    static func spokenText(_ value: Int) -> String { "RIR \(spokenValueText(value))" }
 }
 
 /// Validation and display for a timed set's actual duration.
