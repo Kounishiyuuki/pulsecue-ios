@@ -1222,6 +1222,143 @@ struct RunnerSetWeightTests {
         #expect(try resume(fx, stepId: UUID(), setIndex: 0).lastCompletedSet == nil)                    // missing
         RunnerPersistence.clear()
     }
+
+    // MARK: Reps in reserve (the final set, on the Completion screen — #258 Case C)
+
+    @Test
+    func aZeroRestFinalSetTakesRIRFromTheCompletionScreen() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 3, restSeconds: 0)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        vm.setCurrentWeight(80)
+        try Self.complete(vm)
+        try Self.complete(vm)
+        vm.adjustCurrentReps(by: -2)
+        try Self.complete(vm)                                  // set 3, 80 kg × 8: the workout ends
+        #expect(vm.phase == .done && vm.completion != nil && vm.lastCompletedSet == nil)
+        let final = try #require(vm.completionFinalSet)
+        #expect(final.stepId == fx.steps[0].id && final.setIndex == 2 && final.repsInReserve == nil)
+        #expect(final.valueText == "80 kg × 8 回")
+        #expect(final.accessibilityLabel == "最後のセット、Step 0、セット 3、完了、80キログラム、8回")
+
+        vm.recordCompletionRepsInReserve(2)                    // nil → 2
+        #expect(vm.completionFinalSet?.repsInReserve == 2)
+        #expect(try Self.results(fx).map(\.repsInReserve) == [nil, nil, 2])
+        vm.recordCompletionRepsInReserve(1)                    // 2 → 1
+        vm.recordCompletionRepsInReserve(5)                    // refused; both the copy and the result keep 1
+        #expect(vm.completionFinalSet?.repsInReserve == 1)
+        #expect(try Self.results(fx).map(\.repsInReserve) == [nil, nil, 1])
+        vm.recordCompletionRepsInReserve(nil)                  // 1 → nil
+        let last = try #require(try Self.results(fx).last)
+        #expect(last.repsInReserve == nil && last.weightKg == 80 && last.actualReps == 8 && last.done)
+    }
+
+    @Test
+    func theFinishedSessionAndItsNumbersStayAsTheyWere() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 2, restSeconds: 0)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        vm.setCurrentWeight(60)
+        try Self.complete(vm)
+        try Self.complete(vm)
+        let summary = try #require(vm.completion)
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>()).first)
+        let before = (session.status, session.endedAt, session.totalSeconds)
+        vm.recordCompletionRepsInReserve(3)
+        #expect(session.status == .completed && session.endedAt == before.1 && session.totalSeconds == before.2)
+        #expect(vm.completion == summary)                      // the screen's numbers are not recomputed
+        let recomputed = WorkoutCompletionSummary.make(sessionId: session.id, duration: summary.duration,
+                                                       results: try Self.results(fx), steps: fx.steps)
+        #expect(recomputed.completedSetCount == summary.completedSetCount && recomputed.totalReps == summary.totalReps
+                && recomputed.totalVolumeKg == summary.totalVolumeKg && recomputed.completedExerciseCount == summary.completedExerciseCount)
+    }
+
+    @Test
+    func aRIRSetDuringTheFinalRestShowsOnTheCompletionScreen() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 1, restSeconds: 60)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        try Self.complete(vm)
+        #expect(vm.phase == .rest)                             // the final set still rests
+        try Self.setRIR(vm, 2)
+        try Self.complete(vm)                                  // the rest ends: the workout finishes
+        #expect(vm.completionFinalSet?.repsInReserve == 2)
+        vm.recordCompletionRepsInReserve(4)
+        #expect(try Self.results(fx).map(\.repsInReserve) == [4])
+
+        // Skipping the final rest still ends on that completed set.
+        let skipped = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 1, restSeconds: 60)
+        skipped.viewModel.start(routine: skipped.routine)
+        try Self.complete(skipped.viewModel)
+        skipped.viewModel.handle(action: .skip)
+        #expect(skipped.viewModel.completion != nil && skipped.viewModel.completionFinalSet?.setIndex == 0)
+    }
+
+    @Test
+    func aTimedFinalSetOffersNothingAndNeverAnEarlierStrengthSet() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press", "treadmill_warmup"], sets: 1, restSeconds: 0)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        try Self.complete(vm)                                  // bench
+        vm.setCurrentDuration(DurationEntry(minutes: "10", seconds: "0"))
+        try Self.complete(vm)                                  // timed final
+        #expect(vm.completion != nil && vm.completionFinalSet == nil)
+        vm.recordCompletionRepsInReserve(2)
+        #expect(try Self.results(fx).allSatisfy { $0.repsInReserve == nil })
+    }
+
+    @Test
+    func aWorkoutEndingOnASkippedSetOffersNothing() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 2, restSeconds: 0)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        try Self.complete(vm)                                  // set 1 done
+        vm.handle(action: .skip)                               // set 2 skipped: the workout ends
+        #expect(vm.completion != nil && vm.completionFinalSet == nil)
+        vm.recordCompletionRepsInReserve(2)
+        #expect(try Self.results(fx).allSatisfy { $0.repsInReserve == nil })
+    }
+
+    @Test
+    func theCompletionTargetNeverFollowsANewWorkout() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 1, restSeconds: 0)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        try Self.complete(vm)
+        #expect(vm.completionFinalSet != nil)
+        vm.dismissCompletion()                                 // closing without RIR is fine
+        #expect(vm.completion == nil && vm.completionFinalSet == nil)
+        vm.recordCompletionRepsInReserve(2)                    // nothing to write to any more
+        #expect(try Self.results(fx).map(\.repsInReserve) == [nil])
+
+        let firstSessionId = try #require(try Self.results(fx).first).sessionId
+        vm.start(routine: fx.routine)                          // a second workout
+        try Self.complete(vm)
+        vm.recordCompletionRepsInReserve(3)                    // its own final set only
+        let sessions = try fx.context.fetch(FetchDescriptor<Session>())
+        #expect(sessions.count == 2)
+        let all = try Self.results(fx)
+        #expect(all.first { $0.sessionId == firstSessionId }?.repsInReserve == nil)     // the first workout untouched
+        let second = try #require(all.first { $0.sessionId != firstSessionId })
+        #expect(second.repsInReserve == 3)
+    }
+
+    @Test
+    func bodyweightAndAssistedFinalSetsTakeRIR() throws {
+        let pull = try Self.makeFixture(exerciseIds: ["pull_up"], sets: 1, restSeconds: 0)
+        pull.viewModel.start(routine: pull.routine)
+        try Self.complete(pull.viewModel)
+        #expect(pull.viewModel.completionFinalSet?.valueText == "10 回")
+        pull.viewModel.recordCompletionRepsInReserve(2)
+        #expect(try Self.results(pull).map(\.repsInReserve) == [2])
+
+        let assisted = try Self.makeFixture(exerciseIds: ["assisted_pull_up"], sets: 1, restSeconds: 0)
+        assisted.viewModel.start(routine: assisted.routine)
+        assisted.viewModel.setCurrentWeight(20)
+        try Self.complete(assisted.viewModel)
+        assisted.viewModel.recordCompletionRepsInReserve(3)
+        #expect(try Self.results(assisted).map(\.repsInReserve) == [3])
+    }
 }
 
 /// Weighted "目安を適用": transient only, recorded on Complete, re-derived after
