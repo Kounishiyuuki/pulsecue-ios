@@ -261,6 +261,34 @@ final class RunnerViewModel: ObservableObject {
         return WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId)
     }
 
+    /// The done rep-counted set the rest on screen follows. During rest the
+    /// position still names the set just completed (it advances when the rest
+    /// ends), so this needs no state of its own and survives a relaunch.
+    /// Nil outside rest, for a timed set, and for a skipped one.
+    private var restedSetResult: StepResult? {
+        guard phase == .rest, currentStepTracksReps, let modelContext, let sessionId, let step = currentStep else { return nil }
+        return StepResultWriter.results(in: modelContext, sessionId: sessionId, stepId: step.id)
+            .first { $0.setIndex == currentSetIndex && $0.done }
+    }
+
+    /// Whether the rest on screen offers reps in reserve for the set it
+    /// follows, and the value stored for it.
+    var restedSetRepsInReserve: (available: Bool, value: Int?) {
+        let result = restedSetResult
+        return (result != nil, result?.repsInReserve)
+    }
+
+    /// Sets or clears (`nil`) the reps in reserve of the set the rest
+    /// follows, straight into its stored result. Optional: nothing waits for
+    /// it, and nothing else of the set changes.
+    func recordRestedSetRepsInReserve(_ value: Int?) {
+        guard let modelContext, let sessionId, let step = currentStep, restedSetResult != nil,
+              StepResultWriter.recordRepsInReserve(value, in: modelContext, sessionId: sessionId, step: step, setIndex: currentSetIndex) != nil
+        else { return }
+        try? modelContext.save()
+        objectWillChange.send()
+    }
+
     /// Why the timed set on screen cannot be completed yet; nil when it can,
     /// and always nil for a rep-counted set.
     var currentDurationIssue: DurationEntry.Issue? {

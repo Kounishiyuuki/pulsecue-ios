@@ -689,7 +689,7 @@ struct RunnerSetWeightTests {
         let context: ModelContext
     }
 
-    private static func makeFixture(exerciseIds: [String?] = ["bench_press", "bench_press"], sets: Int = 2) throws -> Fixture {
+    private static func makeFixture(exerciseIds: [String?] = ["bench_press", "bench_press"], sets: Int = 2, restSeconds: Int = 0) throws -> Fixture {
         RunnerPersistence.clear()
         let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
@@ -698,7 +698,7 @@ struct RunnerSetWeightTests {
         context.insert(routine)
         var steps: [Step] = []
         for (index, id) in exerciseIds.enumerated() {
-            let step = Step(routineId: routine.id, order: index, title: "Step \(index)", sets: sets, repsTarget: 10, restSeconds: 0, exerciseId: id)
+            let step = Step(routineId: routine.id, order: index, title: "Step \(index)", sets: sets, repsTarget: 10, restSeconds: restSeconds, exerciseId: id)
             context.insert(step)
             steps.append(step)
         }
@@ -957,6 +957,109 @@ struct RunnerSetWeightTests {
         #expect(previous.setReps == [10, 10])
         #expect(previous.setWeightsKg == [60, 62.5])
         #expect(fx.viewModel.progression != nil)
+    }
+
+    // MARK: Reps in reserve (rest after a done set)
+
+    @Test
+    func restOffersRIRForTheSetJustCompletedAndEditsOnlyIt() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 2, restSeconds: 60)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        #expect(!vm.restedSetRepsInReserve.available)          // nothing done yet
+        vm.setCurrentWeight(80)
+        try Self.complete(vm)
+        #expect(vm.phase == .rest)
+        #expect(vm.restedSetRepsInReserve.available && vm.restedSetRepsInReserve.value == nil)
+
+        vm.recordRestedSetRepsInReserve(2)                     // nil → 2
+        #expect(vm.restedSetRepsInReserve.value == 2)
+        #expect(try Self.results(fx).map(\.repsInReserve) == [2])
+        vm.recordRestedSetRepsInReserve(1)                     // 2 → 1
+        #expect(try Self.results(fx).map(\.repsInReserve) == [1])
+        vm.recordRestedSetRepsInReserve(5)                     // refused, not clamped
+        #expect(try Self.results(fx).map(\.repsInReserve) == [1])
+        vm.recordRestedSetRepsInReserve(nil)                   // 1 → nil
+        let result = try #require(try Self.results(fx).first)
+        #expect(result.repsInReserve == nil)
+        #expect(result.done && result.weightKg == 80 && result.actualReps == 10 && result.actualDurationSeconds == nil)
+        #expect(vm.phase == .rest && vm.currentSetIndex == 0)  // the rest itself is untouched
+
+        vm.recordRestedSetRepsInReserve(3)
+        try Self.complete(vm)                                  // rest ends without waiting on RIR
+        #expect(vm.phase == .exercise && vm.currentSetIndex == 1)
+        #expect(!vm.restedSetRepsInReserve.available)
+        vm.recordRestedSetRepsInReserve(0)                     // no set to write to now
+        try Self.complete(vm)
+        vm.recordRestedSetRepsInReserve(0)                     // the second set's rest
+        #expect(try Self.results(fx).map(\.repsInReserve) == [3, 0])
+    }
+
+    @Test
+    func rirNeverLandsOnAnotherStep() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press", "bench_press"], sets: 1, restSeconds: 60)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        try Self.complete(vm)
+        vm.recordRestedSetRepsInReserve(2)
+        try Self.complete(vm)                                  // ends the rest: step 1
+        #expect(vm.currentStepIndex == 1 && !vm.restedSetRepsInReserve.available)
+        try Self.complete(vm)
+        vm.recordRestedSetRepsInReserve(4)
+        let results = try Self.results(fx)
+        #expect(results.map(\.stepId) == fx.steps.map(\.id))
+        #expect(results.map(\.repsInReserve) == [2, 4])
+    }
+
+    @Test
+    func timedAndSkippedSetsOfferNoRIR() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["treadmill_warmup", "bench_press"], sets: 1, restSeconds: 60)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        vm.setCurrentDuration(DurationEntry(minutes: "12", seconds: "30"))
+        try Self.complete(vm)
+        #expect(vm.phase == .rest)
+        #expect(!vm.restedSetRepsInReserve.available)
+        vm.recordRestedSetRepsInReserve(2)
+        let timed = try #require(try Self.results(fx).first)
+        #expect(timed.repsInReserve == nil && timed.actualDurationSeconds == 750 && timed.actualReps == nil)
+
+        try Self.complete(vm)                                  // ends the rest: bench
+        vm.handle(action: .skip)                               // skipped: no rest, no RIR
+        #expect(!vm.restedSetRepsInReserve.available)
+        #expect(try Self.results(fx).allSatisfy { $0.repsInReserve == nil })
+    }
+
+    @Test
+    func aWorkoutFinishesWithoutAnyRIR() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 1, restSeconds: 60)
+        let vm = fx.viewModel
+        vm.start(routine: fx.routine)
+        try Self.complete(vm)
+        #expect(vm.restedSetRepsInReserve.available)
+        try Self.complete(vm)                                  // last rest ends: the session finishes
+        #expect(vm.phase == .done)
+        let session = try #require(try fx.context.fetch(FetchDescriptor<Session>()).first)
+        #expect(session.status == .completed)
+        #expect(try Self.results(fx).map(\.repsInReserve) == [nil])
+    }
+
+    @Test
+    func rirIsStoredOnTheResultAndShownAgainAfterARelaunch() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["bench_press"], sets: 2, restSeconds: 60)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(80)
+        try Self.complete(fx.viewModel)
+        fx.viewModel.recordRestedSetRepsInReserve(2)
+        let state = try #require(RunnerPersistence.load())
+        #expect(state.phase == .rest)
+
+        let resumed = Self.relaunch(fx)                       // restores in configure
+        #expect(resumed.phase == .rest && resumed.currentSetIndex == 0)
+        #expect(resumed.restedSetRepsInReserve.available && resumed.restedSetRepsInReserve.value == 2)
+        let result = try #require(try Self.results(fx).first)
+        #expect(result.repsInReserve == 2 && result.weightKg == 80 && result.actualReps == 10)
+        RunnerPersistence.clear()
     }
 }
 

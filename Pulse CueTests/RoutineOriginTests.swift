@@ -2075,6 +2075,7 @@ struct RepsInReserveTests {
         #expect(free.recordRepsInReserve(-1, at: 0, of: step) == nil)
         #expect(free.recordRepsInReserve(5, at: 0, of: step) == nil)     // not stored as 4
         #expect(results(context).map(\.repsInReserve) == [2])
+        #expect(results(context).first.map { $0.done && $0.actualReps == 10 && $0.weightKg == 80 } == true)
     }
 
     @Test func updatesAfterCompletionTouchOnlyRepsInReserve() throws {
@@ -2145,5 +2146,126 @@ struct RepsInReserveTests {
         _ = free.finish()
         #expect(free.recordRepsInReserve(2, at: 0, of: step) == nil)
         #expect(results(context).first?.repsInReserve == nil)
+    }
+}
+
+// MARK: - Reps in reserve (Free Workout rows)
+
+@MainActor
+struct FreeWorkoutRepsInReserveTests {
+
+    private func makeContext() throws -> ModelContext {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
+        return ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]))
+    }
+
+    private func open(_ context: ModelContext, scope: WorkoutDataScope = .guest) throws -> FreeWorkoutViewModel {
+        let launcher = FreeWorkoutLauncher(drafts: FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: scope)
+        launcher.start()
+        return try #require(launcher.presented)
+    }
+
+    private func results(_ context: ModelContext) -> [StepResult] {
+        ((try? context.fetch(FetchDescriptor<StepResult>())) ?? []).sorted { $0.setIndex < $1.setIndex }
+    }
+
+    @Test func onlyADoneRepSetTakesRIRAndTheRowShowsWhatIsStored() throws {
+        let context = try makeContext()
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let row = model.cards[0].rows[0].key
+        #expect(!model.acceptsRepsInReserve(row))                  // draft
+        model.adjustWeight(by: 80, for: row)
+        model.complete(row)
+        #expect(model.acceptsRepsInReserve(row))
+        #expect(model.row(row)?.repsInReserve == nil)
+
+        model.setRepsInReserve(2, for: row)                        // nil → 2
+        #expect(model.row(row)?.repsInReserve == 2)
+        #expect(results(context).map(\.repsInReserve) == [2])
+        model.setRepsInReserve(1, for: row)                        // 2 → 1
+        #expect(results(context).map(\.repsInReserve) == [1])
+        model.setRepsInReserve(5, for: row)                        // refused; the row keeps what is stored
+        #expect(model.row(row)?.repsInReserve == 1)
+        model.setRepsInReserve(nil, for: row)                      // 1 → nil
+        #expect(model.row(row)?.repsInReserve == nil)
+        let stored = try #require(results(context).first)
+        #expect(stored.repsInReserve == nil && stored.done && stored.actualReps == 10 && stored.weightKg == 80)
+    }
+
+    @Test func reRecordingWeightAndRepsKeepsTheRIR() throws {
+        let context = try makeContext()
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let row = model.cards[0].rows[0].key
+        model.adjustWeight(by: 80, for: row)
+        model.complete(row)
+        model.setRepsInReserve(2, for: row)
+        model.adjustWeight(by: 2.5, for: row)                      // a done row is re-recorded at once
+        model.adjustReps(by: -2, for: row)
+        let stored = try #require(results(context).first)
+        #expect(stored.weightKg == 82.5 && stored.actualReps == 8 && stored.repsInReserve == 2)
+        #expect(model.row(row)?.repsInReserve == 2)
+    }
+
+    @Test func skippedAndTimedRowsTakeNoRIR() throws {
+        let context = try makeContext()
+        let model = try open(context)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ")
+        let bench = model.cards[0].rows[0].key
+        model.complete(bench)
+        model.setRepsInReserve(3, for: bench)
+        model.skip(bench)                                          // done → skipped
+        #expect(!model.acceptsRepsInReserve(bench))
+        #expect(model.row(bench)?.repsInReserve == nil)
+        model.setRepsInReserve(2, for: bench)
+
+        let timed = model.cards[1].rows[0].key
+        model.setDuration(DurationEntry(minutes: "12", seconds: "30"), for: timed)
+        model.complete(timed)
+        #expect(model.row(timed)?.state == .done)
+        #expect(!model.acceptsRepsInReserve(timed))
+        model.setRepsInReserve(2, for: timed)
+        #expect(results(context).allSatisfy { $0.repsInReserve == nil })
+        #expect(results(context).compactMap(\.actualDurationSeconds) == [750])
+    }
+
+    @Test func bodyweightAndAssistedRepSetsTakeRIRToo() throws {
+        let context = try makeContext()
+        let model = try open(context)
+        model.addExercise(exerciseId: "pull_up", title: "プルアップ")
+        model.addExercise(exerciseId: "assisted_pull_up", title: "アシストプルアップ")
+        #expect(model.cards.count == 2 && model.cards.allSatisfy(\.tracksReps))
+        for card in model.cards {
+            let row = card.rows[0].key
+            model.complete(row)
+            #expect(model.acceptsRepsInReserve(row) == card.tracksReps)
+            model.setRepsInReserve(4, for: row)
+            #expect(model.row(row)?.repsInReserve == (card.tracksReps ? 4 : nil))
+        }
+    }
+
+    @Test func anotherAccountsOrAnEndedWorkoutCannotTakeRIR() throws {
+        let context = try makeContext()
+        let a = UUID(), b = UUID()
+        let workoutA = try #require(FreeWorkoutSession.start(in: context, scope: .account(a)).session)
+        let step = try #require(workoutA.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        workoutA.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        workoutA.recordRepsInReserve(2, at: 0, of: step)
+
+        // Another account's workout, or the guest's, does not own A's step.
+        let workoutB = try #require(FreeWorkoutSession.start(in: context, scope: .account(b)).session)
+        #expect(workoutB.recordRepsInReserve(0, at: 0, of: step) == nil)
+        let guest = try #require(FreeWorkoutSession.start(in: context, scope: .guest).session)
+        #expect(guest.recordRepsInReserve(0, at: 0, of: step) == nil)
+        #expect(results(context).map(\.repsInReserve) == [2])
+
+        // Once A's workout has ended (abandoned here), nothing is written.
+        workoutA.session.status = .abandoned
+        #expect(workoutA.recordRepsInReserve(1, at: 0, of: step) == nil)
+        #expect(results(context).map(\.repsInReserve) == [2])
+        #expect(results(context).first?.ownerAccountID == a)
     }
 }
