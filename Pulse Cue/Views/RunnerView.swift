@@ -134,6 +134,7 @@ struct RunnerView: View {
                         .id("runner-top")
                     statusChips
                     phaseSignature
+                    lastCompletedSetRow
                     previousPerformanceCard
                     formGuideButton
                     replaceCurrentExerciseButton
@@ -261,6 +262,58 @@ struct RunnerView: View {
         .overlay(focusCardStroke)
     }
 
+    // MARK: - Last completed set
+
+    /// The set completed last and its RIR chip, under the set controls in
+    /// every phase (#258) — so a zero rest, a rest cut short or skipped still
+    /// leaves it editable. Secondary: caption text, no card of its own.
+    @ViewBuilder
+    private var lastCompletedSetRow: some View {
+        if runnerViewModel.isRunning, let last = runnerViewModel.lastCompletedSet {
+            // Bound to the set shown, so a choice that lands after the Runner
+            // moved on still goes to that set.
+            let record: (Int?) -> Void = { [stepId = last.stepId, setIndex = last.setIndex] value in
+                runnerViewModel.recordRepsInReserve(value, stepId: stepId, setIndex: setIndex)
+            }
+            let description = VStack(alignment: .leading, spacing: 2) {
+                Text("直前のセット")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("\(last.title) · セット\(last.setIndex + 1) · \(last.valueText)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        description
+                        SetRIRPicker(value: last.repsInReserve, onChange: record)
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        description
+                        Spacer(minLength: 8)
+                        SetRIRPicker(value: last.repsInReserve, onChange: record)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // One element, like a Free Workout row: the RIR values are its
+            // actions, so VoiceOver can set them without finding the chip.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(last.accessibilityLabel)
+            .accessibilityActions {
+                ForEach(SetRIRPicker.options, id: \.self) { value in
+                    Button(SetRIRPicker.spokenText(value)) { record(value) }
+                }
+            }
+            .accessibilityIdentifier("runner.lastCompletedSet")
+        }
+    }
+
     // MARK: - Weight
 
     /// One compact row under the rep counter: a single entry button while no
@@ -367,17 +420,6 @@ struct RunnerView: View {
                         shortenRestButton
                         extendRestButton
                     }
-                }
-            }
-
-            let effort = runnerViewModel.restedSetRepsInReserve
-            if effort.available {
-                VStack(spacing: 6) {
-                    Text("直前のセット")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    SetRIRPicker(value: effort.value) { runnerViewModel.recordRestedSetRepsInReserve($0) }
                 }
             }
         }

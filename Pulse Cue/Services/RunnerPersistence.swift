@@ -40,6 +40,10 @@ struct RunnerPersistentState: Codable {
     var durationSeconds: String? = nil
     var restDeadline: Date?
     var lastUpdatedAt: Date
+    /// The rep-counted set completed last, whose RIR stays editable (#258).
+    /// Optional so state saved before it existed still decodes (as none).
+    var lastCompletedStepId: UUID? = nil
+    var lastCompletedSetIndex: Int? = nil
 }
 
 struct RunnerPersistence {
