@@ -391,6 +391,7 @@ struct FreeWorkoutView: View {
                 Text("セット").frame(width: 44, alignment: .leading)
                 if card.acceptsWeight { Text("kg").frame(maxWidth: .infinity) }
                 if card.tracksReps { Text("回").frame(maxWidth: .infinity) } else { Text("時間").frame(maxWidth: .infinity) }
+                if card.tracksReps { Text("RIR").frame(width: SetRIRPicker.width) }
                 Color.clear.frame(width: 44)
             }
             .font(.caption.weight(.semibold))
@@ -430,6 +431,9 @@ struct FreeWorkoutView: View {
                             Text(values)
                                 .font(.body.monospacedDigit())
                         }
+                        if model.acceptsRepsInReserve(row.key) {
+                            SetRIRPicker(value: row.repsInReserve) { model.setRepsInReserve($0, for: row.key) }
+                        }
                     }
                     Spacer(minLength: 4)
                     completionButton(row, card: card)
@@ -454,6 +458,15 @@ struct FreeWorkoutView: View {
         .accessibilityAction(named: "編集") { model.select(row.key) }
         .accessibilityAction(named: "スキップ") { model.skip(row.key) }
         .accessibilityAction(named: "セットを削除") { model.removeSet(row.key) }
+        .accessibilityActions {
+            // The row reads as one element, so the picker inside it is
+            // reached through these actions instead.
+            if model.acceptsRepsInReserve(row.key) {
+                ForEach(SetRIRPicker.options, id: \.self) { value in
+                    Button(SetRIRPicker.spokenText(value)) { model.setRepsInReserve(value, for: row.key) }
+                }
+            }
+        }
     }
 
     private func compactValues(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String? {
@@ -501,6 +514,14 @@ struct FreeWorkoutView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity)
+            }
+            if card.tracksReps {
+                if model.acceptsRepsInReserve(row.key) {
+                    SetRIRPicker(value: row.repsInReserve) { model.setRepsInReserve($0, for: row.key) }
+                        .frame(width: SetRIRPicker.width)
+                } else {
+                    Color.clear.frame(width: SetRIRPicker.width, height: 1)
+                }
             }
             completionButton(row, card: card)
         }
@@ -643,6 +664,7 @@ struct FreeWorkoutView: View {
         } else {
             parts.append(row.duration.issue == .empty ? "時間未入力" : row.duration.displayText)
         }
+        if model.acceptsRepsInReserve(row.key) { parts.append(SetRIRPicker.spokenText(row.repsInReserve)) }
         switch row.state {
         case .done: parts.append("完了")
         case .skipped: parts.append("スキップ")
@@ -653,6 +675,65 @@ struct FreeWorkoutView: View {
 
     private func entryBinding(_ key: Binding<FreeWorkoutViewModel.RowKey?>) -> Binding<Bool> {
         Binding(get: { key.wrappedValue != nil }, set: { if !$0 { key.wrappedValue = nil } })
+    }
+}
+
+/// Reps-in-reserve chip for a done rep-counted set, shared by the Runner and
+/// Free Workout: one tap opens the values, one more picks. Secondary to the
+/// set's weight and reps, so it stays small and neutral. The values are the
+/// domain's (`RepsInReserve.range`); nothing is validated here.
+struct SetRIRPicker: View {
+    let value: Int?
+    let onChange: (Int?) -> Void
+
+    static let width: CGFloat = 76
+    /// 未入力, then 0...4.
+    static let options: [Int?] = [nil] + RepsInReserve.range.map { Optional($0) }
+
+    static func text(_ value: Int?) -> String {
+        guard let value else { return "RIR –" }
+        return value == RepsInReserve.range.upperBound ? "RIR \(value)+" : "RIR \(value)"
+    }
+
+    static func spokenText(_ value: Int?) -> String {
+        guard let value else { return "RIR 未入力" }
+        return value == RepsInReserve.range.upperBound ? "RIR \(value)以上" : "RIR \(value)"
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(Self.options, id: \.self) { option in
+                Button {
+                    if option != value { onChange(option) }
+                } label: {
+                    if option == value {
+                        Label(Self.menuText(option), systemImage: "checkmark")
+                    } else {
+                        Text(Self.menuText(option))
+                    }
+                }
+                .accessibilityLabel(Self.spokenText(option))
+            }
+        } label: {
+            Text(Self.text(value))
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(value == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .padding(.horizontal, 10)
+                .frame(minWidth: 64, minHeight: 44)
+                .background(Capsule().fill(Color.white.opacity(0.055)))
+                .overlay(Capsule().strokeBorder(AppTheme.separator.opacity(0.45), lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Self.spokenText(value))
+        .accessibilityHint("タップしてあと何回できたか（RIR）を選択")
+    }
+
+    private static func menuText(_ value: Int?) -> String {
+        guard let value else { return "未入力" }
+        return value == RepsInReserve.range.upperBound ? "\(value)+（4回以上）" : "\(value)"
     }
 }
 

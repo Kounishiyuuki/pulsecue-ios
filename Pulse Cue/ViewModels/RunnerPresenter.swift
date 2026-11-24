@@ -235,6 +235,9 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         /// A timed set's duration: as typed on an open row, as recorded on a
         /// done one (or the edit that could not be saved yet).
         var duration = DurationEntry()
+        /// A done set's reps in reserve as recorded; nil when not recorded,
+        /// and always nil for any other row.
+        var repsInReserve: Int? = nil
 
         /// A timed row completes only with a valid duration.
         func durationIssue(tracksReps: Bool) -> DurationEntry.Issue? {
@@ -423,6 +426,23 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         saveAndRebuild(select: nextOpenRow(after: key))
     }
 
+    /// Whether row `key` takes reps in reserve: a done set of a rep-counted
+    /// exercise. Draft, skipped and timed rows never show the picker.
+    func acceptsRepsInReserve(_ key: RowKey) -> Bool {
+        guard let row = row(key), let step = step(key.stepId) else { return false }
+        return row.state == .done && tracksReps(step)
+    }
+
+    /// Sets or clears (`nil`) the reps in reserve of done row `key`. Written
+    /// at once through the domain, which keeps every other value; a refused
+    /// write leaves the row showing what is stored.
+    func setRepsInReserve(_ value: Int?, for key: RowKey) {
+        guard acceptsRepsInReserve(key), let step = step(key.stepId),
+              session.recordRepsInReserve(value, at: key.setIndex, of: step) != nil else { return }
+        try? context.save()
+        rebuild()
+    }
+
     func skip(_ key: RowKey) {
         guard let step = step(key.stepId), session.skipSet(at: key.setIndex, of: step) != nil else { return }
         drafts[key] = nil
@@ -486,7 +506,8 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
                         ? drafts[key].map(\.duration) ?? DurationEntry(totalSeconds: result.actualDurationSeconds)
                         : DurationEntry()
                     return SetRow(key: key, state: result.done ? .done : .skipped,
-                                  weightKg: result.weightKg, reps: result.actualReps ?? step.repsTarget, duration: duration)
+                                  weightKg: result.weightKg, reps: result.actualReps ?? step.repsTarget, duration: duration,
+                                  repsInReserve: result.done ? result.repsInReserve : nil)
                 }
                 let draft = drafts[key] ?? {
                     let entry = session.initialEntry(forSetAt: index, of: step)

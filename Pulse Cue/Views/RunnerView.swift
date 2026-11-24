@@ -369,6 +369,17 @@ struct RunnerView: View {
                     }
                 }
             }
+
+            let effort = runnerViewModel.restedSetRepsInReserve
+            if effort.available {
+                VStack(spacing: 6) {
+                    Text("直前のセット")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    SetRIRPicker(value: effort.value) { runnerViewModel.recordRestedSetRepsInReserve($0) }
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
