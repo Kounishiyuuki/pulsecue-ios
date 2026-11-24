@@ -50,13 +50,13 @@ struct Pulse_CueApp: App {
         }
         #endif
         let modelConfiguration = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV15.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV16.self),
             isStoredInMemoryOnly: inMemory
         )
 
         do {
             let container = try ModelContainer(
-                for: Schema(versionedSchema: PulseCueSchemaV15.self),
+                for: Schema(versionedSchema: PulseCueSchemaV16.self),
                 migrationPlan: PulseCueMigrationPlan.self,
                 configurations: modelConfiguration
             )
@@ -1095,9 +1095,73 @@ enum PulseCueSchemaV14: VersionedSchema {
 /// older timed result's rep count.
 enum PulseCueSchemaV15: VersionedSchema {
     static var versionIdentifier = Schema.Version(15, 0, 0)
+
+    /// `StepResult` exactly as it shipped in V15. Frozen when V16 added
+    /// `repsInReserve` so V15 keeps describing the on-disk shape.
+    @Model
+    final class StepResult {
+        @Attribute(.unique) var id: UUID
+        var sessionId: UUID
+        var stepId: UUID
+        var setIndex: Int
+        var done: Bool
+        var actualReps: Int?
+        var memo: String?
+        var ownerAccountID: UUID?
+        var weightKg: Double?
+        var plannedSetsAtExecution: Int?
+        var exerciseIdAtExecution: String?
+        var exerciseTitleAtExecution: String?
+        var actualDurationSeconds: Int?
+
+        init(
+            id: UUID = UUID(),
+            sessionId: UUID,
+            stepId: UUID,
+            setIndex: Int,
+            done: Bool,
+            actualReps: Int? = nil,
+            memo: String? = nil,
+            ownerAccountID: UUID? = nil,
+            weightKg: Double? = nil,
+            plannedSetsAtExecution: Int? = nil,
+            exerciseIdAtExecution: String? = nil,
+            exerciseTitleAtExecution: String? = nil,
+            actualDurationSeconds: Int? = nil
+        ) {
+            self.id = id
+            self.sessionId = sessionId
+            self.stepId = stepId
+            self.setIndex = setIndex
+            self.done = done
+            self.actualReps = actualReps
+            self.memo = memo
+            self.ownerAccountID = ownerAccountID
+            self.weightKg = weightKg
+            self.plannedSetsAtExecution = plannedSetsAtExecution
+            self.exerciseIdAtExecution = exerciseIdAtExecution
+            self.exerciseTitleAtExecution = exerciseTitleAtExecution
+            self.actualDurationSeconds = actualDurationSeconds
+        }
+    }
+
     static var models: [any PersistentModel.Type] {
         PulseCueSchemaV14.models.map {
-            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV14.StepResult.self) ? StepResult.self : $0
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV14.StepResult.self) ? PulseCueSchemaV15.StepResult.self : $0
+        }
+    }
+}
+
+/// Adds `StepResult.repsInReserve`: how many more reps the user felt they had
+/// left at the end of a done rep-counted set (RIR, 0...4, 4 meaning "4+").
+/// Optional, so the stage is lightweight and every existing result migrates
+/// to `nil` ("not recorded") — never guessed. Local only for now: the server
+/// `step_results` table has no column for it yet.
+enum PulseCueSchemaV16: VersionedSchema {
+    static var versionIdentifier = Schema.Version(16, 0, 0)
+    static var models: [any PersistentModel.Type] {
+        PulseCueSchemaV15.models.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV15.StepResult.self) ? StepResult.self : $0
         }
     }
 }
@@ -1119,7 +1183,8 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             PulseCueSchemaV12.self,
             PulseCueSchemaV13.self,
             PulseCueSchemaV14.self,
-            PulseCueSchemaV15.self
+            PulseCueSchemaV15.self,
+            PulseCueSchemaV16.self
         ]
     }
 
@@ -1180,6 +1245,10 @@ enum PulseCueMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PulseCueSchemaV14.self,
                 toVersion: PulseCueSchemaV15.self
+            ),
+            .lightweight(
+                fromVersion: PulseCueSchemaV15.self,
+                toVersion: PulseCueSchemaV16.self
             )
         ]
     }
