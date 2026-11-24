@@ -52,6 +52,22 @@ final class RunnerViewModel: ObservableObject {
     /// describes is already finalized, so nothing here re-writes History.
     /// An abandoned session (quit) never produces one.
     @Published private(set) var completion: WorkoutCompletionSummary?
+    /// The rep-counted set completed last in this workout, whose reps in
+    /// reserve stay editable whatever the phase (#258). Fixed when the set is
+    /// completed, so it never follows the position. The stored
+    /// `StepResult.repsInReserve` is the truth; this holds a copy read once
+    /// per change, never per rest tick.
+    @Published private(set) var lastCompletedSet: LastCompletedSet?
+
+    struct LastCompletedSet: Equatable {
+        let stepId: UUID
+        let setIndex: Int
+        let title: String
+        /// History's own set text ("80 kg × 10 回"), so loads read the same.
+        let valueText: String
+        let accessibilityLabel: String
+        let repsInReserve: Int?
+    }
 
     private var modelContext: ModelContext?
     /// Whose workouts this Runner may start, resume and read.
@@ -137,6 +153,7 @@ final class RunnerViewModel: ObservableObject {
         previousPerformance = nil
         previousTimedPerformance = nil
         progression = nil
+        lastCompletedSet = nil
     }
 
     func start(routine: Routine) {
@@ -162,6 +179,7 @@ final class RunnerViewModel: ObservableObject {
         self.phase = .exercise
         self.restDeadline = nil
         self.remainingSeconds = 0
+        self.lastCompletedSet = nil
 
         let session = Session(
             routineId: routine.id,
@@ -261,32 +279,39 @@ final class RunnerViewModel: ObservableObject {
         return WorkoutSetSemantics.countsReps(exerciseId: step.exerciseId)
     }
 
-    /// The done rep-counted set the rest on screen follows. During rest the
-    /// position still names the set just completed (it advances when the rest
-    /// ends), so this needs no state of its own and survives a relaunch.
-    /// Nil outside rest, for a timed set, and for a skipped one.
-    private var restedSetResult: StepResult? {
-        guard phase == .rest, currentStepTracksReps, let modelContext, let sessionId, let step = currentStep else { return nil }
-        return StepResultWriter.results(in: modelContext, sessionId: sessionId, stepId: step.id)
-            .first { $0.setIndex == currentSetIndex && $0.done }
-    }
-
-    /// Whether the rest on screen offers reps in reserve for the set it
-    /// follows, and the value stored for it.
-    var restedSetRepsInReserve: (available: Bool, value: Int?) {
-        let result = restedSetResult
-        return (result != nil, result?.repsInReserve)
-    }
-
-    /// Sets or clears (`nil`) the reps in reserve of the set the rest
-    /// follows, straight into its stored result. Optional: nothing waits for
-    /// it, and nothing else of the set changes.
-    func recordRestedSetRepsInReserve(_ value: Int?) {
-        guard let modelContext, let sessionId, let step = currentStep, restedSetResult != nil,
-              StepResultWriter.recordRepsInReserve(value, in: modelContext, sessionId: sessionId, step: step, setIndex: currentSetIndex) != nil
+    /// Sets or clears (`nil`) the reps in reserve of the set at `stepId` /
+    /// `setIndex` — the target the caller showed, never the position now on
+    /// screen, so a choice that lands after the Runner moved on still goes to
+    /// the set it was made for. Written through the domain first; the copy on
+    /// screen follows only a successful write. Optional: nothing waits for it.
+    func recordRepsInReserve(_ value: Int?, stepId: UUID, setIndex: Int) {
+        guard let modelContext, let sessionId, let step = steps.first(where: { $0.id == stepId }),
+              StepResultWriter.recordRepsInReserve(value, in: modelContext, sessionId: sessionId, step: step, setIndex: setIndex) != nil
         else { return }
         try? modelContext.save()
-        objectWillChange.send()
+        if let last = lastCompletedSet, last.stepId == stepId, last.setIndex == setIndex {
+            lastCompletedSet = loadLastCompletedSet(stepId: stepId, setIndex: setIndex)
+        }
+    }
+
+    /// The target for a done, rep-counted result of this session; nil for
+    /// anything else (missing, skipped, timed), so a stale target is dropped.
+    private func loadLastCompletedSet(stepId: UUID, setIndex: Int) -> LastCompletedSet? {
+        guard let modelContext, let sessionId, let step = steps.first(where: { $0.id == stepId }),
+              let result = StepResultWriter.results(in: modelContext, sessionId: sessionId, stepId: stepId)
+                .first(where: { $0.setIndex == setIndex }),
+              result.done,
+              WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution ?? step.exerciseId)
+        else { return nil }
+        let title = result.exerciseTitleAtExecution ?? step.title
+        return LastCompletedSet(
+            stepId: stepId,
+            setIndex: setIndex,
+            title: title,
+            valueText: SessionHistoryPresentation.setValueText(result),
+            accessibilityLabel: "直前のセット、\(title)、" + SessionHistoryPresentation.setAccessibilityLabel(result),
+            repsInReserve: result.repsInReserve
+        )
     }
 
     /// Why the timed set on screen cannot be completed yet; nil when it can,
@@ -544,6 +569,9 @@ final class RunnerViewModel: ObservableObject {
             weightKg: currentStepAcceptsWeight ? currentWeightKg : nil,
             actualDurationSeconds: duration
         )
+        // A timed set clears the target: an older strength set is no longer
+        // the one just done.
+        lastCompletedSet = currentStepTracksReps ? loadLastCompletedSet(stepId: step.id, setIndex: currentSetIndex) : nil
         startRest(for: step)
     }
 
@@ -582,7 +610,10 @@ final class RunnerViewModel: ObservableObject {
 
     private func goBack() {
         guard phase != .done else { return }
+        // Going back re-opens a set for re-recording; its next Complete sets
+        // the target again.
         if phase == .rest {
+            lastCompletedSet = nil
             invalidateCompleteContext()
             invalidateAttention()
             cancelRestNotification()
@@ -608,6 +639,7 @@ final class RunnerViewModel: ObservableObject {
             moved = true
         }
         guard moved else { return }
+        lastCompletedSet = nil
         invalidateCompleteContext()
         currentReps = restoredRepsForCurrentPosition()
         restoreWeightForCurrentPosition()
@@ -736,6 +768,7 @@ final class RunnerViewModel: ObservableObject {
         routine = nil
         steps = []
         session = nil
+        lastCompletedSet = nil
         RunnerPersistence.clear(scope: scope)
     }
 
@@ -954,7 +987,9 @@ final class RunnerViewModel: ObservableObject {
             durationMinutes: currentDuration == DurationEntry() ? nil : currentDuration.minutes,
             durationSeconds: currentDuration == DurationEntry() ? nil : currentDuration.seconds,
             restDeadline: restDeadline,
-            lastUpdatedAt: Date()
+            lastUpdatedAt: Date(),
+            lastCompletedStepId: lastCompletedSet?.stepId,
+            lastCompletedSetIndex: lastCompletedSet?.setIndex
         )
         RunnerPersistence.save(state, scope: scope)
     }
@@ -1003,6 +1038,13 @@ final class RunnerViewModel: ObservableObject {
         self.phase = state.phase
         self.restDeadline = state.restDeadline
         self.remainingSeconds = 0
+        // Only a target that still names a done rep-counted set of this
+        // session comes back; anything else is dropped.
+        if let stepId = state.lastCompletedStepId, let setIndex = state.lastCompletedSetIndex {
+            self.lastCompletedSet = loadLastCompletedSet(stepId: stepId, setIndex: setIndex)
+        } else {
+            self.lastCompletedSet = nil
+        }
 
         if phase == .rest {
             if let deadline = restDeadline, deadline > Date() {
