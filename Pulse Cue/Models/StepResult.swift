@@ -52,6 +52,12 @@ final class StepResult {
     /// for every timed set recorded before V15 or without a duration — such a
     /// set still reads as "実施済み", never as a guessed time.
     var actualDurationSeconds: Int?
+    /// Reps in reserve (RIR) the user reported for a done rep-counted set
+    /// (schema V16+): 0...4, where 4 means "4+". `nil` means not recorded —
+    /// every pre-V16 result, skipped sets, timed sets, and sets the user left
+    /// blank — never a guessed value. Not required to complete a set; set
+    /// only through `StepResultWriter.recordRepsInReserve`.
+    var repsInReserve: Int?
 
     init(
         id: UUID = UUID(),
@@ -66,7 +72,8 @@ final class StepResult {
         plannedSetsAtExecution: Int? = nil,
         exerciseIdAtExecution: String? = nil,
         exerciseTitleAtExecution: String? = nil,
-        actualDurationSeconds: Int? = nil
+        actualDurationSeconds: Int? = nil,
+        repsInReserve: Int? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -81,6 +88,20 @@ final class StepResult {
         self.exerciseIdAtExecution = exerciseIdAtExecution
         self.exerciseTitleAtExecution = exerciseTitleAtExecution
         self.actualDurationSeconds = actualDurationSeconds
+        self.repsInReserve = repsInReserve
+    }
+}
+
+/// Validation for a set's reps in reserve.
+enum RepsInReserve {
+    /// 0...4; the top value reads as "4+". Anything outside is rejected, never
+    /// clamped: 5 is not stored as 4.
+    static let range = 0...4
+
+    /// `nil` (clearing it) is always acceptable.
+    static func isValid(_ value: Int?) -> Bool {
+        guard let value else { return true }
+        return range.contains(value)
     }
 }
 
@@ -287,6 +308,9 @@ enum StepResultWriter {
             existing.actualReps = reps
             existing.weightKg = weightKg
             existing.actualDurationSeconds = duration
+            // Re-recording a done rep set keeps its RIR; it is changed only
+            // through `recordRepsInReserve`. A skipped or timed set has none.
+            if !done || isTimed { existing.repsInReserve = nil }
             return existing
         }
         let firstSibling = siblings.min { $0.setIndex < $1.setIndex }
@@ -313,6 +337,28 @@ enum StepResultWriter {
             actualDurationSeconds: duration
         )
         context.insert(result)
+        return result
+    }
+
+    /// Sets or clears (`nil`) the reps in reserve of an already done
+    /// rep-counted set, leaving every other value as it was. Refused (nil,
+    /// nothing written) when the set has no result yet, was skipped, is
+    /// timed, or the value is outside `RepsInReserve.range`. The latest value
+    /// replaces the previous one; no history is kept.
+    @discardableResult
+    static func recordRepsInReserve(
+        _ value: Int?,
+        in context: ModelContext,
+        sessionId: UUID,
+        step: Step,
+        setIndex: Int
+    ) -> StepResult? {
+        guard RepsInReserve.isValid(value),
+              let result = results(in: context, sessionId: sessionId, stepId: step.id).first(where: { $0.setIndex == setIndex }),
+              result.done,
+              WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution ?? step.exerciseId)
+        else { return nil }
+        result.repsInReserve = value
         return result
     }
 

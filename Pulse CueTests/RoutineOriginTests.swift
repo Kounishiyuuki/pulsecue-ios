@@ -495,7 +495,7 @@ struct FreeWorkoutSessionTests {
         for index in 0..<3 { free.completeSet(at: index, of: bench, reps: 10, weightKg: 80) }
         free.addSet(to: bench)
         free.completeSet(at: 3, of: bench, reps: 10, weightKg: 80)
-        free.finish()
+        _ = free.finish()
 
         let previous = try #require(PreviousPerformanceQuery.latest(
             exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
@@ -516,7 +516,7 @@ struct FreeWorkoutSessionTests {
         free.completeSet(at: 0, of: bench, reps: 10, weightKg: 80)
         free.completeSet(at: 1, of: bench, reps: 10, weightKg: 80)
         free.skipSet(at: 2, of: bench)
-        free.finish()
+        _ = free.finish()
 
         let previous = try #require(PreviousPerformanceQuery.latest(
             exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 2,
@@ -537,7 +537,7 @@ struct FreeWorkoutSessionTests {
         let bench = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
         free.completeSet(at: 0, of: bench, reps: 10, weightKg: 80)
         free.completeSet(at: 1, of: bench, reps: 9, weightKg: 80)
-        free.finish()
+        _ = free.finish()
 
         let groups = SessionHistoryPresentation.groupedResults(results: free.results(for: bench), steps: free.steps)
         #expect(groups.map(\.title) == ["ベンチプレス"])
@@ -660,7 +660,7 @@ struct FreeWorkoutRecoveryTests {
         #expect(FreeWorkoutSession.resume(leftover(context, origin: .userSaved, at: Date()), in: context, scope: .guest) == nil)
         let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
         free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
-        free.finish()
+        _ = free.finish()
         #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .account(account)) == nil)
     }
 
@@ -765,7 +765,7 @@ struct FreeWorkoutRecoveryTests {
         let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
         free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
         let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
-        free.finish()
+        _ = free.finish()
         try context.save()
 
         #expect(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest) == nil)
@@ -2021,5 +2021,129 @@ struct FreeWorkoutViewModelTests {
         #expect(summary.completedSetCount == 1)
         #expect(summary.totalReps == 10)
         #expect(summary.totalVolumeKg == 800)
+    }
+}
+
+// MARK: - Reps in reserve (domain only)
+
+@MainActor
+struct RepsInReserveTests {
+
+    private func start() throws -> (FreeWorkoutSession, ModelContext) {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+        return (try #require(FreeWorkoutSession.start(in: context, scope: .guest).session), context)
+    }
+
+    private func results(_ context: ModelContext) -> [StepResult] {
+        ((try? context.fetch(FetchDescriptor<StepResult>())) ?? []).sorted { $0.setIndex < $1.setIndex }
+    }
+
+    @Test func validationAcceptsNilAndZeroToFourOnly() {
+        #expect(RepsInReserve.isValid(nil))
+        for value in 0...4 { #expect(RepsInReserve.isValid(value)) }
+        #expect(!RepsInReserve.isValid(-1))
+        #expect(!RepsInReserve.isValid(5))
+        #expect(!RepsInReserve.isValid(Int.max))
+    }
+
+    @Test func aNewResultHasNoRepsInReserveAndCompletesWithout() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let result = try #require(free.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        #expect(result.done && result.actualReps == 10 && result.weightKg == 80)
+        #expect(result.repsInReserve == nil)
+        #expect(StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: true).repsInReserve == nil)
+        #expect(results(context).count == 1)
+    }
+
+    @Test func aDoneSetStoresZeroTwoAndFour() throws {
+        let (free, _) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        for value in [0, 2, 4] {
+            #expect(free.recordRepsInReserve(value, at: 0, of: step)?.repsInReserve == value)
+        }
+    }
+
+    @Test func outOfRangeValuesAreRejectedNotClamped() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.recordRepsInReserve(2, at: 0, of: step)
+        #expect(free.recordRepsInReserve(-1, at: 0, of: step) == nil)
+        #expect(free.recordRepsInReserve(5, at: 0, of: step) == nil)     // not stored as 4
+        #expect(results(context).map(\.repsInReserve) == [2])
+    }
+
+    @Test func updatesAfterCompletionTouchOnlyRepsInReserve() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        #expect(free.recordRepsInReserve(2, at: 0, of: step)?.repsInReserve == 2)    // nil → 2
+        #expect(free.recordRepsInReserve(1, at: 0, of: step)?.repsInReserve == 1)    // 2 → 1, latest only
+        #expect(results(context).map(\.repsInReserve) == [1])
+        let cleared = try #require(free.recordRepsInReserve(nil, at: 0, of: step))   // 1 → nil
+        #expect(cleared.repsInReserve == nil)
+        #expect(cleared.done && cleared.actualReps == 10 && cleared.weightKg == 80)
+        #expect(cleared.actualDurationSeconds == nil)
+        #expect(results(context).count == 1)
+    }
+
+    @Test func reRecordingWeightOrRepsKeepsRepsInReserve() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.recordRepsInReserve(2, at: 0, of: step)
+        free.completeSet(at: 0, of: step, reps: 9, weightKg: 82.5)
+        let result = try #require(results(context).first)
+        #expect(result.actualReps == 9 && result.weightKg == 82.5 && result.repsInReserve == 2)
+    }
+
+    @Test func skippingClearsItAndASkippedOrUnloggedSetTakesNone() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.recordRepsInReserve(3, at: 0, of: step)
+        free.skipSet(at: 0, of: step)                                   // done → skip
+        #expect(results(context).map(\.repsInReserve) == [nil])
+        #expect(free.recordRepsInReserve(2, at: 0, of: step) == nil)    // skipped
+        #expect(free.recordRepsInReserve(2, at: 1, of: step) == nil)    // not logged yet
+        #expect(results(context).count == 1 && results(context)[0].repsInReserve == nil)
+    }
+
+    @Test func removingASetRemovesItsRepsInReserve() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        free.completeSet(at: 1, of: step, reps: 8, weightKg: 80)
+        free.recordRepsInReserve(2, at: 0, of: step)
+        free.recordRepsInReserve(0, at: 1, of: step)
+        #expect(free.removeSet(at: 0, from: step))
+        #expect(results(context).map(\.repsInReserve) == [0])
+        #expect(results(context).map(\.actualReps) == [8])
+    }
+
+    @Test func aTimedSetNeverTakesRepsInReserveAndKeepsItsDuration() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ"))
+        free.completeTimedSet(at: 0, of: step, durationSeconds: 750)
+        #expect(free.recordRepsInReserve(2, at: 0, of: step) == nil)
+        // Even handed to the writer directly.
+        #expect(StepResultWriter.recordRepsInReserve(2, in: context, sessionId: free.session.id, step: step, setIndex: 0) == nil)
+        let result = try #require(results(context).first)
+        #expect(result.repsInReserve == nil && result.actualDurationSeconds == 750 && result.actualReps == nil)
+        #expect(SessionHistoryPresentation.setValueText(result) == "12分30秒")
+        #expect(free.completeTimedSet(at: 0, of: step, durationSeconds: 600)?.actualDurationSeconds == 600)
+    }
+
+    @Test func aFinishedWorkoutTakesNoRepsInReserve() throws {
+        let (free, context) = try start()
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        _ = free.finish()
+        #expect(free.recordRepsInReserve(2, at: 0, of: step) == nil)
+        #expect(results(context).first?.repsInReserve == nil)
     }
 }

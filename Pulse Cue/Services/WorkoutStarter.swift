@@ -292,6 +292,14 @@ final class FreeWorkoutSession {
         write(setIndex: setIndex, of: step, done: false, reps: nil, weightKg: nil)
     }
 
+    /// Sets or clears the reps in reserve of done set row `setIndex`, as
+    /// `StepResultWriter.recordRepsInReserve` allows.
+    @discardableResult
+    func recordRepsInReserve(_ value: Int?, at setIndex: Int, of step: Step) -> StepResult? {
+        guard isActive, owns(step) else { return nil }
+        return StepResultWriter.recordRepsInReserve(value, in: context, sessionId: session.id, step: step, setIndex: setIndex)
+    }
+
     private func write(setIndex: Int, of step: Step, done: Bool, reps: Int?, weightKg: Double?, durationSeconds: Int? = nil) -> StepResult? {
         guard isActive, owns(step), (0..<step.sets).contains(setIndex) else { return nil }
         return StepResultWriter.record(
