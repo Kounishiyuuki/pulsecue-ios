@@ -36,6 +36,17 @@ enum SessionHistoryPresentation {
         return reps.map { "\(SetWeight.display(weight)) × \($0)" } ?? SetWeight.display(weight)
     }
 
+    /// "RIR 2" / "RIR 4+" beside a done rep-counted set that recorded one;
+    /// `nil` otherwise (unrecorded, skipped, timed), so the row reads as before.
+    static func setRIRText(_ result: StepResult) -> String? {
+        rirValue(result).map(RepsInReserve.displayText)
+    }
+
+    private static func rirValue(_ result: StepResult) -> Int? {
+        guard result.done, !isTimedPerformance(result), let value = result.repsInReserve else { return nil }
+        return value
+    }
+
     /// A done set of a timed movement: shown with its duration, or — recorded
     /// without one — as done, never as the rep count an older record may
     /// still carry.
@@ -53,6 +64,7 @@ enum SessionHistoryPresentation {
         }
         if let weight = result.weightKg { parts.append("\(SetWeight.number(weight))キログラム") }
         parts.append(result.actualReps.map { "\($0)回" } ?? "回数記録なし")
+        if let value = rirValue(result) { parts.append(RepsInReserve.spokenText(value)) }
         return parts.joined(separator: "、")
     }
 
@@ -292,10 +304,17 @@ struct SessionDetailView: View {
     }
 
     private func resultRepetitions(_ result: StepResult) -> some View {
-        Text(SessionHistoryPresentation.setValueText(result))
-            .font(.subheadline.monospacedDigit())
-            .foregroundStyle(result.actualReps == nil && result.weightKg == nil
-                             && !SessionHistoryPresentation.isTimedPerformance(result) ? .secondary : .primary)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(SessionHistoryPresentation.setValueText(result))
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(result.actualReps == nil && result.weightKg == nil
+                                 && !SessionHistoryPresentation.isTimedPerformance(result) ? .secondary : .primary)
+            if let rir = SessionHistoryPresentation.setRIRText(result) {
+                Text("· \(rir)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var emptyState: some View {

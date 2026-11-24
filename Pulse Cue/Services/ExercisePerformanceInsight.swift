@@ -25,6 +25,9 @@ struct PreviousSetPerformance: Equatable {
     let reps: Int
     /// `nil` when no weight was recorded (including all pre-V12 history).
     let weightKg: Double?
+    /// The same result's reps in reserve; `nil` when not recorded (including
+    /// all pre-V16 history). Shown only, never used by the progression rule.
+    var repsInReserve: Int? = nil
 }
 
 /// The most recent completed performance of one exercise: each completed set,
@@ -216,7 +219,7 @@ enum PreviousPerformanceQuery {
             let results = (byRecord[record] ?? []).sorted { $0.setIndex < $1.setIndex }
             let sets: [PreviousSetPerformance] = results.compactMap { result in
                 guard let reps = result.actualReps else { return nil }
-                return PreviousSetPerformance(reps: reps, weightKg: result.weightKg)
+                return PreviousSetPerformance(reps: reps, weightKg: result.weightKg, repsInReserve: result.repsInReserve)
             }
             guard !sets.isEmpty else { return nil }
             // One value per record by the V13 write rule, checked across every
@@ -450,6 +453,26 @@ enum ProgressionPresentation {
         return previous.sets.map { set in
             set.weightKg.map { "\(weightText($0))×\(set.reps)" } ?? "\(set.reps)回"
         }.joined(separator: " / ")
+    }
+
+    /// Last time's reps in reserve, set by set in the order of
+    /// `previousText`: "RIR 2 / 4+ / –", a set without one as "–". `nil` when
+    /// no set recorded one, so the line reads exactly as before. Never an
+    /// average, max or older session's value.
+    static func previousRIRText(_ previous: PreviousPerformance) -> String? {
+        rirLine(previous, value: RepsInReserve.valueText, missing: "–", separator: " / ")
+    }
+
+    /// VoiceOver form of `previousRIRText`: "RIR 2、4以上、未入力".
+    static func previousRIRAccessibilityText(_ previous: PreviousPerformance) -> String? {
+        rirLine(previous, value: RepsInReserve.spokenValueText, missing: "未入力", separator: "、")
+    }
+
+    private static func rirLine(
+        _ previous: PreviousPerformance, value: (Int) -> String, missing: String, separator: String
+    ) -> String? {
+        guard previous.sets.contains(where: { $0.repsInReserve != nil }) else { return nil }
+        return "RIR " + previous.sets.map { $0.repsInReserve.map(value) ?? missing }.joined(separator: separator)
     }
 
     static func suggestionText(_ s: ProgressionSuggestion) -> String {

@@ -1226,3 +1226,113 @@ struct HistoricalExerciseIdentityTests {
         #expect(WorkoutProgressQuery.exerciseInsights(steps: [a], sessions: [old, new], results: results).map(\.exerciseName) == ["ベンチプレス"])
     }
 }
+
+// MARK: - Reps in reserve (RIR PR-C)
+
+@MainActor
+struct PreviousPerformanceRIRTests {
+    private func step(_ exerciseId: String) -> Step {
+        Step(routineId: UUID(), order: 0, title: "x", sets: 3, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
+    }
+
+    private func session(daysAgo: Int) -> Session {
+        Session(routineId: UUID(), dayDate: .now, startedAt: Date().addingTimeInterval(TimeInterval(-daysAgo * 86_400)), status: .completed)
+    }
+
+    private func result(_ session: Session, _ step: Step, set: Int, reps: Int? = 10, weight: Double? = 80,
+                        seconds: Int? = nil, rir: Int?) -> StepResult {
+        StepResult(sessionId: session.id, stepId: step.id, setIndex: set, done: true, actualReps: reps, weightKg: weight,
+                   exerciseIdAtExecution: step.exerciseId, actualDurationSeconds: seconds, repsInReserve: rir)
+    }
+
+    private func latest(_ step: Step, _ sessions: [Session], _ results: [StepResult]) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(exerciseId: step.exerciseId ?? "", excludingSessionId: nil, expectedSets: 3,
+                                        steps: [step], sessions: sessions, results: results)
+    }
+
+    @Test func eachSetCarriesItsOwnRIR() throws {
+        let bench = step("bench_press"), last = session(daysAgo: 2)
+        let previous = try #require(latest(bench, [last], [
+            result(last, bench, set: 0, rir: 2), result(last, bench, set: 1, rir: 4), result(last, bench, set: 2, rir: nil),
+        ]))
+        #expect(previous.sets.map(\.repsInReserve) == [2, 4, nil])
+        #expect(ProgressionPresentation.previousText(previous) == "80\u{00A0}kg × 10 / 10 / 10 回")   // unchanged
+        #expect(ProgressionPresentation.previousRIRText(previous) == "RIR 2 / 4+ / –")
+        #expect(ProgressionPresentation.previousRIRAccessibilityText(previous) == "RIR 2、4以上、未入力")
+    }
+
+    @Test func asingleSetReadsPlainly() throws {
+        let bench = step("bench_press"), last = session(daysAgo: 2)
+        let two = try #require(latest(bench, [last], [result(last, bench, set: 0, rir: 2)]))
+        #expect(ProgressionPresentation.previousRIRText(two) == "RIR 2")
+        let four = try #require(latest(bench, [last], [result(last, bench, set: 0, rir: 4)]))
+        #expect(ProgressionPresentation.previousRIRText(four) == "RIR 4+")
+        #expect(ProgressionPresentation.previousRIRAccessibilityText(four) == "RIR 4以上")
+    }
+
+    @Test func noRIRLeavesThePreviousLineAsBefore() throws {
+        let bench = step("bench_press"), last = session(daysAgo: 2)
+        let previous = try #require(latest(bench, [last], [result(last, bench, set: 0, rir: nil)]))
+        #expect(ProgressionPresentation.previousRIRText(previous) == nil)
+        #expect(ProgressionPresentation.previousRIRAccessibilityText(previous) == nil)
+        #expect(ProgressionPresentation.previousText(previous) == "80\u{00A0}kg × 10 回")
+    }
+
+    @Test func anOlderSessionsRIRIsNeverBorrowed() throws {
+        let bench = step("bench_press"), older = session(daysAgo: 9), newer = session(daysAgo: 2)
+        let results = (0..<3).map { result(older, bench, set: $0, rir: 2) }
+            + (0..<3).map { result(newer, bench, set: $0, weight: 82.5, rir: nil) }
+        let previous = try #require(latest(bench, [older, newer], results))
+        #expect(previous.uniformWeightKg == 82.5)                        // the newest record, as before
+        #expect(previous.sets.allSatisfy { $0.repsInReserve == nil })
+        #expect(ProgressionPresentation.previousRIRText(previous) == nil)
+    }
+
+    @Test func rirNeverChangesWhichRecordIsChosen() throws {
+        let bench = step("bench_press"), older = session(daysAgo: 9), newer = session(daysAgo: 2)
+        let results = (0..<3).map { result(older, bench, set: $0, rir: 2) }
+            + (0..<3).map { result(newer, bench, set: $0, weight: 82.5, rir: $0 == 0 ? 1 : nil) }
+        let withRIR = try #require(latest(bench, [older, newer], results))
+        let withoutRIR = try #require(latest(bench, [older, newer], results.map {
+            StepResult(sessionId: $0.sessionId, stepId: $0.stepId, setIndex: $0.setIndex, done: true, actualReps: $0.actualReps,
+                       weightKg: $0.weightKg, exerciseIdAtExecution: $0.exerciseIdAtExecution)
+        }))
+        #expect(withRIR.date == withoutRIR.date && withRIR.setReps == withoutRIR.setReps && withRIR.setWeightsKg == withoutRIR.setWeightsKg)
+        #expect(ProgressionPresentation.previousRIRText(withRIR) == "RIR 1 / – / –")
+    }
+
+    @Test func rirDoesNotChangeTheProgression() throws {
+        let bench = step("bench_press"), last = session(daysAgo: 2)
+        let sets = (0..<3).map { result(last, bench, set: $0, rir: 0) }
+        let previous = try #require(latest(bench, [last], sets))
+        let suggestion = ProgressionRule.suggest(previous: previous, baselineReps: 10, expectedSets: 3,
+                                                 allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(suggestion?.kind == .increaseWeight && suggestion?.suggestedWeightKg == 82.5)
+    }
+
+    @Test func aReRecordedOrClearedSetShowsWhatIsStoredNow() throws {
+        let bench = step("bench_press"), last = session(daysAgo: 2)
+        let reRecorded = try #require(latest(bench, [last], [result(last, bench, set: 0, reps: 8, weight: 82.5, rir: 2)]))
+        #expect(ProgressionPresentation.previousText(reRecorded) == "82.5\u{00A0}kg × 8 回")
+        #expect(ProgressionPresentation.previousRIRText(reRecorded) == "RIR 2")
+        let cleared = try #require(latest(bench, [last], [result(last, bench, set: 0, reps: 8, weight: 82.5, rir: nil)]))
+        #expect(ProgressionPresentation.previousRIRText(cleared) == nil)
+    }
+
+    @Test func timedPreviousStaysDurationOnly() throws {
+        let treadmill = step("treadmill_warmup"), last = session(daysAgo: 2)
+        let results = [result(last, treadmill, set: 0, reps: nil, weight: nil, seconds: 600, rir: 2)]
+        #expect(latest(treadmill, [last], results) == nil)               // no rep line, so no RIR line
+        let timed = PreviousPerformanceQuery.lastTimedPerformance(exerciseId: "treadmill_warmup", excludingSessionId: nil,
+                                                                 steps: [treadmill], sessions: [last], results: results)
+        #expect(timed.map(ProgressionPresentation.previousText) == "10分")
+    }
+
+    @Test func bodyweightAndAssistedPreviousShowTheirRIR() throws {
+        let pullUp = step("pull_up"), assisted = step("assisted_pull_up"), last = session(daysAgo: 2)
+        let bodyweight = try #require(latest(pullUp, [last], [result(last, pullUp, set: 0, weight: nil, rir: 1)]))
+        #expect(ProgressionPresentation.previousRIRText(bodyweight) == "RIR 1")
+        let assist = try #require(latest(assisted, [last], [result(last, assisted, set: 0, weight: 20, rir: 3)]))
+        #expect(ProgressionPresentation.previousRIRText(assist) == "RIR 3")
+    }
+}
