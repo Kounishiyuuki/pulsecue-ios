@@ -823,6 +823,82 @@ struct RunnerSetWeightTests {
         #expect(fx.viewModel.currentWeightKg == 57.5)
     }
 
+    private static func relaunch(_ fx: Fixture) -> RunnerViewModel {
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "test.weight.\(UUID().uuidString)")!)
+        settings.notificationsEnabled = false
+        let resumed = RunnerViewModel(settings: settings)
+        resumed.configure(modelContext: fx.context)
+        return resumed
+    }
+
+    @Test
+    func resumeRestoresTheUncommittedDuration() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["treadmill_warmup", "bench_press"], sets: 2)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "5"))
+        try Self.complete(fx.viewModel)                       // set 1 recorded: 300
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "12", seconds: "30"))
+
+        let resumed = Self.relaunch(fx)
+        #expect(resumed.currentStepIndex == 0 && resumed.currentSetIndex == 1)
+        #expect(resumed.currentDuration == DurationEntry(minutes: "12", seconds: "30"))
+        try Self.complete(resumed)
+        #expect(try Self.results(fx).compactMap(\.actualDurationSeconds) == [300, 750])
+        #expect(try Self.results(fx).allSatisfy { $0.actualReps == nil })
+        // The next exercise starts with nothing carried over.
+        #expect(resumed.currentStepIndex == 1 && resumed.currentDuration == DurationEntry())
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func resumeRestoresAnInvalidDurationAsTyped() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["treadmill_warmup"], sets: 1)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "12", seconds: "90"))
+
+        let resumed = Self.relaunch(fx)
+        #expect(resumed.currentDuration == DurationEntry(minutes: "12", seconds: "90"))   // not 59, not 13:30
+        #expect(resumed.currentDurationIssue == .invalidSeconds)
+        #expect(resumed.completeContext == nil)
+        #expect(try Self.results(fx).isEmpty)
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func aSavedDurationIsNotAppliedToAnotherStep() throws {
+        let fx = try Self.makeFixture(exerciseIds: ["treadmill_warmup"], sets: 1)
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "12", seconds: "30"))
+        // The saved state now points at a step that is no longer the one at its index.
+        var state = try #require(RunnerPersistence.load())
+        state.durationStepId = UUID()
+        RunnerPersistence.save(state)
+
+        let resumed = Self.relaunch(fx)
+        #expect(resumed.currentStepIndex == 0)
+        #expect(resumed.currentDuration == DurationEntry())
+        RunnerPersistence.clear()
+    }
+
+    @Test
+    func resumeOfARepExerciseIsUnchangedByDurations() throws {
+        let fx = try Self.makeFixture()
+        fx.viewModel.start(routine: fx.routine)
+        fx.viewModel.setCurrentWeight(80)
+        fx.viewModel.adjustCurrentReps(by: 2)
+        fx.viewModel.setCurrentDuration(DurationEntry(minutes: "5"))   // ignored
+        let state = try #require(RunnerPersistence.load())
+        #expect(state.durationStepId == nil && state.durationMinutes == nil && state.durationSeconds == nil)
+
+        let resumed = Self.relaunch(fx)
+        #expect(resumed.currentWeightKg == 80 && resumed.currentReps == 12)
+        #expect(resumed.currentDuration == DurationEntry())
+        try Self.complete(resumed)
+        let result = try #require(try Self.results(fx).first)
+        #expect(result.weightKg == 80 && result.actualReps == 12 && result.actualDurationSeconds == nil)
+        RunnerPersistence.clear()
+    }
+
     @Test
     func resumeRestoresTheUncommittedWeight() throws {
         let fx = try Self.makeFixture()
