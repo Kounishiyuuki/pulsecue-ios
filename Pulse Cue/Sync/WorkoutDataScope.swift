@@ -206,6 +206,47 @@ struct ScopedProgressSignature: Equatable {
     }
 }
 
+/// The current scope as a write permission that a scope change revokes.
+///
+/// Holding a workout object is not the right to write through it. Every
+/// change of scope starts a new generation, and a grant taken in an earlier
+/// one never becomes valid again — not even when the scope comes back to the
+/// same account (A → B → A): the workout must be re-opened under the new
+/// generation. The generation is bumped synchronously where the scope is
+/// set, so no action can run between the change and the revocation, and
+/// SwiftUI coalescing A → B → A into "no change" cannot skip it.
+@MainActor
+final class WorkoutScopeAuthority {
+    private(set) var scope: WorkoutDataScope
+    private(set) var generation = 0
+
+    init(scope: WorkoutDataScope) {
+        self.scope = scope
+    }
+
+    /// Re-stating the same scope keeps every grant.
+    func update(_ newScope: WorkoutDataScope) {
+        guard newScope != scope else { return }
+        scope = newScope
+        generation += 1
+    }
+
+    struct Grant {
+        let authority: WorkoutScopeAuthority
+        let generation: Int
+    }
+
+    /// A grant to write rows owned by `ownerAccountID`, or nil when the
+    /// current scope may not write them.
+    func grant(forOwner ownerAccountID: UUID?) -> Grant? {
+        scope.matches(ownerAccountID: ownerAccountID) ? Grant(authority: self, generation: generation) : nil
+    }
+
+    func isValid(_ grant: Grant, forOwner ownerAccountID: UUID?) -> Bool {
+        grant.authority === self && grant.generation == generation && scope.matches(ownerAccountID: ownerAccountID)
+    }
+}
+
 /// Publishes the current `WorkoutDataScope`, and remembers the last account
 /// the server confirmed so offline launches stay in the right scope.
 ///
@@ -214,7 +255,12 @@ struct ScopedProgressSignature: Equatable {
 /// session.
 @MainActor
 final class WorkoutDataScopeResolver: ObservableObject {
-    @Published private(set) var scope: WorkoutDataScope = .undetermined
+    @Published private(set) var scope: WorkoutDataScope = .undetermined {
+        didSet { authority.update(scope) }
+    }
+    /// Revokes what was opened under an earlier scope (see
+    /// `WorkoutScopeAuthority`). Updated in step with `scope`.
+    let authority = WorkoutScopeAuthority(scope: .undetermined)
 
     private let defaults: UserDefaults
     private var cancellable: AnyCancellable?
@@ -246,6 +292,7 @@ final class WorkoutDataScopeResolver: ObservableObject {
         self.defaults = defaults
         self.isPendingDeletion = { _ in false }
         self.scope = scope
+        authority.update(scope)
     }
 
     private func apply(_ state: ServerAccountState) {

@@ -85,11 +85,17 @@ final class FreeWorkoutSession {
     let session: Session
     let routine: Routine
     private let context: ModelContext
+    /// The scope generation this object was opened under; nil only for
+    /// callers that pass no authority (tests of the domain rules alone).
+    private let grant: WorkoutScopeAuthority.Grant?
+    /// Set once, never cleared: a revoked object stays read-only for good.
+    private var isRevoked = false
 
-    private init(context: ModelContext, session: Session, routine: Routine) {
+    private init(context: ModelContext, session: Session, routine: Routine, grant: WorkoutScopeAuthority.Grant?) {
         self.context = context
         self.session = session
         self.routine = routine
+        self.grant = grant
     }
 
     // MARK: Start / resume
@@ -112,8 +118,10 @@ final class FreeWorkoutSession {
     /// Starts an empty Free Workout — unless this scope already has one in
     /// progress, so a double tap or a forgotten workout can never quietly
     /// become two. Existing ones are never deleted here.
-    static func start(in context: ModelContext, scope: WorkoutDataScope, now: Date = Date()) -> StartOutcome {
-        guard scope.canCreateWorkouts else { return .scopeUndetermined }
+    static func start(in context: ModelContext, scope: WorkoutDataScope, authority: WorkoutScopeAuthority? = nil, now: Date = Date()) -> StartOutcome {
+        // A caller holding a scope the authority has already moved past is
+        // treated like an unknown scope: nothing is created under it.
+        guard scope.canCreateWorkouts, authority.map({ $0.scope == scope }) ?? true else { return .scopeUndetermined }
         let active = FreeWorkoutRecovery.candidates(in: context, scope: scope)
         guard active.isEmpty else { return .activeWorkoutExists(active) }
         let routine = Routine(name: routineName, createdAt: now, updatedAt: now, origin: .freeWorkout)
@@ -123,21 +131,39 @@ final class FreeWorkoutSession {
             startedAt: now,
             ownerAccountID: scope.creationOwnerAccountID
         )
+        let grant = authority?.grant(forOwner: session.ownerAccountID)
+        if authority != nil, grant == nil { return .scopeUndetermined }
         context.insert(routine)
         context.insert(session)
-        return .started(FreeWorkoutSession(context: context, session: session, routine: routine))
+        return .started(FreeWorkoutSession(context: context, session: session, routine: routine, grant: grant))
     }
 
     /// Re-attaches to an in-progress Free Workout of this scope.
-    static func resume(_ session: Session, in context: ModelContext, scope: WorkoutDataScope) -> FreeWorkoutSession? {
+    static func resume(_ session: Session, in context: ModelContext, scope: WorkoutDataScope, authority: WorkoutScopeAuthority? = nil) -> FreeWorkoutSession? {
         guard session.status == .inProgress, scope.matches(ownerAccountID: session.ownerAccountID) else { return nil }
+        let grant = authority?.grant(forOwner: session.ownerAccountID)
+        if authority != nil, grant == nil || authority?.scope != scope { return nil }
         let routineId = session.routineId
         let descriptor = FetchDescriptor<Routine>(predicate: #Predicate<Routine> { $0.id == routineId })
         guard let routine = try? context.fetch(descriptor).first, routine.origin == .freeWorkout else { return nil }
-        return FreeWorkoutSession(context: context, session: session, routine: routine)
+        return FreeWorkoutSession(context: context, session: session, routine: routine, grant: grant)
     }
 
-    var isActive: Bool { session.status == .inProgress }
+    /// Whether this object may still write: not revoked, and — when opened
+    /// under an authority — still in the generation and scope it was opened
+    /// in. Every mutation below passes through `isActive`, so this is the
+    /// last line of defence for a stale screen, action or held object.
+    var isAuthorized: Bool {
+        guard !isRevoked else { return false }
+        guard let grant else { return true }
+        return grant.authority.isValid(grant, forOwner: session.ownerAccountID)
+    }
+
+    /// Makes this object read-only for good. Not a discard: the workout's
+    /// rows are untouched, and re-opening it gives a new, writable object.
+    func revoke() { isRevoked = true }
+
+    var isActive: Bool { isAuthorized && session.status == .inProgress }
 
     /// Wall-clock time since the workout began, time spent backgrounded or
     /// with the app closed included — the same `endedAt − startedAt` the
@@ -555,9 +581,9 @@ enum FreeWorkoutRecovery {
     /// `FreeWorkoutSession.resume` (the authority on status, scope and
     /// origin) refuses it, or when a result points at a step that no longer
     /// exists. Unlogged exercises or rows are a normal draft, not damage.
-    static func resume(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope) -> FreeWorkoutSession? {
+    static func resume(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope, authority: WorkoutScopeAuthority? = nil) -> FreeWorkoutSession? {
         guard let session = currentSession(id: candidate.id, in: context),
-              let handle = FreeWorkoutSession.resume(session, in: context, scope: scope),
+              let handle = FreeWorkoutSession.resume(session, in: context, scope: scope, authority: authority),
               Structure(sessionId: session.id, routineId: handle.routine.id, in: context).isIntact
         else { return nil }
         return handle
@@ -567,9 +593,9 @@ enum FreeWorkoutRecovery {
     /// Works for a non-resumable one too. False, touching nothing, when the
     /// session is already gone (a second tap), finished, or not in this scope.
     @discardableResult
-    static func discard(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope) -> Bool {
+    static func discard(_ candidate: Candidate, in context: ModelContext, scope: WorkoutDataScope, authority: WorkoutScopeAuthority? = nil) -> Bool {
         guard let session = currentSession(id: candidate.id, in: context) else { return false }
-        return FreeWorkoutSession.resume(session, in: context, scope: scope)?.discard() ?? false
+        return FreeWorkoutSession.resume(session, in: context, scope: scope, authority: authority)?.discard() ?? false
     }
 
     private static func currentSession(id: UUID, in context: ModelContext) -> Session? {

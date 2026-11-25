@@ -66,8 +66,8 @@ struct HistoryView: View {
         }
         .navigationTitle("履歴")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { freeWorkout.configure(context: modelContext, scope: dataScope.scope) }
-        .onChange(of: dataScope.scope) { _, scope in freeWorkout.configure(context: modelContext, scope: scope) }
+        .onAppear { freeWorkout.configure(context: modelContext, scope: dataScope.scope, authority: dataScope.authority) }
+        .onChange(of: dataScope.scope) { _, scope in freeWorkout.configure(context: modelContext, scope: scope, authority: dataScope.authority) }
         .fullScreenCover(item: $freeWorkout.presented) { model in
             FreeWorkoutView(model: model, onClose: freeWorkout.workoutScreenClosed)
         }

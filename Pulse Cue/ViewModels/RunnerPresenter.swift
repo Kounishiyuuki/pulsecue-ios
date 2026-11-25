@@ -75,6 +75,9 @@ final class FreeWorkoutLauncher: ObservableObject {
 
     private var context: ModelContext?
     private var scope: WorkoutDataScope = .undetermined
+    /// The app's scope authority. Read for the scope at the moment of an
+    /// action, since `configure` only arrives after SwiftUI's next update.
+    private var authority: WorkoutScopeAuthority?
     private let drafts: FreeWorkoutDraftStore
 
     /// `drafts` is shared by Home's and Training's cards so a workout left
@@ -83,26 +86,39 @@ final class FreeWorkoutLauncher: ObservableObject {
         self.drafts = drafts ?? .shared
     }
 
-    func configure(context: ModelContext, scope: WorkoutDataScope) {
+    /// A new scope revokes the open workout's session (domain), so nothing
+    /// held from it — this screen, its rows' actions, the object itself —
+    /// writes again, and closes the screen. Revoking is not discarding: the
+    /// workout stays in the store, resumable by its owner. Re-stating the
+    /// same scope keeps it.
+    func configure(context: ModelContext, scope: WorkoutDataScope, authority: WorkoutScopeAuthority? = nil) {
         self.context = context
+        if let authority { self.authority = authority }
+        if let model = presented, scope != self.scope || !model.session.isAuthorized {
+            model.session.revoke()
+            presented = nil
+        }
         self.scope = scope
         refresh()
     }
 
+    /// The scope an action runs in: the authority's when there is one.
+    private var currentScope: WorkoutDataScope { authority?.scope ?? scope }
+
     func refresh() {
         guard let context else { return }
-        candidates = FreeWorkoutRecovery.candidates(in: context, scope: scope)
+        candidates = FreeWorkoutRecovery.candidates(in: context, scope: currentScope)
         // Drafts of this scope's workouts that are no longer in progress —
         // finished or discarded elsewhere — are dropped; the open one always
         // stays, and other owners' drafts are not this scope's to judge.
-        drafts.prune(in: scope, keeping: Set(candidates.map(\.id)).union(presented.map { [$0.id] } ?? []))
+        drafts.prune(in: currentScope, keeping: Set(candidates.map(\.id)).union(presented.map { [$0.id] } ?? []))
     }
 
     func start(now: Date = Date()) {
         guard let context, !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
-        switch FreeWorkoutSession.start(in: context, scope: scope, now: now) {
+        switch FreeWorkoutSession.start(in: context, scope: currentScope, authority: authority, now: now) {
         case let .started(session):
             try? context.save()
             open(session, context: context)
@@ -118,7 +134,7 @@ final class FreeWorkoutLauncher: ObservableObject {
         guard let context, !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
-        if let session = FreeWorkoutRecovery.resume(candidate, in: context, scope: scope) {
+        if let session = FreeWorkoutRecovery.resume(candidate, in: context, scope: currentScope, authority: authority) {
             open(session, context: context)
         }
         refresh()
@@ -143,7 +159,7 @@ final class FreeWorkoutLauncher: ObservableObject {
         guard let context, !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
-        if FreeWorkoutRecovery.discard(candidate, in: context, scope: scope) {
+        if FreeWorkoutRecovery.discard(candidate, in: context, scope: currentScope, authority: authority) {
             drafts.clear(candidate.id)
             try? context.save()
         }
@@ -383,6 +399,9 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     /// A logged row is re-recorded at once — the writer overwrites in place,
     /// keeping its snapshots. A draft row only changes its draft.
     private func edit(_ key: RowKey, row: SetRow, _ change: (inout Draft) -> Void) {
+        // A revoked or finished workout takes no edits — not even a draft,
+        // which lives outside the store and so no domain check would catch.
+        guard session.isActive else { return }
         var draft = drafts[key] ?? Draft(weightKg: row.weightKg, reps: row.reps, edited: false, duration: row.duration)
         change(&draft)
         draft.edited = true
@@ -454,6 +473,8 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     /// Ends the workout. Saved → a completion summary to show; nothing
     /// performed → discarded by the domain.
     func finish(now: Date = Date()) {
+        // A revoked workout is left exactly as it is, drafts included.
+        guard session.isAuthorized else { return }
         let outcome = session.finish(now: now)
         finishOutcome = outcome
         if outcome != .notActive { draftStore.clear(id) }
@@ -469,6 +490,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     }
 
     func discard() {
+        guard session.isAuthorized else { return }
         if session.discard() {
             finishOutcome = .discarded
             draftStore.clear(id)
