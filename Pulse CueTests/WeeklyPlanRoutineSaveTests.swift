@@ -273,7 +273,7 @@ struct WeeklyPlanRoutineSaveTests {
 struct SavedTrainingPlanTests {
 
     private static func makeContext() throws -> ModelContext {
-        let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return ModelContext(try ModelContainer(for: schema, configurations: [config]))
     }
@@ -334,7 +334,7 @@ struct SavedTrainingPlanTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("store.sqlite")
-        let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
         let expectedSteps = Self.candidate().sessions.reduce(0) { $0 + $1.exercises.count }
 
         do {
@@ -1139,7 +1139,7 @@ struct StepResultRepsInReserveMigrationTests {
         }
         let v15Models = Set(PulseCueSchemaV15.models.map { ObjectIdentifier($0) })
         let v16Models = Set(PulseCueSchemaV16.models.map { ObjectIdentifier($0) })
-        #expect(v16Models.subtracting(v15Models) == [ObjectIdentifier(StepResult.self)])
+        #expect(v16Models.subtracting(v15Models) == [ObjectIdentifier(PulseCueSchemaV16.StepResult.self)])
         #expect(v15Models.subtracting(v16Models) == [ObjectIdentifier(PulseCueSchemaV15.StepResult.self)])
     }
 
@@ -1172,7 +1172,7 @@ struct StepResultRepsInReserveMigrationTests {
                 configurations: ModelConfiguration(schema: schema, url: url)
             )
             let context = ModelContext(container)
-            let results = try context.fetch(FetchDescriptor<StepResult>())
+            let results = try context.fetch(FetchDescriptor<PulseCueSchemaV16.StepResult>())
             #expect(results.count == 3)
             #expect(results.allSatisfy { $0.repsInReserve == nil })     // never guessed
 
@@ -1200,7 +1200,7 @@ struct StepResultRepsInReserveMigrationTests {
                 for: schema, migrationPlan: PulseCueMigrationPlan.self,
                 configurations: ModelConfiguration(schema: schema, url: url)
             )
-            let results = try ModelContext(container).fetch(FetchDescriptor<StepResult>())
+            let results = try ModelContext(container).fetch(FetchDescriptor<PulseCueSchemaV16.StepResult>())
             #expect(results.compactMap(\.repsInReserve) == [2])
         }
     }
@@ -1227,9 +1227,149 @@ struct StepResultRepsInReserveMigrationTests {
             for: schema, migrationPlan: PulseCueMigrationPlan.self,
             configurations: ModelConfiguration(schema: schema, url: url)
         )
-        let result = try #require(try ModelContext(container).fetch(FetchDescriptor<StepResult>()).first)
+        let result = try #require(try ModelContext(container).fetch(FetchDescriptor<PulseCueSchemaV16.StepResult>()).first)
         #expect(result.actualReps == 8 && result.weightKg == 60 && result.done)
         #expect(result.actualDurationSeconds == nil && result.repsInReserve == nil)
         #expect(result.exerciseIdAtExecution == "bench_press")
+    }
+}
+
+// MARK: - V16 → V17 migration
+
+@MainActor
+struct StepResultSetTypeMigrationTests {
+
+    private static func shape(_ schema: any VersionedSchema.Type, _ entity: String = "StepResult") -> Set<String> {
+        let attributes = Schema(versionedSchema: schema).entitiesByName[entity]?.attributes ?? []
+        return Set(attributes.map { "\($0.name)|\($0.isOptional)|\($0.isUnique)|\(String(describing: $0.valueType))" })
+    }
+
+    private static func storeURL(_ tag: String) throws -> (URL, URL) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsecue-\(tag)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return (dir, dir.appendingPathComponent("store.sqlite"))
+    }
+
+    private static func openCurrent(_ url: URL) throws -> ModelContext {
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
+        let container = try ModelContainer(
+            for: schema, migrationPlan: PulseCueMigrationPlan.self,
+            configurations: ModelConfiguration(schema: schema, url: url)
+        )
+        return ModelContext(container)
+    }
+
+    @Test("V17 adds exactly one optional String to StepResult and changes nothing else")
+    func v17OnlyAddsSetTypeRaw() {
+        let v16 = Self.shape(PulseCueSchemaV16.self)
+        let v17 = Self.shape(PulseCueSchemaV17.self)
+        #expect(v16.isSubset(of: v17))
+        #expect(v17.subtracting(v16) == ["setTypeRaw|true|false|\(String(describing: Optional<String>.self))"])
+        let names = Schema(versionedSchema: PulseCueSchemaV16.self).entitiesByName.keys.filter { $0 != "StepResult" }
+        #expect(Set(names) == Set(Schema(versionedSchema: PulseCueSchemaV17.self).entitiesByName.keys.filter { $0 != "StepResult" }))
+        for name in names {
+            #expect(Self.shape(PulseCueSchemaV16.self, name) == Self.shape(PulseCueSchemaV17.self, name), "\(name)")
+        }
+        let v16Models = Set(PulseCueSchemaV16.models.map { ObjectIdentifier($0) })
+        let v17Models = Set(PulseCueSchemaV17.models.map { ObjectIdentifier($0) })
+        #expect(v17Models.subtracting(v16Models) == [ObjectIdentifier(StepResult.self)])
+        #expect(v16Models.subtracting(v17Models) == [ObjectIdentifier(PulseCueSchemaV16.StepResult.self)])
+    }
+
+    @Test("V16 → V17 keeps every result as it was; every set reads as working")
+    func v16StoreReachesV17() throws {
+        let (dir, url) = try Self.storeURL("v16to17")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let owner = UUID(), sessionID = UUID(), routineID = UUID(), treadmillStep = UUID(), benchStep = UUID()
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            context.insert(Routine(id: routineID, name: "既存"))
+            context.insert(Session(id: sessionID, routineId: routineID, dayDate: Date(), ownerAccountID: owner))
+            context.insert(PulseCueSchemaV16.StepResult(sessionId: sessionID, stepId: treadmillStep, setIndex: 0, done: true, ownerAccountID: owner, plannedSetsAtExecution: 1, exerciseIdAtExecution: "treadmill_warmup", exerciseTitleAtExecution: "トレッドミルウォームアップ", actualDurationSeconds: 750))
+            context.insert(PulseCueSchemaV16.StepResult(sessionId: sessionID, stepId: benchStep, setIndex: 0, done: true, actualReps: 10, memo: "m", ownerAccountID: owner, weightKg: 80, plannedSetsAtExecution: 3, exerciseIdAtExecution: "bench_press", exerciseTitleAtExecution: "ベンチプレス", repsInReserve: 2))
+            context.insert(PulseCueSchemaV16.StepResult(sessionId: sessionID, stepId: benchStep, setIndex: 1, done: false, ownerAccountID: owner, plannedSetsAtExecution: 3, exerciseIdAtExecution: "bench_press", exerciseTitleAtExecution: "ベンチプレス"))
+            try context.save()
+        }
+
+        do {
+            let context = try Self.openCurrent(url)
+            let results = try context.fetch(FetchDescriptor<StepResult>())
+            #expect(results.count == 3)
+            #expect(results.allSatisfy { $0.setTypeRaw == nil && $0.setType == .working })     // never guessed
+
+            let timed = try #require(results.first { $0.stepId == treadmillStep })
+            #expect(timed.done && timed.actualReps == nil && timed.actualDurationSeconds == 750)
+            #expect(timed.exerciseIdAtExecution == "treadmill_warmup" && timed.plannedSetsAtExecution == 1)
+            #expect(timed.ownerAccountID == owner && timed.sessionId == sessionID)
+
+            let bench = try #require(results.first { $0.stepId == benchStep && $0.setIndex == 0 })
+            #expect(bench.done && bench.actualReps == 10 && bench.weightKg == 80 && bench.memo == "m")
+            #expect(bench.repsInReserve == 2 && bench.ownerAccountID == owner)
+            #expect(bench.plannedSetsAtExecution == 3 && bench.actualDurationSeconds == nil)
+            #expect(bench.exerciseIdAtExecution == "bench_press" && bench.exerciseTitleAtExecution == "ベンチプレス")
+
+            let skipped = try #require(results.first { $0.stepId == benchStep && $0.setIndex == 1 })
+            #expect(!skipped.done && skipped.actualReps == nil && skipped.weightKg == nil && skipped.repsInReserve == nil)
+            let session = try #require(try context.fetch(FetchDescriptor<Session>()).first)
+            #expect(session.id == sessionID && session.ownerAccountID == owner)
+
+            bench.setTypeRaw = WorkoutSetType.warmup.storedRawValue
+            try context.save()
+        }
+
+        let reopened = try Self.openCurrent(url).fetch(FetchDescriptor<StepResult>())
+        #expect(reopened.compactMap(\.setTypeRaw) == ["warmup"])
+    }
+
+    @Test("A V15 store opens at V17 through V16, every result intact")
+    func v15StoreReachesV17() throws {
+        let (dir, url) = try Self.storeURL("v15to17")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let owner = UUID(), sessionID = UUID(), routineID = UUID(), benchStep = UUID(), plankStep = UUID()
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV15.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            context.insert(Routine(id: routineID, name: "既存"))
+            context.insert(Session(id: sessionID, routineId: routineID, dayDate: Date(), ownerAccountID: owner))
+            context.insert(PulseCueSchemaV15.StepResult(sessionId: sessionID, stepId: benchStep, setIndex: 0, done: true, actualReps: 8, ownerAccountID: owner, weightKg: 60, plannedSetsAtExecution: 3, exerciseIdAtExecution: "bench_press", exerciseTitleAtExecution: "ベンチプレス"))
+            context.insert(PulseCueSchemaV15.StepResult(sessionId: sessionID, stepId: plankStep, setIndex: 0, done: true, ownerAccountID: owner, plannedSetsAtExecution: 1, exerciseIdAtExecution: "treadmill_warmup", exerciseTitleAtExecution: "トレッドミルウォームアップ", actualDurationSeconds: 90))
+            try context.save()
+        }
+        let context = try Self.openCurrent(url)
+        let results = try context.fetch(FetchDescriptor<StepResult>())
+        #expect(results.count == 2)
+        #expect(results.allSatisfy { $0.setTypeRaw == nil && $0.setType == .working && $0.repsInReserve == nil })
+        let bench = try #require(results.first { $0.stepId == benchStep })
+        #expect(bench.actualReps == 8 && bench.weightKg == 60 && bench.done && bench.ownerAccountID == owner)
+        #expect(bench.plannedSetsAtExecution == 3 && bench.exerciseTitleAtExecution == "ベンチプレス")
+        #expect(results.first { $0.stepId == plankStep }?.actualDurationSeconds == 90)
+        #expect(try context.fetchCount(FetchDescriptor<Session>()) == 1)
+    }
+
+    @Test("A V14 store opens at V17 through V15 and V16, every result intact")
+    func v14StoreReachesV17() throws {
+        let (dir, url) = try Self.storeURL("v14to17")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let owner = UUID(), sessionID = UUID(), routineID = UUID(), benchStep = UUID()
+        do {
+            let schema = Schema(versionedSchema: PulseCueSchemaV14.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            context.insert(Routine(id: routineID, name: "既存"))
+            context.insert(Session(id: sessionID, routineId: routineID, dayDate: Date(), ownerAccountID: owner))
+            context.insert(PulseCueSchemaV14.StepResult(sessionId: sessionID, stepId: benchStep, setIndex: 0, done: true, actualReps: 8, ownerAccountID: owner, weightKg: 60, plannedSetsAtExecution: 3, exerciseIdAtExecution: "bench_press", exerciseTitleAtExecution: "ベンチプレス"))
+            try context.save()
+        }
+        let context = try Self.openCurrent(url)
+        let result = try #require(try context.fetch(FetchDescriptor<StepResult>()).first)
+        #expect(result.actualReps == 8 && result.weightKg == 60 && result.done && result.ownerAccountID == owner)
+        #expect(result.actualDurationSeconds == nil && result.repsInReserve == nil)
+        #expect(result.setTypeRaw == nil && result.setType == .working)
+        #expect(result.exerciseIdAtExecution == "bench_press" && result.plannedSetsAtExecution == 3)
+        #expect(try context.fetchCount(FetchDescriptor<Session>()) == 1)
     }
 }

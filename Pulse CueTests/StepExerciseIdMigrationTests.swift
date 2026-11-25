@@ -83,11 +83,11 @@ struct StepExerciseIdMigrationTests {
     /// V3 → V4 lightweight stage).
     private static func openV4Store(at url: URL, _ work: (ModelContext) throws -> Void) throws {
         let config = ModelConfiguration(
-            schema: Schema(versionedSchema: PulseCueSchemaV16.self),
+            schema: Schema(versionedSchema: PulseCueSchemaV17.self),
             url: url
         )
         let container = try ModelContainer(
-            for: Schema(versionedSchema: PulseCueSchemaV16.self),
+            for: Schema(versionedSchema: PulseCueSchemaV17.self),
             migrationPlan: PulseCueMigrationPlan.self,
             configurations: config
         )
@@ -768,9 +768,10 @@ struct SchemaHistoryLockTests {
         "14.0.0": "39d69eca8e26d96b54994ba33c4af536d080787d99ca862b43d4da5543eedbaa",
         "15.0.0": "a842c7a807c3efd4252d71b2eed5eb515353fe5800d64ffa1fe5cda97973b9a0",
         "16.0.0": "ad4c604d8d364ca29c5417a4bcc37858b6c05c725ca789850b35616a7a13db35",
+        "17.0.0": "b1700e0273f500780750cf6e0d8029a46de43db64fac071950c452283ebac37e",
     ]
 
-    private static let expectedVersions: [Schema.Version] = (1...16).map { Schema.Version($0, 0, 0) }
+    private static let expectedVersions: [Schema.Version] = (1...17).map { Schema.Version($0, 0, 0) }
 
     @Test func everyKnownSchemaFingerprintIsLocked() {
         #expect(Set(Self.expectedFingerprints.keys) == Set(Self.expectedVersions.map { "\($0)" }))
@@ -806,6 +807,7 @@ struct SchemaHistoryLockTests {
         #expect(PulseCueSchemaV14.versionIdentifier == Schema.Version(14, 0, 0))
         #expect(PulseCueSchemaV15.versionIdentifier == Schema.Version(15, 0, 0))
         #expect(PulseCueSchemaV16.versionIdentifier == Schema.Version(16, 0, 0))
+        #expect(PulseCueSchemaV17.versionIdentifier == Schema.Version(17, 0, 0))
     }
 
     @Test func migrationPlanListsEveryKnownSchemaInOrder() {
@@ -865,7 +867,7 @@ struct SchemaHistoryLockTests {
     }
 
     /// V15 keeps its frozen `StepResult` once V16 adds `repsInReserve` to the
-    /// live one; V16 is the only version that lists the live type.
+    /// live one.
     @Test func v15KeepsItsFrozenStepResult() {
         let v15 = PulseCueSchemaV15.models
         #expect(v15.contains { ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV15.StepResult.self) })
@@ -874,8 +876,21 @@ struct SchemaHistoryLockTests {
             ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV15.StepResult.self) ? StepResult.self : $0
         }
         #expect(Self.fingerprint(unfrozen) != Self.expectedFingerprints["15.0.0"])
-        #expect(Self.fingerprint(unfrozen) == Self.expectedFingerprints["16.0.0"])
-        #expect(PulseCueSchemaV16.models.contains { ObjectIdentifier($0) == ObjectIdentifier(StepResult.self) })
-        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV16.self)
+        #expect(Self.expectedFingerprints["15.0.0"] != Self.expectedFingerprints["16.0.0"])
+    }
+
+    /// V16 keeps its frozen `StepResult` once V17 adds `setTypeRaw` to the
+    /// live one; V17 is the only version that lists the live type.
+    @Test func v16KeepsItsFrozenStepResult() {
+        let v16 = PulseCueSchemaV16.models
+        #expect(v16.contains { ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV16.StepResult.self) })
+        #expect(!v16.contains { ObjectIdentifier($0) == ObjectIdentifier(StepResult.self) })
+        let unfrozen = v16.map {
+            ObjectIdentifier($0) == ObjectIdentifier(PulseCueSchemaV16.StepResult.self) ? StepResult.self : $0
+        }
+        #expect(Self.fingerprint(unfrozen) != Self.expectedFingerprints["16.0.0"])
+        #expect(Self.fingerprint(unfrozen) == Self.expectedFingerprints["17.0.0"])
+        #expect(PulseCueSchemaV17.models.contains { ObjectIdentifier($0) == ObjectIdentifier(StepResult.self) })
+        #expect(PulseCueMigrationPlan.schemas.last == PulseCueSchemaV17.self)
     }
 }

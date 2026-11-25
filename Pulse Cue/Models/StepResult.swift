@@ -58,6 +58,12 @@ final class StepResult {
     /// blank — never a guessed value. Not required to complete a set; set
     /// only through `StepResultWriter.recordRepsInReserve`.
     var repsInReserve: Int?
+    /// What kind of set this was (schema V17+), as a `WorkoutSetType` raw
+    /// value. `nil` means a working set: every pre-V17 result, and every set
+    /// stored as working (working is always written as `nil`). Read through
+    /// `setType`; set only through `StepResultWriter`. Timed sets never carry
+    /// one. Independent of `Step.isWarmup`, which marks a whole exercise.
+    var setTypeRaw: String?
 
     init(
         id: UUID = UUID(),
@@ -73,7 +79,8 @@ final class StepResult {
         exerciseIdAtExecution: String? = nil,
         exerciseTitleAtExecution: String? = nil,
         actualDurationSeconds: Int? = nil,
-        repsInReserve: Int? = nil
+        repsInReserve: Int? = nil,
+        setTypeRaw: String? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -89,7 +96,28 @@ final class StepResult {
         self.exerciseTitleAtExecution = exerciseTitleAtExecution
         self.actualDurationSeconds = actualDurationSeconds
         self.repsInReserve = repsInReserve
+        self.setTypeRaw = setTypeRaw
     }
+
+    /// The set's kind as stored: `nil` and any value this version does not
+    /// know read as working, so an unknown value never counts as a warm-up.
+    /// Reading never rewrites `setTypeRaw`.
+    var setType: WorkoutSetType { WorkoutSetType(storedRawValue: setTypeRaw) }
+}
+
+/// Whether a set was a warm-up or a working set. Only these two exist;
+/// working is the default and is what every set without a stored kind is.
+enum WorkoutSetType: String, CaseIterable {
+    case warmup
+    case working
+
+    init(storedRawValue: String?) {
+        self = storedRawValue.flatMap(WorkoutSetType.init(rawValue:)) ?? .working
+    }
+
+    /// What `StepResult.setTypeRaw` stores: working as `nil`, so a working
+    /// set reads the same whether it predates V17 or not.
+    var storedRawValue: String? { self == .working ? nil : rawValue }
 }
 
 /// Validation for a set's reps in reserve.
@@ -301,7 +329,8 @@ enum StepResultWriter {
         actualReps: Int?,
         weightKg: Double?,
         actualDurationSeconds: Int? = nil,
-        plannedSets: PlannedSets = .firstWritten
+        plannedSets: PlannedSets = .firstWritten,
+        setType: WorkoutSetType? = nil
     ) -> StepResult {
         let siblings = results(in: context, sessionId: sessionId, stepId: step.id)
         // What the set was when it ran decides what it can carry: a timed set
@@ -327,6 +356,13 @@ enum StepResultWriter {
             // Re-recording a done rep set keeps its RIR; it is changed only
             // through `recordRepsInReserve`. A skipped or timed set has none.
             if !done || isTimed { existing.repsInReserve = nil }
+            // `setType` nil means "unchanged": re-recording keeps a warm-up a
+            // warm-up. A timed set has no kind.
+            if isTimed {
+                existing.setTypeRaw = nil
+            } else if let setType {
+                existing.setTypeRaw = setType.storedRawValue
+            }
             return existing
         }
         let firstSibling = siblings.min { $0.setIndex < $1.setIndex }
@@ -350,7 +386,8 @@ enum StepResultWriter {
             plannedSetsAtExecution: planned,
             exerciseIdAtExecution: exerciseId,
             exerciseTitleAtExecution: exerciseTitle,
-            actualDurationSeconds: duration
+            actualDurationSeconds: duration,
+            setTypeRaw: isTimed ? nil : setType?.storedRawValue
         )
         context.insert(result)
         return result
@@ -375,6 +412,31 @@ enum StepResultWriter {
               WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution ?? step.exerciseId)
         else { return nil }
         result.repsInReserve = value
+        return result
+    }
+
+    /// Changes the kind of one already recorded rep-counted set, leaving every
+    /// other value as it was. The set is named by its `StepResult.id`, never
+    /// by position: a Free Workout renumbers sets when one is removed, so a
+    /// position can come to mean another set. Refused (nil, nothing written)
+    /// unless that result exists in this session's step, is done, and is not
+    /// timed. (A skipped set keeps the kind it was recorded with.)
+    @discardableResult
+    static func recordSetType(
+        _ setType: WorkoutSetType,
+        in context: ModelContext,
+        resultId: UUID,
+        sessionId: UUID,
+        step: Step
+    ) -> StepResult? {
+        let stepId = step.id
+        let descriptor = FetchDescriptor<StepResult>(
+            predicate: #Predicate<StepResult> { $0.id == resultId && $0.sessionId == sessionId && $0.stepId == stepId }
+        )
+        guard let result = (try? context.fetch(descriptor))?.first, result.done,
+              WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution ?? step.exerciseId)
+        else { return nil }
+        result.setTypeRaw = setType.storedRawValue
         return result
     }
 
