@@ -167,7 +167,14 @@ final class FreeWorkoutLauncher: ObservableObject {
     }
 
     /// The workout screen closed — finished, discarded or just left.
-    func workoutScreenClosed() {
+    /// `sessionId` is the workout the closing screen showed. A close arriving
+    /// after that screen was replaced — by a scope change and a new workout —
+    /// is not about the screen now open, and leaves it alone.
+    func workoutScreenClosed(_ sessionId: UUID? = nil) {
+        if let sessionId, presented?.id != sessionId {
+            refresh()
+            return
+        }
         if presented?.finishOutcome == .discarded { notice = .nothingSaved }
         presented = nil
         refresh()

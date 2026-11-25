@@ -2854,3 +2854,32 @@ extension FreeWorkoutScopeInvalidationTests {
         #expect(try context.fetch(FetchDescriptor<Session>()).filter { $0.ownerAccountID == a }.count == 1)
     }
 }
+
+@MainActor
+extension FreeWorkoutScopeInvalidationTests {
+
+    // A's screen is closed by the scope change; its close callback arriving
+    // late must not close B's newly opened screen.
+    @Test func aLateCloseFromTheOldScreenLeavesTheNewOneOpen() throws {
+        let context = try makeContext()
+        let authority = WorkoutScopeAuthority(scope: .account(UUID()))
+        let launcher = FreeWorkoutLauncher(drafts: FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: authority.scope, authority: authority)
+        launcher.start()
+        let old = try #require(launcher.presented)
+        // The views' `onClose`, bound to the workout the screen showed.
+        let staleClose = { launcher.workoutScreenClosed(old.id) }
+
+        authority.update(.account(UUID()))
+        launcher.configure(context: context, scope: authority.scope, authority: authority)
+        launcher.start()
+        let current = try #require(launcher.presented)
+        #expect(current.id != old.id)
+
+        staleClose()
+
+        #expect(launcher.presented === current)
+        launcher.workoutScreenClosed(current.id)                  // its own close still closes it
+        #expect(launcher.presented == nil)
+    }
+}
