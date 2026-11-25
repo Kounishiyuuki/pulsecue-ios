@@ -1603,7 +1603,7 @@ struct RunnerPlannedSetsSnapshotTests {
 
     private static func makeFixture(sets: [Int], exerciseId: String? = "bench_press", restSeconds: Int = 0) throws -> Fixture {
         RunnerPersistence.clear()
-        let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = ModelContext(container)
         let routine = Routine(name: "Planned")
@@ -1826,7 +1826,7 @@ struct RunnerExerciseSnapshotTests {
 
     private static func makeFixture(sets: [Int], exerciseIds: [String?]? = nil, restSeconds: Int = 0) throws -> Fixture {
         RunnerPersistence.clear()
-        let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = ModelContext(container)
         let routine = Routine(name: "Exercise")
@@ -2112,7 +2112,7 @@ struct RunnerReplacementGuardTests {
 
     private static func makeFixture(sets: Int = 3, restSeconds: Int = 0) throws -> Fixture {
         RunnerPersistence.clear()
-        let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = ModelContext(container)
         let routine = Routine(name: "Guard")
@@ -2292,7 +2292,7 @@ struct RunnerReplacementHistoryTests {
     @Test
     func replacingAStepNeverMovesItsHistoryToTheReplacement() throws {
         RunnerPersistence.clear()
-        let schema = Schema(versionedSchema: PulseCueSchemaV16.self)
+        let schema = Schema(versionedSchema: PulseCueSchemaV17.self)
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = ModelContext(container)
         let routine = Routine(name: "Push")

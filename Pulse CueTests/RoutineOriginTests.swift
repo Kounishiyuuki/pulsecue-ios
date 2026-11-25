@@ -2308,3 +2308,270 @@ struct FreeWorkoutRepsInReserveTests {
         #expect(results(context).first?.ownerAccountID == a)
     }
 }
+
+// MARK: - Set type (domain only)
+
+@MainActor
+struct WorkoutSetTypeTests {
+
+    private func makeContext() throws -> ModelContext {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return ModelContext(try ModelContainer(for: schema, configurations: [config]))
+    }
+
+    private func start(_ context: ModelContext, scope: WorkoutDataScope = .guest) throws -> FreeWorkoutSession {
+        try #require(FreeWorkoutSession.start(in: context, scope: scope).session)
+    }
+
+    private func results(_ free: FreeWorkoutSession, _ step: Step) -> [StepResult] { free.results(for: step) }
+
+    // A–D: reading what is stored.
+    @Test func storedValuesReadAsWarmupOrWorkingAndNothingElse() {
+        #expect(WorkoutSetType(storedRawValue: nil) == .working)
+        #expect(WorkoutSetType(storedRawValue: "warmup") == .warmup)
+        #expect(WorkoutSetType(storedRawValue: "working") == .working)
+        #expect(WorkoutSetType(storedRawValue: "drop") == .working)       // unknown: working, never warm-up
+        #expect(WorkoutSetType(storedRawValue: "") == .working)
+        #expect(WorkoutSetType.allCases == [.warmup, .working])
+        #expect(WorkoutSetType.working.storedRawValue == nil)
+        #expect(WorkoutSetType.warmup.storedRawValue == "warmup")
+
+        let unknown = StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: true, setTypeRaw: "drop")
+        #expect(unknown.setType == .working)
+        #expect(unknown.setTypeRaw == "drop")                               // reading never rewrites it
+        #expect(StepResult(sessionId: UUID(), stepId: UUID(), setIndex: 0, done: true).setTypeRaw == nil)
+    }
+
+    // E, F: kind at completion.
+    @Test func aNewSetCompletesAsWorkingOrAsTheGivenKind() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 3))
+        #expect(free.completeSet(at: 0, of: step, reps: 15, weightKg: 20, setType: .warmup)?.setType == .warmup)
+        #expect(free.completeSet(at: 1, of: step, reps: 10, weightKg: 80)?.setTypeRaw == nil)          // default
+        #expect(free.completeSet(at: 2, of: step, reps: 10, weightKg: 80, setType: .working)?.setTypeRaw == nil)
+        #expect(results(free, step).map(\.setType) == [.warmup, .working, .working])
+    }
+
+    // G, H: a done set changes kind and nothing else.
+    @Test func aDoneSetChangesKindBothWaysAndKeepsEverythingElse() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let set = try #require(free.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        free.recordRepsInReserve(2, at: 0, of: step)
+        let before = (set.id, set.sessionId, set.stepId, set.setIndex, set.done, set.weightKg, set.actualReps,
+                      set.actualDurationSeconds, set.repsInReserve, set.ownerAccountID, set.plannedSetsAtExecution,
+                      set.exerciseIdAtExecution, set.exerciseTitleAtExecution)
+
+        #expect(free.recordSetType(.warmup, resultId: set.id, at: 0, of: step)?.setTypeRaw == "warmup")
+        #expect(free.recordSetType(.working, resultId: set.id, at: 0, of: step)?.setTypeRaw == nil)
+        #expect(free.recordSetType(.warmup, resultId: set.id, at: 0, of: step)?.setType == .warmup)
+        let after = try #require(results(free, step).first)
+        #expect(results(free, step).count == 1)
+        #expect(after.id == before.0 && after.sessionId == before.1 && after.stepId == before.2 && after.setIndex == before.3)
+        #expect(after.done == before.4 && after.weightKg == before.5 && after.actualReps == before.6)
+        #expect(after.actualDurationSeconds == before.7 && after.repsInReserve == before.8 && after.ownerAccountID == before.9)
+        #expect(after.plannedSetsAtExecution == before.10 && after.exerciseIdAtExecution == before.11)
+        #expect(after.exerciseTitleAtExecution == before.12)
+    }
+
+    // I, J, K: re-recording and RIR leave the kind alone, and the kind leaves RIR alone.
+    @Test func reRecordingAndRIRKeepTheKindAndTheKindKeepsRIR() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let set = try #require(free.completeSet(at: 0, of: step, reps: 10, weightKg: 80, setType: .warmup))
+        free.recordRepsInReserve(2, at: 0, of: step)
+
+        free.completeSet(at: 0, of: step, reps: 8, weightKg: 82.5)                 // no kind given: unchanged
+        var result = try #require(results(free, step).first)
+        #expect(result.setType == .warmup && result.repsInReserve == 2)
+        #expect(result.weightKg == 82.5 && result.actualReps == 8)
+
+        free.recordRepsInReserve(1, at: 0, of: step)                                // RIR keeps the kind
+        free.recordRepsInReserve(nil, at: 0, of: step)
+        result = try #require(results(free, step).first)
+        #expect(result.setType == .warmup && result.repsInReserve == nil)
+
+        free.recordRepsInReserve(3, at: 0, of: step)
+        free.recordSetType(.working, resultId: set.id, at: 0, of: step)              // the kind keeps RIR
+        result = try #require(results(free, step).first)
+        #expect(result.setType == .working && result.repsInReserve == 3)
+
+        free.completeSet(at: 0, of: step, reps: 8, weightKg: 82.5, setType: .warmup) // an explicit kind applies
+        #expect(results(free, step).first?.setType == .warmup)
+    }
+
+    // L: timed sets have no kind.
+    @Test func aTimedSetNeverTakesAKind() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミルウォームアップ"))
+        let set = try #require(free.completeTimedSet(at: 0, of: step, durationSeconds: 600))
+        #expect(free.recordSetType(.warmup, resultId: set.id, at: 0, of: step) == nil)
+        #expect(StepResultWriter.recordSetType(.warmup, in: context, resultId: set.id, sessionId: free.session.id, step: step) == nil)
+        // Even handed to the writer with a kind.
+        StepResultWriter.record(in: context, sessionId: free.session.id, ownerAccountID: nil, step: step, setIndex: 0,
+                                done: true, actualReps: nil, weightKg: nil, actualDurationSeconds: 600,
+                                plannedSets: .currentStepSets, setType: .warmup)
+        let result = try #require(results(free, step).first)
+        #expect(result.setTypeRaw == nil && result.actualDurationSeconds == 600)
+    }
+
+    // M, N: bodyweight and assisted exercises take a kind like any rep set.
+    @Test func bodyweightAndAssistedSetsTakeAWarmup() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let pull = try #require(free.addExercise(exerciseId: "pull_up", title: "懸垂"))
+        let assisted = try #require(free.addExercise(exerciseId: "assisted_pull_up", title: "アシスト懸垂"))
+        #expect(free.completeSet(at: 0, of: pull, reps: 5, weightKg: nil, setType: .warmup)?.setType == .warmup)
+        let a = try #require(free.completeSet(at: 0, of: assisted, reps: 8, weightKg: 30))
+        #expect(free.recordSetType(.warmup, resultId: a.id, at: 0, of: assisted)?.weightKg == 30)
+    }
+
+    // O: skipping is about whether it was done, not what kind it was.
+    @Test func skippingKeepsTheKindClearsRIRAndANewSkipIsWorking() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 3))
+        free.completeSet(at: 0, of: step, reps: 15, weightKg: 20, setType: .warmup)
+        free.recordRepsInReserve(4, at: 0, of: step)
+        free.skipSet(at: 0, of: step)
+        free.skipSet(at: 1, of: step)
+        free.skipSet(at: 2, of: step, setType: .warmup)
+        let all = results(free, step)
+        #expect(all.map(\.done) == [false, false, false])
+        #expect(all.map(\.setType) == [.warmup, .working, .warmup])
+        #expect(all.map(\.repsInReserve) == [nil, nil, nil])
+        #expect(free.recordSetType(.working, resultId: all[0].id, at: 0, of: step) == nil)   // only a done set changes
+    }
+
+    // P: an action for a removed set is refused; nothing else changes, nothing is recreated.
+    @Test func anActionForARemovedSetIsRefused() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 3))
+        let a = try #require(free.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        let b = try #require(free.completeSet(at: 1, of: step, reps: 9, weightKg: 80))
+        let bId = b.id
+        let c = try #require(free.completeSet(at: 2, of: step, reps: 8, weightKg: 80))
+        free.recordRepsInReserve(1, at: 2, of: step)
+        #expect(free.removeSet(at: 1, from: step))                                  // C moves to index 1
+        #expect(free.recordSetType(.warmup, resultId: bId, at: 1, of: step) == nil)
+        let all = results(free, step)
+        #expect(all.map(\.id) == [a.id, c.id])
+        #expect(all.map(\.setType) == [.working, .working])
+        #expect(all.map(\.repsInReserve) == [nil, 1])
+    }
+
+    // Q: a surviving set that moved refuses an action from before the move;
+    // a fresh one at its new position lands on that same set only.
+    @Test func aMovedSetRefusesAStaleActionAndTakesAFreshOne() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
+        free.completeSet(at: 0, of: step, reps: 10, weightKg: 80)
+        let b = try #require(free.completeSet(at: 1, of: step, reps: 9, weightKg: 80))
+        #expect(free.removeSet(at: 0, from: step))                                  // B: index 1 → 0
+        #expect(free.recordSetType(.warmup, resultId: b.id, at: 1, of: step) == nil)
+        #expect(results(free, step).map(\.setType) == [.working])
+        #expect(free.recordSetType(.warmup, resultId: b.id, at: 0, of: step)?.id == b.id)
+        #expect(results(free, step).map(\.setType) == [.warmup])
+    }
+
+    // R: another session's result is never reachable, even with the same step and set.
+    @Test func anotherSessionsSetIsNeverChanged() throws {
+        let context = try makeContext()
+        let first = try start(context)
+        let step = try #require(first.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let old = try #require(first.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        _ = first.finish()
+        let second = try start(context)
+        let secondStep = try #require(second.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let current = try #require(second.completeSet(at: 0, of: secondStep, reps: 10, weightKg: 80))
+        #expect(second.recordSetType(.warmup, resultId: old.id, at: 0, of: secondStep) == nil)
+        // The same step and set index in two sessions (as a routine run twice):
+        // the writer refuses a result id from the other session.
+        let other = UUID()
+        let twin = StepResultWriter.record(in: context, sessionId: other, ownerAccountID: nil, step: secondStep,
+                                           setIndex: 0, done: true, actualReps: 10, weightKg: 80)
+        #expect(StepResultWriter.recordSetType(.warmup, in: context, resultId: twin.id, sessionId: second.session.id, step: secondStep) == nil)
+        #expect(StepResultWriter.recordSetType(.warmup, in: context, resultId: current.id, sessionId: other, step: secondStep) == nil)
+        #expect(old.setTypeRaw == nil && current.setTypeRaw == nil && twin.setTypeRaw == nil)
+    }
+
+    // S: only the owner reaches a workout, and a result with another owner is refused.
+    @Test func ownershipDecidesWhoCanChangeAKind() throws {
+        let context = try makeContext()
+        let accountA = UUID(), accountB = UUID()
+        let free = try start(context, scope: .account(accountA))
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let set = try #require(free.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        #expect(set.ownerAccountID == accountA)
+        #expect(FreeWorkoutSession.resume(free.session, in: context, scope: .account(accountB)) == nil)
+        #expect(FreeWorkoutSession.resume(free.session, in: context, scope: .guest) == nil)
+        let resumed = try #require(FreeWorkoutSession.resume(free.session, in: context, scope: .account(accountA)))
+        set.ownerAccountID = accountB                                                // a result not this owner's
+        #expect(resumed.recordSetType(.warmup, resultId: set.id, at: 0, of: step) == nil)
+        set.ownerAccountID = accountA
+        #expect(resumed.recordSetType(.warmup, resultId: set.id, at: 0, of: step)?.setType == .warmup)
+
+        let guestContext = try makeContext()
+        let guest = try start(guestContext)
+        #expect(FreeWorkoutSession.resume(guest.session, in: guestContext, scope: .account(accountA)) == nil)
+    }
+
+    // T: a finished or abandoned workout takes no change.
+    @Test func aFinishedOrAbandonedWorkoutTakesNoKind() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let set = try #require(free.completeSet(at: 0, of: step, reps: 10, weightKg: 80))
+        _ = free.finish()
+        #expect(free.recordSetType(.warmup, resultId: set.id, at: 0, of: step) == nil)
+
+        let other = try makeContext()
+        let abandoned = try start(other)
+        let otherStep = try #require(abandoned.addExercise(exerciseId: "bench_press", title: "ベンチプレス"))
+        let otherSet = try #require(abandoned.completeSet(at: 0, of: otherStep, reps: 10, weightKg: 80))
+        abandoned.session.status = .abandoned
+        #expect(abandoned.recordSetType(.warmup, resultId: otherSet.id, at: 0, of: otherStep) == nil)
+        #expect(abandoned.completeSet(at: 0, of: otherStep, reps: 10, weightKg: 80, setType: .warmup) == nil)
+        #expect(set.setTypeRaw == nil && otherSet.setTypeRaw == nil)
+    }
+
+    // U: a resumed workout still has its warm-ups.
+    @Test func aResumedWorkoutKeepsItsWarmups() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let step = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
+        free.completeSet(at: 0, of: step, reps: 15, weightKg: 20, setType: .warmup)
+        free.completeSet(at: 1, of: step, reps: 10, weightKg: 80)
+        try context.save()
+        let candidate = try #require(FreeWorkoutRecovery.latest(in: context, scope: .guest))
+        let resumed = try #require(FreeWorkoutRecovery.resume(candidate, in: context, scope: .guest))
+        let resumedStep = try #require(resumed.steps.first)
+        #expect(resumed.results(for: resumedStep).map(\.setType) == [.warmup, .working])
+    }
+
+    // Reordering exercises and removing a set keep each record's own kind and RIR.
+    @Test func reorderingAndRemovingNeverMoveAKindOrRIR() throws {
+        let context = try makeContext()
+        let free = try start(context)
+        let bench = try #require(free.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 3))
+        let row = try #require(free.addExercise(exerciseId: "seated_row", title: "シーテッドロウ"))
+        free.completeSet(at: 0, of: bench, reps: 15, weightKg: 20, setType: .warmup)
+        free.completeSet(at: 1, of: bench, reps: 10, weightKg: 80)
+        free.completeSet(at: 2, of: bench, reps: 8, weightKg: 80)
+        free.recordRepsInReserve(2, at: 1, of: bench)
+        free.completeSet(at: 0, of: row, reps: 12, weightKg: 40, setType: .warmup)
+        #expect(free.moveExercise(from: 0, to: 1))
+        #expect(free.removeSet(at: 0, from: bench))
+        #expect(results(free, bench).map(\.setType) == [.working, .working])
+        #expect(results(free, bench).map(\.repsInReserve) == [2, nil])
+        #expect(results(free, bench).map(\.actualReps) == [10, 8])
+        #expect(results(free, row).map(\.setType) == [.warmup])
+    }
+}

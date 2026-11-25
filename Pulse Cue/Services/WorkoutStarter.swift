@@ -264,9 +264,12 @@ final class FreeWorkoutSession {
     /// no duration, so the set would be stored as done without one. Timed
     /// sets go through `completeTimedSet`. The writer still accepts a
     /// duration-free timed set only so historical data stays compatible.
+    ///
+    /// `setType` nil leaves the kind as it is — working for a new set, and a
+    /// re-recorded warm-up stays one; pass `.working` to change it back.
     @discardableResult
-    func completeSet(at setIndex: Int, of step: Step, reps: Int?, weightKg: Double?) -> StepResult? {
-        write(setIndex: setIndex, of: step, done: true, reps: reps.map { max(0, $0) }, weightKg: SetWeight.validated(weightKg))
+    func completeSet(at setIndex: Int, of step: Step, reps: Int?, weightKg: Double?, setType: WorkoutSetType? = nil) -> StepResult? {
+        write(setIndex: setIndex, of: step, done: true, reps: reps.map { max(0, $0) }, weightKg: SetWeight.validated(weightKg), setType: setType)
     }
 
     /// Records set row `setIndex` of a timed exercise as done with how long it
@@ -286,10 +289,11 @@ final class FreeWorkoutSession {
         return write(setIndex: setIndex, of: step, done: true, reps: nil, weightKg: nil, durationSeconds: duration)
     }
 
-    /// Records set row `setIndex` as skipped — logged, not performed.
+    /// Records set row `setIndex` as skipped — logged, not performed. Its
+    /// kind is kept (or set, when given), so a skipped warm-up stays one.
     @discardableResult
-    func skipSet(at setIndex: Int, of step: Step) -> StepResult? {
-        write(setIndex: setIndex, of: step, done: false, reps: nil, weightKg: nil)
+    func skipSet(at setIndex: Int, of step: Step, setType: WorkoutSetType? = nil) -> StepResult? {
+        write(setIndex: setIndex, of: step, done: false, reps: nil, weightKg: nil, setType: setType)
     }
 
     /// Sets or clears the reps in reserve of done set row `setIndex`, as
@@ -300,7 +304,22 @@ final class FreeWorkoutSession {
         return StepResultWriter.recordRepsInReserve(value, in: context, sessionId: session.id, step: step, setIndex: setIndex)
     }
 
-    private func write(setIndex: Int, of step: Step, done: Bool, reps: Int?, weightKg: Double?, durationSeconds: Int? = nil) -> StepResult? {
+    /// Changes the kind of the done set `resultId`, the result the action was made
+    /// for. Refused (nil) unless the workout is active, the step is this
+    /// workout's, the result is still this workout's and owner's, and it is
+    /// still at `setIndex`: after any set above it is removed it has moved,
+    /// so an action made before then is stale and never lands anywhere.
+    @discardableResult
+    func recordSetType(_ setType: WorkoutSetType, resultId: UUID, at setIndex: Int, of step: Step) -> StepResult? {
+        guard isActive, owns(step),
+              let current = results(for: step).first(where: { $0.id == resultId }),
+              current.setIndex == setIndex,
+              current.ownerAccountID == session.ownerAccountID
+        else { return nil }
+        return StepResultWriter.recordSetType(setType, in: context, resultId: resultId, sessionId: session.id, step: step)
+    }
+
+    private func write(setIndex: Int, of step: Step, done: Bool, reps: Int?, weightKg: Double?, durationSeconds: Int? = nil, setType: WorkoutSetType? = nil) -> StepResult? {
         guard isActive, owns(step), (0..<step.sets).contains(setIndex) else { return nil }
         return StepResultWriter.record(
             in: context,
@@ -312,7 +331,8 @@ final class FreeWorkoutSession {
             actualReps: reps,
             weightKg: weightKg,
             actualDurationSeconds: durationSeconds,
-            plannedSets: .currentStepSets
+            plannedSets: .currentStepSets,
+            setType: setType
         )
     }
 
