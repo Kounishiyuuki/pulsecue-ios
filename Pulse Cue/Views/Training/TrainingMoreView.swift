@@ -68,7 +68,7 @@ struct FreeWorkoutEntryCard: View {
         .onAppear { launcher.configure(context: modelContext, scope: dataScope.scope, authority: dataScope.authority) }
         .onChange(of: dataScope.scope) { _, scope in launcher.configure(context: modelContext, scope: scope, authority: dataScope.authority) }
         .fullScreenCover(item: $launcher.presented) { model in
-            FreeWorkoutView(model: model, onClose: { launcher.workoutScreenClosed(model.id) })
+            FreeWorkoutView(model: model, onClose: { launcher.workoutScreenClosed(model) })
         }
         .confirmationDialog(
             "このフリーワークアウトを破棄しますか？",

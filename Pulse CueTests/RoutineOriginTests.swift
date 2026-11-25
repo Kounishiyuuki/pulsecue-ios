@@ -919,14 +919,14 @@ struct FreeWorkoutViewModelTests {
         launcher.start()
         let model = try #require(launcher.presented)
         model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
-        launcher.workoutScreenClosed()
+        launcher.workoutScreenClosed(try #require(launcher.presented))
         #expect(launcher.presented == nil)
         let candidate = try #require(launcher.candidates.first)
         #expect(candidate.stepCount == 1)
 
         launcher.resume(candidate)
         #expect(launcher.presented?.cards.map(\.title) == ["ベンチプレス"])
-        launcher.workoutScreenClosed()
+        launcher.workoutScreenClosed(try #require(launcher.presented))
         launcher.discard(candidate)
         #expect(launcher.candidates.isEmpty)
         #expect(all(Session.self, context).isEmpty)
@@ -1057,7 +1057,7 @@ struct FreeWorkoutViewModelTests {
         model.finish()
         #expect(model.finishOutcome == .discarded)
         #expect(model.completion == nil)
-        launcher.workoutScreenClosed()
+        launcher.workoutScreenClosed(try #require(launcher.presented))
         #expect(launcher.notice == .nothingSaved)
         #expect(all(Session.self, context).isEmpty)
     }
@@ -1095,7 +1095,7 @@ struct FreeWorkoutViewModelTests {
         let launcher: FreeWorkoutLauncher
         var model: FreeWorkoutViewModel { launcher.presented! }
         func closeAndResume() throws {
-            launcher.workoutScreenClosed()
+            launcher.workoutScreenClosed(try #require(launcher.presented))
             let candidate = try #require(launcher.candidates.first)
             launcher.resume(candidate)
         }
@@ -1208,7 +1208,7 @@ struct FreeWorkoutViewModelTests {
             case "finish", "emptyFinish": flow.model.finish()
             case "discardInScreen": flow.model.discard()
             default:
-                flow.launcher.workoutScreenClosed()
+                flow.launcher.workoutScreenClosed(try #require(flow.launcher.presented))
                 flow.launcher.discard(try #require(flow.launcher.candidates.first))
             }
             #expect(!store.sessionIds.contains(id), "\(ending)")
@@ -1240,7 +1240,7 @@ struct FreeWorkoutViewModelTests {
         let id = flow.model.id
         flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
         flow.model.setWeight(70, for: key(flow.model, card: 0, set: 0))
-        flow.launcher.workoutScreenClosed()
+        flow.launcher.workoutScreenClosed(try #require(flow.launcher.presented))
         // Discarded through another card (another launcher on the same store).
         let elsewhere = launcher(context, drafts: FreeWorkoutDraftStore())
         _ = FreeWorkoutRecovery.discard(try #require(elsewhere.candidates.first), in: context, scope: .guest)
@@ -1275,7 +1275,7 @@ struct FreeWorkoutViewModelTests {
         let started = launcher(context)
         started.start()
         let id = try #require(started.presented).id
-        started.workoutScreenClosed()
+        started.workoutScreenClosed(try #require(started.presented))
 
         let history = launcher(context)
         #expect(history.resume(sessionId: id))
@@ -1290,7 +1290,7 @@ struct FreeWorkoutViewModelTests {
         flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
         flow.model.complete(key(flow.model, card: 0, set: 0))
         flow.model.finish()
-        flow.launcher.workoutScreenClosed()
+        flow.launcher.workoutScreenClosed(try #require(flow.launcher.presented))
         #expect(all(Session.self, context).first?.status == .completed)
 
         let history = launcher(context)
@@ -1328,7 +1328,7 @@ struct FreeWorkoutViewModelTests {
                 flow.model.complete(key(flow.model, card: 0, set: 0))
                 flow.model.finish()
             }
-            flow.launcher.workoutScreenClosed()
+            flow.launcher.workoutScreenClosed(try #require(flow.launcher.presented))
 
             #expect(!history.resume(sessionId: id))
             #expect(history.presented == nil)
@@ -1341,7 +1341,7 @@ struct FreeWorkoutViewModelTests {
         let started = launcher(context, scope: .account(accountA))
         started.start()
         let id = try #require(started.presented).id
-        started.workoutScreenClosed()
+        started.workoutScreenClosed(try #require(started.presented))
 
         for scope in [WorkoutDataScope.account(UUID()), .guest, .undetermined] {
             let history = launcher(context, scope: .account(accountA))
@@ -1361,7 +1361,7 @@ struct FreeWorkoutViewModelTests {
         flow.model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
         let row = key(flow.model, card: 0, set: 0)
         flow.model.setWeight(72.5, for: row); flow.model.setReps(8, for: row)
-        flow.launcher.workoutScreenClosed()
+        flow.launcher.workoutScreenClosed(try #require(flow.launcher.presented))
 
         // History has its own launcher, but the same process-wide store.
         let history = launcher(context, drafts: store)
@@ -1579,7 +1579,7 @@ struct FreeWorkoutViewModelTests {
         #expect(flow.model.row(row)?.duration == DurationEntry(minutes: "12", seconds: "30"))
         // Resumed from History's in-progress entry, too.
         let id = flow.model.id
-        flow.launcher.workoutScreenClosed()
+        flow.launcher.workoutScreenClosed(try #require(flow.launcher.presented))
         #expect(flow.launcher.resume(sessionId: id))
         #expect(flow.model.row(row)?.duration == DurationEntry(minutes: "12", seconds: "30"))
         #expect(all(StepResult.self, context).isEmpty)               // still a draft
@@ -2848,7 +2848,7 @@ extension FreeWorkoutScopeInvalidationTests {
         #expect(second.session.addExercise(exerciseId: "bench_press", title: "ベンチプレス") == nil)
         // An action racing the change sees the authority's scope, not the
         // launcher's stale one: nothing is created under A.
-        training.workoutScreenClosed()
+        training.workoutScreenClosed(try #require(training.presented))
         training.start()
         #expect(training.presented?.session.session.ownerAccountID == nil)
         #expect(try context.fetch(FetchDescriptor<Session>()).filter { $0.ownerAccountID == a }.count == 1)
@@ -2868,7 +2868,7 @@ extension FreeWorkoutScopeInvalidationTests {
         launcher.start()
         let old = try #require(launcher.presented)
         // The views' `onClose`, bound to the workout the screen showed.
-        let staleClose = { launcher.workoutScreenClosed(old.id) }
+        let staleClose = { launcher.workoutScreenClosed(old) }
 
         authority.update(.account(UUID()))
         launcher.configure(context: context, scope: authority.scope, authority: authority)
@@ -2879,7 +2879,86 @@ extension FreeWorkoutScopeInvalidationTests {
         staleClose()
 
         #expect(launcher.presented === current)
-        launcher.workoutScreenClosed(current.id)                  // its own close still closes it
+        launcher.workoutScreenClosed(current)                     // its own close still closes it
         #expect(launcher.presented == nil)
+    }
+}
+
+@MainActor
+extension FreeWorkoutScopeInvalidationTests {
+
+    // A → B → A, then the same stored workout is resumed: the new screen has
+    // the old one's session id but is a different screen, and the old one's
+    // late close must not close it.
+    @Test func aLateCloseFromTheSameResumedSessionLeavesTheNewScreenOpen() throws {
+        let context = try makeContext()
+        let a = UUID()
+        let authority = WorkoutScopeAuthority(scope: .account(a))
+        let launcher = FreeWorkoutLauncher(drafts: FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: authority.scope, authority: authority)
+        launcher.start()
+        let oldModel = try #require(launcher.presented)
+        let bench = try #require(oldModel.session.addExercise(exerciseId: "bench_press", title: "ベンチプレス", initialSets: 2))
+        #expect(oldModel.session.completeSet(at: 0, of: bench, reps: 10, weightKg: 80, setType: .warmup) != nil)
+        #expect(oldModel.session.recordRepsInReserve(2, at: 0, of: bench) != nil)
+        try context.save()
+        let staleClose = closeAction(launcher, oldModel)
+
+        authority.update(.account(UUID()))
+        launcher.configure(context: context, scope: authority.scope, authority: authority)
+        authority.update(.account(a))
+        launcher.configure(context: context, scope: authority.scope, authority: authority)
+        let candidate = try #require(launcher.candidates.first)
+        launcher.resume(candidate)
+        let newModel = try #require(launcher.presented)
+        #expect(oldModel.id == newModel.id)
+        #expect(oldModel !== newModel)
+        #expect(launcher.presented === newModel)
+        let before = try snapshot(newModel.session, context)
+
+        staleClose()
+        staleClose()
+
+        #expect(launcher.presented === newModel)
+        #expect(newModel.session.isActive)
+        #expect(!oldModel.session.isActive)
+        #expect(try snapshot(newModel.session, context) == before)
+        #expect(newModel.session.results(for: bench).first?.setTypeRaw == "warmup")
+
+        closeAction(launcher, newModel)()                         // its own close still closes it
+        #expect(launcher.presented == nil)
+        #expect(newModel.session.session.status == .inProgress)  // closing is not finishing
+    }
+
+    // No scope change: the screen is closed and the same workout resumed.
+    @Test func aLateCloseAfterASameScopeResumeLeavesTheNewScreenOpen() throws {
+        let context = try makeContext()
+        let launcher = FreeWorkoutLauncher(drafts: FreeWorkoutDraftStore())
+        let authority = WorkoutScopeAuthority(scope: .guest)
+        launcher.configure(context: context, scope: .guest, authority: authority)
+        launcher.start()
+        let oldModel = try #require(launcher.presented)
+        oldModel.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let staleClose = closeAction(launcher, oldModel)
+        staleClose()
+        #expect(launcher.presented == nil)
+
+        #expect(launcher.resume(sessionId: oldModel.id))
+        let newModel = try #require(launcher.presented)
+        #expect(newModel !== oldModel && newModel.id == oldModel.id)
+
+        staleClose()
+
+        #expect(launcher.presented === newModel)
+        #expect(newModel.session.isActive)
+    }
+}
+
+@MainActor
+extension FreeWorkoutScopeInvalidationTests {
+    /// The `onClose` TrainingMoreView and HistoryView hand the screen,
+    /// captured when it was shown.
+    fileprivate func closeAction(_ launcher: FreeWorkoutLauncher, _ model: FreeWorkoutViewModel) -> () -> Void {
+        { launcher.workoutScreenClosed(model) }
     }
 }

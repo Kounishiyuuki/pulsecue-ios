@@ -69,7 +69,7 @@ struct HistoryView: View {
         .onAppear { freeWorkout.configure(context: modelContext, scope: dataScope.scope, authority: dataScope.authority) }
         .onChange(of: dataScope.scope) { _, scope in freeWorkout.configure(context: modelContext, scope: scope, authority: dataScope.authority) }
         .fullScreenCover(item: $freeWorkout.presented) { model in
-            FreeWorkoutView(model: model, onClose: { freeWorkout.workoutScreenClosed(model.id) })
+            FreeWorkoutView(model: model, onClose: { freeWorkout.workoutScreenClosed(model) })
         }
         .navigationDestination(item: $detailSessionId) { id in
             if let session = sessions.first(where: { $0.id == id }) {
