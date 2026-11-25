@@ -19,7 +19,9 @@ import SwiftUI
 struct WorkoutCompletionView: View {
     let summary: WorkoutCompletionSummary
     var finalSet: RunnerViewModel.LastCompletedSet? = nil
-    var onFinalSetRIR: (Int?) -> Void = { _ in }
+    /// Called with the row's own set, so an action always names the set it
+    /// was shown for.
+    var onFinalSetRIR: (Int?, RunnerViewModel.LastCompletedSet) -> Void = { _, _ in }
     let onDone: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -119,13 +121,13 @@ struct WorkoutCompletionView: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
                     description
-                    SetRIRPicker(value: set.repsInReserve, onChange: onFinalSetRIR)
+                    SetRIRPicker(value: set.repsInReserve, onChange: { onFinalSetRIR($0, set) })
                 }
             } else {
                 HStack(spacing: 12) {
                     description
                     Spacer(minLength: 8)
-                    SetRIRPicker(value: set.repsInReserve, onChange: onFinalSetRIR)
+                    SetRIRPicker(value: set.repsInReserve, onChange: { onFinalSetRIR($0, set) })
                 }
             }
         }
@@ -136,7 +138,7 @@ struct WorkoutCompletionView: View {
         .accessibilityLabel(set.repsInReserve == nil ? set.accessibilityLabel + "、" + SetRIRPicker.spokenText(nil) : set.accessibilityLabel)
         .accessibilityActions {
             ForEach(SetRIRPicker.options, id: \.self) { value in
-                Button(SetRIRPicker.spokenText(value)) { onFinalSetRIR(value) }
+                Button(SetRIRPicker.spokenText(value)) { onFinalSetRIR(value, set) }
             }
         }
         .accessibilityIdentifier("workout-completion-final-set")

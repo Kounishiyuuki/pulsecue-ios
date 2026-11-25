@@ -50,7 +50,7 @@ struct RunnerView: View {
                 WorkoutCompletionView(
                     summary: summary,
                     finalSet: runnerViewModel.completionFinalSet,
-                    onFinalSetRIR: { runnerViewModel.recordCompletionRepsInReserve($0) }
+                    onFinalSetRIR: { runnerViewModel.recordCompletionRepsInReserve($0, for: $1) }
                 ) {
                     runnerViewModel.dismissCompletion()
                 }
