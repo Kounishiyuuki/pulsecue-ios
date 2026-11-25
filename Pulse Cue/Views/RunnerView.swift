@@ -47,7 +47,11 @@ struct RunnerView: View {
                 // A finished workout owns the whole Runner until the user
                 // acknowledges it, so the idle "ルーティンを開始" CTA can never
                 // sit under the finger the moment a workout ends.
-                WorkoutCompletionView(summary: summary) {
+                WorkoutCompletionView(
+                    summary: summary,
+                    finalSet: runnerViewModel.completionFinalSet,
+                    onFinalSetRIR: { runnerViewModel.recordCompletionRepsInReserve($0, for: $1) }
+                ) {
                     runnerViewModel.dismissCompletion()
                 }
             } else {

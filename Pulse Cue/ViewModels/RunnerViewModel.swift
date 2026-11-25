@@ -58,8 +58,15 @@ final class RunnerViewModel: ObservableObject {
     /// `StepResult.repsInReserve` is the truth; this holds a copy read once
     /// per change, never per rest tick.
     @Published private(set) var lastCompletedSet: LastCompletedSet?
+    /// The workout's final set on the Completion screen, when the workout
+    /// ended by completing a rep-counted set (#258 Case C). Fixed to that
+    /// session, step and set as the session finishes, so it outlives
+    /// `resetState()`; cleared with the Completion screen.
+    @Published private(set) var completionFinalSet: LastCompletedSet?
+    private var completionTarget: (sessionId: UUID, step: Step, ownerAccountID: UUID?)?
 
     struct LastCompletedSet: Equatable {
+        let sessionId: UUID
         let stepId: UUID
         let setIndex: Int
         let title: String
@@ -154,6 +161,8 @@ final class RunnerViewModel: ObservableObject {
         previousTimedPerformance = nil
         progression = nil
         lastCompletedSet = nil
+        completionFinalSet = nil
+        completionTarget = nil
     }
 
     func start(routine: Routine) {
@@ -163,6 +172,8 @@ final class RunnerViewModel: ObservableObject {
         // account holder's workout invisible the moment their session confirms.
         guard scope.canCreateWorkouts else { return }
         completion = nil
+        completionFinalSet = nil
+        completionTarget = nil
         invalidateCompleteContext()
         stopTimer()
         invalidateAttention()
@@ -247,6 +258,8 @@ final class RunnerViewModel: ObservableObject {
     /// no History row, and never starts another Session.
     func dismissCompletion() {
         completion = nil
+        completionFinalSet = nil
+        completionTarget = nil
     }
 
     /// Whether the Runner cover belongs on screen — an active workout, or a
@@ -294,10 +307,38 @@ final class RunnerViewModel: ObservableObject {
         }
     }
 
+    /// Sets or clears (`nil`) the reps in reserve of the final set shown on
+    /// the Completion screen, by the session, step and set fixed when the
+    /// workout finished — never the Runner's current state, which is reset by
+    /// then. Only the result changes; the finished session stays as it was.
+    ///
+    /// `set` is the row the action was made for. Anything other than the set
+    /// on screen now — a dismissed Completion, an earlier run of the same
+    /// routine, another account's workout — is refused, never redirected.
+    func recordCompletionRepsInReserve(_ value: Int?, for set: LastCompletedSet) {
+        guard completion != nil, let modelContext, let target = completionTarget, let shown = completionFinalSet,
+              set.sessionId == target.sessionId, set.sessionId == shown.sessionId,
+              set.stepId == target.step.id, set.stepId == shown.stepId,
+              set.setIndex == shown.setIndex,
+              scope.matches(ownerAccountID: target.ownerAccountID),
+              StepResultWriter.recordRepsInReserve(value, in: modelContext, sessionId: target.sessionId,
+                                                   step: target.step, setIndex: shown.setIndex) != nil
+        else { return }
+        try? modelContext.save()
+        completionFinalSet = loadCompletedSet(sessionId: target.sessionId, step: target.step,
+                                              setIndex: shown.setIndex, caption: "最後のセット")
+    }
+
     /// The target for a done, rep-counted result of this session; nil for
     /// anything else (missing, skipped, timed), so a stale target is dropped.
     private func loadLastCompletedSet(stepId: UUID, setIndex: Int) -> LastCompletedSet? {
-        guard let modelContext, let sessionId, let step = steps.first(where: { $0.id == stepId }),
+        guard let sessionId, let step = steps.first(where: { $0.id == stepId }) else { return nil }
+        return loadCompletedSet(sessionId: sessionId, step: step, setIndex: setIndex, caption: "直前のセット")
+    }
+
+    private func loadCompletedSet(sessionId: UUID, step: Step, setIndex: Int, caption: String) -> LastCompletedSet? {
+        let stepId = step.id
+        guard let modelContext,
               let result = StepResultWriter.results(in: modelContext, sessionId: sessionId, stepId: stepId)
                 .first(where: { $0.setIndex == setIndex }),
               result.done,
@@ -305,11 +346,12 @@ final class RunnerViewModel: ObservableObject {
         else { return nil }
         let title = result.exerciseTitleAtExecution ?? step.title
         return LastCompletedSet(
+            sessionId: sessionId,
             stepId: stepId,
             setIndex: setIndex,
             title: title,
             valueText: SessionHistoryPresentation.setValueText(result),
-            accessibilityLabel: "直前のセット、\(title)、" + SessionHistoryPresentation.setAccessibilityLabel(result),
+            accessibilityLabel: "\(caption)、\(title)、" + SessionHistoryPresentation.setAccessibilityLabel(result),
             repsInReserve: result.repsInReserve
         )
     }
@@ -591,7 +633,8 @@ final class RunnerViewModel: ObservableObject {
             return
         }
         recordStepResult(done: false, actualReps: nil, weightKg: nil)
-        advanceToNextStepSkippingSets()
+        // A workout that ends on a skipped set has no final set to rate.
+        advanceToNextStepSkippingSets(offerFinalSet: false)
     }
 
     private func extendRest() {
@@ -694,13 +737,13 @@ final class RunnerViewModel: ObservableObject {
         saveState()
     }
 
-    private func advanceToNextStepSkippingSets() {
+    private func advanceToNextStepSkippingSets(offerFinalSet: Bool = true) {
         currentSetIndex = 0
         currentStepIndex += 1
         currentWeightKg = nil
 
         if currentStepIndex >= steps.count {
-            finishSession(completed: true)
+            finishSession(completed: true, offerFinalSet: offerFinalSet)
             return
         }
 
@@ -710,7 +753,7 @@ final class RunnerViewModel: ObservableObject {
         saveState()
     }
 
-    private func finishSession(completed: Bool) {
+    private func finishSession(completed: Bool, offerFinalSet: Bool = true) {
         guard let session else {
             resetState()
             return
@@ -725,9 +768,21 @@ final class RunnerViewModel: ObservableObject {
         // A routine with no steps finishes instantly on start and has nothing
         // to celebrate, so it gets no Completion screen.
         let summary = (completed && !steps.isEmpty) ? completionSummary(for: session) : nil
+        // The set that finished the workout, if it was a rep-counted
+        // completion (a timed final clears `lastCompletedSet`; a skipped one
+        // opts out). Fixed before `resetState()` clears the Runner.
+        var finalTarget: (sessionId: UUID, step: Step, ownerAccountID: UUID?)?
+        var finalSet: LastCompletedSet?
+        if summary != nil, offerFinalSet, let last = lastCompletedSet,
+           let step = steps.first(where: { $0.id == last.stepId }) {
+            finalSet = loadCompletedSet(sessionId: session.id, step: step, setIndex: last.setIndex, caption: "最後のセット")
+            finalTarget = finalSet == nil ? nil : (session.id, step, session.ownerAccountID)
+        }
 
         resetState()
         completion = summary
+        completionFinalSet = finalSet
+        completionTarget = finalTarget
     }
 
     /// Reads the just-finalized session's completed work. Only `StepResult`s

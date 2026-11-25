@@ -7,15 +7,21 @@
 //  so the Runner never collapses straight back onto the routine list with a
 //  "このまま開始" button under the finger.
 //
-//  It is presentation only: the session it describes was already finalized by
-//  `RunnerViewModel.finishSession`. Nothing here writes data, and the single
-//  CTA only clears the transient summary.
+//  The session it describes was already finalized by
+//  `RunnerViewModel.finishSession`, and the CTA only clears the transient
+//  summary. The one write is optional: the Runner may pass the workout's
+//  final set, whose RIR can still be set here (#258); Free Workout passes
+//  none, so its screen is unchanged.
 //
 
 import SwiftUI
 
 struct WorkoutCompletionView: View {
     let summary: WorkoutCompletionSummary
+    var finalSet: RunnerViewModel.LastCompletedSet? = nil
+    /// Called with the row's own set, so an action always names the set it
+    /// was shown for.
+    var onFinalSetRIR: (Int?, RunnerViewModel.LastCompletedSet) -> Void = { _, _ in }
     let onDone: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -25,6 +31,7 @@ struct WorkoutCompletionView: View {
             VStack(spacing: 24) {
                 headline
                 metrics
+                if let finalSet { finalSetRow(finalSet) }
                 // At accessibility sizes the metrics are taller than the
                 // screen, so a floating CTA would sit on top of a half-cut
                 // number. There it scrolls with the content instead.
@@ -95,6 +102,46 @@ struct WorkoutCompletionView: View {
             RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
                 .strokeBorder(AppTheme.separator.opacity(0.42), lineWidth: 1)
         )
+    }
+
+    /// "最後のセット" and its RIR chip, under the metrics: secondary to them,
+    /// optional, and never in the way of 完了. The metrics never include RIR.
+    @ViewBuilder
+    private func finalSetRow(_ set: RunnerViewModel.LastCompletedSet) -> some View {
+        let description = VStack(alignment: .leading, spacing: 2) {
+            Text("最後のセット")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("\(set.title) · セット\(set.setIndex + 1) · \(set.valueText)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    description
+                    SetRIRPicker(value: set.repsInReserve, onChange: { onFinalSetRIR($0, set) })
+                }
+            } else {
+                HStack(spacing: 12) {
+                    description
+                    Spacer(minLength: 8)
+                    SetRIRPicker(value: set.repsInReserve, onChange: { onFinalSetRIR($0, set) })
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // One element, like the Runner's row: the RIR values are its actions.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(set.repsInReserve == nil ? set.accessibilityLabel + "、" + SetRIRPicker.spokenText(nil) : set.accessibilityLabel)
+        .accessibilityActions {
+            ForEach(SetRIRPicker.options, id: \.self) { value in
+                Button(SetRIRPicker.spokenText(value)) { onFinalSetRIR(value, set) }
+            }
+        }
+        .accessibilityIdentifier("workout-completion-final-set")
     }
 
     private var divider: some View {
