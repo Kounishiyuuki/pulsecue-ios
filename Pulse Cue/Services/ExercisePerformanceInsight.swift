@@ -92,6 +92,42 @@ struct PreviousPerformance: Equatable {
     }
 }
 
+/// Which sets of one (session, step) record are working performance, and how
+/// many working sets that record planned. The one place Previous, progression
+/// and Progress take this from, so they cannot disagree about which sets count.
+///
+/// A warm-up (`StepResult.setType == .warmup`) is a real set and stays in
+/// History and in the completion summary; it is only never "performance".
+/// Timed results never carry a kind, so this is reps-based only.
+enum WorkingSetSelection {
+
+    /// Done working sets with a rep count, in the order given.
+    static func performedWorkingSets(_ results: [StepResult]) -> [StepResult] {
+        results.filter { $0.done && $0.actualReps != nil && $0.setType == .working }
+    }
+
+    /// The record's working planned count: its `plannedSetsAtExecution`
+    /// snapshot minus the warm-ups recorded in this same record (done or
+    /// skipped — either way the row's kind is known). Rows never recorded
+    /// have no known kind and stay counted as working, so a missing set keeps
+    /// the record incomplete instead of being guessed away. Never subtracts
+    /// another step's warm-ups.
+    ///
+    /// - snapshots disagree → inconsistent (as before);
+    /// - all nil (legacy) → nil, the legacy rule applies;
+    /// - snapshot minus warm-ups below 1 → inconsistent: no working set can
+    ///   have been planned, so no value can be trusted.
+    static func plannedWorkingSetCount(recordResults: [StepResult]) -> (count: Int?, isInconsistent: Bool) {
+        let snapshots = Set(recordResults.map(\.plannedSetsAtExecution))
+        guard snapshots.count <= 1 else { return (nil, true) }
+        guard let planned = snapshots.first ?? nil else { return (nil, false) }
+        let warmups = recordResults.filter { $0.setType == .warmup }.count
+        guard warmups > 0 else { return (planned, false) }
+        let working = planned - warmups
+        return working >= 1 ? (working, false) : (nil, true)
+    }
+}
+
 /// Which exercise one recorded (session, step) was, as executed.
 ///
 /// `Step.exerciseId` / `Step.title` are live and change on a Runner
@@ -193,7 +229,10 @@ enum PreviousPerformanceQuery {
         for (record, recordResults) in allByRecord {
             let identity = HistoricalExerciseIdentity.resolve(results: recordResults, step: stepById[record.stepId])
             guard identity.exerciseId == exerciseId else { continue }
-            let sets = recordResults.filter { $0.done && $0.actualReps != nil }
+            // Working sets only, filtered before ranking: a record whose done
+            // sets were all warm-ups is not a candidate, so it cannot hide an
+            // earlier working record.
+            let sets = WorkingSetSelection.performedWorkingSets(recordResults)
             if !sets.isEmpty { byRecord[record] = sets }
         }
         guard !byRecord.isEmpty else { return nil }
@@ -226,13 +265,12 @@ enum PreviousPerformanceQuery {
             // result of the record (skipped sets included). All nil → legacy;
             // any disagreement (two values, or a value next to nil) → unknown,
             // never a max/min/first pick that could unlock a progression.
-            let snapshots = Set((allByRecord[record] ?? results).map(\.plannedSetsAtExecution))
-            let inconsistent = snapshots.count > 1
+            let planned = WorkingSetSelection.plannedWorkingSetCount(recordResults: allByRecord[record] ?? results)
             return PreviousPerformance(
                 date: date,
                 sets: sets,
-                plannedSetCount: inconsistent ? nil : snapshots.first ?? nil,
-                hasInconsistentPlannedSets: inconsistent
+                plannedSetCount: planned.count,
+                hasInconsistentPlannedSets: planned.isInconsistent
             )
         }
 

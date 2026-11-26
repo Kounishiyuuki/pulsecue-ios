@@ -248,6 +248,8 @@ enum WorkoutProgressQuery {
         let setIndex: Int
         let exerciseIdAtExecution: String?
         let exerciseTitleAtExecution: String?
+        /// Whether a set counts as working performance changes the insights.
+        let setTypeRaw: String?
     }
 
     /// A step reaches the insights only as "which exercise, called what".
@@ -275,7 +277,8 @@ enum WorkoutProgressQuery {
                     stepId: $0.stepId,
                     setIndex: $0.setIndex,
                     exerciseIdAtExecution: $0.exerciseIdAtExecution,
-                    exerciseTitleAtExecution: $0.exerciseTitleAtExecution
+                    exerciseTitleAtExecution: $0.exerciseTitleAtExecution,
+                    setTypeRaw: $0.setTypeRaw
                 )
             },
             steps: steps.map {
@@ -285,7 +288,8 @@ enum WorkoutProgressQuery {
     }
 
     /// Per-exercise insights, most-recently-trained first, limited to `limit`.
-    /// Only completed sets with a rep count are used; exercises with no
+    /// Only completed working sets with a rep count are used (warm-ups are
+    /// excluded, see `WorkingSetSelection`); exercises with no
     /// resolvable id (custom machines) are skipped. Deterministic.
     static func exerciseInsights(
         steps: [Step],
@@ -318,8 +322,10 @@ enum WorkoutProgressQuery {
             let date = startedAt[record.sessionId] ?? .distantPast
             var agg = byExercise[exerciseId] ?? Agg()
             var performed = false
-            for result in recordResults {
-                guard result.done, let reps = result.actualReps else { continue }
+            // Working sets only: a warm-up is never latest / previous / best,
+            // and a warm-up-only record is not a session of this exercise here.
+            for result in WorkingSetSelection.performedWorkingSets(recordResults) {
+                guard let reps = result.actualReps else { continue }
                 performed = true
                 agg.bySession[record.sessionId, default: []].append((result.setIndex, reps))
                 agg.best = max(agg.best, reps)
