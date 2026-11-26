@@ -1336,3 +1336,533 @@ struct PreviousPerformanceRIRTests {
         #expect(ProgressionPresentation.previousRIRText(assist) == "RIR 3")
     }
 }
+
+// MARK: - Warm-up sets are not working performance (PR-B)
+
+/// Warm-ups (`StepResult.setType == .warmup`) stay real sets — History and the
+/// completion summary count them — but Previous, Progress and progression read
+/// working sets only. Each case is also checked against what the same data
+/// without warm-ups yields, so working-only history keeps its old result.
+@MainActor
+struct WarmupPerformanceTests {
+
+    private let warm = WorkoutSetType.warmup.storedRawValue
+
+    private func step(_ exerciseId: String? = "bench_press", order: Int = 0, sets: Int = 3) -> Step {
+        Step(id: UUID(), routineId: UUID(), order: order, title: "x", sets: sets, repsTarget: 10, restSeconds: 60, exerciseId: exerciseId)
+    }
+
+    private func session(daysAgo: Int, status: SessionStatus = .completed, owner: UUID? = nil) -> Session {
+        Session(id: UUID(), routineId: UUID(), dayDate: .now,
+                startedAt: Date(timeIntervalSince1970: 1_000_000_000 - TimeInterval(daysAgo * 86_400)),
+                status: status, ownerAccountID: owner)
+    }
+
+    private func r(
+        _ s: Session, _ st: Step, _ set: Int, reps: Int?, kg: Double? = nil, done: Bool = true,
+        type: String? = nil, planned: Int? = nil, rir: Int? = nil, seconds: Int? = nil
+    ) -> StepResult {
+        StepResult(sessionId: s.id, stepId: st.id, setIndex: set, done: done, actualReps: reps,
+                   ownerAccountID: s.ownerAccountID, weightKg: kg, plannedSetsAtExecution: planned,
+                   actualDurationSeconds: seconds, repsInReserve: rir, setTypeRaw: type)
+    }
+
+    private func previous(
+        _ steps: [Step], _ sessions: [Session], _ results: [StepResult],
+        expectedSets: Int = 3, exerciseId: String = "bench_press"
+    ) -> PreviousPerformance? {
+        PreviousPerformanceQuery.latest(exerciseId: exerciseId, excludingSessionId: nil, expectedSets: expectedSets,
+                                        steps: steps, sessions: sessions, results: results)
+    }
+
+    private func suggest(_ p: PreviousPerformance?, expectedSets: Int = 3) -> ProgressionSuggestion? {
+        ProgressionRule.suggest(previous: p, baselineReps: 10, expectedSets: expectedSets,
+                                allowsRepProgression: true, allowsWeightProgression: true)
+    }
+
+    /// The same results with every warm-up removed.
+    private func withoutWarmups(_ results: [StepResult]) -> [StepResult] {
+        results.filter { $0.setType == .working }
+    }
+
+    // MARK: PreviousPerformance
+
+    @Test func legacyNilAndExplicitWorkingAndUnknownRawReadTheSame() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        for raw in [nil, "working", "drop_set_from_the_future"] as [String?] {
+            let results = (0..<3).map { r(s, bench, $0, reps: 10, kg: 80, type: raw, planned: 3) }
+            let p = previous([bench], [s], results)
+            #expect(p?.setReps == [10, 10, 10])
+            #expect(p?.plannedSetCount == 3)
+            #expect(suggest(p)?.kind == .increaseWeight)
+            #expect(suggest(p)?.suggestedWeightKg == 82.5)
+        }
+        // Reading never rewrites the stored raw value.
+        let unknown = r(s, bench, 0, reps: 10, type: "drop_set_from_the_future")
+        _ = previous([bench], [s], [unknown])
+        #expect(unknown.setTypeRaw == "drop_set_from_the_future")
+    }
+
+    @Test func aMixedSessionShowsOnlyItsWorkingSetsInOrder() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, bench, 0, reps: 15, kg: 20, type: warm, planned: 4),
+            r(s, bench, 1, reps: 10, kg: 40, type: warm, planned: 4),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 4),
+            r(s, bench, 3, reps: 8, kg: 80, planned: 4),
+        ]
+        let p = previous([bench], [s], results, expectedSets: 2)
+        #expect(p?.setReps == [10, 8])
+        #expect(p?.setWeightsKg == [80, 80])
+        #expect(p?.uniformWeightKg == 80)
+        #expect(p?.plannedSetCount == 2)
+        #expect(p.map(ProgressionPresentation.previousText) == "80\u{00A0}kg × 10 / 8 回")
+    }
+
+    @Test func aWarmupOnlyLatestSessionDoesNotHideTheWorkingOne() {
+        let bench = step()
+        let a = session(daysAgo: 1), b = session(daysAgo: 3), c = session(daysAgo: 5)
+        let results = [
+            r(a, bench, 0, reps: 10, kg: 40, type: warm, planned: 1),
+            r(b, bench, 0, reps: 10, kg: 80, planned: 1, rir: 2),
+            r(c, bench, 0, reps: 10, kg: 77.5, planned: 1),
+        ]
+        let p = previous([bench], [a, b, c], results, expectedSets: 1)
+        #expect(p?.date == b.startedAt)
+        #expect(p?.setWeightsKg == [80])
+        #expect(p?.sets.first?.repsInReserve == 2)
+    }
+
+    @Test func allWarmupHistoryHasNoWorkingPrevious() {
+        let bench = step(), other = step("squat")
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, bench, 0, reps: 10, kg: 40, type: warm, planned: 2),
+            r(s, bench, 1, reps: 10, kg: 60, type: warm, planned: 2),
+            r(s, other, 0, reps: 10, kg: 100, planned: 1),
+        ]
+        let p = previous([bench, other], [s], results)
+        #expect(p == nil)
+        #expect(suggest(p) == nil)
+    }
+
+    /// Unchanged rule: a record with no done working set is not "last time".
+    /// It was already so for a skip-only working record; a done warm-up next
+    /// to the skips does not make it one.
+    @Test func aSkippedOnlyWorkingSessionIsNotLastTimeJustAsBefore() {
+        let bench = step()
+        let a = session(daysAgo: 1), b = session(daysAgo: 3)
+        let older = [r(b, bench, 0, reps: 10, kg: 80, planned: 1)]
+        let withWarmup = [
+            r(a, bench, 0, reps: 10, kg: 40, type: warm, planned: 2),
+            r(a, bench, 1, reps: nil, done: false, planned: 2),
+        ] + older
+        let skipOnly = [r(a, bench, 0, reps: nil, done: false, planned: 1)] + older
+        #expect(previous([bench], [a, b], withWarmup, expectedSets: 1)?.date == b.startedAt)
+        #expect(previous([bench], [a, b], skipOnly, expectedSets: 1)?.date == b.startedAt)
+    }
+
+    @Test func completedAndAbandonedCountInProgressDoesNot() {
+        let bench = step()
+        let live = session(daysAgo: 0, status: .inProgress)
+        let abandoned = session(daysAgo: 2, status: .abandoned)
+        let completed = session(daysAgo: 4)
+        let results = [
+            r(live, bench, 0, reps: 12, kg: 90, planned: 1),
+            r(abandoned, bench, 0, reps: 15, kg: 20, type: warm, planned: 2),
+            r(abandoned, bench, 1, reps: 9, kg: 85, planned: 2),
+            r(completed, bench, 0, reps: 10, kg: 80, planned: 1),
+        ]
+        let p = previous([bench], [live, abandoned, completed], results, expectedSets: 1)
+        #expect(p?.date == abandoned.startedAt)
+        #expect(p?.setWeightsKg == [85])
+        #expect(p?.plannedSetCount == 1)
+    }
+
+    @Test func aWarmupOnlyDuplicateStepDoesNotTakeTheRecord() {
+        let a = step(order: 0), b = step(order: 1), c = step(order: 2)
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, a, 0, reps: 15, kg: 40, type: warm, planned: 1),
+            r(s, b, 0, reps: 10, kg: 80, planned: 1),
+            r(s, c, 0, reps: 8, kg: 80, planned: 1),
+        ]
+        let p = previous([a, b, c], [s], results, expectedSets: 1)
+        #expect(p?.setReps == [10]) // step B, one record — never B and C merged
+        // Working-only duplicates keep the old pick (lowest order).
+        let p2 = previous([a, b, c], [s], withoutWarmups(results) + [r(s, a, 0, reps: 12, kg: 70, planned: 1)], expectedSets: 1)
+        #expect(p2?.setReps == [12])
+    }
+
+    @Test func rirStaysAlignedWithItsOwnSet() {
+        let bench = step()
+        let s = session(daysAgo: 1), older = session(daysAgo: 3)
+        let results = [
+            r(s, bench, 0, reps: 15, kg: 20, type: warm, planned: 4, rir: 4),
+            r(s, bench, 1, reps: 10, kg: 80, planned: 4, rir: 2),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 4),
+            r(s, bench, 3, reps: 9, kg: 80, planned: 4, rir: 1),
+            r(older, bench, 0, reps: 10, kg: 80, planned: 3, rir: 3),
+        ]
+        let p = previous([bench], [s, older], results)
+        #expect(p?.sets.map(\.repsInReserve) == [2, nil, 1])
+        #expect(p.flatMap(ProgressionPresentation.previousRIRText) == "RIR 2 / – / 1")
+    }
+
+    @Test func ownerScopeStillDecidesWhoseHistoryIsRead() {
+        let accountA = UUID(), accountB = UUID()
+        let bench = step()
+        let a = session(daysAgo: 3, owner: accountA)
+        let b = session(daysAgo: 1, owner: accountB)
+        let g = session(daysAgo: 2)
+        let results = [
+            r(a, bench, 0, reps: 10, kg: 80, planned: 1),
+            r(b, bench, 0, reps: 10, kg: 100, planned: 1),
+            r(g, bench, 0, reps: 10, kg: 60, planned: 2),
+            r(g, bench, 1, reps: 10, kg: 30, type: warm, planned: 2),
+        ]
+        func scoped(_ scope: WorkoutDataScope) -> PreviousPerformance? {
+            previous([bench], scope.visible([a, b, g]), scope.visible(results), expectedSets: 1)
+        }
+        #expect(scoped(.account(accountA))?.setWeightsKg == [80])
+        #expect(scoped(.account(accountB))?.setWeightsKg == [100])
+        #expect(scoped(.guest)?.setWeightsKg == [60])
+        #expect(scoped(.undetermined) == nil)
+    }
+
+    // MARK: Progress (reps)
+
+    private func insights(_ steps: [Step], _ sessions: [Session], _ results: [StepResult]) -> [ExerciseProgressInsight] {
+        WorkoutProgressQuery.exerciseInsights(steps: steps, sessions: sessions, results: results)
+    }
+
+    @Test func progressSumsWorkingRepsOnly() {
+        let bench = step()
+        let a = session(daysAgo: 1), b = session(daysAgo: 3)
+        let results = [
+            r(a, bench, 0, reps: 15, kg: 20, type: warm),
+            r(a, bench, 1, reps: 10, kg: 80),
+            r(a, bench, 2, reps: 8, kg: 80),
+            r(b, bench, 0, reps: 10, kg: 80),
+            r(b, bench, 1, reps: 10, kg: 80),
+        ]
+        let insight = insights([bench], [a, b], results).first
+        #expect(insight?.latestReps == [10, 8])
+        #expect(insight?.latestReps.reduce(0, +) == 18)
+        #expect(insight?.previousReps == [10, 10])
+        #expect(insight?.previousReps?.reduce(0, +) == 20)
+        #expect(insight?.personalBestReps == 10) // not the warm-up's 15
+    }
+
+    @Test func aWarmupOnlyLatestSessionIsNotLatestInProgress() {
+        let bench = step()
+        let a = session(daysAgo: 1), b = session(daysAgo: 3), c = session(daysAgo: 5)
+        let results = [
+            r(a, bench, 0, reps: 20, kg: 20, type: warm),
+            r(b, bench, 0, reps: 10, kg: 80),
+            r(c, bench, 0, reps: 9, kg: 77.5),
+        ]
+        let insight = insights([bench], [a, b, c], results).first
+        #expect(insight?.latestReps == [10])
+        #expect(insight?.previousReps == [9])
+        #expect(insight?.personalBestReps == 10)
+        #expect(insight == insights([bench], [a, b, c], withoutWarmups(results)).first)
+    }
+
+    @Test func anAllWarmupExerciseHasNoProgress() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        #expect(insights([bench], [s], [r(s, bench, 0, reps: 10, kg: 40, type: warm)]).isEmpty)
+    }
+
+    @Test func skippedSetsAndAbandonedSessionsStayOut() {
+        let bench = step()
+        let done = session(daysAgo: 3), abandoned = session(daysAgo: 1, status: .abandoned)
+        let results = [
+            r(done, bench, 0, reps: 10, kg: 80),
+            r(done, bench, 1, reps: nil, done: false),
+            r(done, bench, 2, reps: nil, done: false, type: warm),
+            r(abandoned, bench, 0, reps: 12, kg: 80),
+        ]
+        let insight = insights([bench], [done, abandoned], results).first
+        #expect(insight?.latestReps == [10])
+        #expect(insight?.previousReps == nil)
+    }
+
+    @Test func duplicateStepsAddOnlyTheirWorkingSets() {
+        let a = step(order: 0), b = step(order: 1)
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, a, 0, reps: 15, kg: 40, type: warm),
+            r(s, b, 0, reps: 10, kg: 80),
+            r(s, b, 1, reps: 8, kg: 80),
+        ]
+        let insight = insights([a, b], [s], results).first
+        #expect(insight?.latestReps == [10, 8])
+        #expect(insight == insights([a, b], [s], withoutWarmups(results)).first)
+    }
+
+    @Test func bodyweightAndAssistedExcludeOnlyWarmups() {
+        for id in ["pull_up_bar", "assisted_pull_up"] {
+            let st = step(id)
+            let s = session(daysAgo: 1)
+            let results = [
+                r(s, st, 0, reps: 12, kg: 20, type: warm),
+                r(s, st, 1, reps: 8, kg: 20),
+                r(s, st, 2, reps: 7, kg: 20),
+            ]
+            let insight = insights([st], [s], results).first
+            #expect(insight?.latestReps == [8, 7])
+            #expect(insight?.personalBestReps == 8)
+            let p = previous([st], [s], results, exerciseId: id)
+            #expect(p?.setReps == [8, 7])
+            #expect(p?.setWeightsKg == [20, 20])
+        }
+    }
+
+    @Test func timedProgressIsUntouchedEvenByAStrayWarmupRaw() {
+        let tread = step("treadmill_warmup")
+        let a = session(daysAgo: 1), b = session(daysAgo: 3)
+        let a1 = r(a, tread, 0, reps: nil, seconds: 600)
+        let a2 = r(a, tread, 1, reps: nil, seconds: 300)
+        let b1 = r(b, tread, 0, reps: nil, seconds: 1_200)
+        let legacy = r(b, tread, 1, reps: nil) // done, no duration (pre-V15)
+        let clean = WorkoutProgressQuery.durationInsights(steps: [tread], sessions: [a, b], results: [a1, a2, b1, legacy])
+        a2.setTypeRaw = warm // impossible through the writer; must not change time
+        let stray = WorkoutProgressQuery.durationInsights(steps: [tread], sessions: [a, b], results: [a1, a2, b1, legacy])
+        #expect(clean == stray)
+        #expect(stray.first?.latestSeconds == 900)
+        #expect(stray.first?.previousSeconds == 1_200)
+        #expect(stray.first?.bestSeconds == 1_200)
+        let last = PreviousPerformanceQuery.lastTimedPerformance(exerciseId: "treadmill_warmup", excludingSessionId: nil,
+                                                                 steps: [tread], sessions: [a, b], results: [a1, a2, b1, legacy])
+        #expect(last?.totalSeconds == 900)
+    }
+
+    @Test func progressOwnerScope() {
+        let accountA = UUID(), accountB = UUID()
+        let bench = step()
+        let a = session(daysAgo: 2, owner: accountA), b = session(daysAgo: 1, owner: accountB)
+        let results = [
+            r(a, bench, 0, reps: 10, kg: 80), r(a, bench, 1, reps: 15, kg: 20, type: warm),
+            r(b, bench, 0, reps: 6, kg: 100),
+        ]
+        let scope = WorkoutDataScope.account(accountA)
+        let insight = insights([bench], scope.visible([a, b]), scope.visible(results)).first
+        #expect(insight?.latestReps == [10])
+        #expect(insight?.previousReps == nil)
+    }
+
+    @Test func aSetTypeChangeChangesTheInsightSignature() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let set = r(s, bench, 0, reps: 10, kg: 80)
+        let before = WorkoutProgressQuery.insightSignature(steps: [bench], results: [set])
+        set.setTypeRaw = warm
+        #expect(WorkoutProgressQuery.insightSignature(steps: [bench], results: [set]) != before)
+    }
+
+    // MARK: Progression
+
+    @Test func workingOnlyLegacyProgressionIsUnchanged() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let snapshot = (0..<3).map { r(s, bench, $0, reps: 10, kg: 80, planned: 3) }
+        #expect(suggest(previous([bench], [s], snapshot))?.suggestedWeightKg == 82.5)
+        let preV13 = (0..<3).map { r(s, bench, $0, reps: 10, kg: 80) }
+        let legacy = suggest(previous([bench], [s], preV13))
+        #expect(legacy?.kind == .increaseWeight)
+        #expect(legacy?.previousSetCount == nil)
+    }
+
+    @Test func warmupLoadsDoNotBreakTheWorkingWeight() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let warmups = [(20.0, 15), (40, 10), (60, 5)].enumerated().map { i, w in
+            r(s, bench, i, reps: w.1, kg: w.0, type: warm, planned: 6)
+        }
+        let working = (3..<6).map { r(s, bench, $0, reps: 10, kg: 80, planned: 6) }
+        let p = previous([bench], [s], warmups + working)
+        #expect(p?.uniformWeightKg == 80)
+        let mixed = suggest(p)
+        #expect(mixed?.kind == .increaseWeight)
+        #expect(mixed?.suggestedWeightKg == 82.5)
+        #expect(mixed?.previousSetCount == nil)
+        // Same as recording those three working sets alone.
+        let alone = (0..<3).map { r(s, bench, $0, reps: 10, kg: 80, planned: 3) }
+        #expect(mixed == suggest(previous([bench], [s], alone)))
+    }
+
+    @Test func unequalWorkingWeightsStillNeverIncreaseLoad() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, bench, 0, reps: 10, kg: 40, type: warm, planned: 3),
+            r(s, bench, 1, reps: 10, kg: 80, planned: 3),
+            r(s, bench, 2, reps: 10, kg: 82.5, planned: 3),
+        ]
+        let p = previous([bench], [s], results, expectedSets: 2)
+        #expect(p?.uniformWeightKg == nil)
+        let suggestion = suggest(p, expectedSets: 2)
+        #expect(suggestion?.kind == .increaseReps)
+        #expect(suggestion?.suggestedWeightKg == nil)
+    }
+
+    @Test func completedAndSkippedWarmupsLeaveTheWorkingPlan() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let working = (2..<5).map { r(s, bench, $0, reps: 10, kg: 80, planned: 5) }
+        let twoDone = [r(s, bench, 0, reps: 15, kg: 20, type: warm, planned: 5),
+                       r(s, bench, 1, reps: 10, kg: 40, type: warm, planned: 5)] + working
+        let oneSkipped = [r(s, bench, 0, reps: 15, kg: 20, type: warm, planned: 5),
+                          r(s, bench, 1, reps: nil, done: false, type: warm, planned: 5)] + working
+        for results in [twoDone, oneSkipped] {
+            let p = previous([bench], [s], results)
+            #expect(p?.plannedSetCount == 3)
+            #expect(p?.sets.count == 3)
+            #expect(p?.isComplete(expectedSets: 3) == true)
+            #expect(suggest(p)?.kind == .increaseWeight)
+            #expect(suggest(p)?.suggestedWeightKg == 82.5)
+        }
+    }
+
+    @Test func aSkippedWorkingSetIsStillAMiss() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, bench, 0, reps: 15, kg: 40, type: warm, planned: 4),
+            r(s, bench, 1, reps: 10, kg: 80, planned: 4),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 4),
+            r(s, bench, 3, reps: nil, done: false, planned: 4),
+        ]
+        let p = previous([bench], [s], results)
+        #expect(p?.plannedSetCount == 3)
+        #expect(p?.sets.count == 2)
+        let suggestion = suggest(p)
+        #expect(suggestion?.kind == .holdWeight)
+        #expect(suggestion?.suggestedWeightKg == 80)
+    }
+
+    @Test func unrecordedSetsAreNeverGuessedToBeWarmups() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, bench, 0, reps: 15, kg: 40, type: warm, planned: 5),
+            r(s, bench, 1, reps: 10, kg: 80, planned: 5),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 5),
+        ] // sets 3 and 4 never recorded
+        let p = previous([bench], [s], results)
+        #expect(p?.plannedSetCount == 4)
+        #expect(suggest(p)?.kind == .holdWeight)
+        #expect(suggest(p, expectedSets: 2)?.kind == .holdWeight)
+    }
+
+    @Test func anAllWarmupRecordSuggestsNothing() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        let results = (0..<3).map { r(s, bench, $0, reps: 10, kg: 60, type: warm, planned: 3) }
+        #expect(suggest(previous([bench], [s], results)) == nil)
+    }
+
+    @Test func anAbandonedSessionKeepsItsMisses() {
+        let bench = step()
+        let s = session(daysAgo: 1, status: .abandoned)
+        let results = [
+            r(s, bench, 0, reps: 15, kg: 40, type: warm, planned: 4),
+            r(s, bench, 1, reps: 10, kg: 80, planned: 4),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 4),
+        ] // ended before the last working set
+        let p = previous([bench], [s], results)
+        #expect(p?.plannedSetCount == 3)
+        #expect(suggest(p)?.kind == .holdWeight)
+    }
+
+    @Test func duplicateStepsNeverShareWarmupCounts() {
+        let a = step(order: 0), b = step(order: 1)
+        let s = session(daysAgo: 1)
+        let results = [
+            r(s, a, 0, reps: 15, kg: 40, type: warm, planned: 2),
+            r(s, a, 1, reps: 10, kg: 60, type: warm, planned: 2),
+        ] + (0..<3).map { r(s, b, $0, reps: 10, kg: 80, planned: 3) }
+        let p = previous([a, b], [s], results)
+        #expect(p?.plannedSetCount == 3) // B's own plan, A's warm-ups not subtracted
+        #expect(suggest(p)?.suggestedWeightKg == 82.5)
+    }
+
+    @Test func unreliableSnapshotsNeverUnlockAnIncrease() {
+        let bench = step()
+        let s = session(daysAgo: 1)
+        // Two snapshots in one record.
+        let split = [
+            r(s, bench, 0, reps: 15, kg: 40, type: warm, planned: 4),
+            r(s, bench, 1, reps: 10, kg: 80, planned: 4),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 3),
+            r(s, bench, 3, reps: 10, kg: 80, planned: 3),
+        ]
+        let p1 = previous([bench], [s], split)
+        #expect(p1?.hasInconsistentPlannedSets == true)
+        #expect(suggest(p1)?.kind == .holdWeight)
+        // More warm-ups than the plan had rows.
+        let overfull = [
+            r(s, bench, 0, reps: 15, kg: 40, type: warm, planned: 2),
+            r(s, bench, 1, reps: 10, kg: 60, type: warm, planned: 2),
+            r(s, bench, 2, reps: 10, kg: 80, planned: 2),
+        ]
+        let p2 = previous([bench], [s], overfull, expectedSets: 1)
+        #expect(p2?.hasInconsistentPlannedSets == true)
+        #expect(suggest(p2, expectedSets: 1)?.kind == .holdWeight)
+        // No snapshot: the legacy rule on the working count.
+        let legacy = [r(s, bench, 0, reps: 15, kg: 40, type: warm)] + (1..<4).map { r(s, bench, $0, reps: 10, kg: 80) }
+        let p3 = previous([bench], [s], legacy)
+        #expect(p3?.plannedSetCount == nil)
+        #expect(suggest(p3)?.suggestedWeightKg == 82.5)
+        #expect(suggest(p3, expectedSets: 4)?.kind == .holdReps)
+    }
+
+    // MARK: Completion summary counts every done set
+
+    private func summary(_ s: Session, _ steps: [Step], _ results: [StepResult]) -> WorkoutCompletionSummary {
+        WorkoutCompletionSummary.make(sessionId: s.id, duration: 3_600, results: results, steps: steps, bodyWeightKg: 80)
+    }
+
+    @Test func theSummaryStillCountsWarmups() {
+        let bench = step()
+        let s = session(daysAgo: 0)
+        let results = [(20.0, 15), (40, 10), (60, 5)].enumerated().map { i, w in
+            r(s, bench, i, reps: w.1, kg: w.0, type: warm)
+        } + (3..<6).map { r(s, bench, $0, reps: 10, kg: 80) } + [
+            r(s, bench, 6, reps: nil, done: false, type: warm),
+            r(s, bench, 7, reps: nil, done: false),
+        ]
+        let sum = summary(s, [bench], results)
+        #expect(sum.completedExerciseCount == 1)
+        #expect(sum.completedSetCount == 6)
+        #expect(sum.totalReps == 60)
+        #expect(sum.totalVolumeKg == 3_400)
+        #expect(sum.duration == 3_600)
+        #expect(sum.estimatedCalories == 294)
+        // Identical to the same sets stored as working.
+        for result in results { result.setTypeRaw = nil }
+        #expect(summary(s, [bench], results) == sum)
+    }
+
+    @Test func theSummaryKeepsBodyweightAssistedAndTimedSemantics() {
+        let pull = step("pull_up_bar", order: 0), assisted = step("assisted_pull_up", order: 1)
+        let tread = step("treadmill_warmup", order: 2)
+        let s = session(daysAgo: 0)
+        let results = [
+            r(s, pull, 0, reps: 8, kg: 10, type: warm), r(s, pull, 1, reps: 6, kg: 10),
+            r(s, assisted, 0, reps: 10, kg: 30, type: warm), r(s, assisted, 1, reps: 8, kg: 30),
+            r(s, tread, 0, reps: nil, seconds: 600),
+        ]
+        let sum = summary(s, [pull, assisted, tread], results)
+        #expect(sum.completedExerciseCount == 3)
+        #expect(sum.completedSetCount == 5)
+        #expect(sum.totalReps == 32)
+        #expect(sum.totalVolumeKg == 140) // added load only; assistance is not volume
+        for result in results { result.setTypeRaw = nil; result.repsInReserve = 2 }
+        #expect(summary(s, [pull, assisted, tread], results) == sum)
+    }
+}
