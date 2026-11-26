@@ -184,6 +184,7 @@ struct FreeWorkoutView: View {
     @ObservedObject var model: FreeWorkoutViewModel
     let onClose: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Accessibility sizes stack what sits side by side at normal sizes, the
     /// pattern `SessionDetailView` uses, so nothing is squeezed or shrunk.
@@ -343,6 +344,15 @@ struct FreeWorkoutView: View {
         // Pinned to the bottom, within thumb reach however long the list is.
         .safeAreaInset(edge: .bottom) {
             if !isReordering {
+                VStack(spacing: 8) {
+                FreeWorkoutRestBar(
+                    store: model.restTimers,
+                    sessionId: model.id,
+                    stacks: stacks,
+                    onAdjust: { model.adjustRest(by: $0, token: $1) },
+                    onFinish: { model.finishRest(token: $0) }
+                )
+                .padding(.horizontal, 16)
                 Button {
                     showPicker = true
                 } label: {
@@ -354,7 +364,11 @@ struct FreeWorkoutView: View {
                 .tint(AppTheme.accentFilled)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
+                }
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.appDidBecomeActive() }
         }
     }
 
@@ -969,5 +983,76 @@ struct FreeWorkoutExercisePicker: View {
             .contentShape(Rectangle())
         }
         .accessibilityHint("この種目を追加")
+    }
+}
+
+
+/// The running rest, above 「種目を追加」: time left, −15 / +15 and 休憩終了.
+/// Not modal — the workout stays fully usable. It observes the rest timer on
+/// its own and redraws only itself once a second, from the deadline; the
+/// workout's rows are never rebuilt or refetched for it. Each button carries
+/// the token of the rest it was drawn for.
+struct FreeWorkoutRestBar: View {
+    @ObservedObject var store: RestTimerStore
+    let sessionId: UUID
+    let stacks: Bool
+    let onAdjust: (Int, UUID) -> Void
+    let onFinish: (UUID) -> Void
+
+    var body: some View {
+        if let rest = store.activeRest(for: sessionId) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let seconds = rest.countdown.remainingSeconds(now: context.date)
+                if seconds > 0 {
+                    content(rest: rest, seconds: seconds)
+                }
+            }
+        }
+    }
+
+    private func content(rest: RestTimerStore.Rest, seconds: Int) -> some View {
+        let layout = stacks ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            HStack(spacing: 8) {
+                Image(systemName: "timer")
+                    .foregroundStyle(AppTheme.iceLight)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("休憩中")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(DateUtils.formatDuration(seconds: seconds))
+                        .font(.title3.weight(.bold).monospacedDigit())
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("残り休憩時間")
+            .accessibilityValue(SetDuration.text(seconds))
+            .accessibilityIdentifier("freeWorkout.restTime")
+            if !stacks { Spacer(minLength: 4) }
+            HStack(spacing: 8) {
+                button("−15", label: "休憩を15秒短縮") { onAdjust(-15, rest.token) }
+                button("+15", label: "休憩を15秒延長") { onAdjust(15, rest.token) }
+                button("終了", label: "休憩を終了") { onFinish(rest.token) }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppTheme.deepGlass.opacity(0.95)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(AppTheme.iceLight.opacity(0.35), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("freeWorkout.restBar")
+    }
+
+    private func button(_ title: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .frame(minWidth: 52, minHeight: 44)
+                .foregroundStyle(AppTheme.iceLight)
+                .background(Capsule().fill(Color.white.opacity(0.06)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }

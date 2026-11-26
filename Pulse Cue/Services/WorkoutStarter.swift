@@ -80,7 +80,9 @@ final class FreeWorkoutSession {
 
     static let routineName = "フリーワークアウト"
     static let defaultRepsTarget = 10
-    static let defaultRestSeconds = 90
+    /// The rest a new exercise starts with. Existing steps keep the value
+    /// they were created with.
+    static let defaultRestSeconds = 120
 
     let session: Session
     let routine: Routine
@@ -153,6 +155,10 @@ final class FreeWorkoutSession {
     /// under an authority — still in the generation and scope it was opened
     /// in. Every mutation below passes through `isActive`, so this is the
     /// last line of defence for a stale screen, action or held object.
+    /// The scope grant this object was opened under, so state kept outside
+    /// it (the rest timer) dies with the same scope generation.
+    var scopeGrant: WorkoutScopeAuthority.Grant? { grant }
+
     var isAuthorized: Bool {
         guard !isRevoked else { return false }
         guard let grant else { return true }

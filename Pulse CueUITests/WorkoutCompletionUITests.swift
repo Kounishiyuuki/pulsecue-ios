@@ -282,3 +282,80 @@ final class FreeWorkoutSetTypeUITests: XCTestCase {
         snapshot("5-timed-row")
     }
 }
+
+/// The Free Workout rest timer, end to end: a completed set starts it, the
+/// bar's −15 / +15 / 終了 work, the record stays, and it survives close and
+/// resume. No assertion depends on exact seconds.
+final class FreeWorkoutRestTimerUITests: XCTestCase {
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    private func element(_ app: XCUIApplication, labelBeginsWith prefix: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+    }
+
+    private func openBenchWorkout() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-ui-test-completion-flow"]
+        app.launch()
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20))
+        trainingTab.tap()
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "フリーワークアウトを開始")).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        for _ in 0..<6 where !start.isHittable { app.swipeUp() }
+        start.tap()
+        let add = app.buttons["種目を追加"]
+        XCTAssertTrue(add.waitForExistence(timeout: 15))
+        add.tap()
+        let field = app.textFields["種目を検索"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("ベンチ")
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "ベンチプレス")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        return app
+    }
+
+    @MainActor
+    func testACompletedSetStartsARestThatCanBeAdjustedAndEnded() throws {
+        let app = openBenchWorkout()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertFalse(rest.exists, "rest shown before any set")
+        app.buttons["セット1を完了"].firstMatch.tap()
+        XCTAssertTrue(rest.waitForExistence(timeout: 5), "rest bar not shown after completing a set")
+        XCTAssertEqual(rest.label, "残り休憩時間")
+
+        let plus = app.buttons["休憩を15秒延長"]
+        let minus = app.buttons["休憩を15秒短縮"]
+        XCTAssertTrue(plus.exists && minus.exists)
+        plus.tap()
+        minus.tap()
+        XCTAssertTrue(rest.exists, "rest ended by ±15")
+        // Kind change and the logged set coexist with the running rest.
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 1、").label.contains("完了"))
+
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2), "rest still shown after 休憩を終了")
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 1、").label.contains("完了"), "the logged set was lost")
+    }
+
+    @MainActor
+    func testTheRestKeepsRunningAcrossCloseAndResume() throws {
+        let app = openBenchWorkout()
+        app.buttons["セット1を完了"].firstMatch.tap()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertTrue(rest.waitForExistence(timeout: 5))
+        app.buttons["閉じる"].tap()
+        let resume = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "再開")).firstMatch
+        XCTAssertTrue(resume.waitForExistence(timeout: 15))
+        for _ in 0..<6 where !resume.isHittable { app.swipeUp() }
+        resume.tap()
+        XCTAssertTrue(rest.waitForExistence(timeout: 10), "rest lost on close and resume")
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2))
+    }
+}
