@@ -137,3 +137,148 @@ final class WorkoutCompletionUITests: XCTestCase {
         assertCompletionScreen(app)
     }
 }
+
+/// Set kinds in a real Free Workout, end to end: the kind menu, the "W" /
+/// working numbering, changing a logged set, finishing, and History.
+final class FreeWorkoutSetTypeUITests: XCTestCase {
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    private func element(_ app: XCUIApplication, labelBeginsWith prefix: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+    }
+
+    /// Opens a Free Workout and adds `exercise`; its first row is selected.
+    private func openWorkout(adding exercise: String, search: String) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-ui-test-completion-flow"]
+        app.launch()
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20), "training tab not found")
+        trainingTab.tap()
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "フリーワークアウトを開始")).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15), "Free Workout start not found")
+        for _ in 0..<6 where !start.isHittable { app.swipeUp() }
+        start.tap()
+        let add = app.buttons["種目を追加"]
+        XCTAssertTrue(add.waitForExistence(timeout: 15), "Free Workout screen did not open")
+        add.tap()
+        let field = app.textFields["種目を検索"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "exercise search not found")
+        field.tap()
+        field.typeText(search)
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", exercise)).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "\(exercise) not in picker")
+        row.tap()
+        return app
+    }
+
+    /// Kept for PR review of the rows as rendered.
+    private func snapshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func chooseKind(_ app: XCUIApplication, _ name: String) {
+        let menu = app.buttons["freeWorkout.setTypeMenu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10), "set type menu not found")
+        menu.tap()
+        let option = app.buttons[name]
+        XCTAssertTrue(option.waitForExistence(timeout: 5), "\(name) option not found")
+        option.tap()
+    }
+
+    @MainActor
+    func testWarmupAndWorkingSetsAreNumberedLoggedAndShownInHistory() throws {
+        let app = openWorkout(adding: "ベンチプレス", search: "ベンチ")
+
+        chooseKind(app, "ウォームアップ")
+        XCTAssertTrue(element(app, labelBeginsWith: "ウォームアップセット、").waitForExistence(timeout: 5), "row did not become a warm-up")
+        XCTAssertEqual(app.buttons["freeWorkout.setTypeMenu"].value as? String, "ウォームアップ")
+        app.buttons["ウォームアップセットを完了"].firstMatch.tap()
+        XCTAssertTrue(element(app, labelBeginsWith: "ウォームアップセット、").label.contains("完了"), "warm-up not logged")
+
+        app.buttons["セットを追加"].firstMatch.tap()
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 1、").waitForExistence(timeout: 5), "new row is not working set 1")
+        snapshot("1-warmup-done-and-working-row")
+
+        // Change the logged warm-up to working and back: numbers follow.
+        element(app, labelBeginsWith: "ウォームアップセット、").tap()
+        chooseKind(app, "通常セット")
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 2、").waitForExistence(timeout: 5), "numbers did not follow")
+        XCTAssertFalse(element(app, labelBeginsWith: "ウォームアップセット、").exists)
+        chooseKind(app, "ウォームアップ")
+        XCTAssertTrue(element(app, labelBeginsWith: "ウォームアップセット、").waitForExistence(timeout: 5))
+
+        element(app, labelBeginsWith: "セット 1、").tap()
+        let complete = app.buttons["セット1を完了"].firstMatch
+        XCTAssertTrue(complete.waitForExistence(timeout: 5), "working set complete not found")
+        complete.tap()
+        snapshot("2-mixed-rows-done")
+        element(app, labelBeginsWith: "ウォームアップセット、").tap()
+        let menu = app.buttons["freeWorkout.setTypeMenu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        XCTAssertTrue(app.buttons["ウォームアップ"].waitForExistence(timeout: 5))
+        snapshot("3-set-type-menu")
+        app.buttons["ウォームアップ"].tap()                  // the current kind: no change
+
+        app.buttons["終了"].tap()
+        let save = app.buttons["終了して保存"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap()
+        let done = app.buttons["workout-completion-done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 15), "completion not shown")
+        done.tap()
+
+        let history = app.buttons["履歴"].firstMatch
+        XCTAssertTrue(history.waitForExistence(timeout: 15), "History entry not found")
+        for _ in 0..<6 where !history.isHittable { app.swipeUp() }
+        history.tap()
+        let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "フリーワークアウト")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "finished Free Workout not in History")
+        entry.tap()
+        XCTAssertTrue(element(app, labelBeginsWith: "ウォームアップセット、完了").waitForExistence(timeout: 10), "History lost the warm-up")
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 1、完了").exists, "History working set 1 missing")
+        XCTAssertTrue(app.staticTexts["W"].exists, "W label missing in History")
+        snapshot("4-history")
+    }
+
+    @MainActor
+    func testAnOpenRowKindSurvivesCloseAndResumeAndTimedRowsHaveNone() throws {
+        let app = openWorkout(adding: "ベンチプレス", search: "ベンチ")
+        chooseKind(app, "ウォームアップ")
+        app.buttons["セットを追加"].firstMatch.tap()
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 1、").waitForExistence(timeout: 5))
+        // Removing the warm-up renumbers the row below.
+        element(app, labelBeginsWith: "ウォームアップセット、").tap()
+        app.buttons["ウォームアップセットを削除"].firstMatch.tap()
+        XCTAssertTrue(element(app, labelBeginsWith: "セット 1、").waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, labelBeginsWith: "ウォームアップセット、").exists)
+        chooseKind(app, "ウォームアップ")
+
+        app.buttons["閉じる"].tap()
+        let resume = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "再開")).firstMatch
+        XCTAssertTrue(resume.waitForExistence(timeout: 15), "resume not offered")
+        for _ in 0..<6 where !resume.isHittable { app.swipeUp() }
+        resume.tap()
+        XCTAssertTrue(element(app, labelBeginsWith: "ウォームアップセット、").waitForExistence(timeout: 10), "kind lost on resume")
+
+        app.buttons["種目を追加"].tap()
+        let field = app.textFields["種目を検索"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("トレッドミル")
+        let tread = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "トレッドミルウォームアップ")).firstMatch
+        XCTAssertTrue(tread.waitForExistence(timeout: 10))
+        tread.tap()
+        // The timed row is selected: its editor has no kind menu.
+        XCTAssertTrue(app.staticTexts["トレッドミルウォームアップ"].waitForExistence(timeout: 10), "timed card not added")
+        XCTAssertFalse(app.buttons["freeWorkout.setTypeMenu"].exists, "timed row offers a set type")
+        snapshot("5-timed-row")
+    }
+}

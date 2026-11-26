@@ -174,12 +174,20 @@ final class FreeWorkoutLauncher: ObservableObject {
     /// close it. Such a close does nothing.
     func workoutScreenClosed(_ model: FreeWorkoutViewModel) {
         guard presented === model else { return }
+        // A closed screen writes nothing more, even to the same workout:
+        // resuming it opens a new screen on a new session object, and an
+        // action still held by this one (a menu left open, a late closure)
+        // must not reach the new screen's drafts or sets. Revoking is not
+        // discarding; the workout stays resumable.
+        model.session.revoke()
         if model.finishOutcome == .discarded { notice = .nothingSaved }
         presented = nil
         refresh()
     }
 
     private func open(_ session: FreeWorkoutSession, context: ModelContext) {
+        // Whatever screen this replaces stops writing (see `workoutScreenClosed`).
+        if let replaced = presented, replaced.session !== session { replaced.session.revoke() }
         presented = FreeWorkoutViewModel(session: session, context: context, drafts: drafts)
     }
 }
@@ -196,12 +204,48 @@ final class FreeWorkoutDraftStore {
     static let shared = FreeWorkoutDraftStore()
 
     struct Draft: Equatable {
+        /// This open row's identity while it exists. A row has no
+        /// `StepResult` until it is logged, and its `setIndex` shifts when a
+        /// row above is removed, so an action made for the row carries this
+        /// to make sure it still lands on the same row — never on the row
+        /// that moved into its place or a new one added at its position.
+        let rowId: UUID
         var weightKg: Double?
         var reps: Int
-        /// Touched by the user: never replaced by a fresher default.
+        /// Touched by the user (any value, duration included): kept when the
+        /// screen is reopened.
         var edited: Bool
+        /// Whether the user set this value. A value the user did not set is
+        /// a default and follows the row (its kind, its position among the
+        /// working sets, the sets logged above); one the user set is never
+        /// replaced, even when it equals the default.
+        var weightEdited: Bool
+        var repsEdited: Bool
         /// A timed set's duration as typed; empty until entered.
         var duration = DurationEntry()
+        /// The kind the row will be logged as. New rows are working.
+        var setType: WorkoutSetType = .working
+
+        init(
+            rowId: UUID = UUID(),
+            weightKg: Double?,
+            reps: Int,
+            edited: Bool,
+            duration: DurationEntry = DurationEntry(),
+            setType: WorkoutSetType = .working
+        ) {
+            self.rowId = rowId
+            self.weightKg = weightKg
+            self.reps = reps
+            self.edited = edited
+            self.weightEdited = edited
+            self.repsEdited = edited
+            self.duration = duration
+            self.setType = setType
+        }
+
+        /// Worth keeping when the screen is reopened: anything the user chose.
+        var isUserChoice: Bool { edited || setType != .working }
     }
 
     private struct Entry {
@@ -246,12 +290,25 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         let setIndex: Int
     }
 
+    /// Which row an action was made for: a logged set by its `StepResult.id`,
+    /// an open row by its draft's `rowId`. An action whose row is no longer
+    /// at its key does nothing.
+    enum RowIdentity: Hashable {
+        case draft(UUID)
+        case result(UUID)
+    }
+
     struct SetRow: Identifiable, Equatable {
         enum State: Equatable { case draft, done, skipped }
         let key: RowKey
         var id: RowKey { key }
         var number: Int { key.setIndex + 1 }
         let state: State
+        var identity: RowIdentity
+        /// The kind it was logged as, or will be. Timed rows are working.
+        var setType: WorkoutSetType = .working
+        /// "W" or its number among the working sets (`SetTypeNumbering`).
+        var label: SetTypeNumbering.Label = .working(1)
         let weightKg: Double?
         let reps: Int
         /// A timed set's duration: as typed on an open row, as recorded on a
@@ -299,6 +356,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         set { draftStore.set(newValue, for: id, ownerAccountID: session.session.ownerAccountID) }
     }
     private var previousTextByStep: [UUID: String?] = [:]
+    private var previousByStep: [UUID: PreviousPerformance?] = [:]
 
     init(session: FreeWorkoutSession, context: ModelContext, drafts: FreeWorkoutDraftStore) {
         self.session = session
@@ -307,7 +365,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         self.draftStore = drafts
         // Only what the user typed survives a reopen; untouched defaults are
         // recomputed from the store as it is now.
-        self.drafts = self.drafts.filter(\.value.edited)
+        self.drafts = self.drafts.filter(\.value.isUserChoice)
         rebuild()
         selected = firstOpenRow()
     }
@@ -382,7 +440,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         guard let row = row(key) else { return }
         if let kg, SetWeight.validated(kg) == nil { return }
         let value = kg.flatMap(SetWeight.validated)
-        edit(key, row: row) { $0.weightKg = value }
+        edit(key, row: row) { $0.weightKg = value; $0.weightEdited = true }
     }
 
     func adjustReps(by delta: Int, for key: RowKey) {
@@ -392,7 +450,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
 
     func setReps(_ reps: Int, for key: RowKey) {
         guard let row = row(key) else { return }
-        edit(key, row: row) { $0.reps = max(0, reps) }
+        edit(key, row: row) { $0.reps = max(0, reps); $0.repsEdited = true }
     }
 
     /// Kept as typed — an invalid value shows its reason on the row and the
@@ -408,7 +466,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         // A revoked or finished workout takes no edits — not even a draft,
         // which lives outside the store and so no domain check would catch.
         guard session.isActive else { return }
-        var draft = drafts[key] ?? Draft(weightKg: row.weightKg, reps: row.reps, edited: false, duration: row.duration)
+        var draft = drafts[key] ?? Draft(weightKg: row.weightKg, reps: row.reps, edited: false, duration: row.duration, setType: row.setType)
         change(&draft)
         draft.edited = true
         switch row.state {
@@ -442,12 +500,13 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         // A timed set is completed only with its duration: the duration-free
         // path is not reachable from this screen.
         let recorded = tracksReps(step)
-            ? session.completeSet(at: key.setIndex, of: step, reps: reps(row.reps, step: step), weightKg: weight(row.weightKg, step: step))
+            ? session.completeSet(at: key.setIndex, of: step, reps: reps(row.reps, step: step), weightKg: weight(row.weightKg, step: step),
+                                  setType: loggedSetType(row, step: step))
             : session.completeTimedSet(at: key.setIndex, of: step, durationSeconds: row.duration.totalSeconds)
         guard recorded != nil else { return }
         drafts[key] = nil
-        // Untouched drafts below now default from this set.
-        drafts = drafts.filter { !($0.key.stepId == key.stepId && $0.key.setIndex > key.setIndex && !$0.value.edited) }
+        // Untouched values below now default from this set: `rebuild`
+        // recomputes every value the user did not set.
         saveAndRebuild(select: nextOpenRow(after: key))
     }
 
@@ -468,8 +527,51 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         rebuild()
     }
 
+    // MARK: Set type
+
+    /// Whether row `key` offers a kind: an open or done set of a
+    /// rep-counted exercise. A timed row has no kind, and a skipped set
+    /// keeps the kind it was logged with.
+    func acceptsSetType(_ key: RowKey) -> Bool {
+        guard let row = row(key), let step = step(key.stepId) else { return false }
+        return tracksReps(step) && row.state != .skipped
+    }
+
+    /// Makes the row the action was made for a warm-up or a working set.
+    /// `identity` and `key` are what the row was when the action was made;
+    /// unless that same row is still at `key`, nothing happens. An open row
+    /// only changes its draft — no `StepResult` is created and the row is not
+    /// logged; a done set is rewritten through the domain, which keeps its
+    /// weight, reps and RIR.
+    func setSetType(_ setType: WorkoutSetType, for identity: RowIdentity, at key: RowKey) {
+        guard session.isActive, acceptsSetType(key), let row = row(key), row.identity == identity,
+              let step = step(key.stepId) else { return }
+        switch identity {
+        case let .result(resultId):
+            guard row.setType != setType,
+                  session.recordSetType(setType, resultId: resultId, at: key.setIndex, of: step) != nil else { return }
+            try? context.save()
+            rebuild()
+        case .draft:
+            guard var draft = drafts[key], draft.setType != setType else { return }
+            draft.setType = setType
+            drafts[key] = draft
+            rebuild()
+        }
+    }
+
+    /// The kind to log an open row with: its draft's, stated explicitly so
+    /// "working" is written as chosen. A logged row (re-recorded) passes nil,
+    /// which keeps the kind it has; a timed row has none.
+    private func loggedSetType(_ row: SetRow, step: Step) -> WorkoutSetType? {
+        guard row.state == .draft, tracksReps(step) else { return nil }
+        return drafts[row.key]?.setType ?? .working
+    }
+
     func skip(_ key: RowKey) {
-        guard let step = step(key.stepId), session.skipSet(at: key.setIndex, of: step) != nil else { return }
+        guard let step = step(key.stepId),
+              session.skipSet(at: key.setIndex, of: step, setType: row(key).flatMap { loggedSetType($0, step: step) }) != nil
+        else { return }
         drafts[key] = nil
         saveAndRebuild(select: nextOpenRow(after: key))
     }
@@ -521,28 +623,52 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     private func rebuild() {
         cards = session.steps.map { step in
             let results = Dictionary(session.results(for: step).map { ($0.setIndex, $0) }, uniquingKeysWith: { first, _ in first })
+            let tracks = tracksReps(step)
+            // Each row's kind: a logged set's own, an open row's draft's. A
+            // timed row has none, so it numbers and fills as it always did.
+            let types: [WorkoutSetType] = (0..<step.sets).map { index in
+                guard tracks else { return .working }
+                return results[index]?.setType ?? drafts[RowKey(stepId: step.id, setIndex: index)]?.setType ?? .working
+            }
+            let labels = SetTypeNumbering.labels(types.enumerated().map { (setIndex: $0.offset, setType: $0.element) })
+            var workingSetsAbove = 0
             let rows = (0..<step.sets).map { index -> SetRow in
                 let key = RowKey(stepId: step.id, setIndex: index)
+                let setType = types[index]
+                let label = labels[index] ?? .working(index + 1)
+                let workingOrdinal = workingSetsAbove
+                if setType == .working { workingSetsAbove += 1 }
                 if let result = results[index] {
                     // An edited skip keeps its typed values until ✓.
                     if !result.done, let draft = drafts[key] {
-                        return SetRow(key: key, state: .skipped, weightKg: draft.weightKg, reps: draft.reps, duration: draft.duration)
+                        return SetRow(key: key, state: .skipped, identity: .result(result.id), setType: setType, label: label,
+                                      weightKg: draft.weightKg, reps: draft.reps, duration: draft.duration)
                     }
                     // A done timed row shows an edit that could not be saved
                     // yet over the recorded value.
                     let duration = result.done
                         ? drafts[key].map(\.duration) ?? DurationEntry(totalSeconds: result.actualDurationSeconds)
                         : DurationEntry()
-                    return SetRow(key: key, state: result.done ? .done : .skipped,
+                    return SetRow(key: key, state: result.done ? .done : .skipped, identity: .result(result.id),
+                                  setType: setType, label: label,
                                   weightKg: result.weightKg, reps: result.actualReps ?? step.repsTarget, duration: duration,
                                   repsInReserve: result.done ? result.repsInReserve : nil)
                 }
-                let draft = drafts[key] ?? {
-                    let entry = session.initialEntry(forSetAt: index, of: step)
-                    return Draft(weightKg: entry.weightKg, reps: entry.reps, edited: false)
-                }()
-                drafts[key] = draft
-                return SetRow(key: key, state: .draft, weightKg: draft.weightKg, reps: draft.reps, duration: draft.duration)
+                // Values the user did not set are defaults, recomputed for
+                // the row as it is now — its kind, its working position, the
+                // sets logged above — so a warm-up never shows a working
+                // set's values and a working row follows the set it matches.
+                var draft = drafts[key] ?? Draft(weightKg: nil, reps: step.repsTarget, edited: false)
+                if !draft.weightEdited || !draft.repsEdited {
+                    let entry = session.initialEntry(forSetAt: index, of: step, setType: setType, workingOrdinal: workingOrdinal) {
+                        self.previousPerformance(for: step)
+                    }
+                    if !draft.weightEdited { draft.weightKg = entry.weightKg }
+                    if !draft.repsEdited { draft.reps = entry.reps }
+                }
+                if drafts[key] != draft { drafts[key] = draft }
+                return SetRow(key: key, state: .draft, identity: .draft(draft.rowId), setType: setType, label: label,
+                              weightKg: draft.weightKg, reps: draft.reps, duration: draft.duration)
             }
             return ExerciseCard(
                 id: step.id,
@@ -573,6 +699,15 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
     }
 
     private func step(_ id: UUID) -> Step? { session.steps.first { $0.id == id } }
+
+    /// Fetched once per exercise for this screen: history does not change
+    /// while the workout runs, and defaults are recomputed on every rebuild.
+    private func previousPerformance(for step: Step) -> PreviousPerformance? {
+        if let cached = previousByStep[step.id] { return cached }
+        let previous = session.previousPerformance(for: step)
+        previousByStep[step.id] = previous
+        return previous
+    }
 
     private func previousText(for step: Step) -> String? {
         if let cached = previousTextByStep[step.id] { return cached }

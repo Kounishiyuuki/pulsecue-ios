@@ -120,6 +120,63 @@ enum WorkoutSetType: String, CaseIterable {
     var storedRawValue: String? { self == .working ? nil : rawValue }
 }
 
+/// How a set row is numbered once warm-ups exist: a warm-up reads "W" and
+/// takes no number; a working set is numbered among the working sets only.
+/// Display only — `setIndex` is never renumbered.
+///
+/// One rule for the Free Workout screen and History. A working set's number
+/// is its `setIndex + 1` minus the warm-ups before it in the same record, so
+/// rows without warm-ups read exactly as before ("セット 3" stays 3 even when
+/// a Runner record has an unrecorded set before it), and a skipped working
+/// set still takes its number.
+enum SetTypeNumbering {
+    enum Label: Equatable {
+        case warmup
+        case working(Int)
+
+        /// "W" / "3".
+        var shortText: String {
+            switch self {
+            case .warmup: return "W"
+            case let .working(number): return "\(number)"
+            }
+        }
+
+        /// "W" / "セット 3".
+        var text: String {
+            switch self {
+            case .warmup: return "W"
+            case let .working(number): return "セット \(number)"
+            }
+        }
+
+        /// "ウォームアップセット" / "セット 3", for VoiceOver.
+        var spokenText: String {
+            switch self {
+            case .warmup: return "ウォームアップセット"
+            case let .working(number): return "セット \(number)"
+            }
+        }
+    }
+
+    /// Labels of one record's rows, keyed by `setIndex`. `rows` may come in
+    /// any order; each `setIndex` should appear once.
+    static func labels(_ rows: [(setIndex: Int, setType: WorkoutSetType)]) -> [Int: Label] {
+        var labels: [Int: Label] = [:]
+        var warmupsBefore = 0
+        for row in rows.sorted(by: { $0.setIndex < $1.setIndex }) {
+            switch row.setType {
+            case .warmup:
+                labels[row.setIndex] = .warmup
+                warmupsBefore += 1
+            case .working:
+                labels[row.setIndex] = .working(row.setIndex + 1 - warmupsBefore)
+            }
+        }
+        return labels
+    }
+}
+
 /// Validation for a set's reps in reserve.
 enum RepsInReserve {
     /// 0...4; the top value reads as "4+". Anything outside is rejected, never

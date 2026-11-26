@@ -375,12 +375,34 @@ final class FreeWorkoutSession {
     /// most recent performance by the same owner; otherwise the step's target
     /// with no weight. Nothing is persisted — it is a suggestion for the editor.
     func initialEntry(forSetAt setIndex: Int, of step: Step) -> (reps: Int, weightKg: Double?) {
-        if let earlier = results(for: step).last(where: { $0.setIndex < setIndex && $0.actualReps != nil }) {
+        initialEntry(forSetAt: setIndex, of: step, setType: .working, workingOrdinal: setIndex) { self.previousPerformance(for: step) }
+    }
+
+    /// The same rule per set kind, so a warm-up never starts from a working
+    /// set's values and a working set never from a warm-up's:
+    /// - the nearest recorded set above of the same kind;
+    /// - a working row only: the matching *working* set of the most recent
+    ///   performance, matched by `workingOrdinal` (its position among this
+    ///   exercise's working rows, warm-ups not counted) and, past the end,
+    ///   the last one — `PreviousPerformance` holds working sets only;
+    /// - otherwise the step's target with no weight.
+    /// With no warm-ups, `workingOrdinal == setIndex` and this is the rule
+    /// above. `previous` is asked only when it is needed.
+    func initialEntry(
+        forSetAt setIndex: Int,
+        of step: Step,
+        setType: WorkoutSetType,
+        workingOrdinal: Int,
+        previous: () -> PreviousPerformance?
+    ) -> (reps: Int, weightKg: Double?) {
+        if let earlier = results(for: step).last(where: {
+            $0.setIndex < setIndex && $0.actualReps != nil && $0.setType == setType
+        }) {
             return (earlier.actualReps ?? step.repsTarget, earlier.weightKg)
         }
-        guard let previous = previousPerformance(for: step), !previous.sets.isEmpty
+        guard setType == .working, let previous = previous(), !previous.sets.isEmpty
         else { return (step.repsTarget, nil) }
-        let set = previous.sets[min(setIndex, previous.sets.count - 1)]
+        let set = previous.sets[min(max(0, workingOrdinal), previous.sets.count - 1)]
         return (set.reps, set.weightKg)
     }
 
