@@ -56,8 +56,8 @@ enum SessionHistoryPresentation {
 
     /// VoiceOver label of a set row. Without a weight it reads exactly as
     /// before ("セット 1、完了、10回").
-    static func setAccessibilityLabel(_ result: StepResult) -> String {
-        var parts = ["セット \(result.setIndex + 1)", result.done ? "完了" : "未完了"]
+    static func setAccessibilityLabel(_ result: StepResult, label: SetTypeNumbering.Label? = nil) -> String {
+        var parts = [(label ?? .working(result.setIndex + 1)).spokenText, result.done ? "完了" : "未完了"]
         if isTimedPerformance(result) {
             if let seconds = result.actualDurationSeconds { parts.append(SetDuration.text(seconds)) }
             return parts.joined(separator: "、")
@@ -66,6 +66,21 @@ enum SessionHistoryPresentation {
         parts.append(result.actualReps.map { "\($0)回" } ?? "回数記録なし")
         if let value = rirValue(result) { parts.append(RepsInReserve.spokenText(value)) }
         return parts.joined(separator: "、")
+    }
+
+    /// Each result's row label within its group (one record): "W" for a
+    /// warm-up, otherwise its number among the working sets
+    /// (`SetTypeNumbering`). A timed record has no kinds. Groups without a
+    /// warm-up read "セット N" from `setIndex`, exactly as before.
+    static func setLabels(_ group: ExerciseResultGroup) -> [UUID: SetTypeNumbering.Label] {
+        let rows = group.results.map { result in
+            (setIndex: result.setIndex,
+             // A stray kind on a timed set never renumbers it.
+             setType: WorkoutSetSemantics.countsReps(exerciseId: result.exerciseIdAtExecution) ? result.setType : .working)
+        }
+        let bySetIndex = SetTypeNumbering.labels(rows)
+        return Dictionary(group.results.map { ($0.id, bySetIndex[$0.setIndex] ?? .working($0.setIndex + 1)) },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     /// Groups every persisted `StepResult` by its historical `stepId`.
@@ -269,37 +284,40 @@ struct SessionDetailView: View {
                 .accessibilityLabel(group.isOrphaned ? "\(group.title)（元の種目は削除されています）" : group.title)
 
             VStack(alignment: .leading, spacing: 8) {
+                let labels = SessionHistoryPresentation.setLabels(group)
                 ForEach(group.results) { result in
+                    let label = labels[result.id] ?? .working(result.setIndex + 1)
                     Group {
                         if dynamicTypeSize.isAccessibilitySize {
                             VStack(alignment: .leading, spacing: 6) {
-                                resultIdentity(result)
+                                resultIdentity(result, label: label)
                                 resultRepetitions(result)
                                     .padding(.leading, 34)
                             }
                         } else {
                             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                resultIdentity(result)
+                                resultIdentity(result, label: label)
                                 Spacer()
                                 resultRepetitions(result)
                             }
                         }
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel(SessionHistoryPresentation.setAccessibilityLabel(result))
+                    .accessibilityLabel(SessionHistoryPresentation.setAccessibilityLabel(result, label: label))
                 }
             }
         }
         .padding(.vertical, 18)
     }
 
-    private func resultIdentity(_ result: StepResult) -> some View {
+    private func resultIdentity(_ result: StepResult, label: SetTypeNumbering.Label) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: result.done ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(result.done ? AppTheme.accent : .secondary)
                 .accessibilityHidden(true)
-            Text("セット \(result.setIndex + 1)")
-                .font(.subheadline)
+            Text(label.text)
+                .font(.subheadline.weight(label == .warmup ? .semibold : .regular))
+                .foregroundStyle(label == .warmup ? AppTheme.warning : .primary)
         }
     }
 

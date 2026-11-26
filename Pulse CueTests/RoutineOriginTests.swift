@@ -2962,3 +2962,521 @@ extension FreeWorkoutScopeInvalidationTests {
         { launcher.workoutScreenClosed(model) }
     }
 }
+
+// MARK: - Set Type controls (PR-C)
+
+/// Free Workout set kinds through the production ViewModel and domain: the
+/// open-row draft, logging, changing a logged set, numbering, prefill by
+/// working position, and that an action made for one row never lands on
+/// another — after removals, re-adds, a close and resume, or a scope change.
+@MainActor
+struct FreeWorkoutSetTypeControlTests {
+    private typealias Key = FreeWorkoutViewModel.RowKey
+
+    private func makeContext() throws -> ModelContext {
+        let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
+        return ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]))
+    }
+
+    private func results(_ context: ModelContext) -> [StepResult] {
+        ((try? context.fetch(FetchDescriptor<StepResult>())) ?? []).sorted { $0.setIndex < $1.setIndex }
+    }
+
+    /// A finished bench workout in the past, working sets only.
+    private func pastBench(_ context: ModelContext, _ sets: [(Double, Int)], owner: UUID? = nil, daysAgo: Double = 2) {
+        let date = Date().addingTimeInterval(-daysAgo * 86_400)
+        let routine = Routine(name: "胸の日")
+        let step = Step(routineId: routine.id, order: 0, title: "ベンチプレス", sets: sets.count, repsTarget: 10,
+                        restSeconds: 90, exerciseId: "bench_press")
+        let session = Session(routineId: routine.id, dayDate: date, startedAt: date, endedAt: date, status: .completed,
+                              ownerAccountID: owner)
+        context.insert(routine); context.insert(step); context.insert(session)
+        for (index, set) in sets.enumerated() {
+            StepResultWriter.record(in: context, sessionId: session.id, ownerAccountID: owner, step: step,
+                                    setIndex: index, done: true, actualReps: set.1, weightKg: set.0)
+        }
+        try? context.save()
+    }
+
+    private func launcher(_ context: ModelContext, _ drafts: FreeWorkoutDraftStore? = nil,
+                          scope: WorkoutDataScope = .guest, authority: WorkoutScopeAuthority? = nil) -> FreeWorkoutLauncher {
+        let launcher = FreeWorkoutLauncher(drafts: drafts ?? FreeWorkoutDraftStore())
+        launcher.configure(context: context, scope: scope, authority: authority)
+        return launcher
+    }
+
+    /// A workout with one bench card of `sets` rows.
+    private func benchWorkout(_ launcher: FreeWorkoutLauncher, sets: Int) throws -> (FreeWorkoutViewModel, UUID) {
+        launcher.start()
+        let model = try #require(launcher.presented)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let bench = try #require(model.cards.first?.id)
+        for _ in 1..<sets { model.addSet(to: bench) }
+        return (model, bench)
+    }
+
+    private func rows(_ model: FreeWorkoutViewModel, _ stepId: UUID) -> [FreeWorkoutViewModel.SetRow] {
+        model.cards.first { $0.id == stepId }?.rows ?? []
+    }
+
+    private func labels(_ model: FreeWorkoutViewModel, _ stepId: UUID) -> [String] {
+        rows(model, stepId).map(\.label.shortText)
+    }
+
+    private func setType(_ model: FreeWorkoutViewModel, _ type: WorkoutSetType, row index: Int, of stepId: UUID) {
+        let row = rows(model, stepId)[index]
+        model.setSetType(type, for: row.identity, at: row.key)
+    }
+
+    // MARK: numbering (pure)
+
+    @Test func numberingCountsWorkingSetsOnly() {
+        func text(_ types: [WorkoutSetType]) -> [String] {
+            let labels = SetTypeNumbering.labels(types.enumerated().map { (setIndex: $0.offset, setType: $0.element) })
+            return types.indices.map { labels[$0]!.shortText }
+        }
+        #expect(text([.working, .working, .working]) == ["1", "2", "3"])
+        #expect(text([.warmup, .warmup, .working, .working, .working]) == ["W", "W", "1", "2", "3"])
+        #expect(text([.working, .warmup, .working, .warmup, .working]) == ["1", "W", "2", "W", "3"])
+        // A gap (a set never recorded) keeps "セット N" by setIndex without warm-ups.
+        let gap = SetTypeNumbering.labels([(setIndex: 0, setType: .working), (setIndex: 2, setType: .working)])
+        #expect(gap[2] == .working(3))
+        #expect(SetTypeNumbering.Label.warmup.spokenText == "ウォームアップセット")
+        #expect(SetTypeNumbering.Label.working(2).text == "セット 2")
+    }
+
+    @Test func numberingFollowsKindChangesSkipsAndRemovals() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 4)
+        setType(model, .warmup, row: 0, of: bench)
+        #expect(labels(model, bench) == ["W", "1", "2", "3"])
+        setType(model, .working, row: 0, of: bench)
+        #expect(labels(model, bench) == ["1", "2", "3", "4"])
+        setType(model, .warmup, row: 1, of: bench)
+        #expect(labels(model, bench) == ["1", "W", "2", "3"])
+        // A skipped working set keeps its number; a skipped warm-up stays W.
+        model.skip(rows(model, bench)[2].key)
+        model.skip(rows(model, bench)[1].key)
+        #expect(labels(model, bench) == ["1", "W", "2", "3"])
+        #expect(rows(model, bench)[1].state == .skipped)
+        #expect(results(context).first { $0.setIndex == 1 }?.setType == .warmup)
+        #expect(results(context).first { $0.setIndex == 2 }?.setType == .working)
+        model.removeSet(rows(model, bench)[1].key)
+        #expect(labels(model, bench) == ["1", "2", "3"])
+    }
+
+    @Test func historyNumbersTheSameWayAndLegacyReadsAsBefore() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 4)
+        setType(model, .warmup, row: 0, of: bench)
+        for row in rows(model, bench) { model.complete(row.key) }
+        let shown = labels(model, bench)
+        let group = try #require(SessionHistoryPresentation.groupedResults(results: results(context), steps: model.session.steps).first)
+        let history = SessionHistoryPresentation.setLabels(group)
+        #expect(group.results.map { history[$0.id]!.shortText } == shown)
+        #expect(shown == ["W", "1", "2", "3"])
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(group.results[0], label: history[group.results[0].id]).hasPrefix("ウォームアップセット、完了"))
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(group.results[1], label: history[group.results[1].id]).hasPrefix("セット 1、完了"))
+
+        // Legacy and unknown kinds: "セット N" from setIndex, as before.
+        pastBench(context, [(80, 10), (80, 9)])
+        let legacy = results(context).filter { $0.sessionId != model.id }
+        legacy[1].setTypeRaw = "future_kind"
+        let legacyGroup = try #require(SessionHistoryPresentation.groupedResults(results: legacy, steps: []).first)
+        let legacyLabels = SessionHistoryPresentation.setLabels(legacyGroup)
+        #expect(legacyGroup.results.map { legacyLabels[$0.id]! } == [.working(1), .working(2)])
+        #expect(SessionHistoryPresentation.setAccessibilityLabel(legacy[0]) == "セット 1、完了、80キログラム、10回")
+        #expect(legacy[1].setTypeRaw == "future_kind")
+    }
+
+    // MARK: draft
+
+    @Test func anOpenRowsKindIsADraftOnlyAndIsLoggedWithTheSet() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 3)
+        #expect(rows(model, bench).allSatisfy { $0.setType == .working })
+        setType(model, .warmup, row: 0, of: bench)
+        setType(model, .warmup, row: 1, of: bench)
+        #expect(results(context).isEmpty)                    // choosing a kind logs nothing
+        #expect(rows(model, bench).allSatisfy { $0.state == .draft })
+
+        model.complete(rows(model, bench)[0].key)            // warm-up complete
+        model.skip(rows(model, bench)[1].key)                // warm-up skip
+        model.complete(rows(model, bench)[2].key)            // working complete
+        let stored = results(context)
+        #expect(stored.map(\.setType) == [.warmup, .warmup, .working])
+        #expect(stored.map(\.done) == [true, false, true])
+        #expect(stored[2].setTypeRaw == nil)                 // working stays nil on disk
+
+        // Finishing never keeps a row whose only change was its kind.
+        model.addSet(to: bench)
+        setType(model, .warmup, row: 3, of: bench)
+        model.finish()
+        #expect(model.finishOutcome == .saved)
+        #expect(results(context).count == 3)
+        #expect(results(context).allSatisfy { $0.plannedSetsAtExecution == 3 })
+    }
+
+    @Test func aDoneSetChangesKindKeepingEverythingElseAndReRecordingKeepsIt() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 1)
+        let key = rows(model, bench)[0].key
+        model.setWeight(80, for: key)
+        model.setReps(8, for: key)
+        model.complete(key)
+        model.setRepsInReserve(2, for: key)
+        let before = try #require(results(context).first)
+        let id = before.id, owner = before.ownerAccountID, snapshot = before.plannedSetsAtExecution
+
+        setType(model, .warmup, row: 0, of: bench)
+        let after = try #require(results(context).first)
+        #expect(after.id == id && after.setType == .warmup)
+        #expect(after.weightKg == 80 && after.actualReps == 8 && after.repsInReserve == 2 && after.done)
+        #expect(after.ownerAccountID == owner && after.plannedSetsAtExecution == snapshot)
+        #expect(after.exerciseIdAtExecution == "bench_press")
+
+        model.setWeight(82.5, for: key)                       // re-record: kind kept
+        #expect(results(context).first?.setType == .warmup)
+        #expect(results(context).first?.repsInReserve == 2)
+        // A skipped set offers no kind change.
+        model.addSet(to: bench)
+        model.skip(rows(model, bench)[1].key)
+        #expect(!model.acceptsSetType(rows(model, bench)[1].key))
+        setType(model, .warmup, row: 1, of: bench)
+        #expect(results(context).first { $0.setIndex == 1 }?.setType == .working)
+        // Completing a skipped row keeps its kind (nil = unchanged).
+        model.complete(rows(model, bench)[1].key)
+        #expect(results(context).first { $0.setIndex == 1 }?.setType == .working)
+    }
+
+    @Test func removingARowMovesTheDraftsBelowWithEverythingTheyHold() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 3)
+        let c = rows(model, bench)[2]
+        setType(model, .warmup, row: 2, of: bench)
+        model.setWeight(42.5, for: c.key)
+        model.setReps(12, for: c.key)
+        model.removeSet(rows(model, bench)[0].key)
+        let moved = rows(model, bench)[1]
+        #expect(moved.identity == c.identity)
+        #expect(moved.setType == .warmup && moved.weightKg == 42.5 && moved.reps == 12)
+        #expect(labels(model, bench) == ["1", "W"])
+    }
+
+    @Test func closeAndResumeKeepsAnOpenRowsKind() throws {
+        let context = try makeContext()
+        let drafts = FreeWorkoutDraftStore()
+        let launcher = launcher(context, drafts)
+        let (model, bench) = try benchWorkout(launcher, sets: 2)
+        setType(model, .warmup, row: 1, of: bench)
+        launcher.workoutScreenClosed(model)
+        let candidate = try #require(launcher.candidates.first)
+        launcher.resume(candidate)
+        let reopened = try #require(launcher.presented)
+        #expect(reopened !== model)
+        #expect(labels(reopened, bench) == ["1", "W"])
+        #expect(results(context).isEmpty)
+    }
+
+    // MARK: identity
+
+    @Test func aStaleActionForARemovedRowNeverReachesTheRowThatMovedUp() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 3)
+        // Done B (between A and C), open C.
+        model.complete(rows(model, bench)[0].key)
+        model.setWeight(70, for: rows(model, bench)[1].key)
+        model.complete(rows(model, bench)[1].key)
+        model.setRepsInReserve(1, for: rows(model, bench)[1].key)
+        let doneB = rows(model, bench)[1]
+        model.setWeight(90, for: rows(model, bench)[2].key)
+        let openC = rows(model, bench)[2]
+        model.removeSet(doneB.key)
+        model.setSetType(.warmup, for: doneB.identity, at: doneB.key)   // stale: C is at B's key now
+        #expect(rows(model, bench)[1].identity == openC.identity)
+        #expect(rows(model, bench)[1].setType == .working && rows(model, bench)[1].weightKg == 90)
+        #expect(results(context).allSatisfy { $0.setType == .working })
+
+        // Open row: remove it, then act for it.
+        model.addSet(to: bench)
+        let openD = rows(model, bench)[2]
+        model.removeSet(rows(model, bench)[1].key)                      // C goes, D moves up
+        model.setSetType(.warmup, for: openC.identity, at: openC.key)
+        #expect(rows(model, bench)[1].identity == openD.identity)
+        #expect(rows(model, bench)[1].setType == .working)
+        #expect(rows(model, bench)[0].setType == .working)
+    }
+
+    @Test func aRowAddedWhereARemovedOneWasIsNewAndWorking() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 2)
+        let b = rows(model, bench)[1]
+        setType(model, .warmup, row: 1, of: bench)
+        model.setWeight(20, for: b.key)
+        model.removeSet(b.key)
+        model.addSet(to: bench)
+        let d = rows(model, bench)[1]
+        #expect(d.key == b.key && d.identity != b.identity)
+        #expect(d.setType == .working && d.weightKg != 20)
+        model.setSetType(.warmup, for: b.identity, at: b.key)
+        #expect(rows(model, bench)[1].setType == .working)
+    }
+
+    @Test func aRemovedExerciseAndAnotherWorkoutTakeNoStaleAction() throws {
+        let context = try makeContext()
+        let drafts = FreeWorkoutDraftStore()
+        let launcher = launcher(context, drafts)
+        let (model, bench) = try benchWorkout(launcher, sets: 1)
+        let row = rows(model, bench)[0]
+        model.removeExercise(bench)
+        model.addExercise(exerciseId: "bench_press", title: "ベンチプレス")
+        let next = try #require(model.cards.first)
+        model.setSetType(.warmup, for: row.identity, at: row.key)
+        model.setSetType(.warmup, for: row.identity, at: next.rows[0].key)
+        #expect(next.rows[0].setType == .working && rows(model, next.id)[0].setType == .working)
+
+        // The same action against another workout's screen.
+        model.finish()
+        launcher.workoutScreenClosed(model)
+        let (other, otherBench) = try benchWorkout(launcher, sets: 1)
+        other.setSetType(.warmup, for: row.identity, at: Key(stepId: otherBench, setIndex: 0))
+        #expect(rows(other, otherBench)[0].setType == .working)
+    }
+
+    /// RED on the pre-fix code: a closed screen kept writing into the drafts
+    /// the resumed screen of the same workout reads.
+    @Test func aClosedScreenOfTheSameWorkoutWritesNothingAfterResume() throws {
+        let context = try makeContext()
+        let drafts = FreeWorkoutDraftStore()
+        let launcher = launcher(context, drafts)
+        let (old, bench) = try benchWorkout(launcher, sets: 2)
+        let row = rows(old, bench)[1]
+        launcher.workoutScreenClosed(old)
+        launcher.resume(try #require(launcher.candidates.first))
+        let reopened = try #require(launcher.presented)
+        let before = drafts.drafts(for: reopened.id)
+
+        old.setWeight(99, for: row.key)
+        old.setReps(30, for: row.key)
+        old.complete(rows(old, bench)[0].key)
+        old.setSetType(.warmup, for: row.identity, at: row.key)
+        #expect(drafts.drafts(for: reopened.id) == before)
+        #expect(results(context).isEmpty)
+        reopened.addSet(to: bench)                                       // rebuild from the store
+        #expect(rows(reopened, bench)[1].weightKg != 99 && rows(reopened, bench)[1].reps != 30)
+        #expect(rows(reopened, bench).allSatisfy { $0.setType == .working })
+        // The new screen works.
+        setType(reopened, .warmup, row: 1, of: bench)
+        #expect(labels(reopened, bench) == ["1", "W", "2"])
+    }
+
+    @Test func aScopeChangeRefusesKindChangesEvenBackOnTheSameAccount() throws {
+        let context = try makeContext()
+        let a = UUID(), b = UUID()
+        let resolver = WorkoutDataScopeResolver(fixed: .account(a))
+        let launcher = launcher(context, scope: resolver.scope, authority: resolver.authority)
+        let (model, bench) = try benchWorkout(launcher, sets: 2)
+        model.complete(rows(model, bench)[0].key)
+        let done = rows(model, bench)[0], open = rows(model, bench)[1]
+        let draftsBefore = rows(model, bench)
+        for scope in [WorkoutDataScope.account(b), .guest, .undetermined, .account(a)] {
+            resolver.authority.update(scope)
+            model.setSetType(.warmup, for: done.identity, at: done.key)
+            model.setSetType(.warmup, for: open.identity, at: open.key)
+        }
+        #expect(results(context).allSatisfy { $0.setType == .working })
+        #expect(rows(model, bench) == draftsBefore)
+        // guest → account: a guest workout's actions die too.
+        let guestResolver = WorkoutDataScopeResolver(fixed: .guest)
+        let guestLauncher = self.launcher(try makeContext(), scope: .guest, authority: guestResolver.authority)
+        let (guest, gBench) = try benchWorkout(guestLauncher, sets: 1)
+        let gRow = rows(guest, gBench)[0]
+        guestResolver.authority.update(.account(a))
+        guest.setSetType(.warmup, for: gRow.identity, at: gRow.key)
+        #expect(rows(guest, gBench)[0].setType == .working)
+    }
+
+    // MARK: prefill
+
+    /// RED on the pre-fix code: a working row took the warm-up above it, and
+    /// the previous working sets were matched by physical position.
+    @Test func workingRowsPrefillByWorkingPositionAndWarmupsGetNoWorkingValues() throws {
+        let context = try makeContext()
+        pastBench(context, [(80, 10), (80, 8), (77.5, 10)])
+        let (model, bench) = try benchWorkout(launcher(context), sets: 2)
+        let step = try #require(model.session.steps.first)
+        model.session.completeSet(at: 0, of: step, reps: 15, weightKg: 20, setType: .warmup)
+        model.session.completeSet(at: 1, of: step, reps: 10, weightKg: 40, setType: .warmup)
+        for _ in 0..<4 { model.addSet(to: bench) }
+        let values = rows(model, bench).map { ($0.weightKg, $0.reps) }
+        #expect(values[2] == (80, 10))
+        #expect(values[3] == (80, 8))
+        #expect(values[4] == (77.5, 10))
+        #expect(values[5] == (77.5, 10))                                // past the end: the last one
+    }
+
+    @Test func openWarmupRowsShowNoWorkingDefaultsAndManualValuesStay() throws {
+        let context = try makeContext()
+        pastBench(context, [(80, 10), (80, 8), (77.5, 10)])
+        let (model, bench) = try benchWorkout(launcher(context), sets: 4)
+        // Working-only: the old physical rule.
+        #expect(rows(model, bench).map(\.weightKg) == [80, 80, 77.5, 77.5])
+        // Untouched → warm-up: working defaults removed.
+        setType(model, .warmup, row: 0, of: bench)
+        #expect(rows(model, bench)[0].weightKg == nil && rows(model, bench)[0].reps == FreeWorkoutSession.defaultRepsTarget)
+        // Later working rows follow their new working position.
+        #expect(rows(model, bench)[1...3].map(\.weightKg) == [80, 80, 77.5])
+        #expect(rows(model, bench)[1...3].map(\.reps) == [10, 8, 10])
+        // Manual values stay through kind changes; only the untouched field follows.
+        let second = rows(model, bench)[1].key
+        model.setWeight(80, for: second)                                 // typed, equal to the default
+        setType(model, .warmup, row: 1, of: bench)
+        #expect(rows(model, bench)[1].weightKg == 80)                    // manual weight kept
+        #expect(rows(model, bench)[1].reps == FreeWorkoutSession.defaultRepsTarget) // auto reps left with the kind
+        setType(model, .working, row: 1, of: bench)
+        #expect(rows(model, bench)[1].weightKg == 80 && rows(model, bench)[1].reps == 10)
+        let third = rows(model, bench)[2].key
+        model.setWeight(20, for: third)
+        model.setReps(15, for: third)
+        setType(model, .warmup, row: 2, of: bench)
+        #expect(rows(model, bench)[2].weightKg == 20 && rows(model, bench)[2].reps == 15)
+        setType(model, .working, row: 2, of: bench)
+        #expect(rows(model, bench)[2].weightKg == 20 && rows(model, bench)[2].reps == 15)
+        // Warm-up → working on an untouched row takes its working default.
+        setType(model, .working, row: 0, of: bench)
+        #expect(rows(model, bench)[0].weightKg == 80 && rows(model, bench)[0].reps == 10)
+        // Removing a row above moves the working position of untouched rows.
+        setType(model, .warmup, row: 0, of: bench)
+        model.removeSet(rows(model, bench)[0].key)
+        #expect(rows(model, bench)[0].weightKg == 80)                    // manual (row 1 before)
+        #expect(rows(model, bench)[2].weightKg == 77.5)
+    }
+
+    @Test func doneSetsNeverChangeWhenRowsAboveChangeKind() throws {
+        let context = try makeContext()
+        pastBench(context, [(80, 10), (60, 8)])
+        let (model, bench) = try benchWorkout(launcher(context), sets: 2)
+        model.complete(rows(model, bench)[1].key)
+        model.setRepsInReserve(3, for: rows(model, bench)[1].key)
+        let done = try #require(results(context).first { $0.sessionId == model.id })
+        setType(model, .warmup, row: 0, of: bench)
+        #expect(done.weightKg == 60 && done.actualReps == 8 && done.repsInReserve == 3 && done.setType == .working)
+        #expect(rows(model, bench)[1].label == .working(1))
+    }
+
+    @Test func noPreviousMeansNoInventedWeightAndNewRowsAreWorking() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 2)
+        setType(model, .warmup, row: 1, of: bench)
+        model.addSet(to: bench)
+        #expect(rows(model, bench).map(\.weightKg) == [nil, nil, nil])
+        #expect(rows(model, bench)[2].setType == .working)              // not inherited from the warm-up above
+    }
+
+    // MARK: compatibility
+
+    @Test func timedRowsHaveNoKindAndNumberAsBefore() throws {
+        let context = try makeContext()
+        let launcher = launcher(context)
+        launcher.start()
+        let model = try #require(launcher.presented)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミル")
+        let tread = try #require(model.cards.first?.id)
+        model.addSet(to: tread)
+        let row = rows(model, tread)[0]
+        #expect(!model.acceptsSetType(row.key))
+        model.setSetType(.warmup, for: row.identity, at: row.key)
+        #expect(labels(model, tread) == ["1", "2"])
+        model.setDuration(DurationEntry(totalSeconds: 600), for: row.key)
+        model.complete(row.key)
+        let stored = try #require(results(context).first)
+        #expect(stored.actualDurationSeconds == 600 && stored.setTypeRaw == nil && stored.actualReps == nil)
+    }
+
+    @Test func bodyweightAndAssistedKeepTheirLoadSemantics() throws {
+        for id in ["pull_up_bar", "assisted_pull_up"] {
+            let context = try makeContext()
+            let launcher = launcher(context)
+            launcher.start()
+            let model = try #require(launcher.presented)
+            model.addExercise(exerciseId: id, title: id)
+            let card = try #require(model.cards.first)
+            let key = card.rows[0].key
+            #expect(model.acceptsSetType(key))
+            setType(model, .warmup, row: 0, of: card.id)
+            model.setWeight(10, for: key)
+            model.complete(key)
+            let stored = try #require(results(context).first)
+            #expect(stored.setType == .warmup && stored.weightKg == 10)
+        }
+    }
+
+    // MARK: actual complete / skip / finish integration
+
+    @Test func aRealWorkoutWithAWorkingSkipNeverEarnsAnIncrease() throws {
+        let context = try makeContext()
+        let launcher = launcher(context)
+        let (model, bench) = try benchWorkout(launcher, sets: 6)
+        setType(model, .warmup, row: 0, of: bench)
+        setType(model, .warmup, row: 1, of: bench)
+        func log(_ i: Int, _ kg: Double, _ reps: Int) {
+            let key = rows(model, bench)[i].key
+            model.setWeight(kg, for: key); model.setReps(reps, for: key); model.complete(key)
+        }
+        log(0, 20, 15)
+        model.skip(rows(model, bench)[1].key)                             // warm-up skip
+        log(2, 80, 10)
+        log(3, 80, 10)
+        model.skip(rows(model, bench)[4].key)                             // working skip
+        // row 5: untouched, never logged
+        model.finish()
+        #expect(model.finishOutcome == .saved)
+        let stored = results(context)
+        #expect(stored.map(\.setType) == [.warmup, .warmup, .working, .working, .working])
+        #expect(stored.map(\.done) == [true, false, true, true, false])
+        #expect(stored.allSatisfy { $0.plannedSetsAtExecution == 5 })     // trimmed to the logged rows
+
+        let step = try #require(model.session.steps.first)
+        let previous = try #require(PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
+            steps: [step], sessions: [model.session.session], results: stored))
+        #expect(previous.plannedSetCount == 3 && previous.sets.count == 2)
+        let suggestion = ProgressionRule.suggest(previous: previous, baselineReps: 10, expectedSets: 3,
+                                                 allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(suggestion?.kind == .holdWeight && suggestion?.suggestedWeightKg == 80)
+        let insight = WorkoutProgressQuery.exerciseInsights(steps: [step], sessions: [model.session.session], results: stored).first
+        #expect(insight?.latestReps == [10, 10] && insight?.personalBestReps == 10)
+        let summary = try #require(model.completion)
+        #expect(summary.completedSetCount == 3 && summary.totalReps == 35 && summary.totalVolumeKg == 1_900)
+    }
+
+    @Test func aRealWorkoutWithAllWorkingSetsDoneMatchesAWorkingOnlyOne() throws {
+        let context = try makeContext()
+        let (model, bench) = try benchWorkout(launcher(context), sets: 7)
+        for i in 0..<3 { setType(model, .warmup, row: i, of: bench) }
+        func log(_ i: Int, _ kg: Double, _ reps: Int) {
+            let key = rows(model, bench)[i].key
+            model.setWeight(kg, for: key); model.setReps(reps, for: key); model.complete(key)
+        }
+        log(0, 20, 15); log(1, 40, 10)
+        model.skip(rows(model, bench)[2].key)
+        log(3, 80, 10); log(4, 80, 10); log(5, 80, 10)
+        model.finish()
+        let stored = results(context)
+        #expect(stored.count == 6 && stored.allSatisfy { $0.plannedSetsAtExecution == 6 })
+        let step = try #require(model.session.steps.first)
+        let previous = try #require(PreviousPerformanceQuery.latest(
+            exerciseId: "bench_press", excludingSessionId: nil, expectedSets: 3,
+            steps: [step], sessions: [model.session.session], results: stored))
+        #expect(previous.plannedSetCount == 3 && previous.sets.count == 3 && previous.uniformWeightKg == 80)
+        let mixed = ProgressionRule.suggest(previous: previous, baselineReps: 10, expectedSets: 3,
+                                            allowsRepProgression: true, allowsWeightProgression: true)
+        let workingOnly = ProgressionRule.suggest(previous: PreviousPerformance(date: previous.date, setReps: [10, 10, 10],
+                                                                                setWeightsKg: [80, 80, 80], plannedSetCount: 3),
+                                                  baselineReps: 10, expectedSets: 3,
+                                                  allowsRepProgression: true, allowsWeightProgression: true)
+        #expect(mixed == workingOnly && mixed?.suggestedWeightKg == 82.5)
+        let summary = try #require(model.completion)
+        #expect(summary.completedSetCount == 5 && summary.totalReps == 55 && summary.totalVolumeKg == 3_100)
+    }
+}

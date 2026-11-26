@@ -426,7 +426,7 @@ struct FreeWorkoutView: View {
             if stacks {
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("セット \(row.number)").font(.body.weight(.semibold))
+                        setNumber(row, card: card, text: row.label.text)
                         if let values = compactValues(row, card: card) {
                             Text(values)
                                 .font(.body.monospacedDigit())
@@ -466,7 +466,56 @@ struct FreeWorkoutView: View {
                     Button(SetRIRPicker.spokenText(value)) { model.setRepsInReserve(value, for: row.key) }
                 }
             }
+            if model.acceptsSetType(row.key) {
+                let other: WorkoutSetType = row.setType == .warmup ? .working : .warmup
+                Button(other == .warmup ? "ウォームアップにする" : "通常セットにする") {
+                    model.setSetType(other, for: row.identity, at: row.key)
+                }
+            }
         }
+    }
+
+    /// "セット3" / "ウォームアップセット", for button labels. Working-only rows
+    /// read exactly as before.
+    private func setName(_ row: FreeWorkoutViewModel.SetRow) -> String {
+        switch row.label {
+        case .warmup: return "ウォームアップセット"
+        case let .working(number): return "セット\(number)"
+        }
+    }
+
+    /// The row's number: "W" for a warm-up (a word, not only a color), and a
+    /// menu to change the kind where the row has one. The action is bound to
+    /// the row as rendered — its identity and key — so a menu left open while
+    /// rows move never changes another row.
+    @ViewBuilder
+    private func setNumber(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard, text: String) -> some View {
+        let label = Text(text)
+            .font(.body.weight(.semibold).monospacedDigit())
+            .foregroundStyle(row.setType == .warmup ? AppTheme.warning : .primary)
+        if model.acceptsSetType(row.key) {
+            Menu {
+                setTypePicker(row)
+            } label: {
+                label.frame(minWidth: 44, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+        } else {
+            label
+        }
+    }
+
+    private func setTypePicker(_ row: FreeWorkoutViewModel.SetRow) -> some View {
+        Picker("セットの種類", selection: Binding(
+            get: { row.setType },
+            set: { model.setSetType($0, for: row.identity, at: row.key) }
+        )) {
+            Text(Self.setTypeName(.working)).tag(WorkoutSetType.working)
+            Text(Self.setTypeName(.warmup)).tag(WorkoutSetType.warmup)
+        }
+    }
+
+    static func setTypeName(_ setType: WorkoutSetType) -> String {
+        setType == .warmup ? "ウォームアップ" : "通常セット"
     }
 
     private func compactValues(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String? {
@@ -491,13 +540,12 @@ struct FreeWorkoutView: View {
                 .foregroundStyle(row.state == .done ? AppTheme.success : .secondary)
                 .frame(minWidth: 44, minHeight: 44)
         }
-        .accessibilityLabel(row.state == .done ? "セット\(row.number)は完了済み" : "セット\(row.number)を完了")
+        .accessibilityLabel(row.state == .done ? "\(setName(row))は完了済み" : "\(setName(row))を完了")
     }
 
     private func wideSetRow(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
         HStack {
-            Text("\(row.number)")
-                .font(.body.weight(.semibold).monospacedDigit())
+            setNumber(row, card: card, text: row.label.shortText)
                 .frame(width: 44, alignment: .leading)
             if card.acceptsWeight {
                 Text(row.weightKg.map(SetWeight.number) ?? "–")
@@ -530,6 +578,29 @@ struct FreeWorkoutView: View {
 
     private func editor(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
         VStack(spacing: 10) {
+            if model.acceptsSetType(row.key) {
+                Menu {
+                    setTypePicker(row)
+                } label: {
+                    HStack {
+                        Text("セットの種類")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(Self.setTypeName(row.setType))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(row.setType == .warmup ? AppTheme.warning : AppTheme.accent)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("セットの種類")
+                .accessibilityValue(Self.setTypeName(row.setType))
+                .accessibilityIdentifier("freeWorkout.setTypeMenu")
+            }
             if card.acceptsWeight {
                 stepper(
                     value: row.weightKg.map { "\(SetWeight.number($0)) kg" } ?? "重量なし",
@@ -571,7 +642,7 @@ struct FreeWorkoutView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(AppTheme.accentFilled)
                     .disabled(row.durationIssue(tracksReps: card.tracksReps) != nil)
-                    .accessibilityLabel("セット\(row.number)を完了")
+                    .accessibilityLabel("\(setName(row))を完了")
                 }
                 if row.state == .draft {
                     Button {
@@ -591,7 +662,7 @@ struct FreeWorkoutView: View {
                     .frame(minWidth: 44)
                 }
                 .buttonStyle(.bordered)
-                .accessibilityLabel("セット\(row.number)を削除")
+                .accessibilityLabel("\(setName(row))を削除")
             }
         }
         .padding(10)
@@ -657,7 +728,7 @@ struct FreeWorkoutView: View {
     }
 
     private func rowLabel(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> String {
-        var parts = ["セット \(row.number)"]
+        var parts = [row.label.spokenText]
         if card.acceptsWeight { parts.append(row.weightKg.map { "\(SetWeight.number($0))キログラム" } ?? "重量未入力") }
         if card.tracksReps {
             parts.append("\(row.reps)回")
