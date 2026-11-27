@@ -63,6 +63,8 @@ struct TrainingView: View {
     private var stepResults: [StepResult] { dataScope.scope.visible(allStepResults) }
 
     @State private var progressSummary: HomeProgressSummary = .empty
+    /// Free Workout's start / resume card state.
+    @StateObject private var freeWorkout = FreeWorkoutLauncher()
     @State private var showRoutinePicker = false
     @State private var pendingRoutine: Routine?
 
@@ -83,7 +85,7 @@ struct TrainingView: View {
                     )
 
                     // Start, or resume / discard one left in progress.
-                    FreeWorkoutEntryCard()
+                    FreeWorkoutEntryCard(launcher: freeWorkout)
 
                     moreEntry
 

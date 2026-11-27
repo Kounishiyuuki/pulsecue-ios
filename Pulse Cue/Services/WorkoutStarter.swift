@@ -260,6 +260,19 @@ final class FreeWorkoutSession {
 
     private func owns(_ step: Step) -> Bool { step.routineId == routine.id }
 
+    /// The rests an exercise can be given here, in seconds. 0 = no rest.
+    static let restPresets = [0, 60, 90, 120, 180]
+
+    /// Sets the rest that the exercise's *next* completed set starts. A rest
+    /// already running is not touched: it is that set's rest, not a setting.
+    @discardableResult
+    func setRestSeconds(_ seconds: Int, for step: Step) -> Bool {
+        guard isActive, owns(step), Self.restPresets.contains(seconds) else { return false }
+        guard step.restSeconds != seconds else { return true }
+        step.restSeconds = Step.clampRest(seconds)
+        return true
+    }
+
     // MARK: Sets
 
     /// Adds one set row. Refused at `Step`'s set cap.

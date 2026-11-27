@@ -48,11 +48,12 @@ struct TrainingMoreView: View {
 // change; these belong in their own FreeWorkout*.swift files.
 
 /// Start a Free Workout, or resume / discard one already in progress. Shown
-/// on Home and Training; all state lives in `FreeWorkoutLauncher`.
+/// on Home and Training; all state lives in `FreeWorkoutLauncher`, owned by
+/// the screen so Home's rest pill opens the workout through this same card.
 struct FreeWorkoutEntryCard: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var dataScope: WorkoutDataScopeResolver
-    @StateObject private var launcher = FreeWorkoutLauncher()
+    @ObservedObject var launcher: FreeWorkoutLauncher
     @State private var pendingDiscard: FreeWorkoutRecovery.Candidate?
 
     var body: some View {
@@ -395,6 +396,7 @@ struct FreeWorkoutView: View {
                 }
                 .accessibilityLabel("\(card.title)のメニュー")
             }
+            restMenu(card)
             if let previous = card.previousText {
                 Text("前回: \(previous)")
                     .font(.caption)
@@ -433,6 +435,48 @@ struct FreeWorkoutView: View {
         }
         .pulseGlass(level: .subtle, padding: 16)
         .buttonStyle(.plain)
+    }
+
+    /// The exercise's rest for its next sets. Not the running rest: that one
+    /// is changed only by ±15 on the timer.
+    private func restMenu(_ card: FreeWorkoutViewModel.ExerciseCard) -> some View {
+        let presets = FreeWorkoutSession.restPresets
+        // A step from before the presets keeps its value, shown as chosen.
+        let options = presets.contains(card.restSeconds) ? presets : (presets + [card.restSeconds]).sorted()
+        return Menu {
+            Picker("休憩時間", selection: Binding(
+                get: { card.restSeconds },
+                set: { model.setRestSeconds($0, for: card.id) }
+            )) {
+                ForEach(options, id: \.self) { seconds in
+                    Text(Self.restName(seconds)).tag(seconds)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "timer")
+                    .accessibilityHidden(true)
+                Text("休憩 \(Self.restName(card.restSeconds))")
+                    .monospacedDigit()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.restIce)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(Capsule().fill(AppTheme.restIce.opacity(0.1)))
+            .contentShape(Capsule())
+        }
+        .accessibilityLabel("\(card.title)の休憩時間")
+        .accessibilityValue(Self.restName(card.restSeconds))
+        .accessibilityHint("次のセットから使う休憩時間を変更")
+        .accessibilityIdentifier("freeWorkout.restMenu")
+    }
+
+    static func restName(_ seconds: Int) -> String {
+        seconds <= 0 ? "なし" : DateUtils.formatDuration(seconds: seconds)
     }
 
     private func setRow(_ row: FreeWorkoutViewModel.SetRow, card: FreeWorkoutViewModel.ExerciseCard) -> some View {
@@ -987,7 +1031,9 @@ struct FreeWorkoutExercisePicker: View {
 }
 
 
-/// The running rest, above 「種目を追加」: time left, −15 / +15 and 休憩終了.
+/// The running rest, above 「種目を追加」: compact by default — a small ring,
+/// the time left, −15 / +15 / 終了 — and, tapped, the full dial.
+///
 /// Not modal — the workout stays fully usable. It observes the rest timer on
 /// its own and redraws only itself once a second, from the deadline; the
 /// workout's rows are never rebuilt or refetched for it. Each button carries
@@ -999,35 +1045,53 @@ struct FreeWorkoutRestBar: View {
     let onAdjust: (Int, UUID) -> Void
     let onFinish: (UUID) -> Void
 
+    @State private var expanded = false
+
     var body: some View {
-        if let rest = store.activeRest(for: sessionId) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let seconds = rest.countdown.remainingSeconds(now: context.date)
-                if seconds > 0 {
-                    content(rest: rest, seconds: seconds)
+        Group {
+            if let rest = store.activeRest(for: sessionId) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let seconds = rest.countdown.remainingSeconds(now: context.date)
+                    if seconds > 0 {
+                        let fraction = rest.countdown.fractionRemaining(now: context.date)
+                        if expanded {
+                            expandedContent(rest: rest, seconds: seconds, fraction: fraction)
+                        } else {
+                            content(rest: rest, seconds: seconds, fraction: fraction)
+                        }
+                    }
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // A new rest opens compact again.
+        .onChange(of: store.rest?.token) { _, _ in expanded = false }
     }
 
-    private func content(rest: RestTimerStore.Rest, seconds: Int) -> some View {
+    private func content(rest: RestTimerStore.Rest, seconds: Int, fraction: Double) -> some View {
         let layout = stacks ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return layout {
-            HStack(spacing: 8) {
-                Image(systemName: "timer")
-                    .foregroundStyle(AppTheme.iceLight)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("休憩中")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(DateUtils.formatDuration(seconds: seconds))
-                        .font(.title3.weight(.bold).monospacedDigit())
+            Button {
+                withAnimation(.snappy) { expanded = true }
+            } label: {
+                HStack(spacing: 10) {
+                    RestTimerDial(fraction: fraction, timeText: "", diameter: 34, compact: true)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("休憩中")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(DateUtils.formatDuration(seconds: seconds))
+                            .font(.title3.weight(.bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("残り休憩時間")
             .accessibilityValue(SetDuration.text(seconds))
+            .accessibilityHint("タイマーを大きく表示")
             .accessibilityIdentifier("freeWorkout.restTime")
             if !stacks { Spacer(minLength: 4) }
             HStack(spacing: 8) {
@@ -1038,10 +1102,75 @@ struct FreeWorkoutRestBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(AppTheme.deepGlass.opacity(0.95)))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(AppTheme.iceLight.opacity(0.35), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.black))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(AppTheme.restIce.opacity(0.35), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("freeWorkout.restBar")
+    }
+
+    /// The full dial, still above 「種目を追加」 and still not modal.
+    private func expandedContent(rest: RestTimerStore.Rest, seconds: Int, fraction: Double) -> some View {
+        VStack(spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("休憩中")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if !rest.exerciseTitle.isEmpty {
+                        Text(rest.exerciseTitle)
+                            .font(.headline)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Button {
+                    withAnimation(.snappy) { expanded = false }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("タイマーを小さく表示")
+            }
+            RestTimerDial(
+                fraction: fraction,
+                timeText: DateUtils.formatDuration(seconds: seconds),
+                caption: "残り",
+                diameter: stacks ? 200 : 230
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("残り休憩時間")
+            .accessibilityValue(SetDuration.text(seconds))
+            .accessibilityIdentifier("freeWorkout.restTime")
+            Text(Self.restSummary(rest.countdown))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 12) {
+                button("−15", label: "休憩を15秒短縮") { onAdjust(-15, rest.token) }
+                button("+15", label: "休憩を15秒延長") { onAdjust(15, rest.token) }
+                button("終了", label: "休憩を終了") { onFinish(rest.token) }
+            }
+        }
+        .padding(16)
+        // Opaque: the rows scrolled behind must not show through the dial.
+        .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color.black))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(AppTheme.restIce.opacity(0.3), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("freeWorkout.restBar")
+    }
+
+    /// This rest's own time, kept apart from the exercise's setting: ±15
+    /// changes only this rest, 「休憩」 on the exercise only the next ones.
+    static func restSummary(_ countdown: RestCountdown) -> String {
+        let total = Int(countdown.deadline.timeIntervalSince(countdown.startedAt).rounded())
+        let start = Int(countdown.initialDuration)
+        let base = "この休憩 \(DateUtils.formatDuration(seconds: start))"
+        guard total != start else { return base }
+        let delta = total - start
+        return base + "（\(delta > 0 ? "+" : "−")\(SetDuration.text(abs(delta)))）"
     }
 
     private func button(_ title: String, label: String, action: @escaping () -> Void) -> some View {

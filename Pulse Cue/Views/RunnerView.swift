@@ -23,7 +23,6 @@ struct RunnerView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @ScaledMetric(relativeTo: .largeTitle) private var repNumberSize: CGFloat = 96
-    @ScaledMetric(relativeTo: .largeTitle) private var restNumberSize: CGFloat = 48
     @ScaledMetric(relativeTo: .largeTitle) private var restDialSize: CGFloat = 132
 
     @State private var showRoutinePicker = false
@@ -439,25 +438,19 @@ struct RunnerView: View {
     }
 
     private var restTimerDial: some View {
-        let dialSize = min(restDialSize, 220)
-        return ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.025))
-            Circle()
-                .stroke(AppTheme.separator.opacity(0.35), lineWidth: 3)
-            Circle()
-                .stroke(AppTheme.accent.opacity(0.68), lineWidth: 2)
-                .padding(7)
-            Text(timerText)
-                .font(.system(size: restNumberSize, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.65)
-                .lineLimit(1)
-                .monospacedDigit()
-                .foregroundStyle(AppTheme.accent)
-                .contentTransition(reduceMotion ? .identity : .numericText(countsDown: true))
-        }
-        .frame(width: dialSize, height: dialSize)
+        // The Runner's big clock. Its share is the time left over the step's
+        // rest — or over what is left, after +10 took it past that — so the
+        // arc is never more than full. Display only: the Runner's rest state
+        // machine and its once-a-second `remainingSeconds` are unchanged.
+        let total = max(runnerViewModel.currentStep?.restSeconds ?? 0, runnerViewModel.remainingSeconds, 1)
+        return RestTimerDial(
+            fraction: Double(runnerViewModel.remainingSeconds) / Double(total),
+            timeText: timerText,
+            diameter: min(restDialSize * 1.8, 280)
+        )
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("残り \(runnerViewModel.remainingSeconds) 秒")
+        .accessibilityIdentifier("runner.restDial")
     }
 
     private var shortenRestButton: some View {

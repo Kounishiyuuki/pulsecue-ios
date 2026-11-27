@@ -358,4 +358,87 @@ final class FreeWorkoutRestTimerUITests: XCTestCase {
         app.buttons["休憩を終了"].tap()
         XCTAssertFalse(rest.waitForExistence(timeout: 2))
     }
+
+    private func snapshot(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testTheTimerExpandsAndTheRestMenuSetsOnlyTheNextRests() throws {
+        let app = openBenchWorkout()
+        app.buttons["セット1を完了"].firstMatch.tap()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertTrue(rest.waitForExistence(timeout: 5))
+        snapshot(app, "freeWorkout-compact")
+
+        rest.tap()
+        let collapse = app.buttons["タイマーを小さく表示"]
+        XCTAssertTrue(collapse.waitForExistence(timeout: 5), "the timer did not expand")
+        XCTAssertTrue(app.buttons["休憩を15秒延長"].exists && app.buttons["休憩を終了"].exists)
+        XCTAssertTrue(element(app, labelBeginsWith: "この休憩").exists)
+        snapshot(app, "freeWorkout-expanded")
+        collapse.tap()
+        XCTAssertFalse(collapse.waitForExistence(timeout: 2))
+
+        let menu = app.descendants(matching: .any)["freeWorkout.restMenu"].firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        XCTAssertEqual(menu.value as? String, "02:00")
+        menu.tap()
+        let oneMinute = app.buttons["01:00"].firstMatch
+        XCTAssertTrue(oneMinute.waitForExistence(timeout: 5), "the rest presets are not offered")
+        snapshot(app, "freeWorkout-restSetting")
+        oneMinute.tap()
+        XCTAssertTrue(NSPredicate(format: "value == %@", "01:00").evaluate(with: menu) || menu.value as? String == "01:00")
+        XCTAssertTrue(rest.exists, "changing the setting ended the running rest")
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testHomesRestPillReopensTheWorkout() throws {
+        let app = openBenchWorkout()
+        app.buttons["セット1を完了"].firstMatch.tap()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertTrue(rest.waitForExistence(timeout: 5))
+        app.buttons["閉じる"].tap()
+        let home = app.tabBars.buttons["ホーム"]
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        home.tap()
+        let pill = app.descendants(matching: .any)["home.restPill"].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 10), "Home shows no rest pill")
+        XCTAssertTrue(pill.label.contains("ベンチプレス"))
+        snapshot(app, "home-restPill")
+        pill.tap()
+        XCTAssertTrue(rest.waitForExistence(timeout: 10), "the pill did not reopen the workout with its rest")
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2))
+        app.buttons["閉じる"].tap()
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        XCTAssertFalse(pill.waitForExistence(timeout: 2), "the pill outlived the rest")
+    }
+
+    @MainActor
+    func testTheRunnersRestShowsTheBigClock() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-ui-test-training-routines", "1"]
+        app.launch()
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20))
+        trainingTab.tap()
+        let start = app.buttons["このまま開始"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        for _ in 0..<6 where !start.isHittable { app.swipeUp() }
+        start.tap()
+        let complete = app.buttons["このセットを完了して休憩へ"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 15), "the Runner did not open")
+        complete.tap()
+        let dial = app.descendants(matching: .any)["runner.restDial"]
+        XCTAssertTrue(dial.waitForExistence(timeout: 5), "no rest clock")
+        XCTAssertTrue(dial.label.hasPrefix("残り"))
+        XCTAssertTrue(app.buttons["休憩を 10 秒延長"].exists, "the Runner's ±10 changed")
+        snapshot(app, "runner-rest")
+    }
 }

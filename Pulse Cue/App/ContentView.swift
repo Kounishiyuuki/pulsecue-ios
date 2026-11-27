@@ -112,6 +112,10 @@ struct ContentView: View {
         // active workout not ours — and, coming the other way, can hand one
         // back. The Runner decides what that means; this only tells it.
         .onChange(of: dataScope.scope) { _, scope in
+            // The Free Workout rest is not any screen's: with no workout
+            // screen, card or History list on hand, it still ends here —
+            // entry, notification and token (#273).
+            RestTimerStore.shared.revalidate(scope: scope)
             runnerViewModel.applyScope(scope)
             runnerPresenter.syncPresentation(shouldPresent: runnerViewModel.shouldPresentRunner)
         }

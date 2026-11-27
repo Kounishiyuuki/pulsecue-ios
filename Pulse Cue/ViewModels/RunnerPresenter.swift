@@ -28,6 +28,7 @@
 import Foundation
 import Combine
 import SwiftData
+import UIKit
 import UserNotifications
 
 @MainActor
@@ -282,11 +283,15 @@ final class RestTimerStore: ObservableObject {
         /// New for every rest, even in the same workout.
         let token: UUID
         var countdown: RestCountdown
+        /// The exercise whose set started it, for the Home pill and the
+        /// expanded timer. Never put in the notification.
+        let exerciseTitle: String
         fileprivate let grant: WorkoutScopeAuthority.Grant?
 
         static func == (lhs: Rest, rhs: Rest) -> Bool {
             lhs.sessionId == rhs.sessionId && lhs.ownerAccountID == rhs.ownerAccountID
                 && lhs.token == rhs.token && lhs.countdown == rhs.countdown
+                && lhs.exerciseTitle == rhs.exerciseTitle
         }
 
         fileprivate var isAuthorized: Bool {
@@ -302,39 +307,105 @@ final class RestTimerStore: ObservableObject {
     private let notifications: any RunnerNotificationManaging
     private let notificationsEnabled: () -> Bool
     private let now: () -> Date
+    private let isAppActive: () -> Bool
+    private let expiryFeedback: () -> Void
+    private let scheduleExpiry: (TimeInterval, @escaping @MainActor () -> Void) -> Void
     /// Bumped by every schedule / cancel, so an answer that comes back for an
     /// older one is dropped.
     private var notificationRevision = 0
 
+    /// How late the expiry may run and still sound. A rest that ran out while
+    /// the app was suspended was announced by the notification; the app
+    /// coming back minutes later must not beep for it.
+    static let expiryFeedbackTolerance: TimeInterval = 2
+
     init(
         notifications: (any RunnerNotificationManaging)? = nil,
         notificationsEnabled: (() -> Bool)? = nil,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        isAppActive: (() -> Bool)? = nil,
+        expiryFeedback: (() -> Void)? = nil,
+        scheduleExpiry: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil
     ) {
         self.notifications = notifications ?? NotificationManager.shared
         self.notificationsEnabled = notificationsEnabled ?? { UserDefaults.standard.bool(forKey: "settings.notificationsEnabled") }
         self.now = now
+        self.isAppActive = isAppActive ?? { UIApplication.shared.applicationState == .active }
+        self.expiryFeedback = expiryFeedback ?? Self.playExpiryFeedback
+        self.scheduleExpiry = scheduleExpiry ?? { delay, fire in
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(max(0, delay)))
+                fire()
+            }
+        }
+    }
+
+    /// The sound and haptic the Settings switches allow — the same ones, and
+    /// the same switches, as the Runner's.
+    private static func playExpiryFeedback() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "settings.soundEnabled") as? Bool ?? true { SoundHapticManager.playBeep() }
+        if defaults.object(forKey: "settings.hapticsEnabled") as? Bool ?? true { SoundHapticManager.playHaptic() }
     }
 
     /// The running rest of `sessionId`, if it is still authorized and not
     /// over. Reading never changes anything.
     func activeRest(for sessionId: UUID) -> Rest? {
-        guard let rest, rest.sessionId == sessionId, rest.isAuthorized, !rest.countdown.isExpired(now: now()) else { return nil }
+        guard let rest, rest.sessionId == sessionId else { return nil }
+        return currentRest()
+    }
+
+    /// The running rest, whichever workout it belongs to, if it is still
+    /// authorized and not over: what Home's pill shows.
+    func currentRest() -> Rest? {
+        guard let rest, rest.isAuthorized, !rest.countdown.isExpired(now: now()) else { return nil }
         return rest
     }
 
     /// Starts a new rest for `sessionId`, replacing any other (one rest at a
-    /// time). Nil — and nothing changed — when there is no rest to take
-    /// (`seconds <= 0`) or `grant` is not valid for `ownerAccountID`.
+    /// time). Nil when `grant` is not valid for `ownerAccountID` — nothing
+    /// changes — or when the set has no rest (`seconds <= 0`): the previous
+    /// rest ends then too, since the set it followed is no longer the last.
     @discardableResult
-    func start(sessionId: UUID, ownerAccountID: UUID?, grant: WorkoutScopeAuthority.Grant?, seconds: Int) -> UUID? {
+    func start(sessionId: UUID, ownerAccountID: UUID?, grant: WorkoutScopeAuthority.Grant?, seconds: Int, exerciseTitle: String = "") -> UUID? {
         if let grant, !grant.authority.isValid(grant, forOwner: ownerAccountID) { return nil }
-        guard let countdown = RestCountdown(seconds: seconds, now: now()) else { return nil }
+        guard let countdown = RestCountdown(seconds: seconds, now: now()) else {
+            end()
+            return nil
+        }
         if let old = rest { cancelNotification(for: old.sessionId) }
         let token = UUID()
-        rest = Rest(sessionId: sessionId, ownerAccountID: ownerAccountID, token: token, countdown: countdown, grant: grant)
+        rest = Rest(sessionId: sessionId, ownerAccountID: ownerAccountID, token: token, countdown: countdown,
+                    exerciseTitle: exerciseTitle, grant: grant)
         scheduleNotification()
+        armExpiry()
         return token
+    }
+
+    /// Ends the rest at its deadline even with no timer view on screen. Each
+    /// arming is for one token and one deadline; an older one finds the rest
+    /// changed and does nothing.
+    private func armExpiry() {
+        guard let rest else { return }
+        let token = rest.token
+        let deadline = rest.countdown.deadline
+        scheduleExpiry(deadline.timeIntervalSince(now())) { [weak self] in
+            self?.expire(token: token, deadline: deadline)
+        }
+    }
+
+    private func expire(token: UUID, deadline: Date) {
+        guard let rest, rest.token == token, rest.countdown.deadline == deadline else { return }
+        guard rest.countdown.isExpired(now: now()) else {
+            armExpiry()
+            return
+        }
+        let onTime = now().timeIntervalSince(deadline) <= Self.expiryFeedbackTolerance
+        end()
+        // In the foreground the system shows no notification (the app has no
+        // `willPresent` delegate), so the app sounds instead; in the
+        // background the notification does, and the app stays silent.
+        if onTime, isAppActive() { expiryFeedback() }
     }
 
     /// +15 / −15 for the rest shown as (`sessionId`, `token`). Reaching 0 ends
@@ -348,6 +419,7 @@ final class RestTimerStore: ObservableObject {
         } else {
             rest = current
             scheduleNotification()
+            armExpiry()
         }
         return true
     }
@@ -568,6 +640,8 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         let rows: [SetRow]
         let canRemove: Bool
         let canAddSet: Bool
+        /// The rest the exercise's next completed set starts, in seconds.
+        let restSeconds: Int
     }
 
     private typealias Draft = FreeWorkoutDraftStore.Draft
@@ -632,6 +706,13 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         guard let step = step(stepId), session.removeExercise(step) else { return }
         drafts = drafts.filter { $0.key.stepId != stepId }
         saveAndRebuild(select: selected?.stepId == stepId ? nil : selected)
+    }
+
+    /// The exercise's rest from now on. The rest running now keeps its own
+    /// time: that is the set's rest, adjusted only by ±15.
+    func setRestSeconds(_ seconds: Int, for stepId: UUID) {
+        guard let step = step(stepId), session.setRestSeconds(seconds, for: step) else { return }
+        saveAndRebuild(select: selected)
     }
 
     func moveExercises(fromOffsets source: IndexSet, toOffset destination: Int) {
@@ -748,7 +829,7 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
         guard recorded != nil else { return }
         if firstCompletion {
             restTimers.start(sessionId: id, ownerAccountID: session.session.ownerAccountID,
-                             grant: session.scopeGrant, seconds: step.restSeconds)
+                             grant: session.scopeGrant, seconds: step.restSeconds, exerciseTitle: step.title)
         }
         drafts[key] = nil
         // Untouched values below now default from this set: `rebuild`
@@ -952,7 +1033,8 @@ final class FreeWorkoutViewModel: ObservableObject, Identifiable {
                 previousText: previousText(for: step),
                 rows: rows,
                 canRemove: session.canRemoveExercise(step),
-                canAddSet: Step.clampSets(step.sets + 1) > step.sets
+                canAddSet: Step.clampSets(step.sets + 1) > step.sets,
+                restSeconds: step.restSeconds
             )
         }
     }

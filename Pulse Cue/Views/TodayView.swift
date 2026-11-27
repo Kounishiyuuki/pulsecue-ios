@@ -41,6 +41,10 @@ struct TodayView: View {
     /// keeps one.
     let onOpenNutrition: () -> Void
 
+    /// Free Workout's card state, shared with the rest pill so the pill
+    /// opens the workout through the same launcher as the card.
+    @StateObject private var freeWorkout = FreeWorkoutLauncher()
+
     // Health rows for every owner; read only through the scoped accessors
     // below, with the same scope the workout summary uses.
     @Query private var everyRecentLog: [DayLog]
@@ -172,12 +176,28 @@ struct TodayView: View {
         )
     }
 
+    /// The Runner's rest while its cover is away, for the pill. Read from
+    /// the Runner's own published state; nothing here changes it.
+    private var runnerRest: RestTimerHomePill.RunnerRest? {
+        guard runnerViewModel.phase == .rest, let deadline = runnerViewModel.restDeadline else { return nil }
+        return .init(deadline: deadline,
+                     totalSeconds: runnerViewModel.currentStep?.restSeconds ?? 0,
+                     title: runnerViewModel.currentStep?.title ?? "")
+    }
+
     var body: some View {
         ZStack {
             backgroundLayer.ignoresSafeArea()
 
             ScrollView {
                 VStack(spacing: 20) {
+                    RestTimerHomePill(
+                        store: .shared,
+                        runnerRest: runnerRest,
+                        onOpenRunner: onResumeRunner,
+                        onOpenFreeWorkout: { freeWorkout.resume(sessionId: $0) }
+                    )
+
                     CompactPersonalStatus(
                         recordedCount: filledMetricCount,
                         totalCount: 4,
@@ -193,7 +213,7 @@ struct TodayView: View {
                     )
 
                     // Start, or resume / discard one left in progress.
-                    FreeWorkoutEntryCard()
+                    FreeWorkoutEntryCard(launcher: freeWorkout)
 
                     TodayNutritionCard(
                         summary: nutritionSummary,
@@ -464,5 +484,89 @@ struct TodayView: View {
         ensureTodayLogExists()
         isSequentialEntry = false
         activeField = field
+    }
+}
+
+// MARK: - Rest pill
+
+/// Home's rest timer: shown at the top while a rest runs, in the Runner or in
+/// a Free Workout; tapping it goes back to that workout. Observes the rest
+/// store itself and redraws only itself, once a second, from the deadline.
+/// The workout it opens is looked up afresh in the current scope, so a pill
+/// never opens a workout that is no longer the user's.
+struct RestTimerHomePill: View {
+    struct RunnerRest: Equatable {
+        let deadline: Date
+        let totalSeconds: Int
+        let title: String
+    }
+
+    @ObservedObject var store: RestTimerStore
+    let runnerRest: RunnerRest?
+    let onOpenRunner: () -> Void
+    let onOpenFreeWorkout: (UUID) -> Void
+
+    var body: some View {
+        if let runnerRest {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let left = max(0, Int(runnerRest.deadline.timeIntervalSince(context.date).rounded(.up)))
+                if left > 0 {
+                    pill(seconds: left,
+                         fraction: Double(left) / Double(max(runnerRest.totalSeconds, left, 1)),
+                         title: runnerRest.title,
+                         action: onOpenRunner)
+                }
+            }
+        } else if let rest = store.currentRest() {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let left = rest.countdown.remainingSeconds(now: context.date)
+                if left > 0 {
+                    pill(seconds: left,
+                         fraction: rest.countdown.fractionRemaining(now: context.date),
+                         title: rest.exerciseTitle,
+                         action: { onOpenFreeWorkout(rest.sessionId) })
+                }
+            }
+        }
+    }
+
+    private func pill(seconds: Int, fraction: Double, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                RestTimerDial(fraction: fraction, timeText: "", diameter: 30, compact: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("休憩中")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if !title.isEmpty {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Text(DateUtils.formatDuration(seconds: seconds))
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(AppTheme.restIce)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(Capsule().fill(Color.black.opacity(0.85)))
+            .overlay(Capsule().strokeBorder(AppTheme.restIce.opacity(0.4), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title.isEmpty ? "休憩中" : "休憩中、\(title)")
+        .accessibilityValue("残り\(SetDuration.text(seconds))")
+        .accessibilityHint("ワークアウトに戻る")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("home.restPill")
     }
 }

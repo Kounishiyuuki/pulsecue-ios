@@ -62,6 +62,10 @@ enum AppTheme {
     static let reflectedBlue = Color(red: 0.180, green: 0.390, blue: 0.396)
     static let edgeBlue = Color(red: 0.290, green: 0.570, blue: 0.570)
     static let iceLight = Color(red: 0.690, green: 0.900, blue: 0.890)
+    /// The rest timer's arc: a colder blue than `iceLight`, so the countdown
+    /// reads as its own instrument against the teal glass.
+    static let restIce = Color(red: 0.560, green: 0.860, blue: 1.000)
+    static let restIceDeep = Color(red: 0.200, green: 0.520, blue: 0.860)
 
     static let atmosphericBase = dynamicColor(
         light: (0.027, 0.063, 0.067, 1.0),
