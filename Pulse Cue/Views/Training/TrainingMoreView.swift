@@ -1100,6 +1100,9 @@ struct FreeWorkoutRestBar: View {
                 button("終了", label: "休憩を終了") { onFinish(rest.token) }
             }
         }
+        // Full width when stacked too: without the row's Spacer the bar
+        // would shrink to its content and squeeze the buttons.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.black))

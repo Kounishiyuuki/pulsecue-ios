@@ -6,7 +6,7 @@
 //
 //  Focused dark Runner. The active value is always the visual anchor:
 //  current reps with ±1 controls during exercise, and remaining rest time
-//  with ±10-second controls during rest. Existing navigation, form guide,
+//  with ±15-second controls during rest. Existing navigation, form guide,
 //  next-step information, Complete/Skip/Back actions, and session lifecycle
 //  stay in place around that phase-specific focus card.
 //
@@ -439,7 +439,7 @@ struct RunnerView: View {
 
     private var restTimerDial: some View {
         // The Runner's big clock. Its share is the time left over the step's
-        // rest — or over what is left, after +10 took it past that — so the
+        // rest — or over what is left, after +15 took it past that — so the
         // arc is never more than full. Display only: the Runner's rest state
         // machine and its once-a-second `remainingSeconds` are unchanged.
         let total = max(runnerViewModel.currentStep?.restSeconds ?? 0, runnerViewModel.remainingSeconds, 1)
@@ -454,13 +454,13 @@ struct RunnerView: View {
     }
 
     private var shortenRestButton: some View {
-        adjustmentButton(label: "休憩を 10 秒短縮", systemImage: "minus") {
+        adjustmentButton(label: "休憩を15秒短縮", systemImage: "minus") {
             runnerViewModel.shortenRest()
         }
     }
 
     private var extendRestButton: some View {
-        adjustmentButton(label: "休憩を 10 秒延長", systemImage: "plus") {
+        adjustmentButton(label: "休憩を15秒延長", systemImage: "plus") {
             runnerViewModel.handle(action: .extend)
         }
     }

@@ -83,6 +83,11 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .task {
             runnerViewModel.configure(modelContext: modelContext, scope: dataScope.scope)
+            // The Free Workout rest is not any screen's: it follows every
+            // scope generation from the authority itself, so it ends — entry,
+            // notification, token — with no workout screen, card or History
+            // list on hand, and even for an A → B → A SwiftUI never shows (#273).
+            RestTimerStore.shared.observe(dataScope.authority)
             PulseCueUITestFixtureSeeder.seedIfNeeded(modelContext: modelContext)
             SampleDataSeeder.seedIfNeeded(modelContext: modelContext)
             // `configure` may recover a session persisted from a previous
@@ -112,10 +117,6 @@ struct ContentView: View {
         // active workout not ours — and, coming the other way, can hand one
         // back. The Runner decides what that means; this only tells it.
         .onChange(of: dataScope.scope) { _, scope in
-            // The Free Workout rest is not any screen's: with no workout
-            // screen, card or History list on hand, it still ends here —
-            // entry, notification and token (#273).
-            RestTimerStore.shared.revalidate(scope: scope)
             runnerViewModel.applyScope(scope)
             runnerPresenter.syncPresentation(shouldPresent: runnerViewModel.shouldPresentRunner)
         }

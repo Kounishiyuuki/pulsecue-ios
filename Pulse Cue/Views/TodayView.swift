@@ -180,7 +180,8 @@ struct TodayView: View {
     /// the Runner's own published state; nothing here changes it.
     private var runnerRest: RestTimerHomePill.RunnerRest? {
         guard runnerViewModel.phase == .rest, let deadline = runnerViewModel.restDeadline else { return nil }
-        return .init(deadline: deadline,
+        return .init(sessionId: runnerViewModel.sessionId,
+                     deadline: deadline,
                      totalSeconds: runnerViewModel.currentStep?.restSeconds ?? 0,
                      title: runnerViewModel.currentStep?.title ?? "")
     }
@@ -194,8 +195,13 @@ struct TodayView: View {
                     RestTimerHomePill(
                         store: .shared,
                         runnerRest: runnerRest,
-                        onOpenRunner: onResumeRunner,
-                        onOpenFreeWorkout: { freeWorkout.resume(sessionId: $0) }
+                        onOpenRunner: { shown in
+                            // Only the Runner rest the pill showed: the same
+                            // workout, still resting.
+                            guard runnerViewModel.phase == .rest, runnerViewModel.sessionId == shown.sessionId else { return }
+                            onResumeRunner()
+                        },
+                        onOpenFreeWorkout: { freeWorkout.resumeRest($0) }
                     )
 
                     CompactPersonalStatus(
@@ -496,6 +502,7 @@ struct TodayView: View {
 /// never opens a workout that is no longer the user's.
 struct RestTimerHomePill: View {
     struct RunnerRest: Equatable {
+        let sessionId: UUID?
         let deadline: Date
         let totalSeconds: Int
         let title: String
@@ -503,8 +510,10 @@ struct RestTimerHomePill: View {
 
     @ObservedObject var store: RestTimerStore
     let runnerRest: RunnerRest?
-    let onOpenRunner: () -> Void
-    let onOpenFreeWorkout: (UUID) -> Void
+    /// Each gets the rest the pill was drawn for, to check it is still the
+    /// running one before opening anything.
+    let onOpenRunner: (RunnerRest) -> Void
+    let onOpenFreeWorkout: (RestTimerStore.Rest) -> Void
 
     var body: some View {
         if let runnerRest {
@@ -514,7 +523,7 @@ struct RestTimerHomePill: View {
                     pill(seconds: left,
                          fraction: Double(left) / Double(max(runnerRest.totalSeconds, left, 1)),
                          title: runnerRest.title,
-                         action: onOpenRunner)
+                         action: { onOpenRunner(runnerRest) })
                 }
             }
         } else if let rest = store.currentRest() {
@@ -524,7 +533,7 @@ struct RestTimerHomePill: View {
                     pill(seconds: left,
                          fraction: rest.countdown.fractionRemaining(now: context.date),
                          title: rest.exerciseTitle,
-                         action: { onOpenFreeWorkout(rest.sessionId) })
+                         action: { onOpenFreeWorkout(rest) })
                 }
             }
         }
