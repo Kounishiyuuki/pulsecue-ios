@@ -202,7 +202,7 @@ struct RunnerNotificationSchedulingTests {
     }
 
     @Test
-    func plusTenCancelsThenReschedulesAtTheExtendedDeadline() async throws {
+    func plusFifteenCancelsThenReschedulesAtTheExtendedDeadline() async throws {
         let fx = try Self.makeFixture()
         try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
@@ -213,7 +213,7 @@ struct RunnerNotificationSchedulingTests {
         fx.viewModel.handle(action: .extend)
 
         let extendedDeadline = try #require(fx.viewModel.restDeadline)
-        #expect(abs(extendedDeadline.timeIntervalSince(originalDeadline) - 10) < 0.1)
+        #expect(abs(extendedDeadline.timeIntervalSince(originalDeadline) - 15) < 0.1)
         #expect(Self.removedIdentifiers(in: fx.spy.events).count == 1)
         #expect(Self.scheduledEvents(in: fx.spy.events).isEmpty)
         fx.spy.resolveAuthorization()
@@ -234,7 +234,7 @@ struct RunnerNotificationSchedulingTests {
     }
 
     @Test
-    func minusTenCancelsThenReschedulesAtTheShortenedDeadline() async throws {
+    func minusFifteenCancelsThenReschedulesAtTheShortenedDeadline() async throws {
         let fx = try Self.makeFixture()
         try Self.complete(fx.viewModel)
         fx.spy.resolveAuthorization()
@@ -245,7 +245,7 @@ struct RunnerNotificationSchedulingTests {
         fx.viewModel.shortenRest()
 
         let shortenedDeadline = try #require(fx.viewModel.restDeadline)
-        #expect(abs(shortenedDeadline.timeIntervalSince(originalDeadline) + 10) < 0.1)
+        #expect(abs(shortenedDeadline.timeIntervalSince(originalDeadline) + 15) < 0.1)
         #expect(Self.removedIdentifiers(in: fx.spy.events).count == 1)
         fx.spy.resolveAuthorization()
         await Self.flushMainActorTasks()

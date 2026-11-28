@@ -390,8 +390,9 @@ final class RunnerViewModel: ObservableObject {
         setCurrentWeight(max(0, current + delta))
     }
 
+    /// The same ±15 as Free Workout's rest.
     func shortenRest() {
-        adjustRest(by: -10)
+        adjustRest(by: -15)
     }
 
     func appDidBecomeActive() {
@@ -638,7 +639,7 @@ final class RunnerViewModel: ObservableObject {
     }
 
     private func extendRest() {
-        adjustRest(by: 10)
+        adjustRest(by: 15)
     }
 
     private func adjustRest(by adjustment: Int) {

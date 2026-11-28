@@ -482,7 +482,7 @@ struct RunnerStateMachineTests {
     }
 
     @Test
-    func plus10HasNoEffectDuringExercise() async throws {
+    func plus15HasNoEffectDuringExercise() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         let deadlineBefore = fx.viewModel.restDeadline
@@ -494,7 +494,7 @@ struct RunnerStateMachineTests {
     }
 
     @Test
-    func plus10ExtendsDeadlineDuringRest() async throws {
+    func plus15ExtendsDeadlineDuringRest() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         try Self.complete(fx.viewModel) // → rest
@@ -504,12 +504,12 @@ struct RunnerStateMachineTests {
         let after = try #require(fx.viewModel.restDeadline)
 
         let delta = after.timeIntervalSince(before)
-        #expect(abs(delta - 10.0) < 0.05)
+        #expect(abs(delta - 15.0) < 0.05)
         #expect(fx.viewModel.phase == .rest)
     }
 
     @Test
-    func minus10ShortensDeadlineWithoutGoingNegative() async throws {
+    func minus15ShortensDeadlineWithoutGoingNegative() async throws {
         let fx = try Self.makeFixture(restSeconds: 60, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         try Self.complete(fx.viewModel)
@@ -518,13 +518,13 @@ struct RunnerStateMachineTests {
         fx.viewModel.shortenRest()
         let after = try #require(fx.viewModel.restDeadline)
 
-        #expect(abs(after.timeIntervalSince(before) + 10.0) < 0.1)
+        #expect(abs(after.timeIntervalSince(before) + 15.0) < 0.1)
         #expect(fx.viewModel.phase == .rest)
         #expect(fx.viewModel.remainingSeconds >= 0)
     }
 
     @Test
-    func minus10AtEndOfShortRestUsesNormalCompletionTransition() async throws {
+    func minus15AtEndOfShortRestUsesNormalCompletionTransition() async throws {
         let fx = try Self.makeFixture(restSeconds: 5, stepCount: 1, setsPerStep: 2)
         fx.viewModel.start(routine: fx.routine)
         try Self.complete(fx.viewModel)

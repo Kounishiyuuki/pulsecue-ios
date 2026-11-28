@@ -6,7 +6,7 @@
 //
 //  Focused dark Runner. The active value is always the visual anchor:
 //  current reps with ±1 controls during exercise, and remaining rest time
-//  with ±10-second controls during rest. Existing navigation, form guide,
+//  with ±15-second controls during rest. Existing navigation, form guide,
 //  next-step information, Complete/Skip/Back actions, and session lifecycle
 //  stay in place around that phase-specific focus card.
 //
@@ -23,7 +23,6 @@ struct RunnerView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @ScaledMetric(relativeTo: .largeTitle) private var repNumberSize: CGFloat = 96
-    @ScaledMetric(relativeTo: .largeTitle) private var restNumberSize: CGFloat = 48
     @ScaledMetric(relativeTo: .largeTitle) private var restDialSize: CGFloat = 132
 
     @State private var showRoutinePicker = false
@@ -129,6 +128,10 @@ struct RunnerView: View {
         .onChange(of: runnerViewModel.currentStepIndex) { _, _ in runnerViewModel.refreshExerciseInsight() }
     }
 
+    private var restClockLeads: Bool {
+        dynamicTypeSize.isAccessibilitySize && runnerViewModel.phase == .rest
+    }
+
     private var workoutContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -136,8 +139,16 @@ struct RunnerView: View {
                     Color.clear
                         .frame(height: 0)
                         .id("runner-top")
-                    statusChips
-                    phaseSignature
+                    // At accessibility text sizes the three chips fill the
+                    // first screen, which pushed the rest clock under the
+                    // action bar; during a rest the clock comes first there.
+                    if restClockLeads {
+                        phaseSignature
+                        statusChips
+                    } else {
+                        statusChips
+                        phaseSignature
+                    }
                     lastCompletedSetRow
                     previousPerformanceCard
                     formGuideButton
@@ -439,35 +450,31 @@ struct RunnerView: View {
     }
 
     private var restTimerDial: some View {
-        let dialSize = min(restDialSize, 220)
-        return ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.025))
-            Circle()
-                .stroke(AppTheme.separator.opacity(0.35), lineWidth: 3)
-            Circle()
-                .stroke(AppTheme.accent.opacity(0.68), lineWidth: 2)
-                .padding(7)
-            Text(timerText)
-                .font(.system(size: restNumberSize, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.65)
-                .lineLimit(1)
-                .monospacedDigit()
-                .foregroundStyle(AppTheme.accent)
-                .contentTransition(reduceMotion ? .identity : .numericText(countsDown: true))
-        }
-        .frame(width: dialSize, height: dialSize)
+        // The Runner's big clock. Its share is the time left over the step's
+        // rest — or over what is left, after +15 took it past that — so the
+        // arc is never more than full. Display only: the Runner's rest state
+        // machine and its once-a-second `remainingSeconds` are unchanged.
+        let total = max(runnerViewModel.currentStep?.restSeconds ?? 0, runnerViewModel.remainingSeconds, 1)
+        return RestTimerDial(
+            fraction: Double(runnerViewModel.remainingSeconds) / Double(total),
+            timeText: timerText,
+            // Capped smaller at accessibility sizes so the whole clock fits
+            // above the action bar; the time inside scales with the dial.
+            diameter: min(restDialSize * 1.8, dynamicTypeSize.isAccessibilitySize ? 220 : 280)
+        )
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("残り \(runnerViewModel.remainingSeconds) 秒")
+        .accessibilityIdentifier("runner.restDial")
     }
 
     private var shortenRestButton: some View {
-        adjustmentButton(label: "休憩を 10 秒短縮", systemImage: "minus") {
+        adjustmentButton(label: "休憩を15秒短縮", systemImage: "minus") {
             runnerViewModel.shortenRest()
         }
     }
 
     private var extendRestButton: some View {
-        adjustmentButton(label: "休憩を 10 秒延長", systemImage: "plus") {
+        adjustmentButton(label: "休憩を15秒延長", systemImage: "plus") {
             runnerViewModel.handle(action: .extend)
         }
     }

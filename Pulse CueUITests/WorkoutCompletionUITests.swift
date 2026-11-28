@@ -358,4 +358,183 @@ final class FreeWorkoutRestTimerUITests: XCTestCase {
         app.buttons["休憩を終了"].tap()
         XCTAssertFalse(rest.waitForExistence(timeout: 2))
     }
+
+    private func snapshot(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testTheTimerExpandsAndTheRestMenuSetsOnlyTheNextRests() throws {
+        let app = openBenchWorkout()
+        app.buttons["セット1を完了"].firstMatch.tap()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertTrue(rest.waitForExistence(timeout: 5))
+        snapshot(app, "freeWorkout-compact")
+
+        rest.tap()
+        let collapse = app.buttons["タイマーを小さく表示"]
+        XCTAssertTrue(collapse.waitForExistence(timeout: 5), "the timer did not expand")
+        XCTAssertTrue(app.buttons["休憩を15秒延長"].exists && app.buttons["休憩を終了"].exists)
+        XCTAssertTrue(element(app, labelBeginsWith: "この休憩").exists)
+        snapshot(app, "freeWorkout-expanded")
+        collapse.tap()
+        XCTAssertFalse(collapse.waitForExistence(timeout: 2))
+
+        let menu = app.descendants(matching: .any)["freeWorkout.restMenu"].firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        XCTAssertEqual(menu.value as? String, "02:00")
+        menu.tap()
+        let oneMinute = app.buttons["01:00"].firstMatch
+        XCTAssertTrue(oneMinute.waitForExistence(timeout: 5), "the rest presets are not offered")
+        snapshot(app, "freeWorkout-restSetting")
+        oneMinute.tap()
+        XCTAssertTrue(NSPredicate(format: "value == %@", "01:00").evaluate(with: menu) || menu.value as? String == "01:00")
+        XCTAssertTrue(rest.exists, "changing the setting ended the running rest")
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testHomesRestPillReopensTheWorkout() throws {
+        let app = openBenchWorkout()
+        app.buttons["セット1を完了"].firstMatch.tap()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertTrue(rest.waitForExistence(timeout: 5))
+        app.buttons["閉じる"].tap()
+        let home = app.tabBars.buttons["ホーム"]
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        home.tap()
+        let pill = app.descendants(matching: .any)["home.restPill"].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 10), "Home shows no rest pill")
+        XCTAssertTrue(pill.label.contains("ベンチプレス"))
+        snapshot(app, "home-restPill")
+        pill.tap()
+        XCTAssertTrue(rest.waitForExistence(timeout: 10), "the pill did not reopen the workout with its rest")
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2))
+        app.buttons["閉じる"].tap()
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        XCTAssertFalse(pill.waitForExistence(timeout: 2), "the pill outlived the rest")
+    }
+
+    /// Starts the one-routine fixture's Runner and completes a set, so it
+    /// rests. `largeText` launches at an accessibility text size.
+    private func runnerResting(largeText: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-ui-test-training-routines", "1"]
+        if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"] }
+        app.launch()
+        // Whatever happens below, the Runner session does not outlive the
+        // test: it is ended the way a user ends it.
+        addTeardownBlock { [weak self] in self?.endRunnerSession(app, asserting: false) }
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20))
+        trainingTab.tap()
+        // The library is lazy: below the fold at large text sizes it does
+        // not exist until scrolled to.
+        let start = app.buttons["このまま開始"].firstMatch
+        _ = start.waitForExistence(timeout: 5)
+        for _ in 0..<10 where !(start.exists && start.isHittable) { app.swipeUp() }
+        XCTAssertTrue(start.exists, "このまま開始 not found")
+        start.tap()
+        let complete = app.buttons["このセットを完了して休憩へ"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 15), "the Runner did not open")
+        for _ in 0..<4 where !complete.isHittable { app.swipeUp() }
+        complete.tap()
+        return app
+    }
+
+    /// セッション終了 → 終了: the session is saved as abandoned, the Runner
+    /// closes and nothing is left to restore on the next launch.
+    private func endRunnerSession(_ app: XCUIApplication, asserting: Bool = true) {
+        guard app.state == .runningForeground else { return }
+        let end = app.buttons["セッションを中断して終了"].firstMatch
+        guard end.waitForExistence(timeout: asserting ? 5 : 1) else {
+            if asserting { XCTFail("no セッション終了 on the Runner") }
+            return
+        }
+        for _ in 0..<6 where !end.isHittable { app.swipeUp() }
+        end.tap()
+        let confirm = app.alerts.buttons["終了"].firstMatch
+        if confirm.waitForExistence(timeout: 5) { confirm.tap() } else if asserting { XCTFail("no end confirmation") }
+        guard asserting else { return }
+        XCTAssertFalse(app.descendants(matching: .any)["runner.restDial"].waitForExistence(timeout: 2), "the Runner is still resting")
+        XCTAssertTrue(app.tabBars.buttons["ホーム"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["ホーム"].isHittable, "the Runner still covers the tabs")
+    }
+
+    @MainActor
+    func testTheRunnersRestShowsTheBigClock() throws {
+        let app = runnerResting()
+        let dial = app.descendants(matching: .any)["runner.restDial"]
+        XCTAssertTrue(dial.waitForExistence(timeout: 5), "no rest clock")
+        XCTAssertTrue(dial.label.hasPrefix("残り"))
+        XCTAssertTrue(app.buttons["休憩を15秒延長"].exists && app.buttons["休憩を15秒短縮"].exists, "the Runner is not ±15")
+        snapshot(app, "runner-rest")
+        endRunnerSession(app)
+        // Relaunched, nothing comes back.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["ホーム"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.descendants(matching: .any)["runner.restDial"].waitForExistence(timeout: 3), "the Runner was restored")
+        XCTAssertTrue(app.tabBars.buttons["ホーム"].isHittable)
+    }
+
+    @MainActor
+    func testTheRunnersClockKeepsItsControlsAtALargeTextSize() throws {
+        let app = runnerResting(largeText: true)
+        let dial = app.descendants(matching: .any)["runner.restDial"]
+        XCTAssertTrue(dial.waitForExistence(timeout: 5))
+        // The whole clock shows on the first screen, clear of the action bar.
+        let endRest = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "休憩を終了")).firstMatch
+        XCTAssertTrue(endRest.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(dial.frame.maxY, endRest.frame.minY, "the action bar covers the rest clock")
+        snapshot(app, "runner-rest-largeText-clock")
+        let plus = app.buttons["休憩を15秒延長"], minus = app.buttons["休憩を15秒短縮"]
+        XCTAssertTrue(plus.exists && minus.exists)
+        for _ in 0..<4 where !plus.isHittable { app.swipeUp() }
+        XCTAssertTrue(plus.isHittable && minus.isHittable, "±15 out of reach at a large text size")
+        snapshot(app, "runner-rest-largeText")
+        endRunnerSession(app)
+    }
+
+    @MainActor
+    func testFreeWorkoutsRestKeepsItsControlsAtALargeTextSize() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-pulsecue-ui-test-completion-flow",
+                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]
+        app.launch()
+        let trainingTab = app.tabBars.buttons["トレーニング"]
+        XCTAssertTrue(trainingTab.waitForExistence(timeout: 20))
+        trainingTab.tap()
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "フリーワークアウトを開始")).firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        for _ in 0..<8 where !start.isHittable { app.swipeUp() }
+        start.tap()
+        let add = app.buttons["種目を追加"]
+        XCTAssertTrue(add.waitForExistence(timeout: 15))
+        add.tap()
+        let field = app.textFields["種目を検索"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("ベンチ")
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "ベンチプレス")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        let done = app.buttons["セット1を完了"].firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        for _ in 0..<4 where !done.isHittable { app.swipeUp() }
+        done.tap()
+        let rest = app.descendants(matching: .any)["freeWorkout.restTime"]
+        XCTAssertTrue(rest.waitForExistence(timeout: 5))
+        for label in ["休憩を15秒短縮", "休憩を15秒延長", "休憩を終了"] {
+            XCTAssertTrue(app.buttons[label].isHittable, "\(label) out of reach at a large text size")
+        }
+        snapshot(app, "freeWorkout-compact-largeText")
+        app.buttons["休憩を終了"].tap()
+        XCTAssertFalse(rest.waitForExistence(timeout: 2))
+    }
 }

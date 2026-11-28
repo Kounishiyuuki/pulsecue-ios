@@ -13,6 +13,7 @@ import Combine
 import Foundation
 import SwiftData
 import Testing
+import UIKit
 import UserNotifications
 @testable import Pulse_Cue
 
@@ -3510,6 +3511,30 @@ private final class RestNotificationSpy: RunnerNotificationManaging {
     }
 }
 
+/// The rest store's expiry arming, held so a test fires it when it wants.
+@MainActor
+private final class RestExpiryQueue {
+    var armed: [(delay: TimeInterval, fire: @MainActor () -> Void)] = []
+    /// The app's lifecycle as the store hears it: switching posts the same
+    /// notifications UIKit does, at the test clock's current time.
+    let lifecycle = NotificationCenter()
+    var appActive = true {
+        didSet {
+            guard appActive != oldValue else { return }
+            lifecycle.post(name: appActive ? UIApplication.didBecomeActiveNotification : UIApplication.willResignActiveNotification, object: nil)
+        }
+    }
+    private(set) var feedbackCount = 0
+    func schedule(_ delay: TimeInterval, _ fire: @escaping @MainActor () -> Void) { armed.append((delay, fire)) }
+    func feedback() { feedbackCount += 1 }
+    /// Fires everything armed so far, oldest first.
+    func fireAll() {
+        let pending = armed
+        armed = []
+        for entry in pending { entry.fire() }
+    }
+}
+
 @MainActor
 private final class RestClock {
     var now = Date(timeIntervalSince1970: 2_000_000_000)
@@ -3584,17 +3609,22 @@ struct FreeWorkoutRestTimerTests {
         let drafts: FreeWorkoutDraftStore
         let launcher: FreeWorkoutLauncher
         let resolver: WorkoutDataScopeResolver?
+        let expiry: RestExpiryQueue
     }
 
     private func fixture(scope: WorkoutDataScope = .guest, withAuthority: Bool = false, enabled: Bool = true) throws -> Fixture {
         let schema = Schema([Routine.self, Step.self, Session.self, StepResult.self, DayLog.self])
         let context = ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]))
-        let clock = RestClock(), spy = RestNotificationSpy(), drafts = FreeWorkoutDraftStore()
-        let store = RestTimerStore(notifications: spy, notificationsEnabled: { enabled }, now: { clock.now })
+        let clock = RestClock(), spy = RestNotificationSpy(), drafts = FreeWorkoutDraftStore(), expiry = RestExpiryQueue()
+        let store = RestTimerStore(notifications: spy, notificationsEnabled: { enabled }, now: { clock.now },
+                                   lifecycle: expiry.lifecycle, initiallyActive: true, expiryFeedback: { expiry.feedback() },
+                                   scheduleExpiry: { expiry.schedule($0, $1) })
         let launcher = FreeWorkoutLauncher(drafts: drafts, restTimers: store)
         let resolver = withAuthority ? WorkoutDataScopeResolver(fixed: scope) : nil
+        // As the app does it (ContentView): the store follows the authority.
+        if let resolver { store.observe(resolver.authority) }
         launcher.configure(context: context, scope: scope, authority: resolver?.authority)
-        return Fixture(context: context, clock: clock, spy: spy, store: store, drafts: drafts, launcher: launcher, resolver: resolver)
+        return Fixture(context: context, clock: clock, spy: spy, store: store, drafts: drafts, launcher: launcher, resolver: resolver, expiry: expiry)
     }
 
     private func bench(_ fx: Fixture, sets: Int = 3, exerciseId: String = "bench_press") throws -> (FreeWorkoutViewModel, UUID) {
@@ -3682,6 +3712,401 @@ struct FreeWorkoutRestTimerTests {
         model.session.revoke()
         model.complete(k1)
         #expect(fx.store.rest == nil)
+    }
+
+    // MARK: PR-2
+
+    @Test func aZeroRestCompletionEndsTheRunningRestAndItsNotification() async throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let running = try #require(model.activeRest)
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        #expect(fx.spy.pending[id] != nil)
+        model.setRestSeconds(0, for: b)
+        #expect(model.activeRest == running)                              // a setting never touches the running rest
+        model.complete(key(model, b, 1))                                  // a real completion with no rest
+        await settle()
+        #expect(model.activeRest == nil && fx.store.rest == nil)
+        #expect(fx.spy.pending[id] == nil)
+        #expect(!fx.store.adjust(by: 15, sessionId: model.id, token: running.token))
+        // Re-recording a done set is not a completion: nothing ends.
+        model.setRestSeconds(120, for: b)
+        model.complete(key(model, b, 2))
+        let next = try #require(model.activeRest)
+        model.setRestSeconds(0, for: b)
+        model.complete(key(model, b, 1))                                  // already done
+        #expect(model.activeRest == next)
+    }
+
+    @Test func aRefusedZeroRestCompletionLeavesTheRestAlone() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let running = try #require(fx.store.rest)
+        model.addExercise(exerciseId: "treadmill_warmup", title: "トレッドミル")
+        let tread = try #require(model.cards.last)
+        model.setRestSeconds(0, for: tread.id)
+        model.complete(tread.rows[0].key)                                 // no duration: refused by the domain
+        #expect(fx.store.rest == running)
+    }
+
+    @Test func theExercisesRestSettingIsForTheNextRestsOnly() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        #expect(model.cards[0].restSeconds == 120)
+        model.complete(key(model, b, 0))
+        let running = try #require(model.activeRest)
+        model.setRestSeconds(60, for: b)
+        #expect(model.cards[0].restSeconds == 60)
+        #expect(model.activeRest == running)
+        #expect(running.countdown.remainingSeconds(now: fx.clock.now) == 120)
+        model.complete(key(model, b, 1))
+        #expect(model.activeRest?.countdown.remainingSeconds(now: fx.clock.now) == 60)
+        // Only the presets; anything else is refused and changes nothing.
+        model.setRestSeconds(45, for: b)
+        model.setRestSeconds(-1, for: b)
+        model.setRestSeconds(900, for: b)
+        #expect(model.cards[0].restSeconds == 60)
+        for preset in [0, 60, 90, 120, 180] {
+            model.setRestSeconds(preset, for: b)
+            #expect(model.cards[0].restSeconds == preset)
+        }
+        // ±15 changes the rest, never the setting.
+        model.setRestSeconds(90, for: b)
+        model.complete(key(model, b, 2))
+        let rest = try #require(model.activeRest)
+        model.adjustRest(by: 15, token: rest.token)
+        #expect(model.cards[0].restSeconds == 90)
+        #expect(model.session.steps.first?.restSeconds == 90)
+        // A revoked screen cannot change it.
+        model.session.revoke()
+        model.setRestSeconds(180, for: b)
+        #expect(model.session.steps.first?.restSeconds == 90)
+    }
+
+    @Test func aRestEndsAtItsDeadlineAndSoundsOnlyInTheForegroundOnTime() async throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        #expect(fx.expiry.armed.last?.delay == 120)
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        #expect(fx.store.rest == nil)                                     // the entry, not only the bar
+        #expect(fx.expiry.feedbackCount == 1)
+        #expect(fx.spy.pending[id] != nil)                                // left for the system to deliver
+        // In the background the notification speaks; the app stays silent.
+        model.complete(key(model, b, 1))
+        fx.expiry.appActive = false
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        #expect(fx.store.rest == nil && fx.expiry.feedbackCount == 1)
+        // Back minutes after a rest ran out: ended, but no late beep.
+        fx.expiry.appActive = true
+        model.complete(key(model, b, 2))
+        fx.clock.advance(400)
+        fx.expiry.fireAll()
+        #expect(fx.store.rest == nil && fx.expiry.feedbackCount == 1)
+    }
+
+    @Test func anOlderArmingNeverEndsANewerOrAdjustedRest() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let first = try #require(model.activeRest)
+        model.adjustRest(by: 15, token: first.token)                      // re-arms for 135
+        fx.clock.advance(120)
+        let stale = fx.expiry.armed.removeFirst()                         // armed for the old deadline
+        stale.fire()
+        #expect(model.activeRest?.token == first.token)
+        #expect(fx.expiry.feedbackCount == 0)
+        model.complete(key(model, b, 1))                                  // a new rest
+        let second = try #require(model.activeRest)
+        fx.clock.advance(15)
+        fx.expiry.armed.removeFirst().fire()                              // the adjusted first rest's
+        #expect(model.activeRest == second && fx.expiry.feedbackCount == 0)
+        // Fired early (a clock that moved back): it waits again.
+        fx.expiry.armed.removeFirst().fire()
+        #expect(model.activeRest == second && fx.expiry.armed.count == 1)
+        // +15 after the end never revives it.
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        #expect(fx.store.rest == nil)
+        #expect(!fx.store.adjust(by: 15, sessionId: model.id, token: second.token))
+    }
+
+    // MARK: PR-2 fix — natural expiry and feedback
+
+    @Test func aNaturalExpiryLeavesTheNotificationForTheSystemToDeliver() async throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        let deadline = try #require(fx.spy.pending[id])
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        await settle()
+        #expect(fx.store.rest == nil)
+        #expect(fx.spy.pending[id] == deadline)                           // not taken back
+    }
+
+    @Test func aManualEndStillCancelsTheNotification() async throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let rest = try #require(model.activeRest)
+        await settle()
+        model.finishRest(token: rest.token)
+        await settle()
+        #expect(fx.spy.pending[RestTimerStore.notificationIdentifier(for: model.id)] == nil)
+    }
+
+    @Test func aBackgroundOrInactiveExpiryKeepsTheNotificationAndStaysSilent() async throws {
+        for phase in ["background", "inactive"] {
+            let fx = try fixture()
+            let (model, b) = try bench(fx)
+            model.complete(key(model, b, 0))
+            await settle()
+            let id = RestTimerStore.notificationIdentifier(for: model.id)
+            fx.clock.advance(100)
+            fx.expiry.appActive = false                                   // resigned before the deadline
+            fx.clock.advance(20)
+            fx.expiry.fireAll()
+            await settle()
+            #expect(fx.spy.pending[id] != nil, "\(phase)")
+            #expect(fx.expiry.feedbackCount == 0, "\(phase)")
+        }
+    }
+
+    @Test func aRestThatEndsInTheForegroundSoundsOnce() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        fx.expiry.fireAll()
+        #expect(fx.expiry.feedbackCount == 1)
+    }
+
+    @Test func comingBackJustAfterABackgroundExpiryDoesNotSound() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        fx.clock.advance(60)
+        fx.expiry.appActive = false
+        fx.clock.advance(60.5)                                            // the deadline passes in the background
+        fx.expiry.appActive = true                                        // back within a second
+        fx.expiry.fireAll()                                               // the suspended expiry runs now
+        #expect(fx.store.rest == nil)
+        #expect(fx.expiry.feedbackCount == 0)
+    }
+
+    @Test func inactiveAcrossTheDeadlineDoesNotSound() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        fx.clock.advance(119)
+        fx.expiry.appActive = false                                       // e.g. Control Center pulled down
+        fx.clock.advance(1.5)
+        fx.expiry.appActive = true
+        fx.expiry.fireAll()
+        #expect(fx.expiry.feedbackCount == 0)
+    }
+
+    @Test func comingBackBeforeTheDeadlineSoundsAtTheDeadline() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        fx.expiry.appActive = false
+        fx.clock.advance(60)
+        fx.expiry.appActive = true                                        // back well before it ends
+        fx.clock.advance(60)
+        fx.expiry.fireAll()
+        #expect(fx.expiry.feedbackCount == 1)
+    }
+
+    @Test func aLateScheduleAnswerAfterANaturalExpiryNeverTakesTheNotificationBack() async throws {
+        let fx = try fixture()
+        fx.spy.holdScheduleCompletion = true
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        #expect(fx.spy.pending[id] != nil)
+        fx.clock.advance(120)
+        fx.expiry.fireAll()                                               // natural end
+        for completion in fx.spy.heldScheduleCompletions { completion() }
+        fx.spy.heldScheduleCompletions = []
+        await settle()
+        #expect(fx.spy.pending[id] != nil)
+    }
+
+    @Test func aNewRestAfterANaturalExpiryOwnsItsNotificationAndOldArmingsAreInert() async throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        await settle()
+        fx.clock.advance(120)
+        let staleA = fx.expiry.armed
+        fx.expiry.armed = []
+        for entry in staleA { entry.fire() }                              // A ends naturally
+        model.complete(key(model, b, 1))                                  // B in the same workout
+        let restB = try #require(model.activeRest)
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        #expect(fx.spy.pending[id] == restB.countdown.deadline)
+        for entry in staleA { entry.fire() }                              // A's armings again
+        await settle()
+        #expect(model.activeRest == restB)
+        #expect(fx.spy.pending[id] == restB.countdown.deadline)
+        #expect(fx.expiry.feedbackCount == 1)                             // A's only
+    }
+
+    // MARK: PR-2 fix — scope observation and Home resume
+
+    @Test func everyAuthorityChangeEndsTheRestEvenABToAInOneGo() async throws {
+        let a = UUID(), other = UUID()
+        let fx = try fixture(scope: .account(a), withAuthority: true)
+        let authority = try #require(fx.resolver?.authority)
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let rest = try #require(fx.store.rest)
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        fx.launcher.workoutScreenClosed(model)
+        authority.update(.account(a))                                     // the same scope: kept
+        #expect(fx.store.rest == rest)
+        // A → B → A with nothing in between: no view, no launcher, no revalidate.
+        authority.update(.account(other))
+        authority.update(.account(a))
+        await settle()
+        #expect(fx.store.rest == nil)
+        #expect(fx.spy.pending[id] == nil)
+        #expect(!fx.store.adjust(by: 15, sessionId: model.id, token: rest.token))
+        fx.clock.advance(200)
+        fx.expiry.fireAll()                                               // its expiry arming is inert
+        #expect(fx.expiry.feedbackCount == 0 && fx.store.rest == nil)
+    }
+
+    @Test func aNotificationLeftByANaturalEndGoesWithTheScopeOrTheWorkout() async throws {
+        let a = UUID()
+        let fx = try fixture(scope: .account(a), withAuthority: true)
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        await settle()
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        #expect(fx.spy.pending[id] != nil)                                // left for the system
+        fx.resolver?.authority.update(.guest)
+        #expect(fx.spy.pending[id] == nil)                                // another scope: taken back
+
+        let fx2 = try fixture()
+        let (model2, b2) = try bench(fx2)
+        model2.complete(key(model2, b2, 0))
+        await settle()
+        let id2 = RestTimerStore.notificationIdentifier(for: model2.id)
+        fx2.clock.advance(120)
+        fx2.expiry.fireAll()
+        fx2.store.revalidate(scope: .guest)                               // same scope: left alone
+        #expect(fx2.spy.pending[id2] != nil)
+        model2.discard()                                                  // its workout ends: taken back
+        #expect(fx2.spy.pending[id2] == nil)
+    }
+
+    @Test func homeResumesOnlyTheRestItShowed() async throws {
+        let a = UUID()
+        let fx = try fixture(scope: .account(a), withAuthority: true)
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let shownA = try #require(fx.store.currentRest())
+        fx.launcher.workoutScreenClosed(model)
+        #expect(fx.launcher.presented == nil)
+        #expect(fx.launcher.resumeRest(shownA))                           // the rest it showed: opens it
+        let reopened = try #require(fx.launcher.presented)
+        #expect(reopened.id == model.id)
+        // Replaced by B: the pill drawn for A opens nothing.
+        reopened.complete(key(reopened, b, 1))
+        fx.launcher.workoutScreenClosed(reopened)
+        #expect(!fx.launcher.resumeRest(shownA))
+        #expect(fx.launcher.presented == nil)
+        // Ended at its deadline: B's pill opens nothing either.
+        let shownB = try #require(fx.store.currentRest())
+        fx.clock.advance(121)
+        #expect(!fx.launcher.resumeRest(shownB))
+        // A → B → A: an old pill never opens anything.
+        let reopened2 = try #require({ fx.launcher.resume(sessionId: model.id); return fx.launcher.presented }())
+        reopened2.complete(key(reopened2, b, 2))
+        let shownC = try #require(fx.store.currentRest())
+        fx.launcher.workoutScreenClosed(reopened2)
+        fx.resolver?.authority.update(.account(UUID()))
+        fx.resolver?.authority.update(.account(a))
+        fx.launcher.configure(context: fx.context, scope: .account(a), authority: fx.resolver?.authority)
+        #expect(!fx.launcher.resumeRest(shownC))
+        #expect(fx.launcher.presented == nil)
+    }
+
+    @Test func homeDoesNotResumeADiscardedWorkoutsRest() throws {
+        let fx = try fixture()
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let shown = try #require(fx.store.currentRest())
+        model.discard()
+        fx.launcher.workoutScreenClosed(model)
+        #expect(fx.store.rest == nil)
+        #expect(!fx.launcher.resumeRest(shown))
+        #expect(fx.launcher.presented == nil)
+    }
+
+    @Test func homeSeesAnyWorkoutsRestButOnlyWhileItIsTheScopes() throws {
+        let owner = UUID()
+        let fx = try fixture(scope: .account(owner), withAuthority: true)
+        let (model, b) = try bench(fx)
+        #expect(fx.store.currentRest() == nil)
+        model.complete(key(model, b, 0))
+        let rest = try #require(fx.store.currentRest())
+        #expect(rest.sessionId == model.id && rest.exerciseTitle == "bench_press")
+        #expect(fx.store.activeRest(for: UUID()) == nil)                  // another workout's screen shows nothing
+        fx.resolver?.authority.update(.account(UUID()))                         // the scope changes, nobody calls anything yet
+        #expect(fx.store.currentRest() == nil)
+    }
+
+    @Test func aScopeChangeEndsTheRestWithNoWorkoutScreenAtAll() async throws {
+        // The app-level observer's call (ContentView → `revalidate`), with no
+        // launcher configured again and the workout screen closed.
+        let a = UUID(), b2 = UUID()
+        let fx = try fixture(scope: .account(a), withAuthority: true)
+        let (model, b) = try bench(fx)
+        model.complete(key(model, b, 0))
+        let rest = try #require(fx.store.rest)
+        await settle()
+        fx.launcher.workoutScreenClosed(model)
+        #expect(fx.store.rest == rest)                                    // a close keeps it
+        fx.store.revalidate(scope: .account(a))                           // the same scope again keeps it
+        #expect(fx.store.rest == rest)
+        let id = RestTimerStore.notificationIdentifier(for: model.id)
+        fx.resolver?.authority.update(.account(b2))
+        fx.store.revalidate(scope: .account(b2))
+        await settle()
+        #expect(fx.store.rest == nil)
+        #expect(fx.spy.pending[id] == nil)
+        fx.resolver?.authority.update(.account(a))
+        fx.store.revalidate(scope: .account(a))
+        #expect(fx.store.currentRest() == nil)
+        #expect(!fx.store.adjust(by: 15, sessionId: model.id, token: rest.token))
+        #expect(!fx.store.finish(sessionId: model.id, token: rest.token))
+    }
+
+    @Test func theRestSummaryKeepsThisRestApartFromTheSetting() throws {
+        let t0 = Date(timeIntervalSince1970: 2_000_000_000)
+        let c = try #require(RestCountdown(seconds: 120, now: t0))
+        #expect(FreeWorkoutRestBar.restSummary(c) == "この休憩 02:00")
+        #expect(FreeWorkoutRestBar.restSummary(c.adjusted(by: 15, now: t0.addingTimeInterval(60))).hasPrefix("この休憩 02:00（+"))
+        #expect(FreeWorkoutRestBar.restSummary(c.adjusted(by: -15, now: t0.addingTimeInterval(10))).hasPrefix("この休憩 02:00（−"))
     }
 
     @Test func aNewCompletionReplacesTheRestAndItsNotification() async throws {

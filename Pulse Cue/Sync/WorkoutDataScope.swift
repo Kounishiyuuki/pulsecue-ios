@@ -229,6 +229,15 @@ final class WorkoutScopeAuthority {
         guard newScope != scope else { return }
         scope = newScope
         generation += 1
+        for observer in observers { observer(newScope) }
+    }
+
+    /// Called synchronously with every new generation, so state kept outside
+    /// a grant (the rest timer) ends with it even when nothing re-renders.
+    private var observers: [(WorkoutDataScope) -> Void] = []
+
+    func addObserver(_ observer: @escaping (WorkoutDataScope) -> Void) {
+        observers.append(observer)
     }
 
     struct Grant {
