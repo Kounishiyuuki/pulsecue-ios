@@ -548,14 +548,18 @@ final class RestTimerStore: ObservableObject {
                       let rest = self.rest, rest.token == current.token,
                       rest.countdown.deadline == current.countdown.deadline,
                       !rest.countdown.isExpired(now: self.now()),
+                      // Settings may have turned notifications off while
+                      // authorization was being read.
+                      self.notificationsEnabled(),
                       status == .authorized || status == .provisional
                 else { return }
                 self.notifications.scheduleRestNotification(deadline: rest.countdown.deadline, identifier: identifier) { [weak self] in
                     Task { @MainActor [weak self] in
                         guard let self, revision != self.notificationRevision else { return }
                         // The rest ended at its deadline: this notification
-                        // is the one the system should deliver.
-                        if self.rest == nil, let left = self.lingering, left.sessionId == current.sessionId,
+                        // is the one the system should deliver, even if
+                        // another workout's rest has started since.
+                        if let left = self.lingering, left.sessionId == current.sessionId,
                            left.deadline == current.countdown.deadline { return }
                         // Superseded while it was being added: take it back,
                         // and put the current rest's back if this removed it.

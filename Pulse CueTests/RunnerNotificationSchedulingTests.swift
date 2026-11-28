@@ -86,7 +86,8 @@ struct RunnerNotificationSchedulingTests {
     private static func makeFixture(
         restSeconds: Int = 60,
         stepCount: Int = 1,
-        setsPerStep: Int = 3
+        setsPerStep: Int = 3,
+        notificationManager: (any RunnerNotificationManaging)? = nil
     ) throws -> Fixture {
         RunnerPersistence.clear()
 
@@ -124,7 +125,7 @@ struct RunnerNotificationSchedulingTests {
         settings.hapticsEnabled = false
 
         let spy = RunnerNotificationManagerSpy()
-        let viewModel = RunnerViewModel(settings: settings, notificationManager: spy)
+        let viewModel = RunnerViewModel(settings: settings, notificationManager: notificationManager ?? spy)
         viewModel.configure(modelContext: context)
         viewModel.start(routine: routine)
 
@@ -456,5 +457,116 @@ struct RunnerNotificationSchedulingTests {
         #expect(fx.spy.activeRequests.isEmpty)
         #expect(Self.removedIdentifiers(in: fx.spy.events).count == 1)
         #expect(Self.scheduledEvents(in: fx.spy.events).isEmpty)
+    }
+
+    // MARK: - With the production NotificationManager (#272)
+
+    /// Lets the Runner's and the manager's main-actor hops run.
+    private static func settle() async {
+        for _ in 0..<10 { await Task.yield() }
+    }
+
+    private static func runnerIdentifier(_ fx: Fixture) throws -> String {
+        "rest.\(try #require(fx.viewModel.sessionId).uuidString)"
+    }
+
+    /// The Runner's deadlines carry fractions of a second; a trigger holds
+    /// whole seconds, truncated.
+    private static func isTrigger(_ date: Date?, for deadline: Date?) -> Bool {
+        guard let date, let deadline else { return false }
+        let gap = deadline.timeIntervalSince(date)
+        return gap >= 0 && gap < 1
+    }
+
+    @Test
+    func runnerAdjustmentsAnsweredNewestFirstLeaveOnlyTheFinalDeadline() async throws {
+        let center = ControlledNotificationCenter()
+        let fx = try Self.makeFixture(restSeconds: 120, notificationManager: NotificationManager(center: center))
+        try Self.complete(fx.viewModel)
+        await Self.settle()
+        fx.viewModel.handle(action: .extend)
+        await Self.settle()
+        fx.viewModel.handle(action: .extend)
+        await Self.settle()
+        fx.viewModel.shortenRest()
+        await Self.settle()
+        #expect(center.held.count == 4)
+        while !center.held.isEmpty {
+            center.complete(center.held.count - 1)
+            await Self.settle()
+        }
+        let id = try Self.runnerIdentifier(fx)
+        #expect(center.pending.count == 1)
+        #expect(Self.isTrigger(center.pendingDate(id), for: fx.viewModel.restDeadline))
+    }
+
+    @Test
+    func runnerRestEndedWhileItsAddIsInFlightLeavesNothing() async throws {
+        let center = ControlledNotificationCenter()
+        let fx = try Self.makeFixture(notificationManager: NotificationManager(center: center))
+        try Self.complete(fx.viewModel)
+        await Self.settle()
+        #expect(center.held.count == 1)
+        try Self.complete(fx.viewModel)                                    // 休憩終了
+        #expect(fx.viewModel.phase == .exercise)
+        while !center.held.isEmpty {
+            center.complete(0)
+            await Self.settle()
+        }
+        #expect(center.pending.isEmpty)
+    }
+
+    @Test
+    func runnersNextRestKeepsItsNotificationWhenThePreviousAddAnswersLate() async throws {
+        let center = ControlledNotificationCenter()
+        let fx = try Self.makeFixture(notificationManager: NotificationManager(center: center))
+        try Self.complete(fx.viewModel)                                    // rest 1
+        await Self.settle()
+        try Self.complete(fx.viewModel)                                    // 休憩終了
+        try Self.complete(fx.viewModel)                                    // rest 2
+        await Self.settle()
+        #expect(fx.viewModel.phase == .rest)
+        center.complete(center.held.count - 1)                             // rest 2's add
+        await Self.settle()
+        center.complete(0)                                                 // rest 1's, late
+        await Self.settle()
+        while !center.held.isEmpty {
+            center.complete(0)
+            await Self.settle()
+        }
+        let id = try Self.runnerIdentifier(fx)
+        #expect(center.pending.count == 1)
+        #expect(Self.isTrigger(center.pendingDate(id), for: fx.viewModel.restDeadline))
+    }
+
+    @Test
+    func runnerAndFreeWorkoutNeverTakeEachOthersNotification() async throws {
+        let center = ControlledNotificationCenter()
+        let manager = NotificationManager(center: center)
+        let fx = try Self.makeFixture(notificationManager: manager)
+        let store = RestTimerStore(notifications: manager, notificationsEnabled: { true }, now: Date.init,
+                                   lifecycle: NotificationCenter(), initiallyActive: true, expiryFeedback: {},
+                                   scheduleExpiry: { _, _ in })
+        let free = UUID()
+        try Self.complete(fx.viewModel)
+        let token = try #require(store.start(sessionId: free, ownerAccountID: nil, grant: nil, seconds: 120))
+        await Self.settle()
+        while !center.held.isEmpty {
+            center.complete(0)
+            await Self.settle()
+        }
+        let runner = try Self.runnerIdentifier(fx)
+        let freeId = RestTimerStore.notificationIdentifier(for: free)
+        #expect(Set(center.pending.keys) == [runner, freeId])
+        #expect(store.finish(sessionId: free, token: token))               // Free Workout's end
+        #expect(Set(center.pending.keys) == [runner])
+        _ = try #require(store.start(sessionId: free, ownerAccountID: nil, grant: nil, seconds: 120))
+        await Self.settle()
+        center.complete(0)
+        await Self.settle()
+        try Self.complete(fx.viewModel)                                    // the Runner's end
+        #expect(Set(center.pending.keys) == [freeId])
+        manager.removeAllPending()                                         // Settings off: all, by design
+        #expect(center.pending.isEmpty)
     }
 }
