@@ -19,29 +19,68 @@ protocol RunnerNotificationManaging: AnyObject {
     func removeNotification(identifier: String)
 }
 
+/// The few `UNUserNotificationCenter` calls `NotificationManager` makes.
+/// Every completion arrives on the main queue. Tests substitute a center
+/// whose answers they release in any order, so the manager's own
+/// generation / reconcile logic is what they exercise.
 @MainActor
-final class NotificationManager {
-    static let shared = NotificationManager()
-    private let center = UNUserNotificationCenter.current()
-    private var requestGenerations: [String: Int] = [:]
-    private var desiredRestRequests: [String: UNNotificationRequest] = [:]
+protocol RestNotificationCenter: AnyObject {
+    func requestAuthorization(completion: @escaping (Bool) -> Void)
+    func authorizationStatus(completion: @escaping (UNAuthorizationStatus) -> Void)
+    func add(_ request: UNNotificationRequest, completion: @escaping (Error?) -> Void)
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+    func removeAllPendingNotificationRequests()
+}
 
-    private init() {}
+/// The real center, hopping each answer back to the main queue.
+@MainActor
+final class SystemRestNotificationCenter: RestNotificationCenter {
+    private let center = UNUserNotificationCenter.current()
 
     func requestAuthorization(completion: @escaping (Bool) -> Void) {
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            DispatchQueue.main.async {
-                completion(granted)
-            }
+            DispatchQueue.main.async { completion(granted) }
         }
     }
 
-    func getAuthorizationStatus(completion: @escaping (UNAuthorizationStatus) -> Void) {
+    func authorizationStatus(completion: @escaping (UNAuthorizationStatus) -> Void) {
         center.getNotificationSettings { settings in
-            DispatchQueue.main.async {
-                completion(settings.authorizationStatus)
-            }
+            DispatchQueue.main.async { completion(settings.authorizationStatus) }
         }
+    }
+
+    func add(_ request: UNNotificationRequest, completion: @escaping (Error?) -> Void) {
+        center.add(request) { error in
+            DispatchQueue.main.async { completion(error) }
+        }
+    }
+
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
+    func removeAllPendingNotificationRequests() {
+        center.removeAllPendingNotificationRequests()
+    }
+}
+
+@MainActor
+final class NotificationManager {
+    static let shared = NotificationManager()
+    private let center: any RestNotificationCenter
+    private var requestGenerations: [String: Int] = [:]
+    private var desiredRestRequests: [String: UNNotificationRequest] = [:]
+
+    init(center: (any RestNotificationCenter)? = nil) {
+        self.center = center ?? SystemRestNotificationCenter()
+    }
+
+    func requestAuthorization(completion: @escaping (Bool) -> Void) {
+        center.requestAuthorization(completion: completion)
+    }
+
+    func getAuthorizationStatus(completion: @escaping (UNAuthorizationStatus) -> Void) {
+        center.authorizationStatus(completion: completion)
     }
 
     func scheduleRestNotification(deadline: Date, identifier: String) {
@@ -99,16 +138,14 @@ final class NotificationManager {
     ) {
         let identifier = request.identifier
         center.add(request) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard self.requestGenerations[identifier] == generation,
-                      self.desiredRestRequests[identifier] != nil
-                else {
-                    self.reconcile(identifier: identifier)
-                    return
-                }
-                completion()
+            guard let self else { return }
+            guard self.requestGenerations[identifier] == generation,
+                  self.desiredRestRequests[identifier] != nil
+            else {
+                self.reconcile(identifier: identifier)
+                return
             }
+            completion()
         }
     }
 

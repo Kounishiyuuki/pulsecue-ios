@@ -4341,3 +4341,542 @@ struct FreeWorkoutRestTimerTests {
         #expect(model.cards == cards)
     }
 }
+
+// MARK: - Rest notification concurrency (#272)
+
+/// A notification center whose answers the test releases. It runs none of
+/// the manager's logic: generation, reconcile and the stores' revision
+/// checks are the production code under test.
+///
+/// An `add` is held. `apply` is the center storing it in its pending list,
+/// and `complete` is its callback. A test sequences the two separately and
+/// across requests in any order, because the real center's work and its
+/// callbacks are not tied to the order of the calls. A callback always
+/// comes at or after its own apply; that is the one ordering it keeps.
+@MainActor
+final class ControlledNotificationCenter: RestNotificationCenter {
+    struct HeldAdd {
+        let request: UNNotificationRequest
+        var applied = false
+        let completion: (Error?) -> Void
+    }
+    struct AddFailed: Error {}
+
+    var status: UNAuthorizationStatus = .authorized
+    var holdAuthorization = false
+    private(set) var heldAuthorization: [(UNAuthorizationStatus) -> Void] = []
+    private(set) var held: [HeldAdd] = []
+    private(set) var pending: [String: UNNotificationRequest] = [:]
+    private(set) var addCount = 0
+
+    func requestAuthorization(completion: @escaping (Bool) -> Void) { completion(true) }
+
+    func authorizationStatus(completion: @escaping (UNAuthorizationStatus) -> Void) {
+        if holdAuthorization { heldAuthorization.append(completion) } else { completion(status) }
+    }
+
+    func add(_ request: UNNotificationRequest, completion: @escaping (Error?) -> Void) {
+        addCount += 1
+        held.append(HeldAdd(request: request, completion: completion))
+    }
+
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        for identifier in identifiers { pending[identifier] = nil }
+    }
+
+    func removeAllPendingNotificationRequests() { pending.removeAll() }
+
+    func resolveAuthorization(at index: Int = 0) {
+        heldAuthorization.remove(at: index)(status)
+    }
+
+    /// The trigger date a request was built with: second precision, as
+    /// `UNCalendarNotificationTrigger` holds it. Not a delivery time.
+    static func fireDate(of request: UNNotificationRequest) -> Date? {
+        guard let trigger = request.trigger as? UNCalendarNotificationTrigger else { return nil }
+        return Calendar.current.date(from: trigger.dateComponents)
+    }
+
+    func pendingDate(_ identifier: String) -> Date? {
+        pending[identifier].flatMap(Self.fireDate)
+    }
+
+    /// The held add for `identifier` whose trigger is at `date`.
+    func heldIndex(_ identifier: String, at date: Date) -> Int? {
+        held.firstIndex { $0.request.identifier == identifier && Self.fireDate(of: $0.request) == date }
+    }
+
+    /// The center stores held add `index`, replacing any pending request with
+    /// its identifier, and does not answer yet.
+    func apply(_ index: Int) {
+        held[index].applied = true
+        pending[held[index].request.identifier] = held[index].request
+    }
+
+    /// Answers held add `index`. Success stores it first if `apply` has not;
+    /// a failure stores nothing.
+    func complete(_ index: Int, failing: Bool = false) {
+        let add = held.remove(at: index)
+        if !add.applied && !failing { pending[add.request.identifier] = add.request }
+        add.completion(failing ? AddFailed() : nil)
+    }
+}
+
+@MainActor
+@Suite struct RestNotificationConcurrencyTests {
+    private final class Switch { var on = true }
+
+    private struct Fixture {
+        let center: ControlledNotificationCenter
+        let manager: NotificationManager
+        let store: RestTimerStore
+        let clock: RestClock
+        let expiry: RestExpiryQueue
+        let authority: WorkoutScopeAuthority
+        let notifications: Switch
+    }
+
+    /// One manager, store, center and clock per test: nothing shared.
+    private func fixture(scope: WorkoutDataScope = .guest) -> Fixture {
+        let center = ControlledNotificationCenter()
+        let manager = NotificationManager(center: center)
+        let clock = RestClock(), expiry = RestExpiryQueue(), notifications = Switch()
+        let store = RestTimerStore(notifications: manager, notificationsEnabled: { notifications.on }, now: { clock.now },
+                                   lifecycle: expiry.lifecycle, initiallyActive: true, expiryFeedback: { expiry.feedback() },
+                                   scheduleExpiry: { expiry.schedule($0, $1) })
+        let authority = WorkoutScopeAuthority(scope: scope)
+        store.observe(authority)
+        return Fixture(center: center, manager: manager, store: store, clock: clock, expiry: expiry,
+                       authority: authority, notifications: notifications)
+    }
+
+    private func id(_ session: UUID) -> String { RestTimerStore.notificationIdentifier(for: session) }
+
+    /// Answers every held add, oldest first, letting each answer's follow-ups
+    /// (a reconcile, a store re-schedule) run and be answered too. Returns how
+    /// many answers that took; a loop would hit `limit`.
+    @discardableResult
+    private func drain(_ fx: Fixture, limit: Int = 20) async -> Int {
+        var answers = 0
+        await settle()
+        while !fx.center.held.isEmpty && answers < limit {
+            fx.center.complete(0)
+            answers += 1
+            await settle()
+        }
+        return answers
+    }
+
+    private enum Step: CustomTestStringConvertible {
+        case apply(Int), complete(Int)
+        var testDescription: String {
+            switch self {
+            case let .apply(n): "apply\(n)"
+            case let .complete(n): "complete\(n)"
+            }
+        }
+    }
+
+    /// Runs `steps` over the requests whose trigger dates are `dates`, by
+    /// date rather than by position, since positions shift as adds answer.
+    private func run(_ steps: [Step], _ fx: Fixture, _ identifier: String, dates: [Date]) async throws {
+        for step in steps {
+            switch step {
+            case let .apply(n):
+                fx.center.apply(try #require(fx.center.heldIndex(identifier, at: dates[n])))
+            case let .complete(n):
+                fx.center.complete(try #require(fx.center.heldIndex(identifier, at: dates[n])))
+                await settle()
+            }
+        }
+    }
+
+    // MARK: same-session replacement
+
+    /// Every order the center may apply and answer A's (0) and B's (1) adds.
+    private static let replacementOrders: [[Step]] = [
+        [.complete(1), .complete(0)],                         // B answers first, A late
+        [.complete(0), .complete(1)],                         // in call order
+        [.apply(0), .apply(1), .complete(1), .complete(0)],
+        [.apply(1), .apply(0), .complete(1), .complete(0)],   // the center keeps A last
+        [.apply(1), .apply(0), .complete(0), .complete(1)],
+    ]
+
+    @Test(arguments: replacementOrders)
+    private func aReplacedRestsLateAddNeverOutlivesTheNewRest(order: [Step]) async throws {
+        let fx = fixture()
+        let session = UUID()
+        _ = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        let a = try #require(fx.store.rest).countdown.deadline
+        #expect(fx.center.held.count == 1)                                 // A's add in flight
+        fx.clock.advance(10)
+        let tokenB = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 90))
+        await settle()
+        let restB = try #require(fx.store.rest)
+        let b = restB.countdown.deadline
+        try await run(order, fx, id(session), dates: [a, b])
+        let answers = await drain(fx)
+        #expect(answers < 20)
+        #expect(fx.center.pending.count == 1)
+        #expect(fx.center.pendingDate(id(session)) == b)
+        #expect(fx.center.held.isEmpty)
+        #expect(fx.store.rest == restB && fx.store.rest?.token == tokenB)
+    }
+
+    // MARK: ±15 in a row
+
+    private static let adjustmentOrders: [[Int]] = [
+        [3, 2, 1, 0],          // newest first
+        [0, 1, 2, 3],
+        [1, 3, 0, 2],
+        [2, 0, 3, 1],
+    ]
+
+    @Test(arguments: adjustmentOrders)
+    func onlyTheLastAdjustmentsDeadlineStaysPending(order: [Int]) async throws {
+        let fx = fixture()
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        for delta in [15, 15, -15] {
+            #expect(fx.store.adjust(by: delta, sessionId: session, token: token))
+            await settle()
+        }
+        let final = try #require(fx.store.rest)
+        #expect(final.token == token)
+        #expect(final.countdown.deadline == fx.clock.now.addingTimeInterval(135))
+        #expect(fx.center.held.count == 4)
+        // Answer the four adds in `order`, each by its position among the
+        // four as made; the second +15 and the −15 share a date.
+        var handles: [HeldAddHandle] = fx.center.held.indices.map { HeldAddHandle(position: $0) }
+        for position in order {
+            let index = try #require(handles.firstIndex { $0.position == position })
+            fx.center.complete(index)
+            handles.remove(at: index)
+            await settle()
+        }
+        let answers = await drain(fx)
+        #expect(answers < 20)
+        #expect(fx.center.pending.count == 1)
+        #expect(fx.center.pendingDate(id(session)) == final.countdown.deadline)
+        #expect(fx.store.rest == final)
+    }
+
+    private struct HeldAddHandle { let position: Int }
+
+    // MARK: manual end
+
+    @Test func aLateAddAfterAManualEndBringsNothingBack() async throws {
+        let fx = fixture()
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        #expect(fx.center.held.count == 1)
+        #expect(fx.store.finish(sessionId: session, token: token))
+        fx.center.complete(0)                                              // the center stores it now
+        let answers = await drain(fx)
+        #expect(answers < 20)
+        #expect(fx.center.pending.isEmpty)
+        #expect(fx.store.rest == nil)
+        #expect(!fx.store.adjust(by: 15, sessionId: session, token: token))
+        fx.clock.advance(200)
+        fx.expiry.fireAll()
+        #expect(fx.expiry.feedbackCount == 0)
+    }
+
+    @Test func minusFifteenToZeroWithAnAddInFlightLeavesNothing() async throws {
+        let fx = fixture()
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 10))
+        await settle()
+        #expect(fx.store.adjust(by: -15, sessionId: session, token: token))
+        #expect(fx.store.rest == nil)
+        fx.center.apply(0)
+        fx.center.complete(0)
+        await drain(fx)
+        #expect(fx.center.pending.isEmpty)
+        #expect(fx.expiry.feedbackCount == 0)
+    }
+
+    // MARK: scope change
+
+    private static let scopeChanges: [[WorkoutDataScope]] = [
+        [.account(otherAccount)],
+        [.guest],
+        [.undetermined],
+        [.account(otherAccount), .account(firstAccount)],
+    ]
+    private static let firstAccount = UUID()
+    private static let otherAccount = UUID()
+
+    @Test(arguments: scopeChanges)
+    func aLateAddAfterAScopeChangeBringsNothingBack(changes: [WorkoutDataScope]) async throws {
+        let fx = fixture(scope: .account(Self.firstAccount))
+        let session = UUID()
+        let grant = try #require(fx.authority.grant(forOwner: Self.firstAccount))
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: Self.firstAccount, grant: grant, seconds: 120))
+        await settle()
+        #expect(fx.center.held.count == 1)
+        for scope in changes { fx.authority.update(scope) }               // the production observer path
+        #expect(fx.store.rest == nil)
+        fx.center.complete(0)
+        await drain(fx)
+        #expect(fx.center.pending.isEmpty)
+        #expect(!fx.store.adjust(by: 15, sessionId: session, token: token))
+    }
+
+    @Test func aLateAddFromTheOldAccountLeavesTheNewAccountsRestAlone() async throws {
+        let fx = fixture(scope: .account(Self.firstAccount))
+        let old = UUID(), new = UUID()
+        _ = try #require(fx.store.start(sessionId: old, ownerAccountID: Self.firstAccount,
+                                        grant: fx.authority.grant(forOwner: Self.firstAccount), seconds: 120))
+        await settle()
+        fx.authority.update(.account(Self.otherAccount))
+        _ = try #require(fx.store.start(sessionId: new, ownerAccountID: Self.otherAccount,
+                                        grant: fx.authority.grant(forOwner: Self.otherAccount), seconds: 60))
+        await settle()
+        let newDeadline = try #require(fx.store.rest).countdown.deadline
+        fx.center.complete(1)                                              // the new rest's add
+        await settle()
+        fx.center.complete(0)                                              // the old one, late
+        await drain(fx)
+        #expect(fx.center.pending.keys.sorted() == [id(new)])
+        #expect(fx.center.pendingDate(id(new)) == newDeadline)
+    }
+
+    // MARK: natural end and the lingering notification
+
+    @Test func aLateAddAfterANaturalEndStaysAndIsNotMadeAgain() async throws {
+        let fx = fixture()
+        let session = UUID()
+        _ = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        let deadline = try #require(fx.store.rest).countdown.deadline
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        #expect(fx.store.rest == nil)
+        fx.center.complete(0)                                              // answers after the end
+        await drain(fx)
+        #expect(fx.center.pendingDate(id(session)) == deadline)            // the system's to deliver
+        #expect(fx.center.addCount == 1)                                   // not scheduled again
+        #expect(fx.expiry.feedbackCount == 1)                              // foreground, on time: once
+    }
+
+    @Test func aNewRestInTheSameSessionAfterANaturalEndKeepsItsOwnNotification() async throws {
+        let fx = fixture()
+        let session = UUID()
+        _ = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        let first = try #require(fx.store.rest).countdown.deadline
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 90))
+        await settle()
+        let second = try #require(fx.store.rest).countdown.deadline
+        fx.center.complete(try #require(fx.center.heldIndex(id(session), at: second)))
+        await settle()
+        fx.center.complete(try #require(fx.center.heldIndex(id(session), at: first)))  // the old one, late
+        await drain(fx)
+        #expect(fx.center.pendingDate(id(session)) == second)
+        #expect(fx.store.rest?.token == token)
+    }
+
+    @Test func anotherSessionsRestAfterANaturalEndLeavesTheFirstNotificationToTheSystem() async throws {
+        let fx = fixture()
+        let first = UUID(), second = UUID()
+        _ = try #require(fx.store.start(sessionId: first, ownerAccountID: nil, grant: nil, seconds: 60))
+        await settle()
+        let firstDeadline = try #require(fx.store.rest).countdown.deadline
+        fx.clock.advance(60)
+        fx.expiry.fireAll()
+        _ = try #require(fx.store.start(sessionId: second, ownerAccountID: nil, grant: nil, seconds: 90))
+        await settle()
+        let secondDeadline = try #require(fx.store.rest).countdown.deadline
+        fx.center.complete(try #require(fx.center.heldIndex(id(second), at: secondDeadline)))
+        await settle()
+        fx.center.complete(0)                                              // the first one's, late
+        await drain(fx)
+        #expect(fx.center.pendingDate(id(first)) == firstDeadline)
+        #expect(fx.center.pendingDate(id(second)) == secondDeadline)
+    }
+
+    private enum AfterNaturalEnd: String, CaseIterable { case scopeChange, workoutEnded }
+
+    @Test(arguments: AfterNaturalEnd.allCases)
+    private func aLingeringNotificationTakenBackStaysGoneWhenItsAddAnswersLate(after: AfterNaturalEnd) async throws {
+        let fx = fixture(scope: .account(Self.firstAccount))
+        let session = UUID()
+        _ = try #require(fx.store.start(sessionId: session, ownerAccountID: Self.firstAccount,
+                                        grant: fx.authority.grant(forOwner: Self.firstAccount), seconds: 120))
+        await settle()
+        fx.center.apply(0)                                                 // stored, not answered
+        fx.clock.advance(120)
+        fx.expiry.fireAll()
+        #expect(fx.center.pending[id(session)] != nil)
+        switch after {
+        case .scopeChange: fx.authority.update(.guest)
+        case .workoutEnded: fx.store.endRest(of: session)
+        }
+        #expect(fx.center.pending.isEmpty)
+        fx.center.complete(0)
+        await drain(fx)
+        #expect(fx.center.pending.isEmpty)
+        #expect(fx.center.addCount == 1)
+    }
+
+    @Test func manyRestsInARowLeaveOneNotificationAndNoWork() async throws {
+        let fx = fixture()
+        let session = UUID()
+        var last: Date?
+        for _ in 0..<12 {
+            _ = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 30))
+            await settle()
+            last = fx.store.rest?.countdown.deadline
+            await drain(fx)
+            fx.clock.advance(30)
+            fx.expiry.fireAll()                                            // each ends naturally
+        }
+        #expect(fx.center.pending.count == 1)
+        #expect(fx.center.pendingDate(id(session)) == last)
+        #expect(fx.center.held.isEmpty)
+        fx.store.endRest(of: session)                                      // the workout ends
+        #expect(fx.center.pending.isEmpty)
+    }
+
+    // MARK: slow authorization
+
+    @Test(arguments: [false, true])
+    func anOlderAuthorizationAnswerSchedulesNothingForAReplacedRest(newestFirst: Bool) async throws {
+        let fx = fixture()
+        fx.center.holdAuthorization = true
+        let session = UUID()
+        _ = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        fx.clock.advance(5)
+        _ = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 60))
+        let b = try #require(fx.store.rest).countdown.deadline
+        #expect(fx.center.heldAuthorization.count == 2)
+        fx.center.resolveAuthorization(at: newestFirst ? 1 : 0)
+        await settle()
+        fx.center.resolveAuthorization()
+        await drain(fx)
+        #expect(fx.center.addCount == 1)
+        #expect(fx.center.pendingDate(id(session)) == b)
+    }
+
+    @Test func anAnswerForAnAdjustmentUndoneBackToTheSameDeadlineAddsNothingExtra() async throws {
+        let fx = fixture()
+        fx.center.holdAuthorization = true
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        let deadline = try #require(fx.store.rest).countdown.deadline
+        #expect(fx.store.adjust(by: 15, sessionId: session, token: token))
+        #expect(fx.store.adjust(by: -15, sessionId: session, token: token)) // back to the same deadline
+        #expect(fx.center.heldAuthorization.count == 3)
+        for _ in 0..<3 {
+            fx.center.resolveAuthorization()
+            await settle()
+        }
+        await drain(fx)
+        #expect(fx.center.addCount == 1)                                   // only the newest answer adds
+        #expect(fx.center.pendingDate(id(session)) == deadline)
+    }
+
+    private enum DuringAuthorization: String, CaseIterable {
+        case manualEnd, scopeChange, deadlinePassed, notificationsTurnedOff
+    }
+
+    @Test(arguments: DuringAuthorization.allCases)
+    private func anAuthorizationAnswerForARestThatChangedSchedulesNothing(during: DuringAuthorization) async throws {
+        let fx = fixture(scope: .account(Self.firstAccount))
+        fx.center.holdAuthorization = true
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: Self.firstAccount,
+                                                grant: fx.authority.grant(forOwner: Self.firstAccount), seconds: 120))
+        switch during {
+        case .manualEnd: fx.store.finish(sessionId: session, token: token)
+        case .scopeChange: fx.authority.update(.account(Self.otherAccount))
+        case .deadlinePassed: fx.clock.advance(120)
+        case .notificationsTurnedOff:
+            // As the Settings switch does it.
+            fx.notifications.on = false
+            fx.manager.removeAllPending()
+        }
+        fx.center.resolveAuthorization()
+        await drain(fx)
+        #expect(fx.center.addCount == 0)
+        #expect(fx.center.pending.isEmpty)
+    }
+
+    @Test func aDeniedNotificationLeavesTheTimerRunning() async throws {
+        let fx = fixture()
+        fx.center.status = .denied
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        #expect(fx.center.addCount == 0)
+        #expect(fx.store.rest?.token == token)
+        #expect(fx.store.adjust(by: 15, sessionId: session, token: token))
+        fx.clock.advance(135)
+        fx.expiry.fireAll()
+        #expect(fx.store.rest == nil && fx.expiry.feedbackCount == 1)
+    }
+
+    // MARK: reconcile
+
+    @Test func aStaleAnswerArrivingWhileANewerAddIsInFlightConvergesOnTheNewest() async throws {
+        let fx = fixture()
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        #expect(fx.store.adjust(by: 15, sessionId: session, token: token))
+        await settle()
+        let final = try #require(fx.store.rest).countdown.deadline
+        fx.center.apply(1)
+        fx.center.apply(0)                                                 // the center keeps the old one
+        fx.center.complete(0)                                              // stale: reconcile adds the newest again
+        await settle()
+        #expect(fx.center.held.count == 2)                                 // the newer add and the reconcile's
+        #expect(fx.store.adjust(by: 15, sessionId: session, token: token)) // and a newer one still
+        await settle()
+        let newest = try #require(fx.store.rest).countdown.deadline
+        #expect(newest != final)
+        let answers = await drain(fx)
+        #expect(answers < 20)
+        #expect(fx.center.pendingDate(id(session)) == newest)
+    }
+
+    @Test func aRemoveDuringAReconcileLeavesNothing() async throws {
+        let fx = fixture()
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        #expect(fx.store.adjust(by: 15, sessionId: session, token: token))
+        await settle()
+        fx.center.complete(0)                                              // stale: reconcile re-adds
+        await settle()
+        #expect(fx.store.finish(sessionId: session, token: token))         // removed mid-reconcile
+        await drain(fx)
+        #expect(fx.center.pending.isEmpty)
+    }
+
+    @Test func aFailedAddIsNotRetriedAndBringsNoOlderRequestBack() async throws {
+        let fx = fixture()
+        let session = UUID()
+        let token = try #require(fx.store.start(sessionId: session, ownerAccountID: nil, grant: nil, seconds: 120))
+        await settle()
+        #expect(fx.store.adjust(by: 15, sessionId: session, token: token))
+        await settle()
+        fx.center.complete(1, failing: true)                               // the current add fails
+        await settle()
+        fx.center.complete(0, failing: true)                               // the stale one fails too
+        await settle()
+        let answers = await drain(fx)
+        // The stale failure makes the manager re-add the current request once;
+        // the current failure itself is not retried and is not reported anywhere.
+        #expect(answers == 1)
+        #expect(fx.center.addCount == 3)
+        #expect(fx.center.pendingDate(id(session)) == fx.store.rest?.countdown.deadline)
+        #expect(fx.store.rest?.token == token)
+    }
+}
