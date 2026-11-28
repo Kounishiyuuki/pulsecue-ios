@@ -128,6 +128,10 @@ struct RunnerView: View {
         .onChange(of: runnerViewModel.currentStepIndex) { _, _ in runnerViewModel.refreshExerciseInsight() }
     }
 
+    private var restClockLeads: Bool {
+        dynamicTypeSize.isAccessibilitySize && runnerViewModel.phase == .rest
+    }
+
     private var workoutContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -135,8 +139,16 @@ struct RunnerView: View {
                     Color.clear
                         .frame(height: 0)
                         .id("runner-top")
-                    statusChips
-                    phaseSignature
+                    // At accessibility text sizes the three chips fill the
+                    // first screen, which pushed the rest clock under the
+                    // action bar; during a rest the clock comes first there.
+                    if restClockLeads {
+                        phaseSignature
+                        statusChips
+                    } else {
+                        statusChips
+                        phaseSignature
+                    }
                     lastCompletedSetRow
                     previousPerformanceCard
                     formGuideButton
@@ -446,7 +458,9 @@ struct RunnerView: View {
         return RestTimerDial(
             fraction: Double(runnerViewModel.remainingSeconds) / Double(total),
             timeText: timerText,
-            diameter: min(restDialSize * 1.8, 280)
+            // Capped smaller at accessibility sizes so the whole clock fits
+            // above the action bar; the time inside scales with the dial.
+            diameter: min(restDialSize * 1.8, dynamicTypeSize.isAccessibilitySize ? 220 : 280)
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("残り \(runnerViewModel.remainingSeconds) 秒")

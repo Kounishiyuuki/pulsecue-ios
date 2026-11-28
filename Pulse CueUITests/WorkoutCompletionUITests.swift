@@ -488,6 +488,11 @@ final class FreeWorkoutRestTimerUITests: XCTestCase {
         let app = runnerResting(largeText: true)
         let dial = app.descendants(matching: .any)["runner.restDial"]
         XCTAssertTrue(dial.waitForExistence(timeout: 5))
+        // The whole clock shows on the first screen, clear of the action bar.
+        let endRest = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "休憩を終了")).firstMatch
+        XCTAssertTrue(endRest.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(dial.frame.maxY, endRest.frame.minY, "the action bar covers the rest clock")
+        snapshot(app, "runner-rest-largeText-clock")
         let plus = app.buttons["休憩を15秒延長"], minus = app.buttons["休憩を15秒短縮"]
         XCTAssertTrue(plus.exists && minus.exists)
         for _ in 0..<4 where !plus.isHittable { app.swipeUp() }
